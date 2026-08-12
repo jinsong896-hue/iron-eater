@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://buhuus64kshsl"
+path="res://.godot/imported/bridge-straight-pillar.obj-2606492870727240d8849c5e8bff747e.mesh"
+
+[deps]
+
+files=["res://.godot/imported/bridge-straight-pillar.obj-2606492870727240d8849c5e8bff747e.mesh"]
+
+source_file="res://assets/castle-kit/Models/OBJ format/bridge-straight-pillar.obj"
+dest_files=["res://.godot/imported/bridge-straight-pillar.obj-2606492870727240d8849c5e8bff747e.mesh", "res://.godot/imported/bridge-straight-pillar.obj-2606492870727240d8849c5e8bff747e.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false
