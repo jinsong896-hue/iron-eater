@@ -318,8 +318,7 @@ func _build_dialog_and_transition() -> void:
 	confirm_dialog = load("res://scripts/ui/menu/confirm_dialog.gd").new()
 	confirm_dialog.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(confirm_dialog)
-	transition = load("res://scripts/ui/menu/scene_transition.gd").new()
-	add_child(transition)
+	transition = SceneTransitionManager.transition
 
 
 func _menu_button(text: String) -> Button:

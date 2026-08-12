@@ -6,7 +6,6 @@ const MAIN_MENU_SCENE := "res://scenes/ui/main_menu.tscn"
 const SettingsPanelScene := preload("res://scenes/ui/settings_panel.tscn")
 const SettlementPanelScene := preload("res://scenes/ui/settlement_panel.tscn")
 const ConfirmDialogScript := preload("res://scripts/ui/menu/confirm_dialog.gd")
-const TransitionScript := preload("res://scripts/ui/menu/scene_transition.gd")
 
 var paused := false
 var _panel: Control
@@ -78,8 +77,7 @@ func _build_ui() -> void:
 	_confirm.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_confirm)
 
-	_transition = TransitionScript.new()
-	add_child(_transition)
+	_transition = SceneTransitionManager.transition
 
 
 func _unhandled_input(event: InputEvent) -> void:
