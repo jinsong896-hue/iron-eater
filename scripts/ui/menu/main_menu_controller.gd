@@ -24,16 +24,21 @@ var difficulty_buttons: Array = []
 var class_desc: Label
 var new_game_reason: Label
 var new_game_start_btn: Button
+var config_summary: Label
+var input_hint: Label
 
 # ProfilePanel 控件
 var profile_title: Label
 var profile_info: Label
 var continue_btn: Button
 var continue_reason: Label
+var upgrade_fragments: Label
+var upgrade_wip: Label
 
 
 func _ready() -> void:
 	theme = UITheme.get_theme()
+	InputDeviceManager.device_changed.connect(func(_gp: bool): input_hint.text = InputDeviceManager.hint_text())
 	_build_background()
 	_build_main_panel()
 	_build_save_select_panel()
@@ -69,6 +74,12 @@ func _build_background() -> void:
 	version.position = Vector2(1130, 690)
 	version.modulate = Color(0.6, 0.6, 0.6)
 	add_child(version)
+	input_hint = Label.new()
+	input_hint.text = InputDeviceManager.hint_text()
+	input_hint.position = Vector2(1020, 660)
+	input_hint.modulate = Color(1, 1, 1, 0.5)
+	input_hint.add_theme_font_size_override("font_size", 16)
+	add_child(input_hint)
 
 
 func _menu_panel(panel_name: String) -> VBoxContainer:
@@ -169,7 +180,7 @@ func _build_new_game_panel() -> void:
 	box.custom_minimum_size = Vector2(330, 0)
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	box.add_theme_constant_override("separation", 8)
+	box.add_theme_constant_override("separation", 6)
 	panel.add_child(box)
 	var title := Label.new()
 	title.text = "开始新的探索"
@@ -185,14 +196,14 @@ func _build_new_game_panel() -> void:
 
 	var mode_col := VBoxContainer.new()
 	mode_col.name = "ModeColumn"
-	mode_col.add_theme_constant_override("separation", 8)
+	mode_col.add_theme_constant_override("separation", 6)
 	mode_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mode_col.custom_maximum_size = Vector2(157, 9999)
 	middle.add_child(mode_col)
 	mode_col.add_child(_section_label("模式"))
 	for m in GameCatalog.MODES:
 		var btn := _menu_button(m.name)
-		btn.custom_minimum_size = Vector2(0, 44)
+		btn.custom_minimum_size = Vector2(0, 40)
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.disabled = m.locked
 		btn.pressed.connect(func(md = m): _select_mode(md))
@@ -201,14 +212,14 @@ func _build_new_game_panel() -> void:
 
 	var diff_col := VBoxContainer.new()
 	diff_col.name = "DifficultyColumn"
-	diff_col.add_theme_constant_override("separation", 8)
+	diff_col.add_theme_constant_override("separation", 6)
 	diff_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	diff_col.custom_maximum_size = Vector2(157, 9999)
 	middle.add_child(diff_col)
 	diff_col.add_child(_section_label("难度"))
 	for d in GameCatalog.DIFFICULTIES:
 		var btn := _menu_button(d.name)
-		btn.custom_minimum_size = Vector2(0, 44)
+		btn.custom_minimum_size = Vector2(0, 40)
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.pressed.connect(func(dd = d): _select_difficulty(dd))
 		diff_col.add_child(btn)
@@ -259,9 +270,9 @@ func _build_new_game_panel() -> void:
 
 	class_desc = Label.new()
 	class_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	class_desc.custom_minimum_size = Vector2(0, 54)
+	class_desc.custom_minimum_size = Vector2(0, 28)
 	class_desc.modulate = Color(0.8, 0.8, 0.8)
-	class_desc.add_theme_font_size_override("font_size", 14)
+	class_desc.add_theme_font_size_override("font_size", 13)
 	box.add_child(class_desc)
 
 	new_game_reason = Label.new()
@@ -270,6 +281,13 @@ func _build_new_game_panel() -> void:
 	new_game_reason.add_theme_font_size_override("font_size", 13)
 	box.add_child(new_game_reason)
 
+	config_summary = Label.new()
+	config_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	config_summary.custom_minimum_size = Vector2(0, 46)
+	config_summary.modulate = Color(1.0, 0.85, 0.5)
+	config_summary.add_theme_font_size_override("font_size", 13)
+	box.add_child(config_summary)
+
 	var action_row := HBoxContainer.new()
 	action_row.name = "ActionRow"
 	action_row.add_theme_constant_override("separation", 12)
@@ -277,13 +295,13 @@ func _build_new_game_panel() -> void:
 	box.add_child(action_row)
 
 	new_game_start_btn = _menu_button("开始游戏")
-	new_game_start_btn.custom_minimum_size = Vector2(0, 44)
+	new_game_start_btn.custom_minimum_size = Vector2(0, 40)
 	new_game_start_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	new_game_start_btn.pressed.connect(_on_new_game_start)
 	action_row.add_child(new_game_start_btn)
 
 	var back := _menu_button("返回（ESC）")
-	back.custom_minimum_size = Vector2(0, 44)
+	back.custom_minimum_size = Vector2(0, 40)
 	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	back.pressed.connect(func(): _show_state(MenuState.PROFILE))
 	action_row.add_child(back)
@@ -293,13 +311,31 @@ func _build_upgrade_panel() -> void:
 	var box := _menu_panel("UpgradePanel")
 	box.add_theme_constant_override("separation", 16)
 	var title := Label.new()
-	title.text = "升级（局外养成）"
+	title.text = "局 外 成 长"
 	title.add_theme_font_size_override("font_size", 26)
 	box.add_child(title)
-	var wip := Label.new()
-	wip.text = "开发中\n\n天赋树 / 形态解锁 / 局外锻造将在后续版本开放。"
-	wip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(wip)
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 10)
+	box.add_child(tabs)
+	var tab_names := ["天赋", "形态", "锻造"]
+	for name in tab_names:
+		var tab := _menu_button(name)
+		tab.custom_minimum_size = Vector2(96, 40)
+		tab.pressed.connect(func(n = name):
+			for t in tabs.get_children():
+				if t is Button:
+					t.modulate = Color(1, 1, 1) if t.text == n else Color(0.6, 0.6, 0.6)
+			upgrade_wip.text = "「%s」内容开发中\n\n后续版本将开放对应养成内容。" % n)
+		tabs.add_child(tab)
+	upgrade_wip = Label.new()
+	upgrade_wip.text = "天赋 / 形态 / 锻造\n\n内容开发中，后续版本开放。"
+	upgrade_wip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(upgrade_wip)
+	upgrade_fragments = Label.new()
+	upgrade_fragments.text = "记忆残渣：%d" % SaveManager.active_save.get("currencies", {}).get("memory_fragments", 0)
+	upgrade_fragments.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	upgrade_fragments.modulate = Color(1.0, 0.85, 0.5)
+	box.add_child(upgrade_fragments)
 	var back := _menu_button("返回（ESC）")
 	back.pressed.connect(func(): _show_state(MenuState.PROFILE))
 	box.add_child(back)
@@ -349,6 +385,8 @@ func _show_state(next: MenuState) -> void:
 		_refresh_profile()
 	elif next == MenuState.NEW_GAME:
 		_init_new_game_panel()
+	elif next == MenuState.UPGRADE:
+		upgrade_fragments.text = "记忆残渣：%d" % SaveManager.active_save.get("currencies", {}).get("memory_fragments", 0)
 
 
 func _state_panel_name(s: MenuState) -> String:
@@ -435,23 +473,39 @@ func _init_new_game_panel() -> void:
 	_select_mode(GameCatalog.mode_info(mode_id))
 	_select_difficulty(GameCatalog.difficulty_info(diff_id))
 	new_game_reason.text = ""
+	_refresh_config_summary()
 
 
 func _select_class(cls: Dictionary) -> void:
 	for i in character_buttons.size():
 		character_buttons[i].modulate = Color(1, 1, 1, 1) if i == GameCatalog.CLASSES.find(cls) else Color(0.6, 0.6, 0.6)
-	class_desc.text = "%s · %s（%s）\n%s" % [cls.name, cls.title, cls.resource, cls.desc]
+	var stars := "●".repeat(int(cls.get("difficulty", 2))) + "○".repeat(maxi(5 - int(cls.get("difficulty", 2)), 0))
+	var recommend := "　★ 推荐首次使用" if cls.get("recommended", false) else ""
+	class_desc.text = "%s · %s（%s）\n%s%s　操作难度 %s" % [
+		cls.name, cls.title, cls.resource, cls.get("tags", ""), recommend, stars]
+	_refresh_config_summary()
 
 
 func _select_mode(mode: Dictionary) -> void:
 	for i in mode_buttons.size():
 		mode_buttons[i].modulate = Color(1, 1, 1, 1) if i == GameCatalog.MODES.find(mode) else Color(0.6, 0.6, 0.6)
+	_refresh_config_summary()
 
 
 func _select_difficulty(diff: Dictionary) -> void:
 	for i in difficulty_buttons.size():
 		difficulty_buttons[i].modulate = Color(1, 1, 1, 1) if i == GameCatalog.DIFFICULTIES.find(diff) else Color(0.6, 0.6, 0.6)
-	new_game_reason.text = diff.desc
+	new_game_reason.text = diff.get("detail", diff.desc)
+	_refresh_config_summary()
+
+
+func _refresh_config_summary() -> void:
+	if config_summary == null:
+		return
+	var cls := GameCatalog.class_info(_selected_class_id())
+	var mode := GameCatalog.mode_info(_selected_mode_id())
+	var diff := GameCatalog.difficulty_info(_selected_difficulty_id())
+	config_summary.text = "本次探索：%s · %s　|　%s　|　%s难度" % [cls.name, cls.title, mode.name, diff.name]
 
 
 func _selected_class_id() -> String:

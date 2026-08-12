@@ -4,10 +4,10 @@ extends Node
 const SETTINGS_PATH := "user://settings.cfg"
 
 var settings := {
-	"display": {"window_mode": "windowed", "resolution": "1280x720", "vsync": true},
+	"display": {"window_mode": "windowed", "resolution": "1280x720", "vsync": true, "max_fps": 0},
 	"audio": {"master": 0.8, "music": 0.8, "sfx": 0.9},
 	"control": {"mouse_sens": 1.0, "gamepad_sens": 1.0, "vibration": true},
-	"game": {"damage_numbers": true, "screen_shake": true},
+	"game": {"damage_numbers": true, "screen_shake": true, "reduce_motion": false},
 }
 
 
@@ -48,10 +48,10 @@ func save_settings() -> void:
 
 func reset_defaults() -> void:
 	settings = {
-		"display": {"window_mode": "windowed", "resolution": "1280x720", "vsync": true},
+		"display": {"window_mode": "windowed", "resolution": "1280x720", "vsync": true, "max_fps": 0},
 		"audio": {"master": 0.8, "music": 0.8, "sfx": 0.9},
 		"control": {"mouse_sens": 1.0, "gamepad_sens": 1.0, "vibration": true},
-		"game": {"damage_numbers": true, "screen_shake": true},
+		"game": {"damage_numbers": true, "screen_shake": true, "reduce_motion": false},
 	}
 	save_settings()
 
@@ -73,6 +73,8 @@ func apply_settings() -> void:
 		DisplayServer.window_set_size(Vector2i(int(res[0]), int(res[1])))
 	DisplayServer.window_set_vsync_mode(
 		DisplayServer.VSYNC_ENABLED if disp.get("vsync", true) else DisplayServer.VSYNC_DISABLED)
+	var fps_cap := int(disp.get("max_fps", 0))
+	Engine.max_fps = fps_cap if fps_cap > 0 else 0
 	var audio: Dictionary = settings["audio"]
 	for bus in ["Master", "Music", "SFX"]:
 		var idx := AudioServer.get_bus_index(bus)

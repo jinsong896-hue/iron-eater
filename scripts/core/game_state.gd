@@ -11,6 +11,10 @@ var equipment_manager: EquipmentManager
 var gold := 0
 var kills := 0
 var total_damage := 0.0
+var devoured_count := 0
+var fusion_count := 0
+var elite_kills := 0
+var boss_kills := 0
 var run_info := {"character": "warrior", "mode": "dungeon", "difficulty": "normal", "floor": 1, "seed": 0}
 var _run_start_ms := 0
 
@@ -25,6 +29,10 @@ func reset_run() -> void:
 	gold = 1000
 	kills = 0
 	total_damage = 0.0
+	devoured_count = 0
+	fusion_count = 0
+	elite_kills = 0
+	boss_kills = 0
 	_run_start_ms = Time.get_ticks_msec()
 	# 开局送 3 件白装用于体验吞噬/融合
 	for i in 3:
@@ -51,9 +59,16 @@ func finish_run(reason: String) -> Dictionary:
 		"reason": reason,
 		"floor": floor,
 		"kills": kills,
+		"elite_kills": elite_kills,
+		"boss_kills": boss_kills,
 		"gold": gold,
 		"play_time": play_seconds,
 		"fragments": kills + floor * 2,
+		"devoured": devoured_count,
+		"fusions": fusion_count,
+		"character": run_info.get("character", "warrior"),
+		"difficulty": run_info.get("difficulty", "normal"),
+		"total_damage": total_damage,
 	}
 	if SaveManager.active_slot > 0:
 		SaveManager.finish_run(result)
@@ -66,6 +81,10 @@ func stat_value(stat_name: String) -> float:
 	if stat == null:
 		return 0.0
 	return attributes.get_value(stat)
+
+
+func play_time_seconds() -> float:
+	return float(Time.get_ticks_msec() - _run_start_ms) / 1000.0
 
 
 ## 把装备栏 + 吞噬累计写入角色属性（来源可追踪，随时可重算）
@@ -152,6 +171,7 @@ func unequip_slot(slot: int) -> Dictionary:
 func devour_ids(ids: Array) -> Dictionary:
 	var result := equipment_manager.devour_many(ids)
 	if result.ok:
+		devoured_count += result.get("count", 0)
 		_refresh_attributes()
 		EventBus.stats_changed.emit()
 		EventBus.inventory_changed.emit()
@@ -162,6 +182,7 @@ func fuse_ids(main_id: String, material_id: String) -> Dictionary:
 	var result := equipment_manager.fuse(main_id, material_id, gold)
 	if result.ok:
 		gold -= result.cost
+		fusion_count += 1
 		_refresh_attributes()
 		EventBus.stats_changed.emit()
 		EventBus.inventory_changed.emit()

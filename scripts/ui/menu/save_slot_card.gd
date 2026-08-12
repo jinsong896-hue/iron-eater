@@ -19,7 +19,7 @@ func _ready() -> void:
 
 
 func _build_ui() -> void:
-	custom_minimum_size = Vector2(320, 190)
+	custom_minimum_size = Vector2(320, 205)
 	var panel := PanelContainer.new()
 	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(panel)
@@ -81,10 +81,18 @@ func setup(data: Dictionary, exists: bool) -> void:
 	if not run.get("active", false):
 		cls = GameCatalog.class_info("warrior")
 	char_name = "%s · %s" % [cls.get("name", "?"), cls.get("title", "?")]
-	_info.text = "%s\n游戏时间：%.0f 分钟\n最高抵达：第 %d 层" % [
-		char_name, data.get("total_play_time", 0.0) / 60.0, prog.get("highest_floor", 0)]
 	_status.text = "● 存在未完成的探索" if run.get("active", false) else "● 无进行中的探索"
 	_status.modulate = Color(1.0, 0.85, 0.5) if run.get("active", false) else Color(0.6, 0.6, 0.6)
+	var meta: Dictionary = data.get("_meta", {})
+	var load_status: String = meta.get("load_status", "normal")
+	if load_status == "bak_recovered":
+		_status.text += "\n（已从备份恢复）"
+		_status.modulate = Color(1.0, 0.8, 0.3)
+	elif load_status == "migrated":
+		_status.text += "\n（旧版本存档已迁移）"
+	var last_play: String = str(data.get("last_play_time", "")).split("T")[0]
+	_info.text = "%s\n游戏时间：%.0f 分钟\n最高抵达：第 %d 层\n最后游玩：%s" % [
+		char_name, data.get("total_play_time", 0.0) / 60.0, prog.get("highest_floor", 0), last_play]
 
 
 func _show_as_empty(is_empty: bool) -> void:

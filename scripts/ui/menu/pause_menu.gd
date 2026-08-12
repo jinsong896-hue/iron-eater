@@ -13,6 +13,7 @@ var _settings: Control
 var _settlement: SettlementPanel
 var _confirm: ConfirmDialog
 var _transition: SceneTransition
+var _run_overview: Label
 
 
 func _ready() -> void:
@@ -32,10 +33,31 @@ func _build_ui() -> void:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_panel.add_child(dim)
+	var center := HBoxContainer.new()
+	center.set_anchors_preset(Control.PRESET_CENTER)
+	center.add_theme_constant_override("separation", 30)
+	_panel.add_child(center)
+
+	# 左侧：当前局概览
+	var overview_panel := PanelContainer.new()
+	overview_panel.custom_minimum_size = Vector2(300, 0)
+	center.add_child(overview_panel)
+	var overview_box := VBoxContainer.new()
+	overview_box.add_theme_constant_override("separation", 8)
+	overview_panel.add_child(overview_box)
+	var overview_title := Label.new()
+	overview_title.text = "当前探索"
+	overview_title.add_theme_font_size_override("font_size", 18)
+	overview_title.modulate = Color(1.0, 0.85, 0.5)
+	overview_box.add_child(overview_title)
+	_run_overview = Label.new()
+	_run_overview.add_theme_font_size_override("font_size", 15)
+	_run_overview.modulate = Color(0.85, 0.85, 0.83)
+	overview_box.add_child(_run_overview)
+
 	var menu := PanelContainer.new()
-	menu.set_anchors_preset(Control.PRESET_CENTER)
 	menu.custom_minimum_size = Vector2(360, 0)
-	_panel.add_child(menu)
+	center.add_child(menu)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 12)
 	menu.add_child(box)
@@ -78,6 +100,7 @@ func _build_ui() -> void:
 	add_child(_confirm)
 
 	_transition = SceneTransitionManager.transition
+	EventBus.message.connect(func(text: String): ToastManager.notify(text))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -97,12 +120,24 @@ func toggle_pause() -> void:
 	get_tree().paused = paused
 	_panel.visible = paused
 	if paused:
+		_refresh_run_overview()
 		EventBus.message.emit("游戏已暂停（ESC 继续）")
+
+
+func _refresh_run_overview() -> void:
+	var info: Dictionary = GameState.run_info
+	var cls := GameCatalog.class_info(str(info.get("character", "warrior")))
+	var diff := GameCatalog.difficulty_info(str(info.get("difficulty", "normal")))
+	var secs := int(GameState.play_time_seconds())
+	_run_overview.text = "第 %d 层 · %s\n\n%s · %s\n%s 难度\n\n本局时长\n%02d:%02d\n\n金币\n%d" % [
+		info.get("floor", 1), GameCatalog.mode_info(str(info.get("mode", "dungeon"))).name,
+		cls.name, cls.title, diff.name, secs / 60 % 60, secs % 60, GameState.gold]
 
 
 func _on_return_menu() -> void:
 	_confirm.show_confirm("返回主菜单？", "当前探索会被保留，可从存档主页的『继续游戏』恢复。", "返回主菜单", func():
 		SaveManager.save_active()
+		ToastManager.notify("已保存，返回主菜单")
 		get_tree().paused = false
 		paused = false
 		_transition.transition_to(MAIN_MENU_SCENE))

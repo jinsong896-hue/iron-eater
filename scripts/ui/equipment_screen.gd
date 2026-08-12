@@ -34,7 +34,7 @@ func _ready() -> void:
 	add_to_group("equipment_screen")
 	visible = false
 	_build_layout()
-	EventBus.gold_changed.connect(func(_x): _refresh_gold())
+	EventBus.gold_changed.connect(func(_x = null): _refresh_gold())
 	EventBus.inventory_changed.connect(refresh_all)
 	EventBus.stats_changed.connect(refresh_all)
 	EventBus.layer_changed.connect(func(_a, _b): refresh_all())

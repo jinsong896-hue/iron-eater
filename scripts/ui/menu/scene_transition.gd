@@ -25,13 +25,40 @@ func transition_to(path: String) -> void:
 	var tween := create_tween()
 	tween.tween_property(_fade, "color:a", 1.0, 0.35)
 	await tween.finished
-	get_tree().change_scene_to_file(path)
+	if path == "res://scenes/main.tscn":
+		await _load_with_progress(path)
+	else:
+		get_tree().change_scene_to_file(path)
 	await get_tree().process_frame
 	var tween2 := create_tween()
 	tween2.tween_property(_fade, "color:a", 0.0, 0.35)
 	await tween2.finished
 	_fade.visible = false
 	_transitioning = false
+
+
+func _load_with_progress(path: String) -> void:
+	var overlay: Control = SceneTransitionManager.loading
+	overlay.begin()
+	var err := ResourceLoader.load_threaded_request(path)
+	if err != OK:
+		get_tree().change_scene_to_file(path)
+		overlay.end()
+		return
+	while true:
+		var progress := []
+		var status := ResourceLoader.load_threaded_get_status(path, progress)
+		if progress.size() > 0:
+			overlay.set_progress(float(progress[0]))
+		if status == ResourceLoader.THREAD_LOAD_LOADED:
+			var packed := ResourceLoader.load_threaded_get(path) as PackedScene
+			get_tree().change_scene_to_packed(packed)
+			break
+		elif status == ResourceLoader.THREAD_LOAD_FAILED:
+			get_tree().change_scene_to_file(path)
+			break
+		await get_tree().process_frame
+	overlay.end()
 
 
 func _input(event: InputEvent) -> void:

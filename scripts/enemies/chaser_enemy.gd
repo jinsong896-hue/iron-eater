@@ -43,6 +43,8 @@ func _physics_process(_delta: float) -> void:
 func take_damage(amount: float, _crit: bool) -> void:
 	hp -= amount
 	if hp <= 0.0:
+		GameState.kills += 1
+		EventBus.enemy_died.emit()
 		GameState.drop_item(global_position)
 		queue_free()
 

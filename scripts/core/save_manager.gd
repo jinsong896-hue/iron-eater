@@ -47,10 +47,10 @@ func load_save(slot: int) -> Dictionary:
 	if has_save(slot):
 		var data := _read_json(slot_path(slot))
 		if not data.is_empty() and data.get("save_version", -1) == SAVE_VERSION:
-			return _migrate(data)
+			return _with_status(_migrate(data), "normal")
 		var bak := _read_json(slot_path(slot, "bak"))
 		if not bak.is_empty():
-			return _migrate(bak)
+			return _with_status(_migrate(bak), "bak_recovered")
 	return default_save(slot)
 
 
@@ -171,4 +171,11 @@ func _migrate(data: Dictionary) -> Dictionary:
 		for key in data:
 			merged[key] = data[key]
 		return merged
+	return data
+
+
+func _with_status(data: Dictionary, status: String) -> Dictionary:
+	var meta: Dictionary = data.get("_meta", {})
+	meta["load_status"] = status
+	data["_meta"] = meta
 	return data

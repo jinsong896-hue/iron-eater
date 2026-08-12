@@ -25,6 +25,7 @@ const TYPE_NAMES := {
 
 var rect: Rect2i            # 布局格矩形（整数格坐标）
 var type: int = RoomType.NORMAL
+var is_elite := false
 var doors: Array[Vector2i] = []   # 相对方向（格单位），用于逻辑连通
 var door_cells: Array[Vector2i] = []  # 与走廊相接的格坐标（自动开洞）
 

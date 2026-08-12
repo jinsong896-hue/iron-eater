@@ -59,6 +59,7 @@ func next_layer() -> void:
 func _on_template_room_cleared(room_type: int) -> void:
 	if room_type != RoomBase.RoomType.BOSS:
 		return
+	GameState.boss_kills += 1
 	if current_layer == 9:
 		boss_cleared_count += 1
 		EventBus.message.emit("混沌守卫被击败（%d/3）" % boss_cleared_count)
