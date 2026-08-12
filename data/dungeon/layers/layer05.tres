@@ -1,0 +1,15 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dungeon/chapter_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+layer_id = 5
+chapter_name = "符文熔炉"
+map_size = 22
+min_rooms = 16
+max_rooms = 20
+elite_rate = 0.25
+floor_color = Color(0.333, 0.188, 0.165, 1)
+wall_color = Color(0.157, 0.082, 0.071, 1)
+corridor_color = Color(0.192, 0.106, 0.09, 1)

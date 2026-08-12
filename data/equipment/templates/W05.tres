@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="EquipmentTemplate" format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/affix_data.gd" id="1_o5ma4"]
+[ext_resource type="Script" path="res://scripts/equipment/equipment_template.gd" id="2_f5awv"]
+
+[sub_resource type="Resource" id="Resource_25wyu"]
+script = ExtResource("1_o5ma4")
+id = "W05_base"
+display_name = "铁制圆盾·基础"
+stat = "def"
+value = 12.0
+
+[sub_resource type="Resource" id="Resource_1okgj"]
+script = ExtResource("1_o5ma4")
+id = "W05_devour"
+display_name = "铁制圆盾·吞噬"
+kind = 1
+stat = "def"
+value = 0.5
+
+[sub_resource type="Resource" id="Resource_5xcwq"]
+script = ExtResource("1_o5ma4")
+id = "W05_fusion"
+display_name = "铁制圆盾·融合"
+kind = 2
+stat = "def"
+operation = 1
+value = 0.04
+
+[resource]
+script = ExtResource("2_f5awv")
+id = "W05"
+display_name = "铁制圆盾"
+weapon_type = 4
+weapon_traits = ["其他"]
+base_affix = SubResource("Resource_25wyu")
+devour_affix = SubResource("Resource_1okgj")
+fusion_affix = SubResource("Resource_5xcwq")

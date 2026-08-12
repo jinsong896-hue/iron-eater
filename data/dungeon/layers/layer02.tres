@@ -1,0 +1,15 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dungeon/chapter_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+layer_id = 2
+chapter_name = "废弃矿道"
+map_size = 16
+min_rooms = 12
+max_rooms = 16
+elite_rate = 0.0
+floor_color = Color(0.29, 0.259, 0.22, 1)
+wall_color = Color(0.141, 0.122, 0.102, 1)
+corridor_color = Color(0.173, 0.157, 0.133, 1)

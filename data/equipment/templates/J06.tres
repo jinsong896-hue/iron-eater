@@ -1,0 +1,40 @@
+[gd_resource type="Resource" script_class="EquipmentTemplate" format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/affix_data.gd" id="1_etyla"]
+[ext_resource type="Script" path="res://scripts/equipment/equipment_template.gd" id="2_qh7jf"]
+
+[sub_resource type="Resource" id="Resource_lnf0m"]
+script = ExtResource("1_etyla")
+id = "J06_base"
+display_name = "风纹护符·基础"
+stat = "spd"
+operation = 1
+value = 0.02
+
+[sub_resource type="Resource" id="Resource_m0567"]
+script = ExtResource("1_etyla")
+id = "J06_devour"
+display_name = "风纹护符·吞噬"
+kind = 1
+stat = "spd"
+operation = 1
+value = 0.001
+
+[sub_resource type="Resource" id="Resource_05eib"]
+script = ExtResource("1_etyla")
+id = "J06_fusion"
+display_name = "风纹护符·融合"
+kind = 2
+stat = "spd"
+operation = 1
+value = 0.02
+
+[resource]
+script = ExtResource("2_qh7jf")
+id = "J06"
+display_name = "风纹护符"
+category = 2
+slot_category = 6
+base_affix = SubResource("Resource_lnf0m")
+devour_affix = SubResource("Resource_m0567")
+fusion_affix = SubResource("Resource_05eib")

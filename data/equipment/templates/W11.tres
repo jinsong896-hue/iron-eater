@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="EquipmentTemplate" format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/affix_data.gd" id="1_o337l"]
+[ext_resource type="Script" path="res://scripts/equipment/equipment_template.gd" id="2_y1val"]
+
+[sub_resource type="Resource" id="Resource_m6l3p"]
+script = ExtResource("1_o337l")
+id = "W11_base"
+display_name = "学徒长杖·基础"
+stat = "ap"
+value = 45.0
+
+[sub_resource type="Resource" id="Resource_vkuhy"]
+script = ExtResource("1_o337l")
+id = "W11_devour"
+display_name = "学徒长杖·吞噬"
+kind = 1
+stat = "ap"
+value = 0.5
+
+[sub_resource type="Resource" id="Resource_1gmw6"]
+script = ExtResource("1_o337l")
+id = "W11_fusion"
+display_name = "学徒长杖·融合"
+kind = 2
+stat = "ap"
+operation = 1
+value = 0.04
+
+[resource]
+script = ExtResource("2_y1val")
+id = "W11"
+display_name = "学徒长杖"
+weapon_type = 10
+weapon_traits = ["远程", "长杆", "法术"]
+base_affix = SubResource("Resource_m6l3p")
+devour_affix = SubResource("Resource_vkuhy")
+fusion_affix = SubResource("Resource_1gmw6")

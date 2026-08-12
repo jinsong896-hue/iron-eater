@@ -1,0 +1,15 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/dungeon/chapter_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+layer_id = 1
+chapter_name = "监牢入口"
+map_size = 14
+min_rooms = 12
+max_rooms = 16
+elite_rate = 0.0
+floor_color = Color(0.227, 0.255, 0.322, 1)
+wall_color = Color(0.106, 0.118, 0.149, 1)
+corridor_color = Color(0.137, 0.153, 0.192, 1)

@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="EquipmentTemplate" format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/affix_data.gd" id="1_4l3te"]
+[ext_resource type="Script" path="res://scripts/equipment/equipment_template.gd" id="2_x5d2x"]
+
+[sub_resource type="Resource" id="Resource_a35fo"]
+script = ExtResource("1_4l3te")
+id = "A13_base"
+display_name = "布质长裤·基础"
+stat = "mp"
+value = 10.0
+
+[sub_resource type="Resource" id="Resource_dyxsu"]
+script = ExtResource("1_4l3te")
+id = "A13_devour"
+display_name = "布质长裤·吞噬"
+kind = 1
+stat = "mp"
+value = 1.0
+
+[sub_resource type="Resource" id="Resource_e6mav"]
+script = ExtResource("1_4l3te")
+id = "A13_fusion"
+display_name = "布质长裤·融合"
+kind = 2
+stat = "mp"
+operation = 1
+value = 0.03
+
+[resource]
+script = ExtResource("2_x5d2x")
+id = "A13"
+display_name = "布质长裤"
+category = 1
+slot_category = 4
+base_affix = SubResource("Resource_a35fo")
+devour_affix = SubResource("Resource_dyxsu")
+fusion_affix = SubResource("Resource_e6mav")

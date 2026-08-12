@@ -1,0 +1,38 @@
+[gd_resource type="Resource" script_class="EquipmentTemplate" format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/affix_data.gd" id="1_hmboy"]
+[ext_resource type="Script" path="res://scripts/equipment/equipment_template.gd" id="2_mbp3q"]
+
+[sub_resource type="Resource" id="Resource_77jev"]
+script = ExtResource("1_hmboy")
+id = "W03_base"
+display_name = "轻型手弩·基础"
+value = 30.0
+
+[sub_resource type="Resource" id="Resource_mrsr6"]
+script = ExtResource("1_hmboy")
+id = "W03_devour"
+display_name = "轻型手弩·吞噬"
+kind = 1
+stat = "crt"
+operation = 1
+value = 0.001
+
+[sub_resource type="Resource" id="Resource_raq4k"]
+script = ExtResource("1_hmboy")
+id = "W03_fusion"
+display_name = "轻型手弩·融合"
+kind = 2
+stat = "crt"
+operation = 1
+value = 0.02
+
+[resource]
+script = ExtResource("2_mbp3q")
+id = "W03"
+display_name = "轻型手弩"
+weapon_type = 2
+weapon_traits = ["远程", "物理"]
+base_affix = SubResource("Resource_77jev")
+devour_affix = SubResource("Resource_mrsr6")
+fusion_affix = SubResource("Resource_raq4k")

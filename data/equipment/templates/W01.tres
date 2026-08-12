@@ -1,0 +1,34 @@
+[gd_resource type="Resource" script_class="EquipmentTemplate" format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/affix_data.gd" id="1_qoh6g"]
+[ext_resource type="Script" path="res://scripts/equipment/equipment_template.gd" id="2_43n7n"]
+
+[sub_resource type="Resource" id="Resource_pl62h"]
+script = ExtResource("1_qoh6g")
+id = "W01_base"
+display_name = "铁制单手剑·基础"
+value = 35.0
+
+[sub_resource type="Resource" id="Resource_ts4g7"]
+script = ExtResource("1_qoh6g")
+id = "W01_devour"
+display_name = "铁制单手剑·吞噬"
+kind = 1
+value = 0.5
+
+[sub_resource type="Resource" id="Resource_badcd"]
+script = ExtResource("1_qoh6g")
+id = "W01_fusion"
+display_name = "铁制单手剑·融合"
+kind = 2
+operation = 1
+value = 0.03
+
+[resource]
+script = ExtResource("2_43n7n")
+id = "W01"
+display_name = "铁制单手剑"
+weapon_traits = ["近战", "物理"]
+base_affix = SubResource("Resource_pl62h")
+devour_affix = SubResource("Resource_ts4g7")
+fusion_affix = SubResource("Resource_badcd")

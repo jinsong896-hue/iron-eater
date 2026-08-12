@@ -1,0 +1,39 @@
+[gd_resource type="Resource" script_class="EquipmentTemplate" format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/affix_data.gd" id="1_7ulal"]
+[ext_resource type="Script" path="res://scripts/equipment/equipment_template.gd" id="2_6uf7y"]
+
+[sub_resource type="Resource" id="Resource_bt46n"]
+script = ExtResource("1_7ulal")
+id = "A18_base"
+display_name = "铁制战靴·基础"
+stat = "def"
+value = 5.0
+
+[sub_resource type="Resource" id="Resource_m6nan"]
+script = ExtResource("1_7ulal")
+id = "A18_devour"
+display_name = "铁制战靴·吞噬"
+kind = 1
+stat = "def"
+value = 0.2
+
+[sub_resource type="Resource" id="Resource_v7xg2"]
+script = ExtResource("1_7ulal")
+id = "A18_fusion"
+display_name = "铁制战靴·融合"
+kind = 2
+stat = "def"
+operation = 1
+value = 0.02
+
+[resource]
+script = ExtResource("2_6uf7y")
+id = "A18"
+display_name = "铁制战靴"
+category = 1
+slot_category = 5
+armor_class = 2
+base_affix = SubResource("Resource_bt46n")
+devour_affix = SubResource("Resource_m6nan")
+fusion_affix = SubResource("Resource_v7xg2")

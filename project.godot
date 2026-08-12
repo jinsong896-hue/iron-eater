@@ -1,0 +1,38 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="噬铁者"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.7")
+config/icon="res://icon.svg"
+
+[autoload]
+
+InputSetup="*res://scripts/core/input_setup.gd"
+EventBus="*res://scripts/core/event_bus.gd"
+GameState="*res://scripts/core/game_state.gd"
+PhantomCameraManager="*uid://duq6jhf6unyis"
+_mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+
+[dotnet]
+
+project/assembly_name="噬铁者"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/ChineseNodeSelector/plugin.cfg", "res://addons/at-icons/plugin.cfg", "res://addons/godot_ai/plugin.cfg", "res://addons/phantom_camera/plugin.cfg")

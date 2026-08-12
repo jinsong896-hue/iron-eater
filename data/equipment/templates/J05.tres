@@ -1,0 +1,40 @@
+[gd_resource type="Resource" script_class="EquipmentTemplate" format=3]
+
+[ext_resource type="Script" path="res://scripts/equipment/affix_data.gd" id="1_5vhj7"]
+[ext_resource type="Script" path="res://scripts/equipment/equipment_template.gd" id="2_2eua7"]
+
+[sub_resource type="Resource" id="Resource_hkdpe"]
+script = ExtResource("1_5vhj7")
+id = "J05_base"
+display_name = "猎手护符·基础"
+stat = "aspd"
+operation = 1
+value = 0.02
+
+[sub_resource type="Resource" id="Resource_vry7j"]
+script = ExtResource("1_5vhj7")
+id = "J05_devour"
+display_name = "猎手护符·吞噬"
+kind = 1
+stat = "aspd"
+operation = 1
+value = 0.001
+
+[sub_resource type="Resource" id="Resource_2esrj"]
+script = ExtResource("1_5vhj7")
+id = "J05_fusion"
+display_name = "猎手护符·融合"
+kind = 2
+stat = "aspd"
+operation = 1
+value = 0.02
+
+[resource]
+script = ExtResource("2_2eua7")
+id = "J05"
+display_name = "猎手护符"
+category = 2
+slot_category = 6
+base_affix = SubResource("Resource_hkdpe")
+devour_affix = SubResource("Resource_vry7j")
+fusion_affix = SubResource("Resource_2esrj")

@@ -1,0 +1,13 @@
+# Godot 4 generated files
+.godot/
+
+# 编辑器/系统临时文件
+*.tmp
+~$*
+Thumbs.db
+
+# MCP 辅助会话与日志（不入库）
+.gdd_build/mcp_session.txt
+.gdd_build/p_*.json
+.gdd_build/*.log
+.gdd_build/import_log*.txt
