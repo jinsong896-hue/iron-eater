@@ -8,6 +8,16 @@ var failed := 0
 
 func _ready() -> void:
 	SaveManager.delete_save(1)
+	var guard := Timer.new()
+	guard.wait_time = 30.0
+	guard.timeout.connect(func():
+		print("MENU INTERACTION TESTS FAILED: 超时")
+		get_tree().quit(1))
+	add_child(guard)
+	guard.start()
+	await get_tree().process_frame
+	await _test_click_readiness()
+	menu._go_back()
 	await get_tree().process_frame
 	await _test_main_visible()
 	await _test_open_save_select_and_back()
@@ -21,6 +31,19 @@ func _ready() -> void:
 	else:
 		print("MENU INTERACTION TESTS FAILED: %d" % failed)
 		get_tree().quit(1)
+
+
+func _test_click_readiness() -> void:
+	# 根因验证：过渡遮罩空闲时必须隐藏，否则会拦截全部鼠标点击
+	_check(not menu.transition._fade.visible, "过渡遮罩空闲时隐藏（不拦截点击）")
+	_check(menu.transition._fade.mouse_filter == Control.MOUSE_FILTER_STOP, "遮罩仅在过渡时拦截输入")
+	var start := _find_button(menu.panels["MainPanel"], "开始游戏")
+	_check(start != null and start.visible and not start.disabled, "『开始游戏』按钮可见且可点击")
+	# 无头模式不路由合成鼠标事件（引擎限制）；验证点击处理器与点击后跳转
+	start.pressed.emit()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(menu.panels["SaveSelectPanel"].visible, "点击『开始游戏』进入存档选择")
 
 
 func _test_main_visible() -> void:

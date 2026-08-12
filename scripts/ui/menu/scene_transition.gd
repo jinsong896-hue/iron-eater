@@ -13,6 +13,7 @@ func _ready() -> void:
 	_fade.color = Color(0, 0, 0, 0)
 	_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_fade.mouse_filter = Control.MOUSE_FILTER_STOP
+	_fade.visible = false
 	add_child(_fade)
 
 
@@ -20,6 +21,7 @@ func transition_to(path: String) -> void:
 	if _transitioning:
 		return
 	_transitioning = true
+	_fade.visible = true
 	var tween := create_tween()
 	tween.tween_property(_fade, "color:a", 1.0, 0.35)
 	await tween.finished
@@ -28,6 +30,7 @@ func transition_to(path: String) -> void:
 	var tween2 := create_tween()
 	tween2.tween_property(_fade, "color:a", 0.0, 0.35)
 	await tween2.finished
+	_fade.visible = false
 	_transitioning = false
 
 
