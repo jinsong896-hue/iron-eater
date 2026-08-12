@@ -10,9 +10,11 @@ signal slot_delete_requested(slot: int)
 var _title: Label
 var _info: Label
 var _status: Label
+var _create_btn: Button
 
 
 func _ready() -> void:
+	theme = UITheme.get_theme()
 	_build_ui()
 
 
@@ -40,6 +42,11 @@ func _build_ui() -> void:
 	var buttons := HBoxContainer.new()
 	buttons.add_theme_constant_override("separation", 12)
 	box.add_child(buttons)
+	_create_btn = Button.new()
+	_create_btn.text = "＋ 创建存档"
+	_create_btn.custom_minimum_size = Vector2(200, 36)
+	_create_btn.pressed.connect(func(): slot_selected.emit(slot))
+	box.add_child(_create_btn)
 	var enter := Button.new()
 	enter.text = "进入"
 	enter.custom_minimum_size = Vector2(120, 36)
@@ -61,8 +68,10 @@ func setup(data: Dictionary, exists: bool) -> void:
 		_info.text = "＋ 创建存档\n\n点击进入后创建新档案"
 		_status.text = ""
 		buttons.visible = false
+		_create_btn.visible = true
 		_show_as_empty(true)
 		return
+	_create_btn.visible = false
 	_show_as_empty(false)
 	buttons.visible = true
 	var prog: Dictionary = data.get("progression", {})

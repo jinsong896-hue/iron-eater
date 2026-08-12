@@ -28,7 +28,6 @@ func allocate(rooms: Array, config: ChapterConfig) -> void:
 	# 4. 精英房 = 剩余战斗房的 20%～30%
 	var normal_rooms: Array = candidates.filter(func(r): return r.type == RoomData.RoomType.NORMAL)
 	var elite_count := ceili(normal_rooms.size() * config.elite_rate)
-	normal_rooms.shuffle()
 	for i in mini(elite_count, normal_rooms.size()):
 		normal_rooms[i].type = RoomData.RoomType.ELITE
 	# 5. 其余保持 NORMAL
@@ -66,7 +65,6 @@ func _assign_near(start: RoomData, candidates: Array, type: int, min_dist: int, 
 		for r in candidates:
 			if r.type == RoomData.RoomType.NORMAL:
 				pool.append(r)
-	pool.shuffle()
 	for i in mini(count, pool.size()):
 		pool[i].type = type
 

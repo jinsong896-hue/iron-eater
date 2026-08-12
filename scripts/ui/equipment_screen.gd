@@ -30,6 +30,7 @@ var _context_slot := -1
 
 
 func _ready() -> void:
+	theme = UITheme.get_theme()
 	add_to_group("equipment_screen")
 	visible = false
 	_build_layout()

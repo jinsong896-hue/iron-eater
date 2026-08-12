@@ -20,6 +20,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 150
 	_build_ui()
+	_panel.theme = UITheme.get_theme()
 	EventBus.run_finished.connect(_on_run_finished)
 
 

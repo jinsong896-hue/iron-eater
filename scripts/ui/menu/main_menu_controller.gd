@@ -33,6 +33,7 @@ var continue_reason: Label
 
 
 func _ready() -> void:
+	theme = UITheme.get_theme()
 	_build_background()
 	_build_main_panel()
 	_build_save_select_panel()
@@ -46,7 +47,7 @@ func _ready() -> void:
 
 func _build_background() -> void:
 	var bg := TextureRect.new()
-	bg.texture = load("res://material/第一层1.png")
+	bg.texture = UITheme.get_menu_background()
 	bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(bg)
@@ -70,18 +71,18 @@ func _build_background() -> void:
 	add_child(version)
 
 
-func _menu_panel() -> PanelContainer:
+func _menu_panel(panel_name: String) -> PanelContainer:
 	var panel := PanelContainer.new()
+	panel.name = panel_name
 	panel.position = Vector2(880, 180)
 	panel.custom_minimum_size = Vector2(340, 0)
-	panels[panel.name] = panel
+	panels[panel_name] = panel
 	add_child(panel)
 	return panel
 
 
 func _build_main_panel() -> void:
-	var panel := _menu_panel()
-	panel.name = "MainPanel"
+	var panel := _menu_panel("MainPanel")
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 22)
 	panel.add_child(box)
@@ -97,8 +98,7 @@ func _build_main_panel() -> void:
 
 
 func _build_save_select_panel() -> void:
-	var panel := _menu_panel()
-	panel.name = "SaveSelectPanel"
+	var panel := _menu_panel("SaveSelectPanel")
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	panel.add_child(box)
@@ -119,8 +119,7 @@ func _build_save_select_panel() -> void:
 
 
 func _build_profile_panel() -> void:
-	var panel := _menu_panel()
-	panel.name = "ProfilePanel"
+	var panel := _menu_panel("ProfilePanel")
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	panel.add_child(box)
@@ -153,8 +152,7 @@ func _build_profile_panel() -> void:
 
 
 func _build_new_game_panel() -> void:
-	var panel := _menu_panel()
-	panel.name = "NewGamePanel"
+	var panel := _menu_panel("NewGamePanel")
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
@@ -204,8 +202,7 @@ func _build_new_game_panel() -> void:
 
 
 func _build_upgrade_panel() -> void:
-	var panel := _menu_panel()
-	panel.name = "UpgradePanel"
+	var panel := _menu_panel("UpgradePanel")
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 16)
 	panel.add_child(box)

@@ -14,6 +14,7 @@ var _shake_opt: CheckButton
 
 
 func _ready() -> void:
+	theme = UITheme.get_theme()
 	_build_ui()
 	_refresh_from_settings()
 

@@ -13,6 +13,7 @@ var _confirm_btn: Button
 
 
 func _ready() -> void:
+	theme = UITheme.get_theme()
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_build_ui()
 	visible = false
