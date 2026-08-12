@@ -24,6 +24,13 @@
   - 房间切换 + 相机边界锁定（RoomCamera，房间 < 视口时自动居中）
   - NavigationServer2D 寻路网格（手工构建：房间可用区 + 门洞桥接 + 走廊）
   - 追踪敌人（NavigationAgent2D）与木桩敌人
+- **房间生成系统**（依据 `ai/房间生成.md` 方案）：
+  - `RoomBase` 统一房间生命周期：玩家进入 → 锁门 → 刷怪 → 清怪 → 开门
+  - `RoomDoor` 门系统：检测门（Area2D）与实体门（StaticBody2D）分离，战斗锁门/完成后解锁
+  - 瓦片集工厂：从 Kenney roguelike 精灵表构建 16×16 瓦片集（地/墙/草/栅栏，墙带碰撞）
+  - 初始安全房：中央暖光、四周草地、南入口/北出口（`rooms/layer_01/start_room.tscn`）
+  - 第一层 10 种普通战斗房模板（T01~T10，`rooms/layer_01/normal/L1_Normal_T*.tscn`），40×24 格、3~5 怪、可配置四向门
+  - 已接入地牢生成器：第一层初始房/普通房/精英房自动使用模板池，按走廊入口动态开凿门洞并加门锁
 
 ## 操作
 
@@ -49,11 +56,14 @@ scripts/
   player/                # 玩家控制器
   enemies/               # 木桩敌人、追踪敌人
   dungeon/               # BSP 节点、房间数据、章节配置、分配器、生成器、相机、触发器、层管理器
+rooms/
+  base/                  # room_base / room_door / tileset_factory / room_base_carve
+  layer_01/              # start_room + 10 种普通房模板（T01~T10）
   ui/                    # HUD
 data/
   equipment/templates/   # 36 件白装模板 .tres（由 tools/generate_equipment_tres.gd 生成）
   dungeon/layers/        # 9 层章节配置（Layer01~09.tres，含主题配色与房间数量）
-tests/                   # test_framework / test_dungeon / test_equipment
+tests/                   # test_framework / test_dungeon / test_equipment / test_room
 tools/                   # generate_equipment_tres.gd（白装 .tres 生成工具）
 ```
 

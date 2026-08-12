@@ -17,6 +17,10 @@ const BSPNodeScript := preload("res://scripts/dungeon/bsp_node.gd")
 const AllocatorScript := preload("res://scripts/dungeon/room_type_allocator.gd")
 const RoomScene := preload("res://scenes/dungeon/room.tscn")
 const CameraTriggerScript := preload("res://scripts/dungeon/camera_trigger.gd")
+const StartRoomScene := preload("res://rooms/layer_01/start_room.tscn")
+const Layer1TemplateScene := preload("res://rooms/layer_01/normal/layer1_room_template.tscn")
+
+@export var use_room_templates := true
 
 var rng := RandomNumberGenerator.new()
 var config: ChapterConfig
@@ -120,7 +124,7 @@ func _split_recursive(node: BSPNode, root: BSPNode) -> void:
 	var want_more := leaves < config.min_rooms - 1
 	if not want_more and rng.randf() > 0.55:
 		return
-	if node.split(3):
+	if node.split(4 if config.layer_id == 1 else 3):
 		_split_recursive(node.left, root)
 		_split_recursive(node.right, root)
 
@@ -140,11 +144,19 @@ func _collect_leaf_rooms(node: BSPNode) -> void:
 
 
 func _create_leaf_room(node: BSPNode) -> void:
-	var max_sz := Vector2i(
-		maxi(1, mini(3, node.rect.size.x - 2)),
-		maxi(1, mini(3, node.rect.size.y - 2)),
+	var max_sz: Vector2i
+	if config.layer_id == 1:
+		# 第一层启用房间模板：普通房统一 2×2
+		max_sz = Vector2i(maxi(2, node.rect.size.x - 2), maxi(2, node.rect.size.y - 2))
+	else:
+		max_sz = Vector2i(
+			maxi(1, mini(3, node.rect.size.x - 2)),
+			maxi(1, mini(3, node.rect.size.y - 2)),
+		)
+	var size := Vector2i(
+		maxi(1, mini(max_sz.x, rng.randi_range(2 if config.layer_id == 1 else 1, max_sz.x))),
+		maxi(1, mini(max_sz.y, rng.randi_range(2 if config.layer_id == 1 else 1, max_sz.y))),
 	)
-	var size := Vector2i(rng.randi_range(1, max_sz.x), rng.randi_range(1, max_sz.y))
 	var hi_x := maxi(1, node.rect.size.x - size.x - 1)
 	var hi_y := maxi(1, node.rect.size.y - size.y - 1)
 	var pos := Vector2i(
@@ -385,12 +397,93 @@ func _build_corridor_visuals() -> void:
 
 func _spawn_room_instances(spawn_enemies: bool) -> void:
 	for r in rooms:
+		if _use_template_for(r):
+			_spawn_template_room(r, spawn_enemies)
+			continue
 		var room = RoomScene.instantiate()
 		room.position = world_rect_of(r.rect).position
 		room.initialize(r, config, _usable_rect(r))
 		_rooms_root.add_child(room)
 		if spawn_enemies:
 			_spawn_enemies(r, _usable_rect(r))
+
+
+## 第一层：初始房 / 普通房 / 精英房使用房间模板（2×2 布局）
+func _use_template_for(r: RoomData) -> bool:
+	if not use_room_templates or config.layer_id != 1:
+		return false
+	if r.type == RoomData.RoomType.START:
+		return true
+	return (r.type == RoomData.RoomType.NORMAL or r.type == RoomData.RoomType.ELITE) \
+		and r.rect.size == Vector2i(2, 2)
+
+
+func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
+	var room = StartRoomScene.instantiate() if r.type == RoomData.RoomType.START else Layer1TemplateScene.instantiate()
+	room.position = world_rect_of(r.rect).position
+	room.room_width = r.rect.size.x * 20
+	room.room_height = r.rect.size.y * 12
+	# 按走廊入口写入动态门洞（瓦片坐标）
+	var openings: Array = []
+	for cell in r.door_cells:
+		var side := ""
+		var center := 0.0
+		if cell.x == r.rect.end.x:
+			side = "east"
+			center = (float(cell.y - r.rect.position.y) + 0.5) * 12.0
+		elif cell.x == r.rect.position.x - 1:
+			side = "west"
+			center = (float(cell.y - r.rect.position.y) + 0.5) * 12.0
+		elif cell.y == r.rect.end.y:
+			side = "south"
+			center = (float(cell.x - r.rect.position.x) + 0.5) * 20.0
+		elif cell.y == r.rect.position.y - 1:
+			side = "north"
+			center = (float(cell.x - r.rect.position.x) + 0.5) * 20.0
+		if side != "":
+			openings.append({"side": side, "center": center})
+	room.door_openings = openings
+	if spawn_enemies and (r.type == RoomData.RoomType.NORMAL or r.type == RoomData.RoomType.ELITE):
+		var chaser = load("res://scenes/dungeon/chaser_enemy.tscn")
+		var pool: Array[PackedScene] = [chaser as PackedScene]
+		room.set_enemy_pool(pool)
+		if r.type == RoomData.RoomType.ELITE:
+			room.elite_override = true
+			room.template_type = 4 + rng.randi_range(1, 5)  # T05~T09 障碍型
+			room.min_enemies = 4
+			room.max_enemies = 6
+		else:
+			room.template_type = rng.randi_range(0, 9)
+			room.min_enemies = 3
+			room.max_enemies = 5
+	_rooms_root.add_child(room)
+	# 门锁（战斗锁门 / 清怪开门）
+	for opening in openings:
+		var door := _make_template_door(room, opening)
+		if door != null:
+			room.doors_root.add_child(door)
+
+
+func _make_template_door(room, opening: Dictionary) -> RoomDoor:
+	var side: String = opening.get("side", "north")
+	var center: float = opening.get("center", 0.0)
+	var door := RoomDoor.new()
+	var tiles_w: float = float(room.room_width) * 64.0
+	var tiles_h: float = float(room.room_height) * 64.0
+	match side:
+		"north":
+			door.direction = RoomDoor.Direction.NORTH
+			door.position = Vector2(center * 64.0, 64.0)
+		"south":
+			door.direction = RoomDoor.Direction.SOUTH
+			door.position = Vector2(center * 64.0, tiles_h - 64.0)
+		"east":
+			door.direction = RoomDoor.Direction.EAST
+			door.position = Vector2(tiles_w - 64.0, center * 64.0)
+		"west":
+			door.direction = RoomDoor.Direction.WEST
+			door.position = Vector2(64.0, center * 64.0)
+	return door
 
 
 func _spawn_enemies(r: RoomData, usable: Rect2) -> void:
