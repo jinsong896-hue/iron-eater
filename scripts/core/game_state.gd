@@ -11,6 +11,8 @@ var equipment_manager: EquipmentManager
 var gold := 0
 var kills := 0
 var total_damage := 0.0
+var run_info := {"character": "warrior", "mode": "dungeon", "difficulty": "normal", "floor": 1, "seed": 0}
+var _run_start_ms := 0
 
 
 func _ready() -> void:
@@ -23,6 +25,7 @@ func reset_run() -> void:
 	gold = 1000
 	kills = 0
 	total_damage = 0.0
+	_run_start_ms = Time.get_ticks_msec()
 	# 开局送 3 件白装用于体验吞噬/融合
 	for i in 3:
 		var t: EquipmentTemplate = EquipmentDB.all_templates().pick_random()
@@ -32,6 +35,29 @@ func reset_run() -> void:
 	EventBus.inventory_changed.emit()
 	EventBus.gold_changed.emit()
 	EventBus.message.emit("新的一局开始：吞噬或融合，把木桩打爆！")
+
+
+## 主菜单开始/继续游戏时调用：写入本局配置并重置单局
+func apply_run_info(info: Dictionary) -> void:
+	run_info = info.duplicate()
+	reset_run()
+
+
+## 本局结束（死亡/通关/放弃）：生成结算数据并写入当前存档
+func finish_run(reason: String) -> Dictionary:
+	var play_seconds := float(Time.get_ticks_msec() - _run_start_ms) / 1000.0
+	var floor := int(run_info.get("floor", 1))
+	var result := {
+		"reason": reason,
+		"floor": floor,
+		"kills": kills,
+		"gold": gold,
+		"play_time": play_seconds,
+		"fragments": kills + floor * 2,
+	}
+	if SaveManager.active_slot > 0:
+		SaveManager.finish_run(result)
+	return result
 
 
 func stat_value(stat_name: String) -> float:

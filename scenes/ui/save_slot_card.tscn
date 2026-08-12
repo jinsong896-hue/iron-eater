@@ -1,0 +1,8 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/menu/save_slot_card.gd" id="1"]
+
+[node name="SaveSlotCard" type="Control"]
+layout_mode = 3
+custom_minimum_size = Vector2(320, 190)
+script = ExtResource("1")

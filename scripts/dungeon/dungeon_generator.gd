@@ -247,11 +247,14 @@ func _ensure_min_rooms() -> void:
 	while rooms.size() < config.min_rooms and guard < 400:
 		guard += 1
 		var candidates: Array = []
+		var half := config.map_size / 2
 		for r in rooms:
 			for y in range(r.rect.position.y - 1, r.rect.end.y + 1):
 				for x in range(r.rect.position.x - 1, r.rect.end.x + 1):
 					var cell := Vector2i(x, y)
 					if r.rect.has_point(cell):
+						continue
+					if cell.x < -half or cell.x >= half or cell.y < -half or cell.y >= half:
 						continue
 					if not _cell_occupied(cell):
 						candidates.append(cell)

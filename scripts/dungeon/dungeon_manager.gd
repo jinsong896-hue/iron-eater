@@ -16,29 +16,38 @@ const LAYER_CONFIGS := [
 
 var current_layer := 1
 var generator: DungeonGenerator
+var _continue_seed := 0
 
 
 func _ready() -> void:
 	add_to_group("dungeon_manager")
 	generator = $DungeonGenerator
+	current_layer = clampi(int(GameState.run_info.get("floor", 1)), 1, LAYER_CONFIGS.size())
+	_continue_seed = int(GameState.run_info.get("seed", 0))
 	regenerate()
 
 
-func regenerate() -> void:
+func regenerate(force_random := false) -> void:
 	var cfg: ChapterConfig = LAYER_CONFIGS[current_layer - 1]
-	generator.generate(cfg, -1, true)
+	var seed := -1
+	if not force_random and _continue_seed != 0:
+		seed = _continue_seed
+		_continue_seed = 0
+	generator.generate(cfg, seed, true)
 	_place_player()
 	EventBus.layer_changed.emit(current_layer, cfg.chapter_name)
 
 
 func next_layer() -> void:
 	current_layer = mini(current_layer + 1, LAYER_CONFIGS.size())
+	GameState.run_info["floor"] = current_layer
+	SaveManager.update_run_floor(current_layer)
 	regenerate()
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("dungeon_regenerate"):
-		regenerate()
+		regenerate(true)
 	elif event.is_action_pressed("dungeon_next_layer"):
 		next_layer()
 
