@@ -39,6 +39,7 @@ enum TemplateType {
 @export var min_enemies := 3
 @export var max_enemies := 5
 @export var elite_override := false
+@export var room_kind_override := -1
 
 # 动态门洞：由地牢生成器按走廊入口写入 {side, center}
 var door_openings: Array = []
@@ -48,7 +49,10 @@ var enemy_spawn_cells: Array[Vector2i] = []
 
 
 func _ready() -> void:
-	room_type = RoomType.ELITE if elite_override else RoomType.NORMAL
+	if room_kind_override >= 0:
+		room_type = room_kind_override
+	else:
+		room_type = RoomType.ELITE if elite_override else RoomType.NORMAL
 	starts_cleared = false
 	rng.randomize()
 	_ensure_structure()
@@ -90,6 +94,14 @@ func _generate_outer_walls() -> void:
 
 
 func _generate_layout() -> void:
+	if room_width != 40 or room_height != 24:
+		# 非 2×2 房间统一使用开阔布局，出生点缩放到安全范围
+		template_type = TemplateType.T01_OPEN_ARENA
+		if room_width <= 24 or room_height <= 14:
+			enemy_spawn_cells = [Vector2i(5, 3), Vector2i(10, 3), Vector2i(6, 7), Vector2i(11, 7), Vector2i(8, 5)]
+		else:
+			enemy_spawn_cells = [Vector2i(14, 8), Vector2i(25, 8), Vector2i(14, 15), Vector2i(25, 15), Vector2i(20, 11)]
+		return
 	match template_type:
 		TemplateType.T01_OPEN_ARENA:
 			enemy_spawn_cells = [Vector2i(14, 8), Vector2i(25, 8), Vector2i(14, 15), Vector2i(25, 15), Vector2i(20, 11)]

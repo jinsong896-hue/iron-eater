@@ -57,6 +57,7 @@ func finish_run(reason: String) -> Dictionary:
 	}
 	if SaveManager.active_slot > 0:
 		SaveManager.finish_run(result)
+	EventBus.run_finished.emit(result)
 	return result
 
 

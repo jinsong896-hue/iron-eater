@@ -244,6 +244,7 @@ func _menu_button(text: String) -> Button:
 	btn.text = text
 	btn.custom_minimum_size = Vector2(300, 44)
 	btn.add_theme_font_size_override("font_size", 20)
+	btn.pressed.connect(func(): AudioManager.play_ui())
 	return btn
 
 

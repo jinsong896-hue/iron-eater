@@ -7,6 +7,14 @@ extends CharacterBody2D
 
 var _attack_timer := 0.0
 
+const CLASS_COLORS := {
+	"warrior": Color(0.45, 0.65, 1.0),
+	"mage": Color(0.75, 0.5, 1.0),
+	"hunter": Color(0.45, 0.9, 0.5),
+	"judge": Color(1.0, 0.7, 0.35),
+	"monk": Color(0.95, 0.45, 0.4),
+}
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -52,11 +60,31 @@ func try_attack() -> void:
 		hit_any = true
 	if hit_any:
 		EventBus.message.emit("攻击命中（ATK %.0f）" % atk)
+		AudioManager.play("hit")
+
+
+func take_damage(amount: float) -> void:
+	GameState.attributes.take_damage(amount)
+	EventBus.player_hit.emit(amount)
+	AudioManager.play("hit")
+	if GameState.attributes.hp <= 0.0:
+		die()
+
+
+func die() -> void:
+	if not is_inside_tree() or not visible:
+		return
+	AudioManager.play("death")
+	var result := GameState.finish_run("defeated")
+	EventBus.run_finished.emit(result)
+	set_physics_process(false)
+	visible = false
 
 
 func _draw() -> void:
 	# 占位视觉：身体圆 + 朝向线
-	draw_circle(Vector2.ZERO, 16.0, Color(0.35, 0.6, 0.95))
-	draw_arc(Vector2.ZERO, 16.0, 0.0, TAU, 32, Color(0.9, 0.95, 1.0), 2.0)
+	var color: Color = CLASS_COLORS.get(str(GameState.run_info.get("character", "warrior")), CLASS_COLORS["warrior"])
+	draw_circle(Vector2.ZERO, 16.0, color)
+	draw_arc(Vector2.ZERO, 16.0, 0.0, TAU, 32, color.lightened(0.35), 2.0)
 	var dir := (get_global_mouse_position() - global_position).normalized()
 	draw_line(Vector2.ZERO, dir * 30.0, Color(0.95, 0.95, 0.9), 3.0)

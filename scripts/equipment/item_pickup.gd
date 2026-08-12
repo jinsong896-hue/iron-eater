@@ -25,4 +25,5 @@ func _on_body_entered(body: Node2D) -> void:
 		GameState.equipment_manager.add_item(item)
 		EventBus.inventory_changed.emit()
 		EventBus.message.emit("拾取：%s（%s）" % [item.display_name(), item.rarity_name()])
+		AudioManager.play("pickup")
 		queue_free()

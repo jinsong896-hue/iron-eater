@@ -20,6 +20,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	layer = 150
 	_build_ui()
+	EventBus.run_finished.connect(_on_run_finished)
 
 
 func _build_ui() -> void:
@@ -110,9 +111,7 @@ func _on_return_menu() -> void:
 
 func _on_abandon() -> void:
 	_confirm.show_confirm("放弃本次探索？", "本局进度、局内装备、金币与成长将被结算并清除，此操作无法撤销。", "放弃探索", func():
-		var result := GameState.finish_run("abandoned")
-		_panel.visible = false
-		_settlement.show_result(result), true)
+		GameState.finish_run("abandoned"), true)
 
 
 func _on_quit_desktop() -> void:
@@ -120,3 +119,11 @@ func _on_quit_desktop() -> void:
 		SaveManager.save_active()
 		get_tree().paused = false
 		get_tree().quit(), true)
+
+
+func _on_run_finished(result: Dictionary) -> void:
+	if get_tree().paused:
+		get_tree().paused = false
+		paused = false
+	_panel.visible = false
+	_settlement.show_result(result)

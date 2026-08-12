@@ -34,6 +34,7 @@ var _rooms_root: Node2D
 var _corridors_root: Node2D
 
 signal generated
+signal template_room_cleared(room_type: int)
 
 
 func _ready() -> void:
@@ -413,12 +414,12 @@ func _spawn_room_instances(spawn_enemies: bool) -> void:
 
 ## 第一层：初始房 / 普通房 / 精英房使用房间模板（2×2 布局）
 func _use_template_for(r: RoomData) -> bool:
-	if not use_room_templates or config.layer_id != 1:
+	if not use_room_templates:
 		return false
 	if r.type == RoomData.RoomType.START:
-		return true
-	return (r.type == RoomData.RoomType.NORMAL or r.type == RoomData.RoomType.ELITE) \
-		and r.rect.size == Vector2i(2, 2)
+		return config.layer_id == 1
+	return r.type == RoomData.RoomType.NORMAL or r.type == RoomData.RoomType.ELITE \
+		or r.type == RoomData.RoomType.BOSS
 
 
 func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
@@ -446,11 +447,16 @@ func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
 		if side != "":
 			openings.append({"side": side, "center": center})
 	room.door_openings = openings
-	if spawn_enemies and (r.type == RoomData.RoomType.NORMAL or r.type == RoomData.RoomType.ELITE):
+	if spawn_enemies and (r.type == RoomData.RoomType.NORMAL or r.type == RoomData.RoomType.ELITE or r.type == RoomData.RoomType.BOSS):
 		var chaser = load("res://scenes/dungeon/chaser_enemy.tscn")
 		var pool: Array[PackedScene] = [chaser as PackedScene]
 		room.set_enemy_pool(pool)
-		if r.type == RoomData.RoomType.ELITE:
+		if r.type == RoomData.RoomType.BOSS:
+			room.room_kind_override = RoomBase.RoomType.BOSS
+			room.template_type = 0
+			room.min_enemies = 4
+			room.max_enemies = 6
+		elif r.type == RoomData.RoomType.ELITE:
 			room.elite_override = true
 			room.template_type = 4 + rng.randi_range(1, 5)  # T05~T09 障碍型
 			room.min_enemies = 4
@@ -460,11 +466,16 @@ func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
 			room.min_enemies = 3
 			room.max_enemies = 5
 	_rooms_root.add_child(room)
+	room.room_cleared.connect(_on_template_room_cleared.bind(r.type))
 	# 门锁（战斗锁门 / 清怪开门）
 	for opening in openings:
 		var door := _make_template_door(room, opening)
 		if door != null:
 			room.doors_root.add_child(door)
+
+
+func _on_template_room_cleared(_room: RoomBase, room_type: int) -> void:
+	template_room_cleared.emit(room_type)
 
 
 func _make_template_door(room, opening: Dictionary) -> RoomDoor:

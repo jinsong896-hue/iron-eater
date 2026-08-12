@@ -179,9 +179,21 @@ func _connect_doors() -> void:
 func _set_all_doors_locked(value: bool) -> void:
 	if doors_root == null:
 		return
+	var changed := false
 	for node in doors_root.get_children():
 		if node is RoomDoor:
-			(node as RoomDoor).set_locked(value)
+			var door := node as RoomDoor
+			if door.locked != value:
+				door.set_locked(value)
+				changed = true
+	if changed:
+		_play_door_sound(value)
+
+
+func _play_door_sound(locked: bool) -> void:
+	var audio := get_node_or_null("/root/AudioManager")
+	if audio and audio.has_method("play"):
+		audio.call("play", "door_close" if locked else "door_open")
 
 
 func _on_door_used(door: RoomDoor) -> void:
