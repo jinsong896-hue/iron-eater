@@ -71,21 +71,30 @@ func _build_background() -> void:
 	add_child(version)
 
 
-func _menu_panel(panel_name: String) -> PanelContainer:
+func _menu_panel(panel_name: String) -> VBoxContainer:
 	var panel := PanelContainer.new()
 	panel.name = panel_name
-	panel.position = Vector2(880, 180)
-	panel.custom_minimum_size = Vector2(340, 0)
+	panel.position = Vector2(850, 90)
+	panel.custom_minimum_size = Vector2(390, 570)
 	panels[panel_name] = panel
 	add_child(panel)
-	return panel
+	var scroll := ScrollContainer.new()
+	scroll.name = "ScrollContainer"
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	panel.add_child(scroll)
+	var box := VBoxContainer.new()
+	box.name = "Box"
+	box.custom_minimum_size = Vector2(330, 0)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(box)
+	return box
 
 
 func _build_main_panel() -> void:
-	var panel := _menu_panel("MainPanel")
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 22)
-	panel.add_child(box)
+	var box_main := _menu_panel("MainPanel")
+	box_main.add_theme_constant_override("separation", 22)
 	var opts := [
 		["开始游戏", func(): _show_state(MenuState.SAVE_SELECT)],
 		["设置", func(): _enter_settings()],
@@ -94,14 +103,12 @@ func _build_main_panel() -> void:
 	for opt in opts:
 		var btn := _menu_button(opt[0])
 		btn.pressed.connect(opt[1])
-		box.add_child(btn)
+		box_main.add_child(btn)
 
 
 func _build_save_select_panel() -> void:
-	var panel := _menu_panel("SaveSelectPanel")
-	var box := VBoxContainer.new()
+	var box := _menu_panel("SaveSelectPanel")
 	box.add_theme_constant_override("separation", 14)
-	panel.add_child(box)
 	var title := Label.new()
 	title.text = "选择存档"
 	title.add_theme_font_size_override("font_size", 28)
@@ -119,10 +126,8 @@ func _build_save_select_panel() -> void:
 
 
 func _build_profile_panel() -> void:
-	var panel := _menu_panel("ProfilePanel")
-	var box := VBoxContainer.new()
+	var box := _menu_panel("ProfilePanel")
 	box.add_theme_constant_override("separation", 14)
-	panel.add_child(box)
 	profile_title = Label.new()
 	profile_title.add_theme_font_size_override("font_size", 28)
 	box.add_child(profile_title)
@@ -152,8 +157,18 @@ func _build_profile_panel() -> void:
 
 
 func _build_new_game_panel() -> void:
-	var panel := _menu_panel("NewGamePanel")
+	var panel := PanelContainer.new()
+	panel.name = "NewGamePanel"
+	panel.position = Vector2(850, 90)
+	panel.custom_minimum_size = Vector2(390, 570)
+	panel.custom_maximum_size = Vector2(390, 570)
+	panels["NewGamePanel"] = panel
+	add_child(panel)
 	var box := VBoxContainer.new()
+	box.name = "Box"
+	box.custom_minimum_size = Vector2(330, 0)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	box.add_theme_constant_override("separation", 8)
 	panel.add_child(box)
 	var title := Label.new()
@@ -161,51 +176,122 @@ func _build_new_game_panel() -> void:
 	title.add_theme_font_size_override("font_size", 28)
 	box.add_child(title)
 
-	box.add_child(_section_label("角色"))
-	for cls in GameCatalog.CLASSES:
-		var btn := _menu_button("%s · %s" % [cls.name, cls.title])
-		btn.pressed.connect(func(c = cls): _select_class(c))
-		box.add_child(btn)
-		character_buttons.append(btn)
-	class_desc = Label.new()
-	class_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	class_desc.custom_minimum_size = Vector2(0, 60)
-	class_desc.modulate = Color(0.8, 0.8, 0.8)
-	box.add_child(class_desc)
+	# 左右分栏：左侧＝模式选择，右侧＝难度选择
+	var middle := HBoxContainer.new()
+	middle.name = "ModeDifficultyRow"
+	middle.add_theme_constant_override("separation", 16)
+	middle.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(middle)
 
-	box.add_child(_section_label("模式"))
+	var mode_col := VBoxContainer.new()
+	mode_col.name = "ModeColumn"
+	mode_col.add_theme_constant_override("separation", 8)
+	mode_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mode_col.custom_maximum_size = Vector2(157, 9999)
+	middle.add_child(mode_col)
+	mode_col.add_child(_section_label("模式"))
 	for m in GameCatalog.MODES:
-		var btn := _menu_button("%s　%s" % [m.name, "（开发中）" if m.locked else "（完整开放）"])
+		var btn := _menu_button(m.name)
+		btn.custom_minimum_size = Vector2(0, 44)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.disabled = m.locked
 		btn.pressed.connect(func(md = m): _select_mode(md))
-		box.add_child(btn)
+		mode_col.add_child(btn)
 		mode_buttons.append(btn)
 
-	box.add_child(_section_label("难度"))
+	var diff_col := VBoxContainer.new()
+	diff_col.name = "DifficultyColumn"
+	diff_col.add_theme_constant_override("separation", 8)
+	diff_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	diff_col.custom_maximum_size = Vector2(157, 9999)
+	middle.add_child(diff_col)
+	diff_col.add_child(_section_label("难度"))
 	for d in GameCatalog.DIFFICULTIES:
 		var btn := _menu_button(d.name)
+		btn.custom_minimum_size = Vector2(0, 44)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.pressed.connect(func(dd = d): _select_difficulty(dd))
-		box.add_child(btn)
+		diff_col.add_child(btn)
 		difficulty_buttons.append(btn)
+
+	# 底部一栏：角色选择（五个职业横向排布）
+	var char_label := _section_label("角色")
+	char_label.name = "CharacterSectionLabel"
+	box.add_child(char_label)
+	var char_row := HBoxContainer.new()
+	char_row.name = "CharacterRow"
+	char_row.add_theme_constant_override("separation", 8)
+	char_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	char_row.custom_maximum_size = Vector2(330, 9999)
+	box.add_child(char_row)
+	for cls in GameCatalog.CLASSES:
+		var btn := Button.new()
+		btn.text = cls.name
+		btn.custom_minimum_size = Vector2(56, 44)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.add_theme_font_size_override("font_size", 13)
+		var btn_tex := load("res://assets/ui-pack/PNG/Blue/Default/button_round_depth_gradient.png") as Texture2D
+		for style_name in ["normal", "hover", "pressed", "disabled"]:
+			var sb := StyleBoxTexture.new()
+			sb.texture = btn_tex
+			sb.texture_margin_left = 18.0
+			sb.texture_margin_right = 18.0
+			sb.texture_margin_top = 10.0
+			sb.texture_margin_bottom = 12.0
+			sb.content_margin_left = 4.0
+			sb.content_margin_right = 4.0
+			sb.content_margin_top = 8.0
+			sb.content_margin_bottom = 8.0
+			match style_name:
+				"hover":
+					sb.modulate_color = Color(1.25, 1.25, 1.25)
+				"pressed":
+					sb.modulate_color = Color(0.75, 0.75, 0.8)
+					sb.content_margin_top = 10.0
+					sb.content_margin_bottom = 6.0
+				"disabled":
+					sb.modulate_color = Color(0.5, 0.5, 0.55)
+			btn.add_theme_stylebox_override(style_name, sb)
+		btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		btn.pressed.connect(func(c = cls): _select_class(c))
+		char_row.add_child(btn)
+		character_buttons.append(btn)
+
+	class_desc = Label.new()
+	class_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	class_desc.custom_minimum_size = Vector2(0, 54)
+	class_desc.modulate = Color(0.8, 0.8, 0.8)
+	class_desc.add_theme_font_size_override("font_size", 14)
+	box.add_child(class_desc)
+
 	new_game_reason = Label.new()
 	new_game_reason.modulate = Color(0.9, 0.6, 0.5)
 	new_game_reason.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	new_game_reason.add_theme_font_size_override("font_size", 13)
 	box.add_child(new_game_reason)
 
+	var action_row := HBoxContainer.new()
+	action_row.name = "ActionRow"
+	action_row.add_theme_constant_override("separation", 12)
+	action_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.add_child(action_row)
+
 	new_game_start_btn = _menu_button("开始游戏")
+	new_game_start_btn.custom_minimum_size = Vector2(0, 44)
+	new_game_start_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	new_game_start_btn.pressed.connect(_on_new_game_start)
-	box.add_child(new_game_start_btn)
+	action_row.add_child(new_game_start_btn)
 
 	var back := _menu_button("返回（ESC）")
+	back.custom_minimum_size = Vector2(0, 44)
+	back.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	back.pressed.connect(func(): _show_state(MenuState.PROFILE))
-	box.add_child(back)
+	action_row.add_child(back)
 
 
 func _build_upgrade_panel() -> void:
-	var panel := _menu_panel("UpgradePanel")
-	var box := VBoxContainer.new()
+	var box := _menu_panel("UpgradePanel")
 	box.add_theme_constant_override("separation", 16)
-	panel.add_child(box)
 	var title := Label.new()
 	title.text = "升级（局外养成）"
 	title.add_theme_font_size_override("font_size", 26)
