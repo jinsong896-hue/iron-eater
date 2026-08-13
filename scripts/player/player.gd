@@ -18,6 +18,7 @@ const CLASS_COLORS := {
 
 func _ready() -> void:
 	add_to_group("player")
+	z_index = 10
 
 
 func _physics_process(delta: float) -> void:
@@ -25,12 +26,21 @@ func _physics_process(delta: float) -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	velocity = dir * GameState.stat_value("spd") * move_speed_factor
 	move_and_slide()
+	# 方向键攻击：按上/下/左/右方向攻击（鼠标点击攻击保留）
+	if Input.is_action_just_pressed("attack_up"):
+		try_attack(Vector2.UP)
+	elif Input.is_action_just_pressed("attack_down"):
+		try_attack(Vector2.DOWN)
+	elif Input.is_action_just_pressed("attack_left"):
+		try_attack(Vector2.LEFT)
+	elif Input.is_action_just_pressed("attack_right"):
+		try_attack(Vector2.RIGHT)
 	if Input.is_action_just_pressed("attack"):
 		try_attack()
 	queue_redraw()
 
 
-func try_attack() -> void:
+func try_attack(direction: Vector2 = Vector2.ZERO) -> void:
 	if _attack_timer > 0.0:
 		return
 	var aspd := GameState.stat_value("aspd")
@@ -39,7 +49,11 @@ func try_attack() -> void:
 	var attack_range := GameState.stat_value("rng")
 	var crt := GameState.stat_value("crt")
 	var crd := GameState.stat_value("crd")
-	var face_dir := (get_global_mouse_position() - global_position).normalized()
+	var face_dir: Vector2
+	if direction == Vector2.ZERO:
+		face_dir = (get_global_mouse_position() - global_position).normalized()
+	else:
+		face_dir = direction.normalized()
 	var hit_any := false
 	for enemy in get_tree().get_nodes_in_group("enemies"):
 		if not is_instance_valid(enemy):
@@ -79,6 +93,14 @@ func die() -> void:
 	EventBus.run_finished.emit(result)
 	set_physics_process(false)
 	visible = false
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("toggle_inventory"):
+		var screen := get_tree().get_first_node_in_group("equipment_screen") as Control
+		if screen:
+			screen.visible = not screen.visible
+			get_viewport().set_input_as_handled()
 
 
 func _draw() -> void:

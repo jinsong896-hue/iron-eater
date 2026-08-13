@@ -9,6 +9,7 @@ signal used(door: RoomDoor)
 @export var direction: Direction = Direction.NORTH
 @export var target_room_id := ""
 @export var target_spawn_id := "DEFAULT"
+var target_room_data: RoomData = null
 
 var locked := false
 

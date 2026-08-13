@@ -467,15 +467,82 @@ func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
 			room.max_enemies = 5
 	_rooms_root.add_child(room)
 	room.room_cleared.connect(_on_template_room_cleared.bind(r.type))
+	room.exit_requested.connect(_on_room_exit_requested)
 	# 门锁（战斗锁门 / 清怪开门）
 	for opening in openings:
 		var door := _make_template_door(room, opening)
 		if door != null:
+			_connect_door_target(room, door, r)
 			room.doors_root.add_child(door)
+			door.used.connect(room._on_door_used)
 
 
 func _on_template_room_cleared(_room: RoomBase, room_type: int) -> void:
 	template_room_cleared.emit(room_type)
+
+
+## 把门与相邻房间数据绑定：玩家使用门时传送到目标房间
+func _connect_door_target(room, door: RoomDoor, r: RoomData) -> void:
+	var neighbor_cell := r.rect.position
+	match door.direction:
+		RoomDoor.Direction.NORTH:
+			neighbor_cell = Vector2i(r.rect.position.x, r.rect.position.y - 1)
+		RoomDoor.Direction.SOUTH:
+			neighbor_cell = Vector2i(r.rect.position.x, r.rect.end.y)
+		RoomDoor.Direction.EAST:
+			neighbor_cell = Vector2i(r.rect.end.x, r.rect.position.y)
+		RoomDoor.Direction.WEST:
+			neighbor_cell = Vector2i(r.rect.position.x - 1, r.rect.position.y)
+	for other in rooms:
+		if other.rect.has_point(neighbor_cell):
+			door.target_room_data = other
+			return
+	# 兜底：按门方向找最近的房间（处理走廊末端等非相邻情况）
+	var door_world: Vector2 = door.global_position
+	var best: RoomData = null
+	var best_d := INF
+	for other in rooms:
+		if other == r:
+			continue
+		var center: Vector2 = other.center_world(LAYOUT_CELL)
+		var d: float = center.distance_squared_to(door_world)
+		if d < best_d:
+			best_d = d
+			best = other
+	door.target_room_data = best
+
+
+## 玩家使用门：把玩家传送进目标房间（门内安全点），并切换镜头
+func _on_room_exit_requested(room: RoomBase, door: RoomDoor) -> void:
+	var target: RoomData = door.target_room_data
+	if target == null:
+		return
+	var player := get_tree().get_first_node_in_group("player") as Node2D
+	if player == null:
+		return
+	var target_node := _room_node_of(target)
+	if target_node == null:
+		return
+	var spawn := Vector2.ZERO
+	if target_node.has_method("get_player_spawn_position"):
+		spawn = target_node.get_player_spawn_position()
+	if spawn == Vector2.ZERO:
+		spawn = _usable_rect(target).get_center()
+	player.global_position = spawn
+	var camera := _find_room_camera()
+	if camera:
+		camera.switch_to_room(_usable_rect(target))
+	EventBus.message.emit("进入 %s" % target.type_name())
+
+
+func _room_node_of(r: RoomData) -> Node2D:
+	if _rooms_root == null:
+		return null
+	var expected := world_rect_of(r.rect).position
+	for child in _rooms_root.get_children():
+		if child is Node2D and (child as Node2D).position.is_equal_approx(expected):
+			return child as Node2D
+	return null
 
 
 func _make_template_door(room, opening: Dictionary) -> RoomDoor:

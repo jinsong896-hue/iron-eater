@@ -57,9 +57,15 @@ func _ensure_structure() -> void:
 		layer.tile_set = ts
 		layer.scale = Vector2.ONE * 4.0
 		match layer_name:
-			"Ground": ground = layer
-			"Grass": grass = layer
-			"Walls": walls = layer
+			"Ground":
+				ground = layer
+				layer.z_index = -3
+			"Grass":
+				grass = layer
+				layer.z_index = -2
+			"Walls":
+				walls = layer
+				layer.z_index = -1
 	for node_name in ["Decorations", "EnemyContainer", "SpawnPoints", "Doors"]:
 		var node := get_node_or_null(node_name) as Node2D
 		if node == null:
@@ -107,7 +113,8 @@ func _on_player_detector_body_entered(body: Node2D) -> void:
 	room_entered.emit(self)
 	if cleared:
 		return
-	start_encounter()
+	# 推迟到物理查询结束后再刷怪，避免 “Can't change this state while flushing queries”
+	call_deferred("start_encounter")
 
 
 func start_encounter() -> void:

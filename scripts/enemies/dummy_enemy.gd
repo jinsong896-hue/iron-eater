@@ -13,6 +13,7 @@ var hp := 120.0
 
 func _ready() -> void:
 	add_to_group("enemies")
+	z_index = 10
 	hp = max_hp
 	respawn_timer.timeout.connect(_on_respawn)
 	_update_label()

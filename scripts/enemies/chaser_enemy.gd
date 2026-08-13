@@ -16,6 +16,7 @@ var _attack_cooldown := 0.0
 
 func _ready() -> void:
 	add_to_group("enemies")
+	z_index = 10
 	_apply_difficulty()
 	hp = max_hp
 
