@@ -59,13 +59,13 @@ func _ensure_structure() -> void:
 		match layer_name:
 			"Ground":
 				ground = layer
-				layer.z_index = -3
+				layer.z_index = 0
 			"Grass":
 				grass = layer
-				layer.z_index = -2
+				layer.z_index = 1
 			"Walls":
 				walls = layer
-				layer.z_index = -1
+				layer.z_index = 2
 	for node_name in ["Decorations", "EnemyContainer", "SpawnPoints", "Doors"]:
 		var node := get_node_or_null(node_name) as Node2D
 		if node == null:

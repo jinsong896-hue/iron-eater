@@ -128,7 +128,7 @@ func _build_ui() -> void:
 	add_child(message_label)
 
 	var hint := Label.new()
-	hint.text = "WASD 移动 · 鼠标左键 / J 攻击 · 击杀木桩掉落装备 · 吞噬/融合提升属性"
+	hint.text = "WASD 移动 · 方向键切换朝向并攻击 · Tab 背包 · 击杀木桩掉落装备"
 	hint.position = Vector2(16, 680)
 	hint.modulate = Color(0.7, 0.7, 0.7)
 	add_child(hint)

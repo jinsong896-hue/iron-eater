@@ -1,11 +1,12 @@
 class_name Player
 extends CharacterBody2D
-## 玩家原型：俯视角移动 + 鼠标朝向普攻（扇形判定，伤害走 DamagePipeline）
+## 玩家原型：俯视角移动 + 方向键朝向与普攻（无鼠标攻击）
 
 @export var move_speed_factor := 2.4
 @export var base_attack_interval := 0.6
 
 var _attack_timer := 0.0
+var _facing := Vector2.DOWN
 
 const CLASS_COLORS := {
 	"warrior": Color(0.45, 0.65, 1.0),
@@ -26,21 +27,23 @@ func _physics_process(delta: float) -> void:
 	var dir := Input.get_vector("move_left", "move_right", "move_up", "move_down")
 	velocity = dir * GameState.stat_value("spd") * move_speed_factor
 	move_and_slide()
-	# 方向键攻击：按上/下/左/右方向攻击（鼠标点击攻击保留）
+	# 方向键：切换朝向并攻击
 	if Input.is_action_just_pressed("attack_up"):
-		try_attack(Vector2.UP)
+		_facing = Vector2.UP
+		try_attack()
 	elif Input.is_action_just_pressed("attack_down"):
-		try_attack(Vector2.DOWN)
+		_facing = Vector2.DOWN
+		try_attack()
 	elif Input.is_action_just_pressed("attack_left"):
-		try_attack(Vector2.LEFT)
+		_facing = Vector2.LEFT
+		try_attack()
 	elif Input.is_action_just_pressed("attack_right"):
-		try_attack(Vector2.RIGHT)
-	if Input.is_action_just_pressed("attack"):
+		_facing = Vector2.RIGHT
 		try_attack()
 	queue_redraw()
 
 
-func try_attack(direction: Vector2 = Vector2.ZERO) -> void:
+func try_attack() -> void:
 	if _attack_timer > 0.0:
 		return
 	var aspd := GameState.stat_value("aspd")
@@ -49,11 +52,7 @@ func try_attack(direction: Vector2 = Vector2.ZERO) -> void:
 	var attack_range := GameState.stat_value("rng")
 	var crt := GameState.stat_value("crt")
 	var crd := GameState.stat_value("crd")
-	var face_dir: Vector2
-	if direction == Vector2.ZERO:
-		face_dir = (get_global_mouse_position() - global_position).normalized()
-	else:
-		face_dir = direction.normalized()
+	var face_dir: Vector2 = _facing.normalized()
 	var hit_any := false
 	for enemy in get_tree().get_nodes_in_group("enemies"):
 		if not is_instance_valid(enemy):
@@ -108,5 +107,4 @@ func _draw() -> void:
 	var color: Color = CLASS_COLORS.get(str(GameState.run_info.get("character", "warrior")), CLASS_COLORS["warrior"])
 	draw_circle(Vector2.ZERO, 16.0, color)
 	draw_arc(Vector2.ZERO, 16.0, 0.0, TAU, 32, color.lightened(0.35), 2.0)
-	var dir := (get_global_mouse_position() - global_position).normalized()
-	draw_line(Vector2.ZERO, dir * 30.0, Color(0.95, 0.95, 0.9), 3.0)
+	draw_line(Vector2.ZERO, _facing * 30.0, Color(0.95, 0.95, 0.9), 3.0)
