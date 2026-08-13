@@ -23,6 +23,15 @@ const TYPE_COLORS := {
 
 var data: RoomData
 var config: ChapterConfig
+signal room_entered(room: Node2D)
+
+
+func set_room_data(room_data: RoomData) -> void:
+	data = room_data
+
+
+func get_room_data() -> RoomData:
+	return data
 
 
 func initialize(room_data: RoomData, cfg: ChapterConfig, _usable_world: Rect2) -> void:
@@ -31,6 +40,24 @@ func initialize(room_data: RoomData, cfg: ChapterConfig, _usable_world: Rect2) -
 	_build_floor()
 	_build_walls()
 	_build_label()
+	_build_player_detector()
+
+
+func _build_player_detector() -> void:
+	var detector := Area2D.new()
+	detector.name = "PlayerDetector"
+	detector.collision_layer = 0
+	detector.collision_mask = 1
+	var shape := CollisionShape2D.new()
+	var box := RectangleShape2D.new()
+	box.size = Vector2(data.rect.size) * CELL
+	shape.shape = box
+	shape.position = box.size * 0.5
+	detector.add_child(shape)
+	detector.body_entered.connect(func(body: Node2D):
+		if body.is_in_group("player"):
+			room_entered.emit(self))
+	add_child(detector)
 
 
 func _build_floor() -> void:

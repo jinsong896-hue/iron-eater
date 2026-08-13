@@ -24,10 +24,16 @@ var boss_cleared_count := 0
 func _ready() -> void:
 	add_to_group("dungeon_manager")
 	generator = $DungeonGenerator
+	_build_minimap()
 	current_layer = clampi(int(GameState.run_info.get("floor", 1)), 1, LAYER_CONFIGS.size())
 	_continue_seed = int(GameState.run_info.get("seed", 0))
 	generator.template_room_cleared.connect(_on_template_room_cleared)
 	regenerate()
+
+
+func _build_minimap() -> void:
+	var layer: CanvasLayer = (load("res://scripts/ui/minimap_panel.gd") as GDScript).new()
+	add_child(layer)
 
 
 func regenerate(force_random := false) -> void:

@@ -31,6 +31,15 @@ var has_player_entered := false
 var encounter_active := false
 var cleared := false
 var active_enemy_ids := {}
+var room_data_ref: RoomData = null
+
+
+func set_room_data(data: RoomData) -> void:
+	room_data_ref = data
+
+
+func get_room_data() -> RoomData:
+	return room_data_ref
 
 
 func _ready() -> void:

@@ -29,12 +29,18 @@ var corridor_cells: Dictionary = {}   # Vector2i -> true
 var start_room: RoomData
 var _start_added := false
 
+# 小地图数据：《地图相关.md》——真实房间连接图 + 探索记录
+var room_connections: Dictionary = {}   # Vector2i(room_coord) -> Array[Vector2i]
+var explored_rooms: Dictionary = {}     # Vector2i(room_coord) -> true
+var current_room_coord: Vector2i = Vector2i.ZERO
+
 var _nav_region: NavigationRegion2D
 var _rooms_root: Node2D
 var _corridors_root: Node2D
 
 signal generated
 signal template_room_cleared(room_type: int)
+signal minimap_updated
 
 
 func _ready() -> void:
@@ -57,7 +63,10 @@ func clear_previous() -> void:
 			child.queue_free()
 	rooms.clear()
 	corridor_cells.clear()
+	room_connections.clear()
+	explored_rooms.clear()
 	start_room = null
+	current_room_coord = Vector2i.ZERO
 
 
 func generate(cfg: ChapterConfig, seed_value: int = -1, bake_nav: bool = false, spawn_enemies: bool = true) -> void:
@@ -74,12 +83,91 @@ func generate(cfg: ChapterConfig, seed_value: int = -1, bake_nav: bool = false, 
 	_assign_room_types()
 	_compute_door_cells()
 	_compute_direct_doors()
+	_build_room_connections()
 	_build_corridor_visuals()
 	_spawn_room_instances(spawn_enemies)
 	_build_camera_triggers()
 	if bake_nav:
 		bake_navigation()
+	current_room_coord = start_room.room_coord if start_room else Vector2i.ZERO
+	explored_rooms[current_room_coord] = true
 	generated.emit()
+	minimap_updated.emit()
+
+
+## 依据门洞/共享边界建立真实房间连接图（小地图只画真实相连的房间）
+func _build_room_connections() -> void:
+	room_connections.clear()
+	for r in rooms:
+		room_connections[r.room_coord] = []
+	for r in rooms:
+		for dc in r.door_cells:
+			var other := _room_at_door_cell(r, dc)
+			if other != null and other != r:
+				_add_connection(r.room_coord, other.room_coord)
+	# 兜底：共享边界的房间即使没有走廊格也视为相连
+	for i in rooms.size():
+		for j in range(i + 1, rooms.size()):
+			var a: RoomData = rooms[i]
+			var b: RoomData = rooms[j]
+			if _rooms_share_edge(a, b):
+				_add_connection(a.room_coord, b.room_coord)
+
+
+func _room_at_door_cell(r: RoomData, dc: Vector2i) -> RoomData:
+	for other in rooms:
+		if other == r:
+			continue
+		if other.rect.grow(1).has_point(dc) and not other.rect.has_point(dc):
+			return other
+	return null
+
+
+func _rooms_share_edge(a: RoomData, b: RoomData) -> bool:
+	if a.rect.end.x == b.rect.position.x and a.rect.position.y < b.rect.end.y and b.rect.position.y < a.rect.end.y:
+		return true
+	if b.rect.end.x == a.rect.position.x and a.rect.position.y < b.rect.end.y and b.rect.position.y < a.rect.end.y:
+		return true
+	if a.rect.end.y == b.rect.position.y and a.rect.position.x < b.rect.end.x and b.rect.position.x < a.rect.end.x:
+		return true
+	if b.rect.end.y == a.rect.position.y and a.rect.position.x < b.rect.end.x and b.rect.position.x < a.rect.end.x:
+		return true
+	return false
+
+
+func _add_connection(a: Vector2i, b: Vector2i) -> void:
+	if a == b:
+		return
+	if not room_connections.has(a):
+		room_connections[a] = []
+	if not room_connections.has(b):
+		room_connections[b] = []
+	if not room_connections[a].has(b):
+		room_connections[a].append(b)
+	if not room_connections[b].has(a):
+		room_connections[b].append(a)
+
+
+func _on_room_entered(room) -> void:
+	if room == null or not room.has_method("get_room_data"):
+		return
+	var data: RoomData = room.get_room_data()
+	if data == null:
+		return
+	current_room_coord = data.room_coord
+	explored_rooms[current_room_coord] = true
+	minimap_updated.emit()
+
+
+func get_room_data(coord: Vector2i) -> RoomData:
+	for r in rooms:
+		if r.room_coord == coord:
+			return r
+	return null
+
+
+func is_room_explored(coord: Vector2i) -> bool:
+	return explored_rooms.has(coord)
 
 
 func start_world_center() -> Vector2:
@@ -407,6 +495,8 @@ func _spawn_room_instances(spawn_enemies: bool) -> void:
 		var room = RoomScene.instantiate()
 		room.position = world_rect_of(r.rect).position
 		room.initialize(r, config, _usable_rect(r))
+		room.set_room_data(r)
+		room.room_entered.connect(_on_room_entered)
 		_rooms_root.add_child(room)
 		if spawn_enemies:
 			_spawn_enemies(r, _usable_rect(r))
@@ -425,6 +515,7 @@ func _use_template_for(r: RoomData) -> bool:
 func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
 	var room = StartRoomScene.instantiate() if r.type == RoomData.RoomType.START else Layer1TemplateScene.instantiate()
 	room.position = world_rect_of(r.rect).position
+	room.set_room_data(r)
 	room.room_width = r.rect.size.x * 20
 	room.room_height = r.rect.size.y * 12
 	# 按走廊入口写入动态门洞（瓦片坐标）
@@ -468,6 +559,7 @@ func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
 	_rooms_root.add_child(room)
 	room.room_cleared.connect(_on_template_room_cleared.bind(r.type))
 	room.exit_requested.connect(_on_room_exit_requested)
+	room.room_entered.connect(_on_room_entered)
 	# 门锁（战斗锁门 / 清怪开门）
 	for opening in openings:
 		var door := _make_template_door(room, opening)
