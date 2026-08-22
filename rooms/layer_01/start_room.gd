@@ -3,6 +3,8 @@ extends RoomBase
 ## 第一层初始安全房：《房间生成.md》
 ## 规格：20×12 格（1×1 母网格）、中央暖光、四周草地、南入口/北出口、无刷怪
 
+const RoomDecoratorScript := preload("res://scripts/dungeon/room_decorator.gd")
+
 @export_category("Room Size")
 @export var room_width := 20
 @export var room_height := 12
@@ -36,7 +38,14 @@ func _ready() -> void:
 	_ensure_structure()
 	generate_room()
 	_setup_light()
+	_decorate()
 	super._ready()
+
+
+func _decorate() -> void:
+	var decorator := RoomDecoratorScript.new()
+	decorator.rng = rng
+	decorator.decorate(self)
 
 
 func generate_room() -> void:

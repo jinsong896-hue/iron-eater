@@ -9,6 +9,8 @@ enum TemplateType {
 	T08_FOUR_PILLARS, T09_PRISON_BARS, T10_BROKEN_ROOM,
 }
 
+const RoomDecoratorScript := preload("res://scripts/dungeon/room_decorator.gd")
+
 @export_category("Template")
 @export var template_type: TemplateType = TemplateType.T01_OPEN_ARENA
 
@@ -57,6 +59,7 @@ func _ready() -> void:
 	rng.randomize()
 	_ensure_structure()
 	generate_room()
+	_decorate()
 	super._ready()
 
 
@@ -200,6 +203,12 @@ func _generate_grass() -> void:
 			if rng.randf() > probability:
 				continue
 			set_cell(grass, cell, grass_tiles[rng.randi_range(0, grass_tiles.size() - 1)])
+
+
+func _decorate() -> void:
+	var decorator := RoomDecoratorScript.new()
+	decorator.rng = rng
+	decorator.decorate(self)
 
 
 func _generate_spawn_points() -> void:
