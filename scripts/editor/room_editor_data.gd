@@ -20,6 +20,14 @@ extends Resource
 @export var detail_cells: Array[Vector2i] = []
 @export var detail_atlas: Array[Vector2i] = []
 
+## 障碍物层（柱子、木桶、碎石等，带碰撞）
+@export var obstacle_cells: Array[Vector2i] = []
+@export var obstacle_atlas: Array[Vector2i] = []
+
+## 交互层（门、宝箱、火炬等可交互对象的位置标记）
+@export var interact_cells: Array[Vector2i] = []
+@export var interact_atlas: Array[Vector2i] = []
+
 ## 标记点
 @export var enemy_spawns: Array[Vector2] = []
 @export var chest_spawns: Array[Vector2] = []
@@ -53,6 +61,22 @@ func set_detail_from_dict(dict: Dictionary) -> void:
 		detail_atlas.append(dict[cell])
 
 
+func set_obstacle_from_dict(dict: Dictionary) -> void:
+	obstacle_cells.clear()
+	obstacle_atlas.clear()
+	for cell in dict:
+		obstacle_cells.append(cell)
+		obstacle_atlas.append(dict[cell])
+
+
+func set_interact_from_dict(dict: Dictionary) -> void:
+	interact_cells.clear()
+	interact_atlas.clear()
+	for cell in dict:
+		interact_cells.append(cell)
+		interact_atlas.append(dict[cell])
+
+
 ## 还原为 Dictionary（Vector2i → Vector2i）
 func get_floor_dict() -> Dictionary:
 	var d := {}
@@ -72,4 +96,18 @@ func get_detail_dict() -> Dictionary:
 	var d := {}
 	for i in detail_cells.size():
 		d[detail_cells[i]] = detail_atlas[i]
+	return d
+
+
+func get_obstacle_dict() -> Dictionary:
+	var d := {}
+	for i in obstacle_cells.size():
+		d[obstacle_cells[i]] = obstacle_atlas[i]
+	return d
+
+
+func get_interact_dict() -> Dictionary:
+	var d := {}
+	for i in interact_cells.size():
+		d[interact_cells[i]] = interact_atlas[i]
 	return d

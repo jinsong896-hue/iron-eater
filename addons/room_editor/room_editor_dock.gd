@@ -78,6 +78,8 @@ func _on_save_pressed() -> void:
 	var floor_layer := _find_layer(layers, "floor")
 	var wall_layer := _find_layer(layers, "wall")
 	var detail_layer := _find_layer(layers, "detail")
+	var obstacle_layer := _find_layer(layers, "obstacle")
+	var interact_layer := _find_layer(layers, "interact")
 
 	var data := RoomEditorData.new()
 	data.room_name = name_str
@@ -89,6 +91,8 @@ func _on_save_pressed() -> void:
 	data.set_floor_from_dict(_collect_tiles(floor_layer))
 	data.set_wall_from_dict(_collect_tiles(wall_layer))
 	data.set_detail_from_dict(_collect_tiles(detail_layer))
+	data.set_obstacle_from_dict(_collect_tiles(obstacle_layer))
+	data.set_interact_from_dict(_collect_tiles(interact_layer))
 
 	var path := SAVE_DIR + "/" + name_str + ".tres"
 	var err := ResourceSaver.save(data, path)
@@ -122,10 +126,14 @@ func _on_load_pressed() -> void:
 	var floor_layer := _find_layer(layers, "floor")
 	var wall_layer := _find_layer(layers, "wall")
 	var detail_layer := _find_layer(layers, "detail")
+	var obstacle_layer := _find_layer(layers, "obstacle")
+	var interact_layer := _find_layer(layers, "interact")
 
 	_apply_tiles(floor_layer, data.call("get_floor_dict"))
 	_apply_tiles(wall_layer, data.call("get_wall_dict"))
 	_apply_tiles(detail_layer, data.call("get_detail_dict"))
+	_apply_tiles(obstacle_layer, data.call("get_obstacle_dict"))
+	_apply_tiles(interact_layer, data.call("get_interact_dict"))
 
 	name_input.text = str(data.get("room_name"))
 	type_opt.select(int(data.get("room_type")))

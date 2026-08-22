@@ -211,7 +211,7 @@ func _generate_grass() -> void:
 
 
 func _apply_editor_data() -> void:
-	## 从 RoomEditorData 还原三层的瓦片与标记点
+	## 从 RoomEditorData 还原所有层的瓦片与标记点
 	if editor_data == null:
 		return
 	room_width = int(editor_data.get("room_width"))
@@ -219,6 +219,11 @@ func _apply_editor_data() -> void:
 	_apply_tiles_from_dict(ground, editor_data.call("get_floor_dict"))
 	_apply_tiles_from_dict(walls, editor_data.call("get_wall_dict"))
 	_apply_tiles_from_dict(grass, editor_data.call("get_detail_dict"))
+	# 障碍物层：创建或复用 Obstacles TileMapLayer
+	var obstacle_layer := _ensure_layer("Obstacles", 3)
+	_apply_tiles_from_dict(obstacle_layer, editor_data.call("get_obstacle_dict"))
+	# 交互层：按标记瓦片坐标放置实际对象
+	_apply_interact_layer(editor_data.call("get_interact_dict"))
 	# 编辑器出生点
 	if spawn_points:
 		for child in spawn_points.get_children():
@@ -234,6 +239,41 @@ func _apply_editor_data() -> void:
 			var chest: Node = load("res://scenes/objects/chest.tscn").instantiate()
 			chest.position = pos
 			objects.add_child(chest)
+
+
+## 确保有指定名称的 TileMapLayer，不存在则创建
+func _ensure_layer(layer_name: String, z: int) -> TileMapLayer:
+	var layer := get_node_or_null(layer_name) as TileMapLayer
+	if layer == null:
+		layer = TileMapLayer.new()
+		layer.name = layer_name
+		layer.tile_set = TilesetFactory.get_tileset()
+		layer.z_index = z
+		add_child(layer)
+	return layer
+
+
+## 交互层：按瓦片坐标放置门、火炬、宝箱等对象
+func _apply_interact_layer(dict: Dictionary) -> void:
+	if dict.is_empty():
+		return
+	var objects := get_node_or_null("Objects") as Node2D
+	if objects == null:
+		return
+	# 墙壁瓦片(36,1) → 门   栏杆瓦片(51,16) → 宝箱   其他瓦片 → 火炬
+	for cell in dict:
+		var atlas: Vector2i = dict[cell]
+		var pos := Vector2((cell.x + 0.5) * WORLD_TILE, (cell.y + 0.5) * WORLD_TILE)
+		var obj: Node = null
+		if atlas == TilesetFactory.TILE_WALL:
+			obj = load("res://scenes/objects/door.tscn").instantiate()
+		elif atlas == TilesetFactory.TILE_BAR:
+			obj = load("res://scenes/objects/chest.tscn").instantiate()
+		else:
+			obj = load("res://scenes/objects/torch.tscn").instantiate()
+		if obj != null:
+			obj.position = pos
+			objects.add_child(obj)
 
 
 func _apply_tiles_from_dict(layer: TileMapLayer, dict: Dictionary) -> void:
