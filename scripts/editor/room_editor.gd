@@ -36,6 +36,9 @@ const SAVE_DIR := "res://rooms/editor/saved"
 @onready var height_spin: SpinBox = $EditorUI/Panel/VBox/Size/Height
 @onready var room_list: ItemList = $EditorUI/Panel/VBox/RoomList
 @onready var status_label: Label = $EditorUI/Panel/VBox/Status
+@onready var type_option: OptionButton = $EditorUI/Panel/VBox/RoomTypeBox/TypeOption
+@onready var min_enemy_spin: SpinBox = $EditorUI/Panel/VBox/EnemyCountBox/MinEnemy
+@onready var max_enemy_spin: SpinBox = $EditorUI/Panel/VBox/EnemyCountBox/MaxEnemy
 
 
 func _ready() -> void:
@@ -89,8 +92,13 @@ func _on_clear_pressed() -> void:
 		child.queue_free()
 	for child in chest_markers.get_children():
 		child.queue_free()
-	room_name_input.text = ""
-	_show_status("已清空所有图层")
+	# 自动递增房间名：room_01 → room_02 → room_03 ...
+	var old_name := room_name_input.text.strip_edges()
+	var num := 1
+	if old_name.begins_with("room_"):
+		num = int(old_name.trim_prefix("room_")) + 1
+	room_name_input.text = "room_%02d" % num
+	_show_status("已清空，准备画新房间：%s" % room_name_input.text)
 
 
 func _on_fill_floor_pressed() -> void:
@@ -132,6 +140,9 @@ func _collect_data() -> Resource:
 	data.room_name = room_name_input.text.strip_edges()
 	data.room_width = int(width_spin.value)
 	data.room_height = int(height_spin.value)
+	data.room_type = type_option.selected
+	data.min_enemies = int(min_enemy_spin.value)
+	data.max_enemies = int(max_enemy_spin.value)
 	data.set_floor_from_dict(_collect_tiles(floor_layer))
 	data.set_wall_from_dict(_collect_tiles(wall_layer))
 	data.set_detail_from_dict(_collect_tiles(detail_layer))
@@ -168,6 +179,9 @@ func _apply_data(data: Resource) -> void:
 	room_name_input.text = str(data.get("room_name"))
 	width_spin.value = float(data.get("room_width"))
 	height_spin.value = float(data.get("room_height"))
+	type_option.select(int(data.get("room_type")))
+	min_enemy_spin.value = float(data.get("min_enemies"))
+	max_enemy_spin.value = float(data.get("max_enemies"))
 	player_marker.position = data.get("player_spawn")
 	for pos in data.get("enemy_spawns"):
 		var marker := Marker2D.new()

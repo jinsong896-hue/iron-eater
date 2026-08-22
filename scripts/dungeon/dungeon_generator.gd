@@ -587,10 +587,20 @@ func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
 			# 编辑器房间优先：有编辑器房间池时 60% 概率使用编辑器房间
 			if not editor_room_pool.is_empty() and rng.randf() < 0.6:
 				room.editor_data = editor_room_pool[rng.randi_range(0, editor_room_pool.size() - 1)]
+				# 编辑器房间自带类型与敌人数
+				var ed_type: int = room.editor_data.get("room_type")
+				room.min_enemies = int(room.editor_data.get("min_enemies"))
+				room.max_enemies = int(room.editor_data.get("max_enemies"))
+				if ed_type == RoomBase.RoomType.ELITE:
+					room.elite_override = true
+				elif ed_type == RoomBase.RoomType.BOSS:
+					room.room_kind_override = RoomBase.RoomType.BOSS
+				elif ed_type == RoomBase.RoomType.START:
+					room.room_kind_override = RoomBase.RoomType.START
 			else:
 				room.template_type = rng.randi_range(0, 9)
-			room.min_enemies = 3
-			room.max_enemies = 5
+			room.min_enemies = maxi(room.min_enemies, 3)
+			room.max_enemies = maxi(room.max_enemies, 5)
 	_rooms_root.add_child(room)
 	room.room_cleared.connect(_on_template_room_cleared.bind(r.type))
 	room.exit_requested.connect(_on_room_exit_requested)

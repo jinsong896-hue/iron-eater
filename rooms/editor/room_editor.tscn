@@ -32,8 +32,8 @@ name = "WallLayer"
 [node name="Panel" type="Panel" parent="EditorUI"]
 offset_left = 8.0
 offset_top = 8.0
-offset_right = 268.0
-offset_bottom = 648.0
+offset_right = 280.0
+offset_bottom = 720.0
 size_flags_horizontal = 0
 size_flags_vertical = 0
 
@@ -62,7 +62,7 @@ text = "名称:"
 vertical_alignment = 1
 
 [node name="LineEdit" type="LineEdit" parent="EditorUI/Panel/VBox/RoomName"]
-text = "my_room"
+text = "room_01"
 size_flags_horizontal = 3
 
 [node name="Size" type="HBoxContainer" parent="EditorUI/Panel/VBox"]
@@ -87,6 +87,49 @@ min_value = 8.0
 max_value = 48.0
 value = 24.0
 
+[node name="RoomTypeBox" type="HBoxContainer" parent="EditorUI/Panel/VBox"]
+
+[node name="Label" type="Label" parent="EditorUI/Panel/VBox/RoomTypeBox"]
+text = "类型:"
+vertical_alignment = 1
+
+[node name="TypeOption" type="OptionButton" parent="EditorUI/Panel/VBox/RoomTypeBox"]
+size_flags_horizontal = 3
+item_count = 5
+selected = 1
+popup/item_0/text = "初始房"
+popup/item_0/id = 0
+popup/item_1/text = "普通房"
+popup/item_1/id = 1
+popup/item_2/text = "精英房"
+popup/item_2/id = 2
+popup/item_3/text = "特殊房"
+popup/item_3/id = 3
+popup/item_4/text = "Boss房"
+popup/item_4/id = 4
+
+[node name="EnemyCountBox" type="HBoxContainer" parent="EditorUI/Panel/VBox"]
+
+[node name="Label" type="Label" parent="EditorUI/Panel/VBox/EnemyCountBox"]
+text = "敌人:"
+vertical_alignment = 1
+
+[node name="MinEnemy" type="SpinBox" parent="EditorUI/Panel/VBox/EnemyCountBox"]
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 20.0
+value = 3.0
+
+[node name="Label2" type="Label" parent="EditorUI/Panel/VBox/EnemyCountBox"]
+text = "~"
+vertical_alignment = 1
+
+[node name="MaxEnemy" type="SpinBox" parent="EditorUI/Panel/VBox/EnemyCountBox"]
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 20.0
+value = 5.0
+
 [node name="Sep1" type="HSeparator" parent="EditorUI/Panel/VBox"]
 
 [node name="FillFloorBtn" type="Button" parent="EditorUI/Panel/VBox"]
@@ -101,7 +144,7 @@ text = "保存"
 text = "加载所选"
 
 [node name="ClearBtn" type="Button" parent="EditorUI/Panel/VBox"]
-text = "清空"
+text = "清空（新建）"
 
 [node name="Sep3" type="HSeparator" parent="EditorUI/Panel/VBox"]
 
@@ -123,10 +166,9 @@ allow_reselect = true
 [node name="Sep5" type="HSeparator" parent="EditorUI/Panel/VBox"]
 
 [node name="Instructions" type="Label" parent="EditorUI/Panel/VBox"]
-text = "用法：1.在场景树中选图层
-2.底部TileMap面板选瓦片
-3.点击画布绘制
-4.点保存按钮"
+text = "用法：1.选图层→画瓦片
+2.点保存→换名→清空
+3.重复画下一个房间"
 theme_override_font_sizes/font_size = 11
 autowrap_mode = 2
 

@@ -24,6 +24,8 @@ extends Resource
 @export var enemy_spawns: Array[Vector2] = []
 @export var chest_spawns: Array[Vector2] = []
 @export var player_spawn := Vector2.ZERO
+@export var min_enemies := 3
+@export var max_enemies := 5
 
 
 ## 把 Dictionary（Vector2i → Vector2i）写入并行数组
