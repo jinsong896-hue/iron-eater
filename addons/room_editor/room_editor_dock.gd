@@ -1,16 +1,19 @@
 @tool
 extends Control
 ## 房间编辑器停靠面板：保存 / 加载 / 清空 / 填充地板
-## 通过 EditorPlugin 获取当前场景的 RoomEditor 节点
+## 由 plugin.gd 注入 editor_interface 引用
 
 const SAVE_DIR := "res://rooms/editor/saved"
+const DataScript := preload("res://scripts/editor/room_editor_data.gd")
+
+var editor_interface: EditorInterface = null
 
 @onready var name_input: LineEdit = $VBox/NameBox/LineEdit
 @onready var type_opt: OptionButton = $VBox/TypeBox/TypeOption
 @onready var min_spin: SpinBox = $VBox/EnemyBox/MinEnemy
 @onready var max_spin: SpinBox = $VBox/EnemyBox/MaxEnemy
 @onready var room_list: ItemList = $VBox/RoomList
-@onready var status: Label = $VBox/Status
+@onready var status_lbl: Label = $VBox/Status
 
 
 func _ready() -> void:
@@ -19,10 +22,9 @@ func _ready() -> void:
 
 
 func _get_editor_root() -> Node2D:
-	var iface := EditorInterface.get_singleton()
-	if iface == null:
+	if editor_interface == null:
 		return null
-	return iface.get_edited_scene_root() as Node2D
+	return editor_interface.get_edited_scene_root() as Node2D
 
 
 func _get_tilemap_layers() -> Array:
@@ -52,12 +54,18 @@ func _collect_tiles(layer: TileMapLayer) -> Dictionary:
 	return result
 
 
-func _apply_tiles(layer: TileMapLayer, dict: Dictionary) -> void:
+func _apply_tiles(layer: TileMapLayer, d: Dictionary) -> void:
 	if layer == null:
 		return
 	layer.clear()
-	for cell in dict:
-		layer.set_cell(cell, 0, dict[cell])
+	for cell in d:
+		layer.set_cell(cell, 0, d[cell])
+
+
+func _make_data() -> Resource:
+	var data := Resource.new()
+	data.set_script(DataScript)
+	return data
 
 
 ## ---------------------------------------------------------------------------
@@ -75,32 +83,29 @@ func _on_save_pressed() -> void:
 		return
 
 	var layers := _get_tilemap_layers()
-	var floor_layer := _find_layer(layers, "floor")
-	var wall_layer := _find_layer(layers, "wall")
-	var detail_layer := _find_layer(layers, "detail")
-	var obstacle_layer := _find_layer(layers, "obstacle")
-	var interact_layer := _find_layer(layers, "interact")
+	var data := _make_data()
+	data.set("room_name", name_str)
+	data.set("room_width", 40)
+	data.set("room_height", 24)
+	data.set("room_type", type_opt.selected)
+	data.set("min_enemies", int(min_spin.value))
+	data.set("max_enemies", int(max_spin.value))
+	data.call("set_floor_from_dict", _collect_tiles(_find_layer(layers, "floor")))
+	data.call("set_wall_from_dict", _collect_tiles(_find_layer(layers, "wall")))
+	data.call("set_detail_from_dict", _collect_tiles(_find_layer(layers, "detail")))
+	data.call("set_obstacle_from_dict", _collect_tiles(_find_layer(layers, "obstacle")))
+	data.call("set_interact_from_dict", _collect_tiles(_find_layer(layers, "interact")))
 
-	var data := RoomEditorData.new()
-	data.room_name = name_str
-	data.room_width = int(root.get("room_width") if root.get("room_width") != null else 40)
-	data.room_height = int(root.get("room_height") if root.get("room_height") != null else 24)
-	data.room_type = type_opt.selected
-	data.min_enemies = int(min_spin.value)
-	data.max_enemies = int(max_spin.value)
-	data.set_floor_from_dict(_collect_tiles(floor_layer))
-	data.set_wall_from_dict(_collect_tiles(wall_layer))
-	data.set_detail_from_dict(_collect_tiles(detail_layer))
-	data.set_obstacle_from_dict(_collect_tiles(obstacle_layer))
-	data.set_interact_from_dict(_collect_tiles(interact_layer))
-
+	var dir := DirAccess.open(SAVE_DIR)
+	if dir == null:
+		DirAccess.make_dir_recursive_absolute(SAVE_DIR)
 	var path := SAVE_DIR + "/" + name_str + ".tres"
 	var err := ResourceSaver.save(data, path)
 	if err == OK:
 		_show("已保存：%s" % path)
 		_refresh_list()
 	else:
-		_show("保存失败：%d" % err)
+		_show("保存失败，错误码：%d" % err)
 
 
 func _on_load_pressed() -> void:
@@ -119,21 +124,15 @@ func _on_load_pressed() -> void:
 		return
 	var data: Resource = load(path)
 	if data == null:
-		_show("加载失败")
+		_show("加载失败：%s" % path)
 		return
 
 	var layers := _get_tilemap_layers()
-	var floor_layer := _find_layer(layers, "floor")
-	var wall_layer := _find_layer(layers, "wall")
-	var detail_layer := _find_layer(layers, "detail")
-	var obstacle_layer := _find_layer(layers, "obstacle")
-	var interact_layer := _find_layer(layers, "interact")
-
-	_apply_tiles(floor_layer, data.call("get_floor_dict"))
-	_apply_tiles(wall_layer, data.call("get_wall_dict"))
-	_apply_tiles(detail_layer, data.call("get_detail_dict"))
-	_apply_tiles(obstacle_layer, data.call("get_obstacle_dict"))
-	_apply_tiles(interact_layer, data.call("get_interact_dict"))
+	_apply_tiles(_find_layer(layers, "floor"), data.call("get_floor_dict"))
+	_apply_tiles(_find_layer(layers, "wall"), data.call("get_wall_dict"))
+	_apply_tiles(_find_layer(layers, "detail"), data.call("get_detail_dict"))
+	_apply_tiles(_find_layer(layers, "obstacle"), data.call("get_obstacle_dict"))
+	_apply_tiles(_find_layer(layers, "interact"), data.call("get_interact_dict"))
 
 	name_input.text = str(data.get("room_name"))
 	type_opt.select(int(data.get("room_type")))
@@ -149,13 +148,12 @@ func _on_clear_pressed() -> void:
 	var layers := _get_tilemap_layers()
 	for layer in layers:
 		layer.clear()
-	# 自动递增房间名
 	var old_name := name_input.text.strip_edges()
 	var num := 1
 	if old_name.begins_with("room_"):
 		num = int(old_name.trim_prefix("room_")) + 1
 	name_input.text = "room_%02d" % num
-	_show("已清空，准备画新房间")
+	_show("已清空，准备画新房间：%s" % name_input.text)
 
 
 func _on_fill_floor_pressed() -> void:
@@ -169,10 +167,6 @@ func _on_fill_floor_pressed() -> void:
 		return
 	var w := 40
 	var h := 24
-	if root.get("room_width") != null:
-		w = int(root.get("room_width"))
-	if root.get("room_height") != null:
-		h = int(root.get("room_height"))
 	for x in w:
 		for y in h:
 			var alt := TilesetFactory.TILE_FLOOR_A
@@ -205,6 +199,6 @@ func _on_room_list_item_activated(_idx: int) -> void:
 
 
 func _show(text: String) -> void:
-	if status:
-		status.text = text
+	if status_lbl:
+		status_lbl.text = text
 	print("[RoomEditor] %s" % text)
