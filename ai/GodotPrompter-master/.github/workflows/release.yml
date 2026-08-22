@@ -1,0 +1,191 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    name: Verify version consistency and validate skills
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verify version consistency
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/v}"
+          PKG=$(node -p "require('./package.json').version")
+          PLUGIN=$(node -p "require('./.claude-plugin/plugin.json').version")
+          MARKET=$(node -p "const p=require('./.claude-plugin/marketplace.json').plugins.find(x=>x.name==='godot-prompter'); p ? p.version : ''")
+          CURSOR=$(node -p "require('./.cursor-plugin/plugin.json').version")
+          ANTIGRAVITY=$(node -p "require('./plugin.json').version")
+          echo "tag=$TAG  package.json=$PKG  .claude-plugin/plugin.json=$PLUGIN  marketplace.json=$MARKET  .cursor-plugin/plugin.json=$CURSOR  plugin.json=$ANTIGRAVITY"
+          if [ "$TAG" != "$PKG" ] || [ "$TAG" != "$PLUGIN" ] || [ "$TAG" != "$MARKET" ] || [ "$TAG" != "$CURSOR" ] || [ "$TAG" != "$ANTIGRAVITY" ]; then
+            echo "::error::Version drift between tag and in-repo files"
+            exit 1
+          fi
+
+      - name: Run skill validator
+        run: node scripts/validate-skills.mjs
+
+      # v1.13.0 ships executable code (hooks/) for the first time. Manual smoke-testing on one
+      # machine is not a gate — these cover platform output shapes, project detection,
+      # config/features parsing, and that the scripts carry no CR bytes.
+      - name: Run hook tests
+        run: npm run test:hooks
+
+      # The parity-exemption marker records an ERROR when its reason is missing, and the validator
+      # exits non-zero on any error — so a malformed marker fails the release tag itself. Gate it.
+      - name: Run validator tests
+        run: npm run test:validator
+
+      # Self-test: the fixtures under scripts/fixtures/ are deliberately broken (over budget,
+      # bad frontmatter, broken cross-ref). If the validator ever stops catching them, its rules
+      # have been silently disabled — fail loudly rather than pass a release that isn't checked.
+      - name: Validator self-test (fixtures must fail)
+        run: |
+          if node scripts/validate-skills.mjs --include-fixtures; then
+            echo "::error::Validator passed on the broken fixtures — its rules are not being enforced."
+            exit 1
+          fi
+          echo "Validator correctly rejected the fixtures."
+
+  release:
+    name: Create GitHub release
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract CHANGELOG section for this version
+        id: changelog
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          # Match "## [VERSION]" exactly (string compare avoids regex dot ambiguity)
+          awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > /tmp/release-body.md
+          if [ ! -s /tmp/release-body.md ]; then
+            echo "::error::No CHANGELOG section found for v$VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ steps.changelog.outputs.version }}" \
+            --title "v${{ steps.changelog.outputs.version }}" \
+            --notes-file /tmp/release-body.md \
+            --latest
+
+  marketplace-prs:
+    name: Open marketplace bump PRs
+    needs: release
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check for marketplace token
+        id: token-check
+        env:
+          MTOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+        run: |
+          if [ -z "$MTOKEN" ]; then
+            echo "::warning::MARKETPLACE_TOKEN secret not set — skipping marketplace PRs. Bump skillsmith/.claude-plugin/marketplace.json and godot-prompter-marketplace/.claude-plugin/marketplace.json manually per CONTRIBUTING.md."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node
+        if: steps.token-check.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Check out godot-prompter at the release tag so the bump scripts can copy
+      # the canonical marketplace entry description (incl. the current skill count)
+      # into the marketplace repos — not just the version.
+      - name: Checkout godot-prompter (canonical marketplace entry)
+        if: steps.token-check.outputs.skip == 'false'
+        uses: actions/checkout@v4
+
+      - name: Open PR against skillsmith
+        if: steps.token-check.outputs.skip == 'false'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          V="${VERSION#v}"
+          BRANCH="bump/godot-prompter-$V"
+          # Configure git to use gh's credential helper so `git push` finds the token.
+          # Without this, `gh repo clone` works (gh reads GH_TOKEN directly) but
+          # `git push` falls back to interactive auth and fails in CI.
+          gh auth setup-git
+          gh repo clone jame581/skillsmith /tmp/skillsmith
+          cd /tmp/skillsmith
+          git config user.name "godot-prompter-bot"
+          git config user.email "noreply@github.com"
+          git checkout -b "$BRANCH"
+          node -e "
+            const fs=require('fs');
+            const desc=JSON.parse(fs.readFileSync(process.env.GITHUB_WORKSPACE+'/.claude-plugin/marketplace.json','utf8')).plugins[0].description;
+            const p='.claude-plugin/marketplace.json';
+            const j=JSON.parse(fs.readFileSync(p,'utf8'));
+            const i=j.plugins.findIndex(x=>x.name==='godot-prompter');
+            if(i<0){console.error('godot-prompter plugin not found in skillsmith marketplace');process.exit(1);}
+            j.plugins[i].version='$V';
+            j.plugins[i].description=desc;
+            fs.writeFileSync(p, JSON.stringify(j,null,2)+'\n');
+          "
+          git add .claude-plugin/marketplace.json
+          git commit -m "chore: bump godot-prompter to $V"
+          git push -u origin "$BRANCH"
+          gh pr create --title "Bump godot-prompter to $V" --body "Automated bump from godot-prompter v$V release."
+
+      - name: Open PR against godot-prompter-marketplace
+        if: steps.token-check.outputs.skip == 'false'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          V="${VERSION#v}"
+          BRANCH="bump/godot-prompter-$V"
+          # Configure git to use gh's credential helper so `git push` finds the token.
+          gh auth setup-git
+          gh repo clone jame581/godot-prompter-marketplace /tmp/legacy
+          cd /tmp/legacy
+          git config user.name "godot-prompter-bot"
+          git config user.email "noreply@github.com"
+          git checkout -b "$BRANCH"
+          node -e "
+            const fs=require('fs');
+            const desc=JSON.parse(fs.readFileSync(process.env.GITHUB_WORKSPACE+'/.claude-plugin/marketplace.json','utf8')).plugins[0].description;
+            const p='.claude-plugin/marketplace.json';
+            const j=JSON.parse(fs.readFileSync(p,'utf8'));
+            const i=j.plugins.findIndex(x=>x.name==='godot-prompter');
+            if(i<0){console.error('godot-prompter plugin not found in legacy marketplace');process.exit(1);}
+            j.plugins[i].version='$V';
+            j.plugins[i].description=desc;
+            fs.writeFileSync(p, JSON.stringify(j,null,2)+'\n');
+          "
+          git add .claude-plugin/marketplace.json
+          git commit -m "chore: bump godot-prompter to $V"
+          git push -u origin "$BRANCH"
+          gh pr create --title "Bump godot-prompter to $V" --body "Automated bump from godot-prompter v$V release. Legacy marketplace — for existing installs only."

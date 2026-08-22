@@ -1,0 +1,1 @@
+Godot 4 Final Demo V25. Import project.godot and Run. WASD move, LMB attack, Q fire slash, E devour.

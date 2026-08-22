@@ -46,12 +46,8 @@ func _ready() -> void:
 	_ensure_structure()
 	_connect_player_detector()
 	_connect_doors()
-	if starts_cleared or room_type == RoomType.START:
-		cleared = true
-		_set_all_doors_locked(false)
-	else:
-		cleared = false
-		_set_all_doors_locked(false)
+	cleared = starts_cleared or room_type == RoomType.START
+	_set_all_doors_locked(false)
 
 
 ## 自动补齐场景结构（支持代码构建与 .tscn 两种方式）
@@ -64,7 +60,7 @@ func _ensure_structure() -> void:
 			layer.name = layer_name
 			add_child(layer)
 		layer.tile_set = ts
-		layer.scale = Vector2.ONE * 4.0
+		layer.scale = Vector2.ONE
 		match layer_name:
 			"Ground":
 				ground = layer
@@ -94,8 +90,10 @@ func _ensure_structure() -> void:
 		player_detector.collision_mask = 1
 		var shape := CollisionShape2D.new()
 		var box := RectangleShape2D.new()
-		box.size = Vector2(2000, 1200)
+		var det_size := _detector_size()
+		box.size = det_size
 		shape.shape = box
+		shape.position = det_size * 0.5
 		player_detector.add_child(shape)
 		add_child(player_detector)
 	if player_spawn == null:
@@ -222,6 +220,17 @@ func get_player_spawn_position() -> Vector2:
 	if player_spawn:
 		return player_spawn.global_position
 	return global_position
+
+
+## 玩家检测区尺寸：按子类 room_width/room_height（格）× 64px 换算；未定义时回退 20×12
+func _detector_size() -> Vector2:
+	var w: int = 20
+	var h: int = 12
+	if get("room_width") != null:
+		w = int(get("room_width"))
+	if get("room_height") != null:
+		h = int(get("room_height"))
+	return Vector2(w, h) * WORLD_TILE
 
 
 func set_cell(layer: TileMapLayer, cell: Vector2i, atlas_coords: Vector2i) -> void:

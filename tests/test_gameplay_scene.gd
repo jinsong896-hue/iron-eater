@@ -68,7 +68,7 @@ func _test_boss_gating() -> void:
 	_check(not mgr.boss_cleared, "初始未击败 Boss")
 	mgr.next_layer()
 	_check(mgr.current_layer == 1, "未击败 Boss 时禁止进入下一层")
-	gen.template_room_cleared.emit(RoomBase.RoomType.BOSS)
+	gen.template_room_cleared.emit(RoomData.RoomType.BOSS)
 	await get_tree().process_frame
 	_check(mgr.boss_cleared, "击败 Boss 后解锁下一层")
 	mgr.next_layer()

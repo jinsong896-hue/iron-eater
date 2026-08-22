@@ -25,7 +25,7 @@ func _init() -> void:
 
 func _test_tileset() -> void:
 	var ts := TilesetFactory.get_tileset()
-	_check(ts != null and ts.tile_size == Vector2i(16, 16), "瓦片集构建（16×16）")
+	_check(ts != null and ts.tile_size == Vector2i(64, 64), "瓦片集构建（64×64）")
 	var atlas: TileSetAtlasSource = ts.get_source(0)
 	_check(atlas != null and atlas.has_tile(TilesetFactory.TILE_FLOOR_A), "地板瓦片存在")
 	_check(atlas != null and atlas.has_tile(TilesetFactory.TILE_WALL), "墙壁瓦片存在")

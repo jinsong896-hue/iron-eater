@@ -13,6 +13,8 @@ func _ready() -> void:
 		get_tree().quit(1))
 	add_child(guard)
 	guard.start()
+	# 固定种子，避免随机地牢导致断言偶发（种子会经 GameState.run_info 传给 DungeonManager）
+	GameState.run_info["seed"] = 20260812
 	var scene := (load("res://scenes/main.tscn") as PackedScene).instantiate()
 	add_child(scene)
 	await get_tree().process_frame

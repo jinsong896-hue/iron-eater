@@ -1,0 +1,82 @@
+name: Skill request
+description: Propose a new GodotPrompter skill or a major expansion of an existing one.
+title: "[Skill]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when you want a new Godot-specific skill or a substantial upgrade to an existing one.
+  - type: input
+    id: skill_name
+    attributes:
+      label: Proposed skill name
+      description: Use kebab-case if you already have a name in mind.
+      placeholder: e.g. quest-system
+    validations:
+      required: true
+  - type: dropdown
+    id: domain
+    attributes:
+      label: Godot domain
+      description: What area should this skill cover?
+      options:
+        - Gameplay systems
+        - 2D
+        - 3D
+        - UI
+        - Audio
+        - Animation
+        - Physics
+        - AI/navigation
+        - Multiplayer
+        - Save/load
+        - Editor tooling/addons
+        - Rendering/shaders/VFX
+        - Performance/optimization
+        - Platform/export
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: language_scope
+    attributes:
+      label: Language coverage needed
+      options:
+        - Both GDScript and C#
+        - GDScript only
+        - C# only
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What should an agent be able to help with after this skill exists?
+      placeholder: Describe the developer task, trigger, and expected outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Suggested scope and topics
+      description: List the patterns, APIs, pitfalls, or examples the skill should cover.
+      placeholder: Include any must-have sections or related Godot APIs.
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: Reference material
+      description: Link docs, tutorials, repos, or prior discussions that would help shape the skill.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing skills and issues before opening this request.
+          required: true
+        - label: This request is for a distinct skill or a substantial expansion, not a minor typo fix.
+          required: true

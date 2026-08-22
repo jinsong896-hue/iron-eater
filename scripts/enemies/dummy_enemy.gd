@@ -23,7 +23,6 @@ func _ready() -> void:
 func take_damage(amount: float, crit: bool) -> void:
 	hp = maxf(hp - amount, 0.0)
 	GameState.total_damage += amount
-	EventBus.player_damage_dealt.emit(amount, crit)
 	_update_label()
 	if hp <= 0.0:
 		die()

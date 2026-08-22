@@ -1,0 +1,28 @@
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Godot
+.godot/
+*.import
+export_presets.cfg
+
+# Build
+node_modules/
+package-lock.json
+
+# tests/plugin-test (and any nested .claude/ scaffolding)
+.claude/
+# Share project-level Claude Code settings with contributors;
+# keep per-user overrides local.
+!/.claude/
+!/.claude/settings.json
+/.claude/settings.local.json

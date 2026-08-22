@@ -8,6 +8,8 @@ const ItemPickupScene := preload("res://scenes/equipment/item_pickup.tscn")
 
 var attributes: AttributeSystem
 var equipment_manager: EquipmentManager
+## 战斗/装备层随机数：按 run_info.seed 初始化，保证同一种子可复现本局（地牢生成另用 DungeonGenerator 自己的 rng）
+var rng := RandomNumberGenerator.new()
 var gold := 0
 var kills := 0
 var total_damage := 0.0
@@ -26,6 +28,8 @@ func _ready() -> void:
 func reset_run() -> void:
 	attributes = AttributeSystemScript.new()
 	equipment_manager = EquipmentManagerScript.new()
+	equipment_manager.rng = rng
+	rng.seed = int(run_info.get("seed", 0))
 	gold = 1000
 	kills = 0
 	total_damage = 0.0
@@ -35,8 +39,9 @@ func reset_run() -> void:
 	boss_kills = 0
 	_run_start_ms = Time.get_ticks_msec()
 	# 开局送 3 件白装用于体验吞噬/融合
+	var starter_pool: Array = EquipmentDB.all_templates()
 	for i in 3:
-		var t: EquipmentTemplate = EquipmentDB.all_templates().pick_random()
+		var t: EquipmentTemplate = starter_pool[rng.randi() % starter_pool.size()]
 		equipment_manager.add_item(EquipmentInstance.create(t))
 	_refresh_attributes()
 	EventBus.stats_changed.emit()
@@ -69,6 +74,8 @@ func finish_run(reason: String) -> Dictionary:
 		"character": run_info.get("character", "warrior"),
 		"difficulty": run_info.get("difficulty", "normal"),
 		"total_damage": total_damage,
+		# 通关时写入已通关层数，供 SaveManager 更新 highest_cleared_floor
+		"cleared_floor": floor if reason == "cleared" else 0,
 	}
 	if SaveManager.active_slot > 0:
 		SaveManager.finish_run(result)
@@ -85,6 +92,16 @@ func stat_value(stat_name: String) -> float:
 
 func play_time_seconds() -> float:
 	return float(Time.get_ticks_msec() - _run_start_ms) / 1000.0
+
+
+## 已装备武器融合成长带来的攻击加成（《武器设计分册》融合攻击成长，0/5/10/15/20/25 节点）
+func fusion_attack_bonus() -> float:
+	var best := 0.0
+	for item in equipment_manager.loadout.equipped_items():
+		var t: EquipmentTemplate = item.get_template()
+		if t != null and t.category == EquipmentDefs.Category.WEAPON:
+			best = maxf(best, item.fusion_bonus())
+	return best
 
 
 ## 把装备栏 + 吞噬累计写入角色属性（来源可追踪，随时可重算）
@@ -170,6 +187,19 @@ func unequip_slot(slot: int) -> Dictionary:
 
 func devour_ids(ids: Array) -> Dictionary:
 	var result := equipment_manager.devour_many(ids)
+	if result.ok:
+		devoured_count += result.get("count", 0)
+		_refresh_attributes()
+		EventBus.stats_changed.emit()
+		EventBus.inventory_changed.emit()
+	return result
+
+
+## 直接吞噬一件掉落物实例（demo2：E 键吞噬，本局永久成长）
+func devour_item(item: EquipmentInstance) -> Dictionary:
+	if item == null:
+		return {"ok": false, "reason": "无效掉落物"}
+	var result := equipment_manager.devour_instance(item)
 	if result.ok:
 		devoured_count += result.get("count", 0)
 		_refresh_attributes()

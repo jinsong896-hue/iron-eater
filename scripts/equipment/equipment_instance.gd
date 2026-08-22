@@ -12,10 +12,14 @@ var gained_fusion_affixes: Array[AffixInstance] = []
 var is_locked := false
 var created_at_usec := 0
 
+## 进程内实例序号（保证 ID 唯一，不依赖全局随机，避免污染本局可复现性）
+static var _seq := 0
+
 
 static func create(template: EquipmentTemplate) -> EquipmentInstance:
 	var inst := EquipmentInstance.new()
-	inst.instance_id = "%s_%d_%d" % [template.id, Time.get_ticks_usec(), randi() % 100000]
+	_seq += 1
+	inst.instance_id = "%s_%d_%d" % [template.id, Time.get_ticks_usec(), _seq]
 	inst.template_id = template.id
 	inst.rarity = template.rarity
 	inst.created_at_usec = Time.get_ticks_usec()
@@ -36,13 +40,11 @@ func enhancement_mult() -> float:
 	return 1.0 + enhancement_level * EnhancementRules.BONUS_PER_LEVEL
 
 
-## 基础词条的有效值（含强化）
+## 基础词条的有效值（含强化）：固定与百分比词条统一按强化倍率缩放
 func base_affix_value() -> float:
 	var t := get_template()
 	if t == null or t.base_affix == null:
 		return 0.0
-	if t.base_affix.operation == EquipmentDefs.ModifierOperation.ADD_PERCENT:
-		return t.base_affix.value * enhancement_mult()
 	return t.base_affix.value * enhancement_mult()
 
 

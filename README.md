@@ -4,7 +4,7 @@
 
 ## 当前内容（M0 最小可玩闭环 + 随机地牢 + 装备系统）
 
-- 俯视角移动（WASD）+ 鼠标朝向普攻（左键 / J）
+- 俯视角移动（WASD）+ 方向键朝向与普攻（扇形判定）
 - 玩家血量与死亡：受击掉血 → 本局结算 → 回主菜单
 - 敌人接触攻击 + 难度缩放（简单/普通/困难）
 - 通关流程：击败本层 Boss 解锁下一层，第 9 层三 Boss 通关结算
@@ -12,8 +12,8 @@
 - 伤害管线：物理伤害公式 `ATK × 倍率 × (1+增伤) × (1 - 护甲减伤)`
 - 装备 Resource 数据 + 吞噬 / 融合核心逻辑 + HUD（属性 / 金币 / 背包 / 调试按钮）
 - **装备系统**（依据 `ai/基础装备相关.md` 方案 V0.9）：
-  - 模板/实例分离：`EquipmentTemplate`（.tres）只描述装备，运行时数据全部在 `EquipmentInstance`
-  - 36 件白装基准池：12 武器 + 18 护甲 + 6 饰品（`data/equipment/templates/*.tres`）
+  - 模板/实例分离：`EquipmentTemplate` 只描述装备，运行时数据全部在 `EquipmentInstance`
+  - 36 件白装基准池：12 武器 + 18 护甲 + 6 饰品（数据源 `data/equipment/white_equipment_data.gd`，运行时唯一数据源）
   - 10 槽位（6 防具 + 饰品×2 + 武器×2）、单手/双手自动判定、双手占槽属性只计一次
   - 每件装备三词条：基础（穿戴）/ 吞噬（本局永久）/ 融合（作为材料贡献）
   - 吞噬：确定成功、批量多选、当前→本次→最终汇总
@@ -49,7 +49,7 @@
 ## 操作
 
 - `WASD` 移动
-- 鼠标左键 / `J` 攻击（朝鼠标方向，扇形判定）
+- 方向键（↑↓←→）切换朝向并攻击（朝面向方向，扇形判定）
 - `R` 重新生成本层　`N` 下一层
 - HUD 按钮：+金币 / 生成装备 / 重置单局 / **装备管理** / 重新生成本层 / 下一层
 - 装备管理界面：ESC 关闭；左键查看+对比，右键功能条
@@ -79,10 +79,9 @@ rooms/
   ui/                    # HUD
   ui/menu/               # 主菜单控制器、存档卡、设置面板、确认弹窗、过渡、结算、暂停菜单
 data/
-  equipment/templates/   # 36 件白装模板 .tres（由 tools/generate_equipment_tres.gd 生成）
+  equipment/            # 白装数据源（white_equipment_data.gd，运行时唯一数据源）
   dungeon/layers/        # 9 层章节配置（Layer01~09.tres，含主题配色与房间数量）
 tests/                   # test_framework / test_dungeon / test_equipment / test_room / test_menu
-tools/                   # generate_equipment_tres.gd（白装 .tres 生成工具）
 ```
 
 ## 打开方式

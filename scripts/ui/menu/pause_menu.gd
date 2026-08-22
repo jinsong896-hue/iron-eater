@@ -33,10 +33,13 @@ func _build_ui() -> void:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	_panel.add_child(dim)
+	# 用 CenterContainer 把菜单真正居中（PRESET_CENTER 只改锚点，容器按默认方向向右下增长会偏移）
+	var center_host := CenterContainer.new()
+	center_host.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_panel.add_child(center_host)
 	var center := HBoxContainer.new()
-	center.set_anchors_preset(Control.PRESET_CENTER)
 	center.add_theme_constant_override("separation", 30)
-	_panel.add_child(center)
+	center_host.add_child(center)
 
 	# 左侧：当前局概览
 	var overview_panel := PanelContainer.new()

@@ -63,7 +63,9 @@ func next_layer() -> void:
 
 
 func _on_template_room_cleared(room_type: int) -> void:
-	if room_type != RoomBase.RoomType.BOSS:
+	# 信号里传的是 RoomData.RoomType（生成器的 r.type），此处必须用同一枚举比较，
+	# 否则 Boss 房永远无法判定为清怪完成，下一层门控与第 9 层通关都不会触发。
+	if room_type != RoomData.RoomType.BOSS:
 		return
 	GameState.boss_kills += 1
 	if current_layer == 9:

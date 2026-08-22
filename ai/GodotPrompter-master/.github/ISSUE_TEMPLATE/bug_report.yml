@@ -1,0 +1,92 @@
+name: Bug report
+description: Report a bug in a skill, agent, plugin integration, or repository workflow.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem.
+        Please include enough detail for someone new to the issue to reproduce it.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: What part of the project is affected?
+      options:
+        - Skill content
+        - Agent definition
+        - Plugin packaging or installation
+        - Documentation
+        - Test suite or validation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: skill_name
+    attributes:
+      label: Skill or agent name
+      description: If relevant, name the skill or agent involved.
+      placeholder: e.g. state-machine, godot-game-dev
+  - type: dropdown
+    id: platform
+    attributes:
+      label: AI platform
+      description: Where did you hit the issue?
+      options:
+        - Claude Code
+        - GitHub Copilot CLI
+        - Gemini CLI
+        - Cursor
+        - Codex
+        - OpenCode
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: godot_version
+    attributes:
+      label: Godot version
+      description: If the bug involves Godot-specific guidance or examples.
+      placeholder: e.g. 4.3.0, 4.4.1, not applicable
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps needed to reproduce the issue.
+      placeholder: |
+        1. Install the plugin or open the repo
+        2. Ask the agent to...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: Describe what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: Describe what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs, screenshots, or snippets
+      description: Paste any output that helps explain the issue.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues before opening this report.
+          required: true
+        - label: I included enough detail for reproduction.
+          required: true

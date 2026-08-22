@@ -3,10 +3,6 @@ extends Control
 ## 装备管理界面：装备 / 背包 / 强化（含融合）/ 吞噬 四页
 ## 交互：左键查看 + 完整对比；右键功能条（装备/查看/吞噬/强化/锁定/丢弃）
 
-const RARITY_COLORS := {
-	0: "#FFFFFF", 1: "#7BC96F", 2: "#5B8DEF", 3: "#B06CE8", 4: "#F09A3E", 5: "#E5484D",
-}
-
 const TAG_FILTERS := ["单手", "双手", "近战", "远程", "长杆", "物理", "法术", "其他", "轻甲", "中甲", "重甲"]
 
 var current_tab := 0          # 0 装备 1 背包 2 强化 3 吞噬
@@ -131,7 +127,7 @@ func _clear_container(container: Node) -> void:
 
 func _make_item_button(parent: Control, item: EquipmentInstance, on_left: Callable, on_right: Callable) -> void:
 	var btn := Button.new()
-	var color: String = RARITY_COLORS.get(item.rarity, "#FFFFFF")
+	var color: String = EquipmentDefs.rarity_hex(item.rarity)
 	btn.text = "[color=%s]%s[/color] 融合%d [%s] 强化+%d" % [
 		color, item.display_name(), item.fusion_count, item.fusion_tier(), item.enhancement_level]
 	if item.is_locked:
@@ -164,6 +160,8 @@ func _show_context_menu(item_id: String, at: Vector2, include_equip: bool, equip
 	menu.add_item("解锁" if item.is_locked else "锁定", 5)
 	menu.add_item("丢弃", 6)
 	menu.id_pressed.connect(_on_context_action.bind(item_id, equipped_slot))
+	# 关闭后释放节点，避免反复右键累积 PopupMenu
+	menu.popup_hide.connect(menu.queue_free)
 	add_child(menu)
 	menu.popup()
 
@@ -470,11 +468,7 @@ func _num_marker(c: float, e: float) -> String:
 
 
 func _rarity_color(rarity: int) -> Color:
-	var map := {
-		0: Color.WHITE, 1: Color(0.48, 0.79, 0.44), 2: Color(0.36, 0.55, 0.94),
-		3: Color(0.69, 0.42, 0.91), 4: Color(0.94, 0.60, 0.24), 5: Color(0.90, 0.28, 0.30),
-	}
-	return map.get(rarity, Color.WHITE)
+	return EquipmentDefs.rarity_color(rarity)
 
 
 # ---------------------------------------------------------------------------

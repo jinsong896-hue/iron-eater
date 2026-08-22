@@ -15,8 +15,3 @@ func _exit_tree() -> void:
 	if _dock:
 		remove_control_from_bottom_panel(_dock)
 		_dock.queue_free()
-
-
-func _handles(object: Object) -> bool:
-	# 只对 RoomEditor 场景生效
-	return object is Node and object.get("script") != null

@@ -1,6 +1,8 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://dx2my05ktphqu"]
 
-[ext_resource type="Script" path="res://rooms/base/room_door.gd" id="1"]
+[ext_resource type="Script" uid="uid://dc3kax7hq7g1q" path="res://rooms/base/room_door.gd" id="1"]
 
-[node name="RoomDoor" type="Node2D"]
+[node name="RoomDoor" type="Node2D" unique_id=639035439]
 script = ExtResource("1")
+
+[node name="瓦片地图层" type="TileMapLayer" parent="." unique_id=615670380]

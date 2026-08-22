@@ -1,5 +1,6 @@
-extends SceneTree
+extends Node
 ## 地牢生成器逻辑测试：房间数量、中心初始房、Boss 最远、特殊房、连通性、边界
+## 以场景方式运行（--scene res://tests/test_dungeon.tscn），确保自动加载（EventBus 等）可用
 
 const GenScript := preload("res://scripts/dungeon/dungeon_generator.gd")
 const RoomDataScript := preload("res://scripts/dungeon/room_data.gd")
@@ -10,22 +11,22 @@ const Layer09 := preload("res://data/dungeon/layers/layer09.tres")
 var failed := 0
 
 
-func _init() -> void:
+func _ready() -> void:
 	await _test_layer(Layer01, 12, 16)
 	await _test_layer(Layer05, 16, 20)
 	await _test_layer(Layer09, 5, 5)
 	if failed == 0:
 		print("ALL DUNGEON TESTS PASSED")
-		quit(0)
+		get_tree().quit(0)
 	else:
 		print("DUNGEON TESTS FAILED: %d" % failed)
-		quit(1)
+		get_tree().quit(1)
 
 
 func _test_layer(cfg: ChapterConfig, min_rooms: int, max_rooms: int) -> void:
 	var gen = GenScript.new()
-	root.add_child(gen)
-	await process_frame
+	add_child(gen)
+	await get_tree().process_frame
 	gen.generate(cfg, 20260812, false, false)
 	var rooms: Array = gen.rooms
 	var count := rooms.size()
@@ -55,7 +56,7 @@ func _test_layer(cfg: ChapterConfig, min_rooms: int, max_rooms: int) -> void:
 	_check(not overlap, "%s 房间无重叠" % cfg.chapter_name)
 	_check(not out_of_bounds, "%s 房间在母网格内" % cfg.chapter_name)
 
-	# Boss 最远
+	# Boss 最远（分配器按“距初始房中心”判定，测试须用同一基准，而非原点）
 	if cfg.layer_id != 9 and start != null:
 		var boss: RoomData = null
 		for r in rooms:
@@ -63,9 +64,10 @@ func _test_layer(cfg: ChapterConfig, min_rooms: int, max_rooms: int) -> void:
 				boss = r
 		var boss_ok := boss != null
 		if boss_ok:
-			var boss_d := boss.center_cell().length_squared()
+			var start_center := start.center_cell()
+			var boss_d := (boss.center_cell() - start_center).length_squared()
 			for r in rooms:
-				if r.center_cell().length_squared() > boss_d:
+				if (r.center_cell() - start_center).length_squared() > boss_d:
 					boss_ok = false
 					break
 		_check(boss_ok, "%s Boss 存在且最远" % cfg.chapter_name)
@@ -96,7 +98,7 @@ func _test_layer(cfg: ChapterConfig, min_rooms: int, max_rooms: int) -> void:
 		_debug_start_component(gen, start)
 
 	gen.queue_free()
-	await process_frame
+	await get_tree().process_frame
 
 
 func _count_reachable(gen, start: RoomData) -> int:

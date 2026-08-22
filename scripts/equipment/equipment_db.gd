@@ -54,27 +54,3 @@ static func all_templates() -> Array:
 	for id in _cache:
 		list.append(_cache[id])
 	return list
-
-
-static func weapon_templates() -> Array:
-	var list: Array = []
-	for t in all_templates():
-		if t.category == EquipmentDefs.Category.WEAPON:
-			list.append(t)
-	return list
-
-
-static func armor_templates() -> Array:
-	var list: Array = []
-	for t in all_templates():
-		if t.category == EquipmentDefs.Category.ARMOR:
-			list.append(t)
-	return list
-
-
-static func accessory_templates() -> Array:
-	var list: Array = []
-	for t in all_templates():
-		if t.category == EquipmentDefs.Category.ACCESSORY:
-			list.append(t)
-	return list

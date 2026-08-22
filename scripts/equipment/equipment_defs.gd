@@ -50,6 +50,23 @@ const STAT_NAMES := {
 	"crt": "暴击率", "crd": "暴击伤害加成", "hp": "生命值",
 }
 
+## 稀有度配色（索引 0~5：白/绿/蓝/紫/橙/红），字符串版用于 BBCode，Color 版用于 modulate
+const RARITY_COLORS := ["#FFFFFF", "#7BC96F", "#5B8DEF", "#B06CE8", "#F09A3E", "#E5484D"]
+const RARITY_COLOR_VALUES := [
+	Color(1.0, 1.0, 1.0), Color(0.48, 0.79, 0.44), Color(0.36, 0.55, 0.94),
+	Color(0.69, 0.42, 0.91), Color(0.94, 0.60, 0.24), Color(0.90, 0.28, 0.30),
+]
+
+
+## 稀有度十六进制色（用于 BBCode 文本）
+static func rarity_hex(r: int) -> String:
+	return RARITY_COLORS[clampi(r, 0, RARITY_COLORS.size() - 1)]
+
+
+## 稀有度 Color（用于 modulate 等）
+static func rarity_color(r: int) -> Color:
+	return RARITY_COLOR_VALUES[clampi(r, 0, RARITY_COLOR_VALUES.size() - 1)]
+
 
 ## 武器分类标签：单手/双手自动生成，其余由武器特质提供
 static func weapon_tags(weapon_type: int, traits: Array) -> Array:

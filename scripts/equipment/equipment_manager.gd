@@ -5,10 +5,8 @@ extends RefCounted
 var inventory: Array[EquipmentInstance] = []
 var loadout := EquipmentLoadout.new()
 var devour_totals := {}   # stat -> {"flat": float, "percent": float}（本局吞噬累计）
-
-
-func _init() -> void:
-	loadout = EquipmentLoadout.new()
+## 掉落/融合随机源：由 GameState 注入（按本局 seed 初始化），保证可复现
+var rng := RandomNumberGenerator.new()
 
 
 func add_item(item: EquipmentInstance) -> void:
@@ -109,8 +107,24 @@ func devour_many(ids: Array) -> Dictionary:
 	return {"ok": removed > 0, "count": removed, "totals": totals}
 
 
-func devour_one(instance_id: String) -> Dictionary:
-	return devour_many([instance_id])
+## 直接吞噬一件掉落物实例（demo2：E 键吞噬，物品不在背包，直接取其吞噬词条）
+func devour_instance(item: EquipmentInstance) -> Dictionary:
+	var t := item.get_template()
+	if t == null or t.devour_affix == null:
+		return {"ok": false, "count": 0, "totals": {}}
+	var affix: AffixData = t.devour_affix
+	var totals := {}
+	totals[affix.stat] = {"flat": 0.0, "percent": 0.0}
+	if affix.operation == EquipmentDefs.ModifierOperation.ADD_PERCENT:
+		totals[affix.stat]["percent"] = affix.value
+	else:
+		totals[affix.stat]["flat"] = affix.value
+	for stat in totals:
+		if not devour_totals.has(stat):
+			devour_totals[stat] = {"flat": 0.0, "percent": 0.0}
+		devour_totals[stat]["flat"] += totals[stat]["flat"]
+		devour_totals[stat]["percent"] += totals[stat]["percent"]
+	return {"ok": true, "count": 1, "totals": totals}
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +146,7 @@ func fuse(main_id: String, material_id: String, gold: int) -> Dictionary:
 	var new_affix: AffixInstance = null
 	# 同名 → 随机升级已有融合词条；异名 → 继承材料融合词条
 	if mat_t.id == main_t.id and not main_item.gained_fusion_affixes.is_empty():
-		var target: AffixInstance = main_item.gained_fusion_affixes[randi() % main_item.gained_fusion_affixes.size()]
+		var target: AffixInstance = main_item.gained_fusion_affixes[rng.randi() % main_item.gained_fusion_affixes.size()]
 		target.stack_count += 1
 		new_affix = target
 	else:
@@ -175,12 +189,12 @@ func enhance(instance_id: String, gold: int) -> Dictionary:
 # 掉落 / 序列化
 # ---------------------------------------------------------------------------
 
-## 按稀有度权重生成一件装备实例（现阶段白装池，权重预留绿+）
+## 生成一件装备实例（现阶段 36 件白装均匀随机，权重池预留给稀有度扩展）
 func create_loot() -> EquipmentInstance:
 	var templates: Array = EquipmentDB.all_templates()
 	if templates.is_empty():
 		return null
-	var t: EquipmentTemplate = templates[randi() % templates.size()]
+	var t: EquipmentTemplate = templates[rng.randi() % templates.size()]
 	return EquipmentInstance.create(t)
 
 
@@ -191,7 +205,10 @@ func serialize() -> Dictionary:
 		items.append(item.to_dict())
 	for slot in EquipmentDefs.SlotId.values():
 		var item := loadout.get_item(slot)
-		equipped_ids[str(slot)] = item.instance_id if item != null else ""
+		if item != null:
+			equipped_ids[str(slot)] = item.instance_id
+		else:
+			equipped_ids[str(slot)] = ""
 	return {
 		"inventory": items, "equipped": equipped_ids,
 		"devour_totals": devour_totals,

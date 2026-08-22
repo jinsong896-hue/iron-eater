@@ -19,7 +19,7 @@ func _ready() -> void:
 
 
 func _get_editor_root() -> Node2D:
-	var iface := get_editor_interface()
+	var iface := EditorInterface.get_singleton()
 	if iface == null:
 		return null
 	return iface.get_edited_scene_root() as Node2D
