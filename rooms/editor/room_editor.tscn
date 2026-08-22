@@ -1,23 +1,21 @@
-[gd_scene load_steps=3 format=3 uid="uid://room_editor_001"]
+[gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/editor/room_editor.gd" id="1"]
-[ext_resource type="TileSet" path="res://rooms/editor/editor_tileset.tres" id="2"]
+[ext_resource type="TileSet" path="res://rooms/editor/editor_tileset.tres" id="1"]
 
 [node name="RoomEditor" type="Node2D"]
-script = ExtResource("1")
 
 [node name="FloorLayer" type="TileMapLayer" parent="."]
-tile_set = ExtResource("2")
+tile_set = ExtResource("1")
 z_index = 0
 name = "FloorLayer"
 
 [node name="DetailLayer" type="TileMapLayer" parent="."]
-tile_set = ExtResource("2")
+tile_set = ExtResource("1")
 z_index = 1
 name = "DetailLayer"
 
 [node name="WallLayer" type="TileMapLayer" parent="."]
-tile_set = ExtResource("2")
+tile_set = ExtResource("1")
 z_index = 2
 name = "WallLayer"
 
@@ -26,161 +24,3 @@ name = "WallLayer"
 [node name="ChestMarkers" type="Node2D" parent="."]
 
 [node name="PlayerSpawn" type="Marker2D" parent="."]
-
-[node name="EditorUI" type="CanvasLayer" parent="."]
-
-[node name="Panel" type="Panel" parent="EditorUI"]
-offset_left = 8.0
-offset_top = 8.0
-offset_right = 280.0
-offset_bottom = 720.0
-size_flags_horizontal = 0
-size_flags_vertical = 0
-
-[node name="VBox" type="VBoxContainer" parent="EditorUI/Panel"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 8.0
-offset_top = 8.0
-offset_right = -8.0
-offset_bottom = -8.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_constants/separation = 6
-
-[node name="Title" type="Label" parent="EditorUI/Panel/VBox"]
-text = "房间编辑器"
-theme_override_font_sizes/font_size = 16
-horizontal_alignment = 1
-
-[node name="RoomName" type="HBoxContainer" parent="EditorUI/Panel/VBox"]
-
-[node name="Label" type="Label" parent="EditorUI/Panel/VBox/RoomName"]
-text = "名称:"
-vertical_alignment = 1
-
-[node name="LineEdit" type="LineEdit" parent="EditorUI/Panel/VBox/RoomName"]
-text = "room_01"
-size_flags_horizontal = 3
-
-[node name="Size" type="HBoxContainer" parent="EditorUI/Panel/VBox"]
-
-[node name="Label" type="Label" parent="EditorUI/Panel/VBox/Size"]
-text = "尺寸:"
-vertical_alignment = 1
-
-[node name="Width" type="SpinBox" parent="EditorUI/Panel/VBox/Size"]
-size_flags_horizontal = 3
-min_value = 10.0
-max_value = 80.0
-value = 40.0
-
-[node name="Labelx" type="Label" parent="EditorUI/Panel/VBox/Size"]
-text = "×"
-vertical_alignment = 1
-
-[node name="Height" type="SpinBox" parent="EditorUI/Panel/VBox/Size"]
-size_flags_horizontal = 3
-min_value = 8.0
-max_value = 48.0
-value = 24.0
-
-[node name="RoomTypeBox" type="HBoxContainer" parent="EditorUI/Panel/VBox"]
-
-[node name="Label" type="Label" parent="EditorUI/Panel/VBox/RoomTypeBox"]
-text = "类型:"
-vertical_alignment = 1
-
-[node name="TypeOption" type="OptionButton" parent="EditorUI/Panel/VBox/RoomTypeBox"]
-size_flags_horizontal = 3
-item_count = 5
-selected = 1
-popup/item_0/text = "初始房"
-popup/item_0/id = 0
-popup/item_1/text = "普通房"
-popup/item_1/id = 1
-popup/item_2/text = "精英房"
-popup/item_2/id = 2
-popup/item_3/text = "特殊房"
-popup/item_3/id = 3
-popup/item_4/text = "Boss房"
-popup/item_4/id = 4
-
-[node name="EnemyCountBox" type="HBoxContainer" parent="EditorUI/Panel/VBox"]
-
-[node name="Label" type="Label" parent="EditorUI/Panel/VBox/EnemyCountBox"]
-text = "敌人:"
-vertical_alignment = 1
-
-[node name="MinEnemy" type="SpinBox" parent="EditorUI/Panel/VBox/EnemyCountBox"]
-size_flags_horizontal = 3
-min_value = 0.0
-max_value = 20.0
-value = 3.0
-
-[node name="Label2" type="Label" parent="EditorUI/Panel/VBox/EnemyCountBox"]
-text = "~"
-vertical_alignment = 1
-
-[node name="MaxEnemy" type="SpinBox" parent="EditorUI/Panel/VBox/EnemyCountBox"]
-size_flags_horizontal = 3
-min_value = 0.0
-max_value = 20.0
-value = 5.0
-
-[node name="Sep1" type="HSeparator" parent="EditorUI/Panel/VBox"]
-
-[node name="FillFloorBtn" type="Button" parent="EditorUI/Panel/VBox"]
-text = "填充地板"
-
-[node name="Sep2" type="HSeparator" parent="EditorUI/Panel/VBox"]
-
-[node name="SaveBtn" type="Button" parent="EditorUI/Panel/VBox"]
-text = "保存"
-
-[node name="LoadBtn" type="Button" parent="EditorUI/Panel/VBox"]
-text = "加载所选"
-
-[node name="ClearBtn" type="Button" parent="EditorUI/Panel/VBox"]
-text = "清空（新建）"
-
-[node name="Sep3" type="HSeparator" parent="EditorUI/Panel/VBox"]
-
-[node name="AddSpawnBtn" type="Button" parent="EditorUI/Panel/VBox"]
-text = "添加出生点"
-
-[node name="AddChestBtn" type="Button" parent="EditorUI/Panel/VBox"]
-text = "添加宝箱点"
-
-[node name="Sep4" type="HSeparator" parent="EditorUI/Panel/VBox"]
-
-[node name="SavedLabel" type="Label" parent="EditorUI/Panel/VBox"]
-text = "已保存房间:"
-
-[node name="RoomList" type="ItemList" parent="EditorUI/Panel/VBox"]
-size_flags_vertical = 3
-allow_reselect = true
-
-[node name="Sep5" type="HSeparator" parent="EditorUI/Panel/VBox"]
-
-[node name="Instructions" type="Label" parent="EditorUI/Panel/VBox"]
-text = "用法：1.选图层→画瓦片
-2.点保存→换名→清空
-3.重复画下一个房间"
-theme_override_font_sizes/font_size = 11
-autowrap_mode = 2
-
-[node name="Status" type="Label" parent="EditorUI/Panel/VBox"]
-text = "就绪"
-theme_override_colors/font_color = Color(0.5, 0.9, 0.5, 1)
-theme_override_font_sizes/font_size = 11
-
-[connection signal="pressed" from="EditorUI/Panel/VBox/FillFloorBtn" to="." method="_on_fill_floor_pressed"]
-[connection signal="pressed" from="EditorUI/Panel/VBox/SaveBtn" to="." method="_on_save_pressed"]
-[connection signal="pressed" from="EditorUI/Panel/VBox/LoadBtn" to="." method="_on_load_pressed"]
-[connection signal="pressed" from="EditorUI/Panel/VBox/ClearBtn" to="." method="_on_clear_pressed"]
-[connection signal="pressed" from="EditorUI/Panel/VBox/AddSpawnBtn" to="." method="_on_add_spawn_pressed"]
-[connection signal="pressed" from="EditorUI/Panel/VBox/AddChestBtn" to="." method="_on_add_chest_pressed"]
-[connection signal="item_activated" from="EditorUI/Panel/VBox/RoomList" to="." method="_on_room_list_item_activated"]
