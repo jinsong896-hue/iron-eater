@@ -14,6 +14,8 @@ const RoomDecoratorScript := preload("res://scripts/dungeon/room_decorator.gd")
 @export_category("Template")
 @export var template_type: TemplateType = TemplateType.T01_OPEN_ARENA
 
+@export var editor_data: Resource = null
+
 @export_category("Room Size")
 @export var room_width := 40
 @export var room_height := 24
@@ -68,6 +70,9 @@ func generate_room() -> void:
 	grass.clear()
 	walls.clear()
 	enemy_spawn_cells.clear()
+	if editor_data != null:
+		_apply_editor_data()
+		return
 	_generate_floor()
 	_generate_outer_walls()
 	_generate_layout()
@@ -203,6 +208,37 @@ func _generate_grass() -> void:
 			if rng.randf() > probability:
 				continue
 			set_cell(grass, cell, grass_tiles[rng.randi_range(0, grass_tiles.size() - 1)])
+
+
+func _apply_editor_data() -> void:
+	## 从 RoomEditorData 还原三层的瓦片与标记点
+	if editor_data == null:
+		return
+	room_width = int(editor_data.get("room_width"))
+	room_height = int(editor_data.get("room_height"))
+	_apply_tiles_from_dict(ground, editor_data.call("get_floor_dict"))
+	_apply_tiles_from_dict(walls, editor_data.call("get_wall_dict"))
+	_apply_tiles_from_dict(grass, editor_data.call("get_detail_dict"))
+	# 编辑器出生点
+	if spawn_points:
+		for child in spawn_points.get_children():
+			child.queue_free()
+		for pos in editor_data.get("enemy_spawns"):
+			var marker := Marker2D.new()
+			marker.position = pos
+			spawn_points.add_child(marker)
+	# 编辑器宝箱点
+	var objects := get_node_or_null("Objects") as Node2D
+	if objects:
+		for pos in editor_data.get("chest_spawns"):
+			var chest: Node = load("res://scenes/objects/chest.tscn").instantiate()
+			chest.position = pos
+			objects.add_child(chest)
+
+
+func _apply_tiles_from_dict(layer: TileMapLayer, dict: Dictionary) -> void:
+	for cell in dict:
+		layer.set_cell(cell, 0, dict[cell])
 
 
 func _decorate() -> void:

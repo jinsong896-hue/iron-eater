@@ -5,6 +5,9 @@ extends RoomBase
 
 const RoomDecoratorScript := preload("res://scripts/dungeon/room_decorator.gd")
 
+@export_category("Editor Data")
+@export var editor_data: Resource = null
+
 @export_category("Room Size")
 @export var room_width := 20
 @export var room_height := 12
@@ -52,11 +55,34 @@ func generate_room() -> void:
 	ground.clear()
 	grass.clear()
 	walls.clear()
+	if editor_data != null:
+		_apply_editor_data()
+		return
 	_generate_floor()
 	_generate_walls()
 	_carve_doors()
 	_generate_grass()
 	_setup_spawn()
+
+
+func _apply_editor_data() -> void:
+	## 从 RoomEditorData 还原三层瓦片与标记点
+	if editor_data == null:
+		return
+	room_width = int(editor_data.get("room_width"))
+	room_height = int(editor_data.get("room_height"))
+	_apply_dict(ground, editor_data.call("get_floor_dict"))
+	_apply_dict(walls, editor_data.call("get_wall_dict"))
+	_apply_dict(grass, editor_data.call("get_detail_dict"))
+	if player_spawn:
+		player_spawn.position = editor_data.get("player_spawn")
+	if editor_data.get("player_spawn") == Vector2.ZERO:
+		_setup_spawn()
+
+
+func _apply_dict(layer: TileMapLayer, dict: Dictionary) -> void:
+	for cell in dict:
+		layer.set_cell(cell, 0, dict[cell])
 
 
 func _generate_floor() -> void:

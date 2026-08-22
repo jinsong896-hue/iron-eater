@@ -38,6 +38,9 @@ var _nav_region: NavigationRegion2D
 var _rooms_root: Node2D
 var _corridors_root: Node2D
 
+## 编辑器房间池：从 rooms/editor/saved/ 加载，随机注入普通房
+var editor_room_pool: Array = []
+
 signal generated
 signal template_room_cleared(room_type: int)
 signal minimap_updated
@@ -76,6 +79,7 @@ func generate(cfg: ChapterConfig, seed_value: int = -1, bake_nav: bool = false, 
 		rng.randomize()
 	else:
 		rng.seed = seed_value
+	_load_editor_room_pool()
 	if cfg.layer_id == 9:
 		_generate_final_layer()
 	else:
@@ -95,7 +99,8 @@ func generate(cfg: ChapterConfig, seed_value: int = -1, bake_nav: bool = false, 
 	minimap_updated.emit()
 
 
-## 依据门洞/共享边界建立真实房间连接图（小地图只画真实相连的房间）
+## 依据门洞建立真实房间连接图（小地图只画真正有门/走廊相连的房间）
+## 相邻但无门的房间保持隔离，不在此连线。
 func _build_room_connections() -> void:
 	room_connections.clear()
 	for r in rooms:
@@ -105,13 +110,6 @@ func _build_room_connections() -> void:
 			var other := _room_at_door_cell(r, dc)
 			if other != null and other != r:
 				_add_connection(r.room_coord, other.room_coord)
-	# 兜底：共享边界的房间即使没有走廊格也视为相连
-	for i in rooms.size():
-		for j in range(i + 1, rooms.size()):
-			var a: RoomData = rooms[i]
-			var b: RoomData = rooms[j]
-			if _rooms_share_edge(a, b):
-				_add_connection(a.room_coord, b.room_coord)
 
 
 func _room_at_door_cell(r: RoomData, dc: Vector2i) -> RoomData:
@@ -213,7 +211,7 @@ func _split_recursive(node: BSPNode, root: BSPNode) -> void:
 	var want_more := leaves < config.min_rooms - 1
 	if not want_more and rng.randf() > 0.55:
 		return
-	if node.split(4 if config.layer_id == 1 else 3):
+	if node.split(4 if config.layer_id == 1 else 3, rng):
 		_split_recursive(node.left, root)
 		_split_recursive(node.right, root)
 
@@ -311,7 +309,7 @@ func _get_room(node: BSPNode) -> Rect2i:
 		child_rooms.append(_get_room(node.right))
 	if child_rooms.is_empty():
 		return Rect2i()
-	return child_rooms.pick_random()
+	return child_rooms[rng.randi_range(0, child_rooms.size() - 1)]
 
 
 func _connect_start_if_added() -> void:
@@ -330,7 +328,8 @@ func _connect_start_if_added() -> void:
 		_create_corridor(start_room.rect, nearest.rect)
 
 
-## 房间数低于下限时，在现有房间旁补建 1×1 房间（直达门由 _compute_direct_doors 开凿）
+## 房间数低于下限时，在现有房间旁补建 1×1 房间。
+## 补建房间与现有房间至少隔 1 格（留出走廊），再开走廊连通——避免房间直接相接。
 func _ensure_min_rooms() -> void:
 	var guard := 0
 	while rooms.size() < config.min_rooms and guard < 400:
@@ -338,24 +337,50 @@ func _ensure_min_rooms() -> void:
 		var candidates: Array = []
 		var half := config.map_size / 2
 		for r in rooms:
-			for y in range(r.rect.position.y - 1, r.rect.end.y + 1):
-				for x in range(r.rect.position.x - 1, r.rect.end.x + 1):
+			# 遍历 grow(2) 环，排除 grow(1)（直接相邻/占用）与越界，留下 1 格走廊间隙
+			for y in range(r.rect.position.y - 2, r.rect.end.y + 2):
+				for x in range(r.rect.position.x - 2, r.rect.end.x + 2):
 					var cell := Vector2i(x, y)
-					if r.rect.has_point(cell):
-						continue
 					if cell.x < -half or cell.x >= half or cell.y < -half or cell.y >= half:
 						continue
-					if not _cell_occupied(cell):
+					if _cell_occupied(cell) or _cell_touches_room(cell):
+						continue
+					if not candidates.has(cell):
 						candidates.append(cell)
 		if candidates.is_empty():
 			break
-		var cell: Vector2i = candidates.pick_random()
-		rooms.append(RoomDataScript.new(Rect2i(cell, Vector2i.ONE)))
+		var cell: Vector2i = candidates[rng.randi_range(0, candidates.size() - 1)]
+		var fill := RoomDataScript.new(Rect2i(cell, Vector2i.ONE))
+		rooms.append(fill)
+		_connect_fill_room(fill)
+
+
+## 补建房间连到最近的房间（走走廊），保证可达
+func _connect_fill_room(fill: RoomData) -> void:
+	var nearest: RoomData = null
+	var nearest_d := 1 << 30
+	for r in rooms:
+		if r == fill:
+			continue
+		var d: int = (r.center_cell() - fill.center_cell()).length_squared()
+		if d < nearest_d:
+			nearest_d = d
+			nearest = r
+	if nearest:
+		_create_corridor(fill.rect, nearest.rect)
 
 
 func _cell_occupied(cell: Vector2i) -> bool:
 	for r in rooms:
 		if r.rect.has_point(cell):
+			return true
+	return false
+
+
+## 判断格是否与任意房间紧邻（grow(1) 命中，含占用），用于补建时留出走廊间隙
+func _cell_touches_room(cell: Vector2i) -> bool:
+	for r in rooms:
+		if r.rect.grow(1).has_point(cell):
 			return true
 	return false
 
@@ -407,8 +432,11 @@ func _compute_door_cells() -> void:
 				r.door_cells.append(cell)
 
 
-## 相邻房间（共享边界）之间补直达门洞：适用于第 9 层线性链等无走廊场景
+## 相邻房间之间补直达门洞，仅用于第 9 层线性链（无走廊，房间靠共享边界直连）。
+## 其余各层房间通过走廊门进出，相邻房间保持实墙隔离。
 func _compute_direct_doors() -> void:
+	if config.layer_id != 9:
+		return
 	for i in rooms.size():
 		for j in range(i + 1, rooms.size()):
 			var a: RoomData = rooms[i]
@@ -476,15 +504,18 @@ func _generate_final_layer() -> void:
 # ---------------------------------------------------------------------------
 
 func _build_corridor_visuals() -> void:
+	# 走廊用仓库瓦片铺地板（每母网格格 = 20×12 个 64px 瓦片）
+	var layer := TileMapLayer.new()
+	layer.name = "CorridorGround"
+	layer.tile_set = TilesetFactory.get_tileset()
+	layer.z_index = 0
+	_corridors_root.add_child(layer)
+	var tiles_per_cell := Vector2i(int(LAYOUT_CELL.x / TILE_SIZE), int(LAYOUT_CELL.y / TILE_SIZE))
 	for cell in corridor_cells:
-		var poly := Polygon2D.new()
-		poly.polygon = PackedVector2Array([
-			Vector2.ZERO, Vector2(LAYOUT_CELL.x, 0),
-			Vector2(LAYOUT_CELL.x, LAYOUT_CELL.y), Vector2(0, LAYOUT_CELL.y),
-		])
-		poly.color = config.corridor_color
-		poly.position = Vector2(cell) * LAYOUT_CELL
-		_corridors_root.add_child(poly)
+		var base := Vector2i(cell) * tiles_per_cell
+		for x in tiles_per_cell.x:
+			for y in tiles_per_cell.y:
+				layer.set_cell(base + Vector2i(x, y), 0, TilesetFactory.TILE_FLOOR_A)
 
 
 func _spawn_room_instances(spawn_enemies: bool) -> void:
@@ -553,7 +584,11 @@ func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
 			room.min_enemies = 4
 			room.max_enemies = 6
 		else:
-			room.template_type = rng.randi_range(0, 9)
+			# 编辑器房间优先：有编辑器房间池时 60% 概率使用编辑器房间
+			if not editor_room_pool.is_empty() and rng.randf() < 0.6:
+				room.editor_data = editor_room_pool[rng.randi_range(0, editor_room_pool.size() - 1)]
+			else:
+				room.template_type = rng.randi_range(0, 9)
 			room.min_enemies = 3
 			room.max_enemies = 5
 	_rooms_root.add_child(room)
@@ -567,6 +602,23 @@ func _spawn_template_room(r: RoomData, spawn_enemies: bool) -> void:
 			_connect_door_target(room, door, r)
 			room.doors_root.add_child(door)
 			door.used.connect(room._on_door_used)
+
+
+## 扫描 rooms/editor/saved/，加载所有 .tres 编辑器房间
+func _load_editor_room_pool() -> void:
+	editor_room_pool.clear()
+	var dir := DirAccess.open("res://rooms/editor/saved")
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var file := dir.get_next()
+	while file != "":
+		if file.ends_with(".tres"):
+			var data: Resource = load("res://rooms/editor/saved/" + file)
+			if data != null and data.has_method("get_floor_dict"):
+				editor_room_pool.append(data)
+		file = dir.get_next()
+	dir.list_dir_end()
 
 
 func _on_template_room_cleared(_room: RoomBase, room_type: int) -> void:
