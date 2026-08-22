@@ -1,7 +1,7 @@
 @tool
 class_name RoomEditor
 extends Node2D
-## 房间编辑器：《房间相关demo》驱动 —— 在 Godot 编辑器中直接画房间地形
+## 房间编辑器：在 Godot 编辑器中直接画房间地形
 ## 用法：打开 rooms/editor/room_editor.tscn → 选图层 → 用 TileMap 工具画 → 保存
 ##
 ## 图层说明：
@@ -9,12 +9,19 @@ extends Node2D
 ##   WallLayer（z=2）：墙壁（带碰撞）
 ##   DetailLayer（z=1）：装饰（草地/血迹/碎石）
 ##
-## 操作：
-##   1. 在场景树中选中 FloorLayer/WallLayer/DetailLayer
-##   2. 在底部 TileMap 面板选瓦片
+## 操作流程：
+##   1. 在场景树中选中 FloorLayer / WallLayer / DetailLayer
+##   2. 在底部 TileMap 面板选瓦片（点一下就能看到所有可用瓦片）
 ##   3. 在画布上点击绘制
 ##   4. 点右上角面板的「保存」→ 存为 .tres
 ##   5. 游戏运行时 DungeonGenerator 自动加载
+##
+## 替换素材（换成你自己的瓦片图）：
+##   1. 打开 rooms/editor/editor_tileset.tres
+##   2. 在 TileSet 底部面板找到 "Atlas" 源
+##   3. 把 Texture 替换为你的 PNG 素材
+##   4. 如果 PNG 的瓦片排列不同，调整 Texture Region Size
+##   5. 重新打开 room_editor.tscn 即可看到新素材
 
 const SAVE_DIR := "res://rooms/editor/saved"
 
@@ -32,21 +39,9 @@ const SAVE_DIR := "res://rooms/editor/saved"
 
 
 func _ready() -> void:
-	_assign_tileset()
-	if not Engine.is_editor_hint():
-		return
+	# 瓦片集已预分配在场景中（editor_tileset.tres），无需运行时赋值
 	_refresh_room_list()
-	_show_status("就绪：选图层 → 画瓦片 → 保存")
-
-
-## 给三个层分配同一个瓦片集
-func _assign_tileset() -> void:
-	var ts := TilesetFactory.get_tileset()
-	if ts == null:
-		return
-	for layer in [floor_layer, wall_layer, detail_layer]:
-		if layer.tile_set != ts:
-			layer.tile_set = ts
+	_show_status("就绪：选图层 → 选瓦片 → 画 → 保存")
 
 
 ## ---------------------------------------------------------------------------
@@ -78,7 +73,7 @@ func _on_load_pressed() -> void:
 	if not FileAccess.file_exists(path):
 		_show_status("文件不存在：%s" % path)
 		return
-	var data := load(path) as RoomEditorData
+	var data: Resource = load(path)
 	if data == null:
 		_show_status("加载失败：%s" % path)
 		return
@@ -115,7 +110,7 @@ func _on_add_spawn_pressed() -> void:
 	marker.name = "Spawn_%d" % spawn_markers.get_child_count()
 	marker.position = Vector2(float(width_spin.value) * 32.0, float(height_spin.value) * 32.0)
 	spawn_markers.add_child(marker)
-	marker.owner = spawn_markers  # 让编辑器能序列化
+	marker.owner = spawn_markers
 	_show_status("已添加敌人出生点，拖拽到目标位置")
 
 
@@ -129,10 +124,10 @@ func _on_add_chest_pressed() -> void:
 
 
 ## ---------------------------------------------------------------------------
-## 数据收集 / 还原
+## 数据收集 / 还原（使用 Resource 基类，避免 class_name 解析问题）
 ## ---------------------------------------------------------------------------
 
-func _collect_data() -> RoomEditorData:
+func _collect_data() -> Resource:
 	var data := RoomEditorData.new()
 	data.room_name = room_name_input.text.strip_edges()
 	data.room_width = int(width_spin.value)
@@ -157,7 +152,9 @@ func _collect_tiles(layer: TileMapLayer) -> Dictionary:
 	return result
 
 
-func _apply_data(data: RoomEditorData) -> void:
+func _apply_data(data: Resource) -> void:
+	if data == null:
+		return
 	floor_layer.clear()
 	wall_layer.clear()
 	detail_layer.clear()
@@ -165,18 +162,18 @@ func _apply_data(data: RoomEditorData) -> void:
 		child.queue_free()
 	for child in chest_markers.get_children():
 		child.queue_free()
-	_apply_tiles(floor_layer, data.get_floor_dict())
-	_apply_tiles(wall_layer, data.get_wall_dict())
-	_apply_tiles(detail_layer, data.get_detail_dict())
-	room_name_input.text = data.room_name
-	width_spin.value = data.room_width
-	height_spin.value = data.room_height
-	player_marker.position = data.player_spawn
-	for pos in data.enemy_spawns:
+	_apply_tiles(floor_layer, data.call("get_floor_dict"))
+	_apply_tiles(wall_layer, data.call("get_wall_dict"))
+	_apply_tiles(detail_layer, data.call("get_detail_dict"))
+	room_name_input.text = str(data.get("room_name"))
+	width_spin.value = float(data.get("room_width"))
+	height_spin.value = float(data.get("room_height"))
+	player_marker.position = data.get("player_spawn")
+	for pos in data.get("enemy_spawns"):
 		var marker := Marker2D.new()
 		marker.position = pos
 		spawn_markers.add_child(marker)
-	for pos in data.chest_spawns:
+	for pos in data.get("chest_spawns"):
 		var marker := Marker2D.new()
 		marker.position = pos
 		chest_markers.add_child(marker)
@@ -205,13 +202,8 @@ func _refresh_room_list() -> void:
 	dir.list_dir_end()
 
 
-func _on_room_list_item_activated(index: int) -> void:
+func _on_room_list_item_activated(_index: int) -> void:
 	_on_load_pressed()
-
-
-## 双击列表项加载房间
-func _on_room_list_item_selected(_index: int) -> void:
-	pass  # 选中高亮即可，双击加载
 
 
 ## ---------------------------------------------------------------------------
@@ -221,4 +213,4 @@ func _on_room_list_item_selected(_index: int) -> void:
 func _show_status(text: String) -> void:
 	if status_label:
 		status_label.text = text
-		print("[RoomEditor] %s" % text)
+	print("[RoomEditor] %s" % text)
