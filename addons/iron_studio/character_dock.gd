@@ -106,12 +106,21 @@ func _on_load_pressed() -> void:
 func _on_save_pressed() -> void:
 	var n := _name_input.text.strip_edges()
 	if n.is_empty(): _show("请输入名称"); return
-	_save_character(n); _show("已保存: %s" % n); _refresh_list()
+	_save_character(n)
+	# 数据验证
+	var result := DataValidator.validate_character(_make_data(n))
+	if result["valid"]:
+		_show("已保存: %s (验证通过)" % n)
+	else:
+		_show("已保存: %s (警告:%d)" % [n, result["warnings"].size()])
+		for w in result["warnings"]:
+			print("[IronStudio] WARNING: %s" % w)
+	_refresh_list()
 
 
-func _save_character(name_str: String) -> void:
+func _make_data(n: String) -> CharacterData:
 	var data := CharacterData.new()
-	data.char_id = name_str.to_lower(); data.char_name = name_str
+	data.char_id = n.to_lower(); data.char_name = n
 	data.class_type = _class_opt.get_item_text(_class_opt.selected)
 	data.res_name = _res_name.text; data.resource_max = int(_res_max.value)
 	data.sprite_path = _sprite.text
@@ -120,6 +129,11 @@ func _save_character(name_str: String) -> void:
 	stats.spd = _spd.value; stats.aspd = _aspd.value; stats.crt = _crt.value
 	data.base_stats = stats
 	data.forms = _forms.duplicate()
+	return data
+
+
+func _save_character(name_str: String) -> void:
+	var data := _make_data(name_str)
 	DirAccess.make_dir_recursive_absolute(DATA_DIR)
 	ResourceSaver.save(data, DATA_DIR + "/" + name_str.to_lower() + ".tres")
 
@@ -203,3 +217,20 @@ func _on_export_pressed() -> void:
 	for f in _forms:
 		ResourceSaver.save(f, FORMS_DIR + "/" + n.to_lower() + "_" + f.form_id + ".tres")
 	_show("已导出角色+%d形态" % _forms.size())
+
+
+func _on_preview_pressed() -> void:
+	var data := _make_data(_name_input.text.strip_edges())
+	var lines: PackedStringArray = []
+	lines.append("=== 角色预览 ===")
+	lines.append("名称: %s | 职业: %s" % [data.char_name, data.class_type])
+	lines.append("资源: %s (最大%d)" % [data.res_name, data.resource_max])
+	if data.base_stats:
+		lines.append("HP:%.0f ATK:%.0f DEF:%.0f SPD:%.0f ASPD:%.1f CRT:%.2f" % [data.base_stats.hp, data.base_stats.atk, data.base_stats.defense, data.base_stats.spd, data.base_stats.aspd, data.base_stats.crt])
+	lines.append("形态: %d个" % data.forms.size())
+	for f in data.forms:
+		var mods := ""
+		for m in f.modifiers:
+			mods += " %s" % m.description()
+		lines.append("  %s (第%d层) %d技能%s" % [f.form_name, f.unlock_floor, f.skills.size(), mods])
+	_show("\n".join(lines))
