@@ -86,6 +86,9 @@ text = "下一个"
 [node name="FillBtn" type="Button" parent="Main/BtnRow"]
 text = "填充地板"
 
+[node name="ClearBtn" type="Button" parent="Main/BtnRow"]
+text = "清空"
+
 [node name="RoomList" type="ItemList" parent="Main"]
 size_flags_horizontal = 3
 min_size = Vector2(100, 0)
@@ -102,4 +105,5 @@ theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
 [connection signal="pressed" from="Main/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
 [connection signal="pressed" from="Main/BtnRow/NextBtn" to="." method="_on_next_pressed"]
 [connection signal="pressed" from="Main/BtnRow/FillBtn" to="." method="_on_fill_pressed"]
+[connection signal="pressed" from="Main/BtnRow/ClearBtn" to="." method="_on_clear_pressed"]
 [connection signal="item_activated" from="Main/RoomList" to="." method="_on_list_activated"]

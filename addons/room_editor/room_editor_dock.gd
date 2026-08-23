@@ -1,6 +1,6 @@
 @tool
 extends Control
-## 房间编辑器底部面板 —— 通过调用 RoomEditor 节点的方法来保存/加载
+## 房间编辑器底部面板 —— 调用 RoomEditor 节点的公开方法
 
 const SAVE_DIR := "res://rooms/editor/saved"
 
@@ -16,7 +16,7 @@ var _editor_interface: EditorInterface = null
 
 func _ready() -> void:
 	_refresh_list()
-	_show("就绪")
+	_show("就绪：打开 room_editor.tscn → 画瓦片 → 点保存")
 
 
 func setup(editor_interface: EditorInterface) -> void:
@@ -57,33 +57,29 @@ func _on_list_activated(_idx: int) -> void:
 func _on_new_pressed() -> void:
 	var root := _root()
 	if root == null:
-		_show("请先打开 room_editor.tscn")
+		_show("错误：请先打开 room_editor.tscn")
 		return
 	var name_str := _name_input.text.strip_edges()
 	if name_str.is_empty():
-		_show("请输入房间名")
+		_show("错误：请输入房间名")
 		return
-	# 调用场景节点的方法
-	root.set("_current_file", name_str)
-	if root.has_method("_on_new_pressed"):
-		root._on_new_pressed()
-		_show("已新建 %s.tres" % name_str)
-		_refresh_list()
-	else:
-		_show("场景节点没有 _on_new_pressed 方法")
+	root.new_room(name_str)
+	_show("已新建 %s.tres，现在画瓦片" % name_str)
+	_refresh_list()
 
 
 func _on_save_pressed() -> void:
 	var root := _root()
 	if root == null:
-		_show("请先打开 room_editor.tscn")
+		_show("错误：请先打开 room_editor.tscn")
 		return
-	if root.has_method("_on_save_pressed"):
-		root._on_save_pressed()
-		_show("已保存")
-		_refresh_list()
-	else:
-		_show("场景节点没有 _on_save_pressed 方法")
+	var name_str := _name_input.text.strip_edges()
+	if name_str.is_empty():
+		_show("错误：请输入房间名")
+		return
+	root.save_room(name_str, _type_opt.selected, int(_min_spin.value), int(_max_spin.value))
+	_show("已保存 %s.tres" % name_str)
+	_refresh_list()
 
 
 func _on_load_pressed() -> void:
@@ -92,37 +88,26 @@ func _on_load_pressed() -> void:
 		_show("请先在列表中双击一个房间")
 		return
 	var name_str := _room_list.get_item_text(sel[0])
-	var path := SAVE_DIR + "/" + name_str + ".tres"
-	if not FileAccess.file_exists(path):
-		_show("文件不存在")
-		return
 	var root := _root()
 	if root == null:
 		return
-	# 加载数据到场景
+	root.load_room(name_str)
+	_name_input.text = name_str
+	# 从文件读取类型和敌人数
+	var path := SAVE_DIR + "/" + name_str + ".tres"
 	var data: Resource = load(path)
-	if data == null:
-		_show("加载失败")
-		return
-	if root.has_method("_apply_data"):
-		root._clear_all_layers()
-		root._apply_data(data)
-		root.set("_current_file", name_str)
-		_name_input.text = name_str
+	if data:
 		_type_opt.select(int(data.get("room_type")))
 		_min_spin.value = float(data.get("min_enemies"))
 		_max_spin.value = float(data.get("max_enemies"))
-		_show("已加载 %s" % name_str)
-	else:
-		_show("场景节点没有 _apply_data 方法")
+	_show("已加载 %s" % name_str)
 
 
 func _on_clear_pressed() -> void:
 	var root := _root()
 	if root == null:
 		return
-	if root.has_method("_clear_all_layers"):
-		root._clear_all_layers()
+	root.clear_all()
 	_show("已清空")
 
 
@@ -133,15 +118,13 @@ func _on_next_pressed() -> void:
 	if old.begins_with("room_"):
 		num = int(old.trim_prefix("room_")) + 1
 	_name_input.text = "room_%02d" % num
+	_show("已清空，准备画新房间：%s" % _name_input.text)
 
 
 func _on_fill_pressed() -> void:
 	var root := _root()
 	if root == null:
-		_show("请先打开 room_editor.tscn")
+		_show("错误：请先打开 room_editor.tscn")
 		return
-	if root.has_method("_on_fill_pressed"):
-		root._on_fill_pressed()
-		_show("已填充地板")
-	else:
-		_show("场景节点没有 _on_fill_pressed 方法")
+	root.fill_floor()
+	_show("已填充地板 16×12")
