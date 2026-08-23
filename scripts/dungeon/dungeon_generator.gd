@@ -745,7 +745,7 @@ func _make_template_door(room, opening: Dictionary) -> RoomDoor:
 func _spawn_enemies(r: RoomData, usable: Rect2) -> void:
 	# 编辑器怪物优先
 	if not editor_monster_pool.is_empty():
-		var monster_data := editor_monster_pool[rng.randi_range(0, editor_monster_pool.size() - 1)]
+		var monster_data: Resource = editor_monster_pool[rng.randi_range(0, editor_monster_pool.size() - 1)]
 		match r.type:
 			RoomData.RoomType.NORMAL:
 				_spawn_editor_monsters(monster_data, usable, 2)

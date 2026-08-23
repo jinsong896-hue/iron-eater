@@ -70,6 +70,14 @@ func _apply_layer(root: Node2D, hint: String, d: Dictionary) -> void:
 				child.set_cell(cell, 0, d[cell])
 
 
+func _apply_layer_from_arrays(root: Node2D, hint: String, cells: Array, atlas: Array) -> void:
+	for child in root.get_children():
+		if child is TileMapLayer and child.name.to_lower().find(hint) >= 0:
+			child.clear()
+			for i in cells.size():
+				child.set_cell(cells[i], 0, atlas[i])
+
+
 func _clear_layers(root: Node2D) -> void:
 	for child in root.get_children():
 		if child is TileMapLayer:
@@ -111,11 +119,11 @@ func _on_save_pressed() -> void:
 	data.set("room_type", _type_opt.selected)
 	data.set("min_enemies", int(_min_spin.value))
 	data.set("max_enemies", int(_max_spin.value))
-	data.call("set_floor_from_dict", floor_tiles)
-	data.call("set_wall_from_dict", wall_tiles)
-	data.call("set_detail_from_dict", detail_tiles)
-	data.call("set_obstacle_from_dict", obstacle_tiles)
-	data.call("set_interact_from_dict", interact_tiles)
+	_set_tile_arrays(data, "floor", floor_tiles)
+	_set_tile_arrays(data, "wall", wall_tiles)
+	_set_tile_arrays(data, "detail", detail_tiles)
+	_set_tile_arrays(data, "obstacle", obstacle_tiles)
+	_set_tile_arrays(data, "interact", interact_tiles)
 	DirAccess.make_dir_recursive_absolute(SAVE_DIR)
 	var path := SAVE_DIR + "/" + name_str + ".tres"
 	var file := FileAccess.open(path, FileAccess.WRITE)
@@ -137,11 +145,11 @@ func _on_load_pressed() -> void:
 	var root := _root()
 	if root == null: return
 	_clear_layers(root)
-	_apply_layer(root, "floor", data.call("get_floor_dict"))
-	_apply_layer(root, "wall", data.call("get_wall_dict"))
-	_apply_layer(root, "detail", data.call("get_detail_dict"))
-	_apply_layer(root, "obstacle", data.call("get_obstacle_dict"))
-	_apply_layer(root, "interact", data.call("get_interact_dict"))
+	_apply_layer_from_arrays(root, "floor", data.get("floor_cells"), data.get("floor_atlas"))
+	_apply_layer_from_arrays(root, "wall", data.get("wall_cells"), data.get("wall_atlas"))
+	_apply_layer_from_arrays(root, "detail", data.get("detail_cells"), data.get("detail_atlas"))
+	_apply_layer_from_arrays(root, "obstacle", data.get("obstacle_cells"), data.get("obstacle_atlas"))
+	_apply_layer_from_arrays(root, "interact", data.get("interact_cells"), data.get("interact_atlas"))
 	_name_input.text = name_str
 	_width_spin.value = float(data.get("room_width"))
 	_height_spin.value = float(data.get("room_height"))
@@ -251,6 +259,16 @@ func _draw_border(layer: TileMapLayer, w: int, h: int) -> void:
 		for i in 2:
 			layer.set_cell(Vector2i(i, y), 0, TilesetFactory.TILE_WALL)
 			layer.set_cell(Vector2i(w - 1 - i, y), 0, TilesetFactory.TILE_WALL)
+
+
+func _set_tile_arrays(data: Resource, prefix: String, dict: Dictionary) -> void:
+	var cells: Array[Vector2i] = []
+	var atlas: Array[Vector2i] = []
+	for cell in dict:
+		cells.append(cell)
+		atlas.append(dict[cell])
+	data.set(prefix + "_cells", cells)
+	data.set(prefix + "_atlas", atlas)
 
 
 func _on_delete_pressed() -> void:

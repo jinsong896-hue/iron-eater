@@ -78,7 +78,6 @@ func _apply_editor_weapon() -> void:
 	if weapon == null:
 		return
 	# 将武器属性作为额外 Modifier 加入
-	var atk_mod := EquipmentDefs.ModifierData.new() if EquipmentDefs.has_method("ModifierData") else null
 	attributes.add_modifier("editor_weapon", AttributeSystem.STAT_BY_NAME.get("atk", 0), weapon.current_atk(), 0.0)
 	EventBus.message.emit("装备武器: %s (ATK+%d)" % [weapon.weapon_name, weapon.current_atk()])
 
