@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="RoomEditorData" format=3 uid="uid://qn7p8rhkr21t"]
+
+[ext_resource type="Script" uid="uid://bxngch4nr25h4" path="res://scripts/editor/room_editor_data.gd" id="1_fhaut"]
+
+[resource]
+script = ExtResource("1_fhaut")
+room_name = "room_01"
+room_width = 16
+room_height = 12

@@ -8,105 +8,61 @@ layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
 
-[node name="VBox" type="VBoxContainer" parent="."]
+[node name="Main" type="HBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 8.0
+offset_left = 4.0
 offset_top = 4.0
-offset_right = -8.0
+offset_right = -4.0
 offset_bottom = -4.0
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_constants/separation = 4
-
-[node name="TopRow" type="HBoxContainer" parent="VBox"]
 theme_override_constants/separation = 8
 
-[node name="NameBox" type="HBoxContainer" parent="VBox/TopRow"]
+[node name="NameBox" type="VBoxContainer" parent="Main"]
+theme_override_constants/separation = 2
 
-[node name="Label" type="Label" parent="VBox/TopRow/NameBox"]
-text = "名称:"
-vertical_alignment = 1
+[node name="Label" type="Label" parent="Main/NameBox"]
+text = "房间名称"
 
-[node name="LineEdit" type="LineEdit" parent="VBox/TopRow/NameBox"]
+[node name="NameInput" type="LineEdit" parent="Main/NameBox"]
 text = "room_01"
 min_size = Vector2(100, 0)
 
-[node name="TypeBox" type="HBoxContainer" parent="VBox/TopRow"]
+[node name="BtnRow" type="VBoxContainer" parent="Main"]
+theme_override_constants/separation = 2
 
-[node name="Label" type="Label" parent="VBox/TopRow/TypeBox"]
-text = "类型:"
-vertical_alignment = 1
+[node name="NewBtn" type="Button" parent="Main/BtnRow"]
+text = "新建"
+min_size = Vector2(60, 0)
 
-[node name="TypeOption" type="OptionButton" parent="VBox/TopRow/TypeBox"]
-item_count = 5
-selected = 1
-popup/item_0/text = "初始房"
-popup/item_1/text = "普通房"
-popup/item_2/text = "精英房"
-popup/item_3/text = "特殊房"
-popup/item_4/text = "Boss房"
-
-[node name="EnemyBox" type="HBoxContainer" parent="VBox/TopRow"]
-
-[node name="Label" type="Label" parent="VBox/TopRow/EnemyBox"]
-text = "敌人:"
-vertical_alignment = 1
-
-[node name="MinEnemy" type="SpinBox" parent="VBox/TopRow/EnemyBox"]
-min_value = 0.0
-max_value = 20.0
-value = 3.0
-min_size = Vector2(50, 0)
-
-[node name="Label2" type="Label" parent="VBox/TopRow/EnemyBox"]
-text = "~"
-vertical_alignment = 1
-
-[node name="MaxEnemy" type="SpinBox" parent="VBox/TopRow/EnemyBox"]
-min_value = 0.0
-max_value = 20.0
-value = 5.0
-min_size = Vector2(50, 0)
-
-[node name="BtnRow" type="HBoxContainer" parent="VBox"]
-theme_override_constants/separation = 6
-
-[node name="FillFloorBtn" type="Button" parent="VBox/BtnRow"]
-text = "填充地板"
-
-[node name="SaveBtn" type="Button" parent="VBox/BtnRow"]
+[node name="SaveBtn" type="Button" parent="Main/BtnRow"]
 text = "保存"
 
-[node name="LoadBtn" type="Button" parent="VBox/BtnRow"]
+[node name="LoadBtn" type="Button" parent="Main/BtnRow"]
 text = "加载"
 
-[node name="ClearBtn" type="Button" parent="VBox/BtnRow"]
-text = "清空"
+[node name="NextBtn" type="Button" parent="Main/BtnRow"]
+text = "下一个"
 
-[node name="BottomRow" type="HBoxContainer" parent="VBox"]
-size_flags_vertical = 3
-theme_override_constants/separation = 8
+[node name="FillBtn" type="Button" parent="Main/BtnRow"]
+text = "填充地板"
 
-[node name="RoomList" type="ItemList" parent="VBox/BottomRow"]
+[node name="RoomList" type="ItemList" parent="Main"]
 size_flags_horizontal = 3
-size_flags_vertical = 3
+min_size = Vector2(120, 0)
 allow_reselect = true
-min_size = Vector2(150, 0)
 
-[node name="Status" type="Label" parent="VBox/BottomRow"]
+[node name="Status" type="Label" parent="Main"]
 text = "就绪"
 vertical_alignment = 1
 size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.5, 0.9, 0.5, 1)
+theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
 
-[connection signal="pressed" from="VBox/BtnRow/FillFloorBtn" to="." method="_on_fill_floor_pressed"]
-[connection signal="pressed" from="VBox/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
-[connection signal="pressed" from="VBox/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
-[connection signal="pressed" from="VBox/BtnRow/ClearBtn" to="." method="_on_clear_pressed"]
-[connection signal="item_activated" from="VBox/BottomRow/RoomList" to="." method="_on_room_list_item_activated"]
+[connection signal="pressed" from="Main/BtnRow/NewBtn" to="." method="_on_new_pressed"]
+[connection signal="pressed" from="Main/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
+[connection signal="pressed" from="Main/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
+[connection signal="pressed" from="Main/BtnRow/NextBtn" to="." method="_on_next_pressed"]
+[connection signal="pressed" from="Main/BtnRow/FillBtn" to="." method="_on_fill_pressed"]
+[connection signal="item_activated" from="Main/RoomList" to="." method="_on_list_activated"]
