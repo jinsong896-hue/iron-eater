@@ -1,7 +1,6 @@
 @tool
 extends Control
-## 房间编辑器底部面板：保存/加载/新建/填充
-## 由 plugin.gd 注入 editor_interface 引用
+## 房间编辑器底部面板
 
 const SAVE_DIR := "res://rooms/editor/saved"
 const DataScript := preload("res://scripts/editor/room_editor_data.gd")
@@ -18,7 +17,7 @@ var _editor_interface: EditorInterface = null
 
 func _ready() -> void:
 	_refresh_list()
-	_show("就绪：打开 room_editor.tscn → 画瓦片 → 点保存")
+	_show("就绪")
 
 
 func setup(editor_interface: EditorInterface) -> void:
@@ -72,15 +71,18 @@ func _on_new_pressed() -> void:
 		return
 	var root := _root()
 	if root == null:
-		_show("错误：请先打开 room_editor.tscn")
+		_show("请先打开 room_editor.tscn")
 		return
+	# 清空图层
 	for child in root.get_children():
 		if child is TileMapLayer:
 			child.clear()
+	# 确保目录存在
+	DirAccess.make_dir_recursive_absolute(SAVE_DIR)
 	var data := _make_data(name_str)
 	var err := ResourceSaver.save(data, SAVE_DIR + "/" + name_str + ".tres")
 	if err == OK:
-		_show("已新建 %s.tres，现在画瓦片" % name_str)
+		_show("已新建 %s.tres" % name_str)
 		_refresh_list()
 	else:
 		_show("新建失败：%d" % err)
@@ -91,28 +93,53 @@ func _on_save_pressed() -> void:
 	if name_str.is_empty():
 		_show("错误：请输入房间名")
 		return
+
+	# 第1步：获取场景根节点
 	var root := _root()
 	if root == null:
-		_show("错误：请先打开 room_editor.tscn")
+		_show("错误：请先打开 room_editor.tscn（当前未检测到场景）")
 		return
+	_show("检测到场景：%s，正在收集瓦片..." % root.name)
+
+	# 第2步：收集各层瓦片
+	var floor_layer := _find_layer("floor")
+	var wall_layer := _find_layer("wall")
+	var detail_layer := _find_layer("detail")
+	var obstacle_layer := _find_layer("obstacle")
+	var interact_layer := _find_layer("interact")
+
+	if floor_layer == null:
+		_show("错误：找不到 FloorLayer，场景不对？")
+		return
+
+	var floor_tiles := _tiles(floor_layer)
+	var wall_tiles := _tiles(wall_layer)
+	var detail_tiles := _tiles(detail_layer)
+	var obstacle_tiles := _tiles(obstacle_layer)
+	var interact_tiles := _tiles(interact_layer)
+
+	var total := floor_tiles.size() + wall_tiles.size() + detail_tiles.size() + obstacle_tiles.size() + interact_tiles.size()
+	if total == 0:
+		_show("警告：没有检测到任何瓦片！请先在画布上画瓦片再保存")
+		return
+
+	# 第3步：创建数据
 	var data := _make_data(name_str)
-	var floor_tiles := _tiles(_find_layer("floor"))
-	var wall_tiles := _tiles(_find_layer("wall"))
-	var detail_tiles := _tiles(_find_layer("detail"))
-	var obstacle_tiles := _tiles(_find_layer("obstacle"))
-	var interact_tiles := _tiles(_find_layer("interact"))
 	data.call("set_floor_from_dict", floor_tiles)
 	data.call("set_wall_from_dict", wall_tiles)
 	data.call("set_detail_from_dict", detail_tiles)
 	data.call("set_obstacle_from_dict", obstacle_tiles)
 	data.call("set_interact_from_dict", interact_tiles)
-	var total := floor_tiles.size() + wall_tiles.size() + detail_tiles.size() + obstacle_tiles.size() + interact_tiles.size()
-	var err := ResourceSaver.save(data, SAVE_DIR + "/" + name_str + ".tres")
+
+	# 第4步：保存文件
+	DirAccess.make_dir_recursive_absolute(SAVE_DIR)
+	var path := SAVE_DIR + "/" + name_str + ".tres"
+	var err := ResourceSaver.save(data, path)
 	if err == OK:
-		_show("已保存 %s.tres（%d 个瓦片）" % [name_str, total])
+		_show("已保存！（地板:%d 墙:%d 装饰:%d 障碍:%d 交互:%d）" % [floor_tiles.size(), wall_tiles.size(), detail_tiles.size(), obstacle_tiles.size(), interact_tiles.size()])
 		_refresh_list()
 	else:
-		_show("保存失败：%d" % err)
+		_show("保存失败，错误码：%d" % err)
 
 
 func _on_load_pressed() -> void:
@@ -148,24 +175,28 @@ func _on_load_pressed() -> void:
 
 
 func _on_next_pressed() -> void:
+	_on_clear_pressed()
+	var num := 1
+	var old := _name_input.text.strip_edges()
+	if old.begins_with("room_"):
+		num = int(old.trim_prefix("room_")) + 1
+	_name_input.text = "room_%02d" % num
+
+
+func _on_clear_pressed() -> void:
 	var root := _root()
 	if root == null:
 		return
 	for child in root.get_children():
 		if child is TileMapLayer:
 			child.clear()
-	var num := 1
-	var old := _name_input.text.strip_edges()
-	if old.begins_with("room_"):
-		num = int(old.trim_prefix("room_")) + 1
-	_name_input.text = "room_%02d" % num
-	_show("已清空，输入名称 → 新建")
+	_show("已清空")
 
 
 func _on_fill_pressed() -> void:
 	var layer := _find_layer("floor")
 	if layer == null:
-		_show("找不到 FloorLayer")
+		_show("找不到 FloorLayer，请先打开 room_editor.tscn")
 		return
 	layer.clear()
 	for x in 16:
