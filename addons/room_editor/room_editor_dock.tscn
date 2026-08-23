@@ -24,18 +24,55 @@ theme_override_constants/separation = 8
 theme_override_constants/separation = 2
 
 [node name="Label" type="Label" parent="Main/NameBox"]
-text = "房间名称"
+text = "名称"
 
 [node name="NameInput" type="LineEdit" parent="Main/NameBox"]
 text = "room_01"
-min_size = Vector2(100, 0)
+min_size = Vector2(80, 0)
+
+[node name="TypeBox" type="VBoxContainer" parent="Main"]
+theme_override_constants/separation = 2
+
+[node name="Label" type="Label" parent="Main/TypeBox"]
+text = "类型"
+
+[node name="TypeOption" type="OptionButton" parent="Main/TypeBox"]
+selected = 1
+item_count = 5
+popup/item_0/text = "初始房"
+popup/item_1/text = "普通房"
+popup/item_2/text = "精英房"
+popup/item_3/text = "特殊房"
+popup/item_4/text = "Boss房"
+
+[node name="EnemyBox" type="VBoxContainer" parent="Main"]
+theme_override_constants/separation = 2
+
+[node name="Label" type="Label" parent="Main/EnemyBox"]
+text = "敌人"
+
+[node name="EnemyRow" type="HBoxContainer" parent="Main/EnemyBox"]
+
+[node name="MinEnemy" type="SpinBox" parent="Main/EnemyBox/EnemyRow"]
+min_value = 0.0
+max_value = 20.0
+value = 3.0
+min_size = Vector2(45, 0)
+
+[node name="Label2" type="Label" parent="Main/EnemyBox/EnemyRow"]
+text = "~"
+
+[node name="MaxEnemy" type="SpinBox" parent="Main/EnemyBox/EnemyRow"]
+min_value = 0.0
+max_value = 20.0
+value = 5.0
+min_size = Vector2(45, 0)
 
 [node name="BtnRow" type="VBoxContainer" parent="Main"]
 theme_override_constants/separation = 2
 
 [node name="NewBtn" type="Button" parent="Main/BtnRow"]
 text = "新建"
-min_size = Vector2(60, 0)
 
 [node name="SaveBtn" type="Button" parent="Main/BtnRow"]
 text = "保存"
@@ -51,7 +88,7 @@ text = "填充地板"
 
 [node name="RoomList" type="ItemList" parent="Main"]
 size_flags_horizontal = 3
-min_size = Vector2(120, 0)
+min_size = Vector2(100, 0)
 allow_reselect = true
 
 [node name="Status" type="Label" parent="Main"]

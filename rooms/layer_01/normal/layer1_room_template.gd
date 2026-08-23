@@ -212,10 +212,9 @@ func _generate_grass() -> void:
 
 func _apply_editor_data() -> void:
 	## 从 RoomEditorData 还原所有层的瓦片与标记点
+	## 注意：不覆盖 room_width/room_height，保持 DungeonGenerator 分配的尺寸
 	if editor_data == null:
 		return
-	room_width = int(editor_data.get("room_width"))
-	room_height = int(editor_data.get("room_height"))
 	_apply_tiles_from_dict(ground, editor_data.call("get_floor_dict"))
 	_apply_tiles_from_dict(walls, editor_data.call("get_wall_dict"))
 	_apply_tiles_from_dict(grass, editor_data.call("get_detail_dict"))
