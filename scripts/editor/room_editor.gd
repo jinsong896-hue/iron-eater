@@ -1,96 +1,129 @@
 @tool
 extends Node2D
-## 房间编辑器 @tool 脚本 —— 直接挂在 room_editor.tscn 上
-## 工作流：输入名称 → 点「新建」→ 画瓦片 → 点「保存」→ 点「下一个」
+## 房间编辑器——直接在 Godot 2D 视口中画瓦片，通过检查器或快捷键保存
 ##
-## 图层：
-##   FloorLayer(z=0)   DetailLayer(z=1)   WallLayer(z=2)
-##   ObstacleLayer(z=3)   InteractLayer(z=4)
+## 用法：
+##   1. 双击 rooms/editor/room_editor.tscn
+##   2. 在场景树中选图层（FloorLayer/WallLayer...）
+##   3. 用底部 TileMap 面板画瓦片
+##   4. 按 Ctrl+S 保存，或在检查器中设置"保存动作"
+##
+## 检查器操作：
+##   - 房间名称：输入名称
+##   - 新建：设为 true 创建新文件
+##   - 保存动作：选「保存」→ 写入当前文件
+##   - 加载动作：选「加载」→ 从列表加载
+##   - 下一个：选「下一个」→ 清空并递增名称
 
 const SAVE_DIR := "res://rooms/editor/saved"
 const DataScript := preload("res://scripts/editor/room_editor_data.gd")
 
-var _current_file := ""  # 当前正在编辑的文件名（不含路径和扩展名）
+var _current_file := ""  # 当前正在编辑的文件名
 
-@onready var _name_input: LineEdit = $UI/NameInput
-@onready var _status: Label = $UI/Status
+@export var 房间名称 := "room_01":
+	set(v):
+		房间名称 = v
+@export var 新建 := false:
+	set(v):
+		if v:
+			_do_new()
+			新建 = false
+@export var 保存动作 := 0:
+	set(v):
+		match v:
+			1: _do_save()
+			2: _do_load()
+			3: _do_next()
+			4: _do_fill()
+		保存动作 = 0
+@export_multiline var 状态 := ""
 
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
-		_status.text = "输入名称 → 点「新建」"
+		状态 = "输入名称 → 新建 → 画瓦片 → 保存"
 
 
-## ---------------------------------------------------------------------------
-## 按钮回调
-## ---------------------------------------------------------------------------
+func _input(event: InputEvent) -> void:
+	if not Engine.is_editor_hint():
+		return
+	if event is InputEventKey and event.pressed and event.ctrl_pressed:
+		match event.keycode:
+			KEY_S:
+				_do_save()
+				get_viewport().set_input_as_handled()
+			KEY_N:
+				_do_new()
+				get_viewport().set_input_as_handled()
 
-## 新建：创建空的 .tres 文件
-func _on_new_pressed() -> void:
-	var name_str := _name_input.text.strip_edges()
+
+func _do_new() -> void:
+	var name_str := 房间名称.strip_edges()
 	if name_str.is_empty():
-		_status.text = "错误：请输入房间名"
+		状态 = "错误：请输入房间名"
 		return
 	_clear_all_layers()
 	_current_file = name_str
 	var data := _make_empty_data(name_str)
 	var err := ResourceSaver.save(data, _file_path())
-	if err == OK:
-		_status.text = "已新建 %s.tres，现在画瓦片" % name_str
-	else:
-		_status.text = "新建失败：%d" % err
+	状态 = "已新建 %s.tres，画瓦片后保存" % name_str if err == OK else "新建失败"
 
 
-## 保存：把当前瓦片写入当前文件
-func _on_save_pressed() -> void:
+func _do_save() -> void:
 	if _current_file.is_empty():
-		_status.text = "错误：请先点「新建」创建文件"
+		状态 = "错误：请先新建"
 		return
 	var data := _collect_data()
 	var err := ResourceSaver.save(data, _file_path())
-	if err == OK:
-		_status.text = "已保存 %s.tres" % _current_file
-	else:
-		_status.text = "保存失败：%d" % err
+	状态 = "已保存 %s.tres" % _current_file if err == OK else "保存失败"
 
 
-## 加载：从列表双击加载已有房间
-func _on_load_pressed() -> void:
-	var list: ItemList = $UI/RoomList
-	var sel := list.get_selected_items()
-	if sel.is_empty():
-		_status.text = "请先在列表中双击一个房间"
-		return
-	var name_str := list.get_item_text(sel[0])
-	var path := SAVE_DIR + "/" + name_str + ".tres"
+func _do_load() -> void:
+	# 加载列表中的第一个房间（或按名称匹配）
+	var load_name := 房间名称.strip_edges()
+	# 先尝试按当前名称加载
+	var path := SAVE_DIR + "/" + load_name + ".tres"
 	if not FileAccess.file_exists(path):
-		_status.text = "文件不存在"
-		return
+		# 加载任意第一个房间
+		var dir := DirAccess.open(SAVE_DIR)
+		if dir == null:
+			状态 = "没有已保存的房间"
+			return
+		dir.list_dir_begin()
+		var f := dir.get_next()
+		while f != "":
+			if f.ends_with(".tres"):
+				load_name = f.trim_suffix(".tres")
+				path = SAVE_DIR + "/" + f
+				break
+			f = dir.get_next()
+		dir.list_dir_end()
+		if load_name == "":
+			状态 = "没有已保存的房间"
+			return
 	var data: Resource = load(path)
 	if data == null:
-		_status.text = "加载失败"
+		状态 = "加载失败"
 		return
 	_clear_all_layers()
 	_apply_data(data)
-	_current_file = name_str
-	_name_input.text = name_str
-	_status.text = "已加载 %s" % name_str
+	_current_file = load_name
+	房间名称 = load_name
+	状态 = "已加载 %s" % load_name
 
 
-## 下一个：清空图层，自动递增名称
-func _on_next_pressed() -> void:
+func _do_next() -> void:
 	_clear_all_layers()
 	var num := 1
-	var old := _name_input.text.strip_edges()
+	var old := 房间名称.strip_edges()
 	if old.begins_with("room_"):
 		num = int(old.trim_prefix("room_")) + 1
-	_name_input.text = "room_%02d" % num
+	房间名称 = "room_%02d" % num
 	_current_file = ""
-	_status.text = "已清空，输入名称 → 新建"
+	状态 = "已清空，输入名称 → 新建"
 
 
-## 填充地板（16×12）
-func _on_fill_pressed() -> void:
+func _do_fill() -> void:
 	var layer := _find_layer("floor")
 	if layer == null:
 		return
@@ -101,20 +134,11 @@ func _on_fill_pressed() -> void:
 			if (x * 7 + y * 13) % 9 == 0:
 				alt = TilesetFactory.TILE_FLOOR_B
 			layer.set_cell(Vector2i(x, y), 0, alt)
-	_status.text = "已填充地板 16×12"
-
-
-## 刷新房间列表
-func _on_refresh_pressed() -> void:
-	_refresh_list()
-
-
-func _on_list_activated(_idx: int) -> void:
-	_on_load_pressed()
+	状态 = "已填充地板 16×12"
 
 
 ## ---------------------------------------------------------------------------
-## 内部逻辑
+## 内部
 ## ---------------------------------------------------------------------------
 
 func _file_path() -> String:
@@ -181,18 +205,3 @@ func _clear_all_layers() -> void:
 	for child in get_children():
 		if child is TileMapLayer:
 			child.clear()
-
-
-func _refresh_list() -> void:
-	var list: ItemList = $UI/RoomList
-	list.clear()
-	var dir := DirAccess.open(SAVE_DIR)
-	if dir == null:
-		return
-	dir.list_dir_begin()
-	var f := dir.get_next()
-	while f != "":
-		if f.ends_with(".tres"):
-			list.add_item(f.trim_suffix(".tres"))
-		f = dir.get_next()
-	dir.list_dir_end()
