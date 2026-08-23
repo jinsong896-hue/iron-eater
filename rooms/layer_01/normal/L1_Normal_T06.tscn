@@ -1,8 +1,0 @@
-[gd_scene load_steps=2 format=3]
-
-[ext_resource type="PackedScene" path="res://rooms/layer_01/normal/layer1_room_template.tscn" id="1"]
-
-[node name="L1_Normal_T06" instance=ExtResource("1")]
-template_type = 5
-north_door = true
-south_door = true
