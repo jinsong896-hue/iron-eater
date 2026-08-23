@@ -10,6 +10,18 @@ extends Node2D
 const SAVE_DIR := "res://rooms/editor/saved"
 const DataScript := preload("res://scripts/editor/room_editor_data.gd")
 
+# 预设模板：名称 -> {floor, walls, detail}
+const TEMPLATES := {
+	"空地": {},
+	"四面墙": {"walls": "border"},
+	"十字通道": {"walls": "cross"},
+	"双房间": {"walls": "double"},
+	"环形柱": {"walls": "ring"},
+	"四柱": {"walls": "pillars"},
+	"牢笼": {"walls": "prison"},
+	"破损": {"walls": "broken"},
+}
+
 var _current_file := ""
 
 @onready var _name_input: LineEdit = $UI/Panel/VBox/NameRow/NameInput
@@ -18,6 +30,7 @@ var _current_file := ""
 @onready var _type_opt: OptionButton = $UI/Panel/VBox/TypeRow/TypeOption
 @onready var _min_spin: SpinBox = $UI/Panel/VBox/TypeRow/MinEnemy
 @onready var _max_spin: SpinBox = $UI/Panel/VBox/TypeRow/MaxEnemy
+@onready var _template_opt: OptionButton = $UI/Panel/VBox/TemplateRow/TemplateOption
 @onready var _room_list: ItemList = $UI/Panel/VBox/RoomList
 @onready var _status: Label = $UI/Panel/VBox/Status
 
@@ -25,7 +38,7 @@ var _current_file := ""
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		_refresh_list()
-		_show("就绪 - 选图层 -> TileMap 面板 -> 画瓦片 -> 保存")
+		_show("就绪")
 
 
 func _input(event: InputEvent) -> void:
@@ -79,17 +92,33 @@ func _on_next_pressed() -> void:
 
 
 func _on_fill_pressed() -> void:
-	var layer := _find_layer("floor")
-	if layer == null:
-		return
-	layer.clear()
 	var w := int(_width_spin.value)
 	var h := int(_height_spin.value)
-	for x in w:
-		for y in h:
-			var alt := TilesetFactory.TILE_FLOOR_A if (x * 7 + y * 13) % 9 != 0 else TilesetFactory.TILE_FLOOR_B
-			layer.set_cell(Vector2i(x, y), 0, alt)
+	_apply_template("空地", w, h)
+	# 铺地板
+	var layer := _find_layer("floor")
+	if layer:
+		layer.clear()
+		for x in w:
+			for y in h:
+				var alt := TilesetFactory.TILE_FLOOR_A if (x * 7 + y * 13) % 9 != 0 else TilesetFactory.TILE_FLOOR_B
+				layer.set_cell(Vector2i(x, y), 0, alt)
 	_show("已填充地板 %dx%d" % [w, h])
+
+
+func _on_template_pressed() -> void:
+	var w := int(_width_spin.value)
+	var h := int(_height_spin.value)
+	var key := _template_opt.get_item_text(_template_opt.selected)
+	_apply_template(key, w, h)
+	_show("已应用模板: %s" % key)
+
+
+func _on_fill_walls_pressed() -> void:
+	var w := int(_width_spin.value)
+	var h := int(_height_spin.value)
+	_apply_template("四面墙", w, h)
+	_show("已填充墙壁 %dx%d" % [w, h])
 
 
 func _on_copy_pressed() -> void:
@@ -132,8 +161,19 @@ func _do_save() -> void:
 			DirAccess.remove_absolute(bak_path)
 		DirAccess.rename_absolute(path, bak_path)
 	_write_file(name_str, data)
-	_show("已保存 %s.tres" % name_str)
+	var stats := _tile_stats()
+	_show("已保存 %s.tres (地板:%d 墙:%d 装饰:%d 障碍:%d 交互:%d)" % [name_str, stats[0], stats[1], stats[2], stats[3], stats[4]])
 	_refresh_list()
+
+
+func _tile_stats() -> Array:
+	var counts := [0, 0, 0, 0, 0]
+	var hints := ["floor", "wall", "detail", "obstacle", "interact"]
+	for i in hints.size():
+		var layer := _find_layer(hints[i])
+		if layer:
+			counts[i] = layer.get_used_cells().size()
+	return counts
 
 
 func _load_room(name_str: String) -> void:
@@ -158,7 +198,8 @@ func _load_room(name_str: String) -> void:
 	_type_opt.select(int(data.get("room_type")))
 	_min_spin.value = float(data.get("min_enemies"))
 	_max_spin.value = float(data.get("max_enemies"))
-	_show("已加载 %s" % name_str)
+	var stats := _tile_stats()
+	_show("已加载 %s (地板:%d 墙:%d)" % [name_str, stats[0], stats[1]])
 
 
 func _collect_data() -> Resource:
@@ -226,6 +267,87 @@ func _refresh_list() -> void:
 func _show(msg: String) -> void:
 	_status.text = msg
 	print("[RoomEditor] ", msg)
+
+
+## ---- 模板系统 ----
+
+func _apply_template(key: String, w: int, h: int) -> void:
+	var wall_layer := _find_layer("wall")
+	var detail_layer := _find_layer("detail")
+	if wall_layer:
+		wall_layer.clear()
+	if detail_layer:
+		detail_layer.clear()
+
+	match key:
+		"四面墙":
+			# 2 格厚的外墙
+			for x in w:
+				for i in 2:
+					wall_layer.set_cell(Vector2i(x, i), 0, TilesetFactory.TILE_WALL)
+					wall_layer.set_cell(Vector2i(x, h - 1 - i), 0, TilesetFactory.TILE_WALL)
+			for y in h:
+				for i in 2:
+					wall_layer.set_cell(Vector2i(i, y), 0, TilesetFactory.TILE_WALL)
+					wall_layer.set_cell(Vector2i(w - 1 - i, y), 0, TilesetFactory.TILE_WALL)
+
+		"十字通道":
+			_apply_template("四面墙", w, h)
+			# 十字隔墙
+			var cx := w / 2
+			var cy := h / 2
+			for x in range(4, w - 4):
+				wall_layer.set_cell(Vector2i(x, cy), 0, TilesetFactory.TILE_WALL)
+			for y in range(4, h - 4):
+				wall_layer.set_cell(Vector2i(cx, y), 0, TilesetFactory.TILE_WALL)
+
+		"双房间":
+			_apply_template("四面墙", w, h)
+			var cx := w / 2
+			for y in range(2, h - 2):
+				if y < h / 2 - 2 or y > h / 2 + 1:
+					wall_layer.set_cell(Vector2i(cx, y), 0, TilesetFactory.TILE_WALL)
+
+		"环形柱":
+			_apply_template("四面墙", w, h)
+			var cx := w / 2
+			var cy := h / 2
+			# 画 4 个柱子在中间围成环形
+			for x in range(cx - 3, cx + 4):
+				wall_layer.set_cell(Vector2i(x, cy - 3), 0, TilesetFactory.TILE_WALL)
+				wall_layer.set_cell(Vector2i(x, cy + 3), 0, TilesetFactory.TILE_WALL)
+			for y in range(cy - 3, cy + 4):
+				wall_layer.set_cell(Vector2i(cx - 3, y), 0, TilesetFactory.TILE_WALL)
+				wall_layer.set_cell(Vector2i(cx + 3, y), 0, TilesetFactory.TILE_WALL)
+
+		"四柱":
+			_apply_template("四面墙", w, h)
+			for px in [w / 4, 3 * w / 4]:
+				for py in [h / 4, 3 * h / 4]:
+					for dx in range(-1, 2):
+						for dy in range(-1, 2):
+							wall_layer.set_cell(Vector2i(px + dx, py + dy), 0, TilesetFactory.TILE_WALL)
+
+		"牢笼":
+			_apply_template("四面墙", w, h)
+			var bar := TilesetFactory.TILE_BAR
+			for y in range(3, h - 3):
+				if y < h / 2 - 2 or y > h / 2 + 1:
+					wall_layer.set_cell(Vector2i(w / 3, y), 0, bar)
+					wall_layer.set_cell(Vector2i(2 * w / 3, y), 0, bar)
+
+		"破损":
+			_apply_template("四面墙", w, h)
+			# 随机挖掉一些墙，放碎石
+			var rng := RandomNumberGenerator.new()
+			rng.randomize()
+			var grasstiles := TilesetFactory.TILE_GRASS
+			for x in range(2, w - 2):
+				for y in [1, h - 2]:
+					if rng.randf() < 0.3:
+						wall_layer.erase_cell(Vector2i(x, y))
+						if detail_layer and not grasstiles.is_empty():
+							detail_layer.set_cell(Vector2i(x, y), 0, grasstiles[rng.randi() % grasstiles.size()])
 
 
 func _make_empty() -> Resource:
