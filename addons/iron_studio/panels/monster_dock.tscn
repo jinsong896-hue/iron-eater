@@ -13,59 +13,63 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 4.0
-offset_top = 4.0
-offset_right = -4.0
-offset_bottom = -4.0
+offset_left = 4.0 ; offset_top = 4.0 ; offset_right = -4.0 ; offset_bottom = -4.0
 
 [node name="Left" type="VBoxContainer" parent="Main"]
 [node name="Title" type="Label" parent="Main/Left"]
-text = "怪物列表"
-theme_override_font_sizes/font_size = 14
+text = "怪物列表" ; theme_override_font_sizes/font_size = 14
 [node name="List" type="ItemList" parent="Main/Left"]
-size_flags_vertical = 3
-allow_reselect = true
+size_flags_vertical = 3 ; allow_reselect = true
 
 [node name="Right" type="VBoxContainer" parent="Main"]
 [node name="Title" type="Label" parent="Main/Right"]
-text = "怪物编辑"
-theme_override_font_sizes/font_size = 14
+text = "怪物编辑" ; theme_override_font_sizes/font_size = 14
 [node name="Scroll" type="ScrollContainer" parent="Main/Right"]
 size_flags_vertical = 3
 [node name="VBox" type="VBoxContainer" parent="Main/Right/Scroll"]
 theme_override_constants/separation = 6
 
-[node name="Identity" type="VBoxContainer" parent="Main/Right/Scroll/VBox"]
-[node name="Name" type="LineEdit" parent="Main/Right/Scroll/VBox/Identity"]
+[node name="Name" type="LineEdit" parent="Main/Right/Scroll/VBox"]
 placeholder_text = "怪物名称"
-[node name="AIType" type="OptionButton" parent="Main/Right/Scroll/VBox/Identity"]
+[node name="AI" type="OptionButton" parent="Main/Right/Scroll/VBox"]
 item_count = 4
-popup/item_0/text = "近战追击"
-popup/item_1/text = "远程射击"
-popup/item_2/text = "自爆冲锋"
-popup/item_3/text = "Boss模板"
+popup/item_0/text = "近战追击" ; popup/item_1/text = "远程射击"
+popup/item_2/text = "自爆冲锋" ; popup/item_3/text = "Boss模板"
+[node name="Sprite" type="LineEdit" parent="Main/Right/Scroll/VBox"]
+placeholder_text = "精灵图路径"
 
-[node name="Stats" type="VBoxContainer" parent="Main/Right/Scroll/VBox"]
-[node name="Label" type="Label" parent="Main/Right/Scroll/VBox/Stats"]
-text = "基础属性"
-[node name="HP" type="SpinBox" parent="Main/Right/Scroll/VBox/Stats"]
+[node name="HP" type="SpinBox" parent="Main/Right/Scroll/VBox"]
 max_value = 99999.0 ; value = 100.0 ; suffix = " HP"
-[node name="ATK" type="SpinBox" parent="Main/Right/Scroll/VBox/Stats"]
+[node name="ATK" type="SpinBox" parent="Main/Right/Scroll/VBox"]
 max_value = 9999.0 ; value = 10.0 ; suffix = " ATK"
-[node name="DEF" type="SpinBox" parent="Main/Right/Scroll/VBox/Stats"]
+[node name="DEF" type="SpinBox" parent="Main/Right/Scroll/VBox"]
 max_value = 9999.0 ; value = 5.0 ; suffix = " DEF"
-[node name="SPD" type="SpinBox" parent="Main/Right/Scroll/VBox/Stats"]
+[node name="SPD" type="SpinBox" parent="Main/Right/Scroll/VBox"]
 max_value = 9999.0 ; value = 80.0 ; suffix = " SPD"
 
-[node name="Stage" type="VBoxContainer" parent="Main/Right/Scroll/VBox"]
-[node name="Label" type="Label" parent="Main/Right/Scroll/VBox/Stage"]
-text = "阶段进化"
-[node name="FloorMin" type="SpinBox" parent="Main/Right/Scroll/VBox/Stage"]
+[node name="FloorMin" type="SpinBox" parent="Main/Right/Scroll/VBox"]
 max_value = 9.0 ; value = 1.0 ; suffix = " 出现层"
-[node name="FloorMax" type="SpinBox" parent="Main/Right/Scroll/VBox/Stage"]
+[node name="FloorMax" type="SpinBox" parent="Main/Right/Scroll/VBox"]
 max_value = 9.0 ; value = 8.0 ; suffix = " 消失层"
-[node name="HPScale" type="SpinBox" parent="Main/Right/Scroll/VBox/Stage"]
+[node name="HPScale" type="SpinBox" parent="Main/Right/Scroll/VBox"]
 max_value = 20.0 ; value = 3.5 ; step = 0.1 ; suffix = " 血量倍率"
+
+[node name="SkillRow" type="HBoxContainer" parent="Main/Right/Scroll/VBox"]
+[node name="SkillList" type="ItemList" parent="Main/Right/Scroll/VBox/SkillRow"]
+size_flags_horizontal = 3 ; min_size = Vector2(0, 50)
+[node name="AvailList" type="ItemList" parent="Main/Right/Scroll/VBox/SkillRow"]
+size_flags_horizontal = 3 ; min_size = Vector2(0, 50) ; allow_reselect = true
+
+[node name="SkillBtnRow" type="HBoxContainer" parent="Main/Right/Scroll/VBox"]
+[node name="AddSkillBtn" type="Button" parent="Main/Right/Scroll/VBox/SkillBtnRow"]
+text = "← 添加技能" ; size_flags_horizontal = 3
+[node name="RemoveSkillBtn" type="Button" parent="Main/Right/Scroll/VBox/SkillBtnRow"]
+text = "删除技能 →" ; size_flags_horizontal = 3
+
+[node name="Loot" type="LineEdit" parent="Main/Right/Scroll/VBox"]
+placeholder_text = "掉落表路径"
+[node name="DropRate" type="SpinBox" parent="Main/Right/Scroll/VBox"]
+max_value = 1.0 ; value = 0.3 ; step = 0.05 ; suffix = " 掉落率"
 
 [node name="BtnRow" type="HBoxContainer" parent="Main/Right/Scroll/VBox"]
 theme_override_constants/separation = 4
@@ -80,6 +84,8 @@ text = "保存" ; size_flags_horizontal = 3
 text = "就绪"
 theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
 
+[connection signal="pressed" from="Main/Right/Scroll/VBox/SkillBtnRow/AddSkillBtn" to="." method="_on_add_skill_pressed"]
+[connection signal="pressed" from="Main/Right/Scroll/VBox/SkillBtnRow/RemoveSkillBtn" to="." method="_on_remove_skill_pressed"]
 [connection signal="pressed" from="Main/Right/Scroll/VBox/BtnRow/NewBtn" to="." method="_on_new_pressed"]
 [connection signal="pressed" from="Main/Right/Scroll/VBox/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
 [connection signal="pressed" from="Main/Right/Scroll/VBox/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
