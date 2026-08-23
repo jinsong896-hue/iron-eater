@@ -1,0 +1,42 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://addons/iron_studio/panels/asset_dock.gd" id="1"]
+
+[node name="AssetDock" type="Control"]
+script = ExtResource("1")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Main" type="HSplitContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0 ; offset_top = 4.0 ; offset_right = -4.0 ; offset_bottom = -4.0
+
+[node name="Left" type="VBoxContainer" parent="Main"]
+[node name="Title" type="Label" parent="Main/Left"]
+text = "资源树"
+theme_override_font_sizes/font_size = 14
+[node name="Tree" type="Tree" parent="Main/Left"]
+size_flags_vertical = 3
+
+[node name="Right" type="VBoxContainer" parent="Main"]
+theme_override_constants/separation = 6
+[node name="Title" type="Label" parent="Main/Right"]
+text = "资源信息"
+theme_override_font_sizes/font_size = 14
+[node name="Preview" type="Label" parent="Main/Right"]
+text = "选择一个资源"
+autowrap_mode = 2
+[node name="Info" type="Label" parent="Main/Right"]
+text = ""
+[node name="RefreshBtn" type="Button" parent="Main/Right"]
+text = "刷新"
+[node name="Status" type="Label" parent="Main/Right"]
+text = "就绪"
+theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
+
+[connection signal="item_selected" from="Main/Left/Tree" to="." method="_on_tree_selected"]
+[connection signal="pressed" from="Main/Right/RefreshBtn" to="." method="_on_refresh_pressed"]
