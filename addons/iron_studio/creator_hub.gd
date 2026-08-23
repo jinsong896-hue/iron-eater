@@ -22,6 +22,9 @@ var _current_editor: Control = null
 
 func setup(editor_interface: EditorInterface) -> void:
 	_editor_interface = editor_interface
+
+
+func _ready() -> void:
 	_build_hub()
 
 
