@@ -120,4 +120,3 @@ func _refresh_skill_list() -> void:
 	_skill_list.clear()
 	for s in _monster_skills:
 		_skill_list.add_item("%s (CD %.1fs)" % [s.skill_name, s.cooldown])
-ENDOFFILE

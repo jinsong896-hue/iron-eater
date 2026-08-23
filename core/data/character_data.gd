@@ -32,5 +32,5 @@ func get_form(idx: int) -> FormData:
 	return null
 
 
-func description() -> String:
+func summary() -> String:
 	return "%s [%s] %d形态 %d资源" % [char_name, class_type, forms.size(), resource_max]

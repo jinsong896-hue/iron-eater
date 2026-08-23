@@ -203,7 +203,6 @@ func _on_save_pressed() -> void:
 	file.close()
 	_show("已保存！(地板:%d 墙:%d 装饰:%d 障碍:%d 交互:%d)" % [floor_tiles.size(), wall_tiles.size(), detail_tiles.size(), obstacle_tiles.size(), interact_tiles.size()])
 	_refresh_list()
-		_show("保存失败：%d" % err)
 
 
 func _on_load_pressed() -> void:

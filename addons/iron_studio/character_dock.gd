@@ -200,4 +200,3 @@ func _on_export_pressed() -> void:
 	for f in _forms:
 		ResourceSaver.save(f, FORMS_DIR + "/" + n.to_lower() + "_" + f.form_id + ".tres")
 	_show("已导出角色+%d形态" % _forms.size())
-ENDOFFILE

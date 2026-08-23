@@ -111,4 +111,3 @@ func _refresh_mods() -> void:
 	_mod_list.clear()
 	for m in _modifiers:
 		_mod_list.add_item(m.description())
-ENDOFFILE

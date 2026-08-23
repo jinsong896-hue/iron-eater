@@ -405,7 +405,8 @@ func _on_preview_pressed() -> void:
 	_show("已刷新预览")
 
 
-func _draw_preview(preview: Control) -> void:
+func _draw_preview() -> void:
+	var preview: Control = $UI/Panel/VBox/PreviewRect
 	var w := int(_width_spin.value)
 	var h := int(_height_spin.value)
 	if w <= 0 or h <= 0:
