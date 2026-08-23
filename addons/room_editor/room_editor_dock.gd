@@ -8,12 +8,12 @@ const DataScript := preload("res://scripts/editor/room_editor_data.gd")
 
 var editor_interface: EditorInterface = null
 
-@onready var name_input: LineEdit = $VBox/NameBox/LineEdit
-@onready var type_opt: OptionButton = $VBox/TypeBox/TypeOption
-@onready var min_spin: SpinBox = $VBox/EnemyBox/MinEnemy
-@onready var max_spin: SpinBox = $VBox/EnemyBox/MaxEnemy
-@onready var room_list: ItemList = $VBox/RoomList
-@onready var status_lbl: Label = $VBox/Status
+@onready var name_input: LineEdit = $VBox/TopRow/NameBox/LineEdit
+@onready var type_opt: OptionButton = $VBox/TopRow/TypeBox/TypeOption
+@onready var min_spin: SpinBox = $VBox/TopRow/EnemyBox/MinEnemy
+@onready var max_spin: SpinBox = $VBox/TopRow/EnemyBox/MaxEnemy
+@onready var room_list: ItemList = $VBox/BottomRow/RoomList
+@onready var status_lbl: Label = $VBox/BottomRow/Status
 
 
 func _ready() -> void:
