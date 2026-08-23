@@ -13,13 +13,9 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 4.0
-offset_top = 4.0
-offset_right = -4.0
-offset_bottom = -4.0
+offset_left = 4.0 ; offset_top = 4.0 ; offset_right = -4.0 ; offset_bottom = -4.0
 
 [node name="Left" type="VBoxContainer" parent="Main"]
-theme_override_constants/separation = 4
 [node name="Title" type="Label" parent="Main/Left"]
 text = "武器列表"
 theme_override_font_sizes/font_size = 14
@@ -28,7 +24,6 @@ size_flags_vertical = 3
 allow_reselect = true
 
 [node name="Right" type="VBoxContainer" parent="Main"]
-theme_override_constants/separation = 4
 [node name="Title" type="Label" parent="Main/Right"]
 text = "武器编辑"
 theme_override_font_sizes/font_size = 14
@@ -38,38 +33,49 @@ size_flags_vertical = 3
 theme_override_constants/separation = 6
 
 [node name="Identity" type="VBoxContainer" parent="Main/Right/Scroll/VBox"]
+[node name="Label" type="Label" parent="Main/Right/Scroll/VBox/Identity"]
+text = "基本信息"
 [node name="Name" type="LineEdit" parent="Main/Right/Scroll/VBox/Identity"]
 placeholder_text = "武器名称"
 [node name="Rarity" type="OptionButton" parent="Main/Right/Scroll/VBox/Identity"]
 item_count = 5
-popup/item_0/text = "白"
-popup/item_1/text = "绿"
-popup/item_2/text = "蓝"
-popup/item_3/text = "红"
-popup/item_4/text = "神话"
+popup/item_0/text = "白" ; popup/item_1/text = "绿" ; popup/item_2/text = "蓝"
+popup/item_3/text = "红" ; popup/item_4/text = "神话"
+[node name="Sprite" type="LineEdit" parent="Main/Right/Scroll/VBox/Identity"]
+placeholder_text = "精灵图路径"
 
 [node name="Stats" type="VBoxContainer" parent="Main/Right/Scroll/VBox"]
 [node name="Label" type="Label" parent="Main/Right/Scroll/VBox/Stats"]
 text = "基础属性"
 [node name="ATK" type="SpinBox" parent="Main/Right/Scroll/VBox/Stats"]
-max_value = 9999.0
-value = 10.0
-suffix = " 攻击"
+max_value = 9999.0 ; value = 10.0 ; suffix = " 攻击"
 
 [node name="Growth" type="VBoxContainer" parent="Main/Right/Scroll/VBox"]
 [node name="Label" type="Label" parent="Main/Right/Scroll/VBox/Growth"]
 text = "融合成长"
 [node name="Fusion" type="SpinBox" parent="Main/Right/Scroll/VBox/Growth"]
-max_value = 999.0
-suffix = " 当前等级"
+max_value = 999.0 ; suffix = " 当前等级"
 [node name="MaxFusion" type="SpinBox" parent="Main/Right/Scroll/VBox/Growth"]
-max_value = 999.0
-value = 25.0
-suffix = " 最大等级"
+max_value = 999.0 ; value = 25.0 ; suffix = " 最大等级"
 [node name="Growth" type="SpinBox" parent="Main/Right/Scroll/VBox/Growth"]
-max_value = 999.0
-value = 5.0
-suffix = " 每级攻击成长"
+max_value = 999.0 ; value = 5.0 ; suffix = " 每级攻击成长"
+
+[node name="Mods" type="VBoxContainer" parent="Main/Right/Scroll/VBox"]
+[node name="Label" type="Label" parent="Main/Right/Scroll/VBox/Mods"]
+text = "词条/Modifier"
+[node name="ModStat" type="OptionButton" parent="Main/Right/Scroll/VBox/Mods"]
+item_count = 4
+popup/item_0/text = "atk" ; popup/item_1/text = "defense"
+popup/item_2/text = "spd" ; popup/item_3/text = "hp"
+[node name="ModVal" type="SpinBox" parent="Main/Right/Scroll/VBox/Mods"]
+max_value = 999.0 ; value = 10.0
+[node name="ModBtnRow" type="HBoxContainer" parent="Main/Right/Scroll/VBox/Mods"]
+[node name="AddModBtn" type="Button" parent="Main/Right/Scroll/VBox/Mods/ModBtnRow"]
+text = "+ 词条" ; size_flags_horizontal = 3
+[node name="RemoveModBtn" type="Button" parent="Main/Right/Scroll/VBox/Mods/ModBtnRow"]
+text = "- 词条" ; size_flags_horizontal = 3
+[node name="ModList" type="ItemList" parent="Main/Right/Scroll/VBox/Mods"]
+min_size = Vector2(0, 60)
 
 [node name="BtnRow" type="HBoxContainer" parent="Main/Right/Scroll/VBox"]
 theme_override_constants/separation = 4
@@ -86,6 +92,8 @@ text = "融合+1" ; size_flags_horizontal = 3
 text = "就绪"
 theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
 
+[connection signal="pressed" from="Main/Right/Scroll/VBox/Mods/ModBtnRow/AddModBtn" to="." method="_on_add_mod_pressed"]
+[connection signal="pressed" from="Main/Right/Scroll/VBox/Mods/ModBtnRow/RemoveModBtn" to="." method="_on_remove_mod_pressed"]
 [connection signal="pressed" from="Main/Right/Scroll/VBox/BtnRow/NewBtn" to="." method="_on_new_pressed"]
 [connection signal="pressed" from="Main/Right/Scroll/VBox/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
 [connection signal="pressed" from="Main/Right/Scroll/VBox/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
