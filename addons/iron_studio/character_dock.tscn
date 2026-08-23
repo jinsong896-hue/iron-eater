@@ -1,0 +1,155 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://addons/iron_studio/character_dock.gd" id="1"]
+
+[node name="CharacterDock" type="Control"]
+script = ExtResource("1")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Main" type="HSplitContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
+
+[node name="CharList" type="VBoxContainer" parent="Main"]
+theme_override_constants/separation = 4
+
+[node name="Title" type="Label" parent="Main/CharList"]
+text = "角色列表"
+theme_override_font_sizes/font_size = 14
+
+[node name="VBox" type="VBoxContainer" parent="Main/CharList"]
+size_flags_vertical = 3
+
+[node name="List" type="ItemList" parent="Main/CharList/VBox"]
+size_flags_vertical = 3
+allow_reselect = true
+
+[node name="EditPanel" type="VBoxContainer" parent="Main"]
+theme_override_constants/separation = 4
+
+[node name="Title" type="Label" parent="Main/EditPanel"]
+text = "角色编辑"
+theme_override_font_sizes/font_size = 14
+
+[node name="Scroll" type="ScrollContainer" parent="Main/EditPanel"]
+size_flags_vertical = 3
+
+[node name="VBox" type="VBoxContainer" parent="Main/EditPanel/Scroll"]
+theme_override_constants/separation = 6
+
+[node name="Identity" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
+theme_override_constants/separation = 2
+
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Identity"]
+text = "基本信息"
+
+[node name="NameInput" type="LineEdit" parent="Main/EditPanel/Scroll/VBox/Identity"]
+placeholder_text = "角色名称"
+
+[node name="ClassOpt" type="OptionButton" parent="Main/EditPanel/Scroll/VBox/Identity"]
+item_count = 5
+popup/item_0/text = "战士"
+popup/item_1/text = "法师"
+popup/item_2/text = "猎人"
+popup/item_3/text = "武僧"
+popup/item_4/text = "判官"
+
+[node name="ResName" type="LineEdit" parent="Main/EditPanel/Scroll/VBox/Identity"]
+placeholder_text = "资源名称（如：怒气）"
+
+[node name="ResMax" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Identity"]
+min_value = 50.0
+max_value = 500.0
+value = 100.0
+
+[node name="Stats" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
+theme_override_constants/separation = 2
+
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats"]
+text = "基础属性"
+
+[node name="HBox" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Stats"]
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox"]
+text = "HP"
+[node name="HP" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats/HBox"]
+size_flags_horizontal = 3
+max_value = 9999.0
+value = 100.0
+
+[node name="HBox2" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Stats"]
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox2"]
+text = "ATK"
+[node name="ATK" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats/HBox2"]
+size_flags_horizontal = 3
+max_value = 9999.0
+value = 10.0
+
+[node name="HBox3" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Stats"]
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox3"]
+text = "DEF"
+[node name="DEF" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats/HBox3"]
+size_flags_horizontal = 3
+max_value = 9999.0
+value = 5.0
+
+[node name="HBox4" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Stats"]
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox4"]
+text = "SPD"
+[node name="SPD" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats/HBox4"]
+size_flags_horizontal = 3
+max_value = 9999.0
+value = 100.0
+
+[node name="Forms" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
+theme_override_constants/separation = 2
+
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Forms"]
+text = "形态"
+
+[node name="FormName" type="LineEdit" parent="Main/EditPanel/Scroll/VBox/Forms"]
+placeholder_text = "形态名称"
+
+[node name="FormFloor" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Forms"]
+min_value = 0.0
+max_value = 9.0
+value = 3.0
+
+[node name="AddFormBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/Forms"]
+text = "添加形态"
+
+[node name="FormList" type="ItemList" parent="Main/EditPanel/Scroll/VBox/Forms"]
+min_size = Vector2(0, 80)
+
+[node name="BtnRow" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
+theme_override_constants/separation = 4
+
+[node name="NewBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/BtnRow"]
+text = "新建"
+size_flags_horizontal = 3
+
+[node name="LoadBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/BtnRow"]
+text = "加载"
+size_flags_horizontal = 3
+
+[node name="SaveBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/BtnRow"]
+text = "保存"
+size_flags_horizontal = 3
+
+[node name="Status" type="Label" parent="Main/EditPanel/Scroll/VBox"]
+text = "就绪"
+theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
+
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/NewBtn" to="." method="_on_new_pressed"]
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/Forms/AddFormBtn" to="." method="_on_add_form_pressed"]
+[connection signal="item_activated" from="Main/CharList/VBox/List" to="." method="_on_load_pressed"]
