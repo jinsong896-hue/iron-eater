@@ -1,10 +1,8 @@
 @tool
 extends Control
-## IronEater Creator Hub —— 统一编辑器入口（所有UI预建在.tscn中）
+## IronEater Creator Hub
 
 var _editor_interface: EditorInterface = null
-
-@onready var _content: Control = $Content
 
 
 func setup(editor_interface: EditorInterface) -> void:
@@ -12,7 +10,8 @@ func setup(editor_interface: EditorInterface) -> void:
 
 
 func _load_editor(scene_path: String) -> void:
-	for child in _content.get_children():
+	var content: Control = $Main/Content
+	for child in content.get_children():
 		child.queue_free()
 	var scene: PackedScene = load(scene_path)
 	if scene == null:
@@ -20,7 +19,7 @@ func _load_editor(scene_path: String) -> void:
 	var ed := scene.instantiate()
 	if ed.has_method("setup"):
 		ed.setup(_editor_interface)
-	_content.add_child(ed)
+	content.add_child(ed)
 
 
 func _on_character_pressed(): _load_editor("res://addons/iron_studio/character_dock.tscn")
@@ -35,5 +34,6 @@ func _on_room_pressed():
 		_editor_interface.set_main_screen_editor("2D")
 		_editor_interface.open_scene_from_path("res://rooms/editor/room_editor.tscn")
 func _on_home_pressed():
-	for child in _content.get_children():
+	var content: Control = $Main/Content
+	for child in content.get_children():
 		child.queue_free()
