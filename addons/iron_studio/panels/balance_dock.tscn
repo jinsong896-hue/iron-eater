@@ -58,6 +58,9 @@ suffix = " 楼层"
 [node name="SimBtn" type="Button" parent="Main/Right/Scroll/VBox"]
 text = "开始模拟"
 
+[node name="BatchBtn" type="Button" parent="Main/Right/Scroll/VBox"]
+text = "批量模拟（全部角色×4层）"
+
 [node name="Result" type="Label" parent="Main/Right/Scroll/VBox"]
 text = "选择一个角色和武器，点击开始模拟"
 autowrap_mode = 2
@@ -71,4 +74,5 @@ text = "就绪"
 theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
 
 [connection signal="pressed" from="Main/Right/Scroll/VBox/SimBtn" to="." method="_on_simulate_pressed"]
+[connection signal="pressed" from="Main/Right/Scroll/VBox/BatchBtn" to="." method="_on_batch_pressed"]
 [connection signal="pressed" from="Main/Right/Scroll/VBox/RefreshBtn" to="." method="_on_refresh_pressed"]

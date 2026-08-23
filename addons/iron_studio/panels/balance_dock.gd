@@ -75,3 +75,38 @@ func _on_simulate_pressed() -> void:
 
 func _on_refresh_pressed() -> void:
 	_refresh(); _show("已刷新")
+
+
+func _on_batch_pressed() -> void:
+	_show("正在批量模拟...")
+	var lines: PackedStringArray = []
+	lines.append("=== 批量模拟报告 ===")
+	lines.append("")
+
+	var char_ids := _list_dir(CHAR_DIR)
+	var wep_ids := _list_dir(WEAPON_DIR)
+
+	for cid in char_ids:
+		var char: CharacterData = load(CHAR_DIR + "/" + cid + ".tres")
+		if char == null: continue
+		var weapon: WeaponData = null
+		if not wep_ids.is_empty():
+			weapon = load(WEAPON_DIR + "/" + wep_ids[0] + ".tres")
+		for floor in [1, 3, 6, 9]:
+			var report := BalanceCalculator.simulate(char, weapon, 0, floor)
+			lines.append("%s 层%d DPS:%.0f TTK:%.1fs" % [char.char_name, floor, report["dps"], report["ttk_seconds"]])
+
+	_result.text = "\n".join(lines)
+	_show("批量模拟完成 (%d角色×4层)" % char_ids.size())
+
+
+func _list_dir(path: String) -> Array[String]:
+	var result: Array[String] = []
+	var dir := DirAccess.open(path)
+	if dir == null: return result
+	dir.list_dir_begin(); var f := dir.get_next()
+	while f != "":
+		if f.ends_with(".tres"): result.append(f.trim_suffix(".tres"))
+		f = dir.get_next()
+	dir.list_dir_end()
+	return result
