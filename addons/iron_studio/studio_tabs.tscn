@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://addons/iron_studio/studio_tabs.gd" id="1"]
 [ext_resource type="PackedScene" path="res://addons/iron_studio/character_dock.tscn" id="2"]
@@ -8,6 +8,7 @@
 [ext_resource type="PackedScene" path="res://addons/iron_studio/panels/balance_dock.tscn" id="6"]
 [ext_resource type="PackedScene" path="res://addons/iron_studio/panels/asset_dock.tscn" id="7"]
 [ext_resource type="PackedScene" path="res://addons/iron_studio/panels/buff_dock.tscn" id="8"]
+[ext_resource type="PackedScene" path="res://addons/iron_studio/panels/room_launcher.tscn" id="9"]
 
 [node name="IronStudio" type="Control"]
 script = ExtResource("1")
@@ -29,3 +30,4 @@ anchor_bottom = 1.0
 [node name="数值" parent="Tabs" instance=ExtResource("6")]
 [node name="资源" parent="Tabs" instance=ExtResource("7")]
 [node name="Buff" parent="Tabs" instance=ExtResource("8")]
+[node name="房间" parent="Tabs" instance=ExtResource("9")]

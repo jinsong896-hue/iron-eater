@@ -1,0 +1,49 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://addons/iron_studio/panels/room_launcher.gd" id="1"]
+
+[node name="RoomLauncher" type="Control"]
+script = ExtResource("1")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Main" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Main"]
+text = "房间编辑器"
+theme_override_font_sizes/font_size = 18
+horizontal_alignment = 1
+
+[node name="Desc" type="Label" parent="Main"]
+text = "打开房间编辑器场景，在2D视口中用TileMap工具画瓦片，然后在右侧面板中保存/加载。"
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 12
+
+[node name="OpenBtn" type="Button" parent="Main"]
+text = "打开房间编辑器"
+custom_minimum_size = Vector2(0, 50)
+
+[node name="RefreshBtn" type="Button" parent="Main"]
+text = "刷新已保存房间数量"
+
+[node name="Info" type="Label" parent="Main"]
+text = "图层: Floor(z=0) Detail(z=1) Wall(z=2) Obstacle(z=3) Interact(z=4)"
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 11
+
+[node name="Status" type="Label" parent="Main"]
+text = "就绪"
+theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
+
+[connection signal="pressed" from="Main/OpenBtn" to="." method="_on_open_pressed"]
+[connection signal="pressed" from="Main/RefreshBtn" to="." method="_on_refresh_pressed"]
