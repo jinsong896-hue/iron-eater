@@ -70,15 +70,41 @@ func _on_save_pressed() -> void:
 	_save_skill(n); _show("已保存: %s" % n); _refresh()
 
 
-func _save_skill(name_str: String) -> void:
+func _on_test_pressed() -> void:
+	var s := _make_skill(_name.text.strip_edges())
+	var lines: PackedStringArray = []
+	lines.append("=== 技能测试: %s ===" % s.skill_name)
+	lines.append("消耗: HP%.0f MP%.0f | 冷却: %.1fs" % [s.hp_cost, s.mp_cost, s.cooldown])
+	lines.append("效果: %d个" % s.effects.size())
+	for e in s.effects:
+		lines.append("  - %s" % e.description())
+	# 模拟 DPS
+	var base_atk := 10.0
+	var total_mult := 1.0
+	for e in s.effects:
+		if e is DamageEffect:
+			total_mult += e.multiplier
+		elif e is BuffEffect:
+			if e.add_value > 0:
+				base_atk += e.add_value
+	var dps := base_atk * total_mult / maxf(s.cooldown, 0.1)
+	lines.append("模拟DPS: %.0f (基础ATK:%.0f 倍率:%.1f)" % [dps, base_atk, total_mult])
+	_show("\n".join(lines))
+
+
+func _make_skill(name_str: String) -> SkillData:
 	var s := SkillData.new()
 	s.skill_id = name_str.to_lower(); s.skill_name = name_str
 	s.hp_cost = _hp_cost.value; s.mp_cost = _mp_cost.value
 	s.cooldown = _cooldown.value
 	s.animation_name = _anim.text; s.vfx_path = _vfx.text
 	s.effects = _effects.duplicate()
+	return s
+
+
+func _save_skill(name_str: String) -> void:
 	DirAccess.make_dir_recursive_absolute(DATA_DIR)
-	ResourceSaver.save(s, DATA_DIR + "/" + name_str.to_lower() + ".tres")
+	ResourceSaver.save(_make_skill(name_str), DATA_DIR + "/" + name_str.to_lower() + ".tres")
 
 
 func _on_add_effect_pressed() -> void:

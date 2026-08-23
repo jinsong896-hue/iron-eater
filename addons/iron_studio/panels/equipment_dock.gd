@@ -94,6 +94,23 @@ func _on_fuse_pressed() -> void:
 		_show("已达最大融合等级")
 
 
+func _on_evolution_preview() -> void:
+	var base := int(_atk.value)
+	var growth := _growth.value
+	var max_lv := int(_max_fusion.value)
+	var lines: PackedStringArray = []
+	lines.append("=== 融合进化预览 ===")
+	lines.append("武器: %s" % _name.text.strip_edges())
+	for lv in range(0, max_lv + 1, maxi(1, max_lv / 10)):
+		var atk := base + int(lv * growth)
+		var bar := ""
+		for _i in range(lv * 20 / maxi(max_lv, 1)):
+			bar += "█"
+		lines.append("  Lv%2d: ATK %4d %s" % [lv, atk, bar])
+	lines.append("  最终 Lv%d: ATK %d" % [max_lv, base + int(max_lv * growth)])
+	_show("\n".join(lines))
+
+
 func _on_add_mod_pressed() -> void:
 	var m := ModifierData.new()
 	m.target_stat = _mod_stat.get_item_text(_mod_stat.selected)
