@@ -22,6 +22,9 @@ var _modifiers: Array[ModifierData] = []
 
 func setup(editor_interface: EditorInterface) -> void:
 	_editor_interface = editor_interface
+
+
+func _ready() -> void:
 	_refresh()
 
 

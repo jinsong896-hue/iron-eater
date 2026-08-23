@@ -38,6 +38,9 @@ var _available_skills: Array[String] = []
 
 func setup(editor_interface: EditorInterface) -> void:
 	_editor_interface = editor_interface
+
+
+func _ready() -> void:
 	_refresh_list()
 	_refresh_skill_pool()
 
