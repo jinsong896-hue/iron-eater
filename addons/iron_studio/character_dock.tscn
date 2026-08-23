@@ -23,7 +23,7 @@ offset_bottom = -4.0
 theme_override_constants/separation = 4
 
 [node name="Title" type="Label" parent="Main/CharList"]
-text = "角色列表"
+text = "角色"
 theme_override_font_sizes/font_size = 14
 
 [node name="VBox" type="VBoxContainer" parent="Main/CharList"]
@@ -37,7 +37,7 @@ allow_reselect = true
 theme_override_constants/separation = 4
 
 [node name="Title" type="Label" parent="Main/EditPanel"]
-text = "角色编辑"
+text = "编辑"
 theme_override_font_sizes/font_size = 14
 
 [node name="Scroll" type="ScrollContainer" parent="Main/EditPanel"]
@@ -78,7 +78,7 @@ theme_override_constants/separation = 2
 text = "基础属性"
 
 [node name="HBox" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Stats"]
-[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox"]
+[node name="L" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox"]
 text = "HP"
 [node name="HP" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats/HBox"]
 size_flags_horizontal = 3
@@ -86,7 +86,7 @@ max_value = 9999.0
 value = 100.0
 
 [node name="HBox2" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Stats"]
-[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox2"]
+[node name="L" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox2"]
 text = "ATK"
 [node name="ATK" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats/HBox2"]
 size_flags_horizontal = 3
@@ -94,7 +94,7 @@ max_value = 9999.0
 value = 10.0
 
 [node name="HBox3" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Stats"]
-[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox3"]
+[node name="L" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox3"]
 text = "DEF"
 [node name="DEF" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats/HBox3"]
 size_flags_horizontal = 3
@@ -102,18 +102,44 @@ max_value = 9999.0
 value = 5.0
 
 [node name="HBox4" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Stats"]
-[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox4"]
+[node name="L" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats/HBox4"]
 text = "SPD"
 [node name="SPD" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats/HBox4"]
 size_flags_horizontal = 3
 max_value = 9999.0
 value = 100.0
 
+[node name="Skills" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
+theme_override_constants/separation = 2
+
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Skills"]
+text = "技能池（先添加技能，再添加形态）"
+
+[node name="SkillName" type="LineEdit" parent="Main/EditPanel/Scroll/VBox/Skills"]
+placeholder_text = "技能名称"
+
+[node name="SkillCD" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Skills"]
+min_value = 0.0
+max_value = 60.0
+value = 1.0
+suffix = "s CD"
+
+[node name="SkillBtnRow" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Skills"]
+[node name="AddSkillBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/Skills/SkillBtnRow"]
+text = "+ 技能"
+size_flags_horizontal = 3
+[node name="RemoveSkillBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/Skills/SkillBtnRow"]
+text = "- 技能"
+size_flags_horizontal = 3
+
+[node name="SkillList" type="ItemList" parent="Main/EditPanel/Scroll/VBox/Skills"]
+min_size = Vector2(0, 60)
+
 [node name="Forms" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
 theme_override_constants/separation = 2
 
 [node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Forms"]
-text = "形态"
+text = "形态（添加时自动绑定当前技能池）"
 
 [node name="FormName" type="LineEdit" parent="Main/EditPanel/Scroll/VBox/Forms"]
 placeholder_text = "形态名称"
@@ -122,9 +148,15 @@ placeholder_text = "形态名称"
 min_value = 0.0
 max_value = 9.0
 value = 3.0
+suffix = "层解锁"
 
-[node name="AddFormBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/Forms"]
-text = "添加形态"
+[node name="FormBtnRow" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Forms"]
+[node name="AddFormBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/Forms/FormBtnRow"]
+text = "+ 形态"
+size_flags_horizontal = 3
+[node name="RemoveFormBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/Forms/FormBtnRow"]
+text = "- 形态"
+size_flags_horizontal = 3
 
 [node name="FormList" type="ItemList" parent="Main/EditPanel/Scroll/VBox/Forms"]
 min_size = Vector2(0, 80)
@@ -144,12 +176,20 @@ size_flags_horizontal = 3
 text = "保存"
 size_flags_horizontal = 3
 
+[node name="ExportBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/BtnRow"]
+text = "导出"
+size_flags_horizontal = 3
+
 [node name="Status" type="Label" parent="Main/EditPanel/Scroll/VBox"]
 text = "就绪"
 theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
 
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/Skills/SkillBtnRow/AddSkillBtn" to="." method="_on_add_skill_pressed"]
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/Skills/SkillBtnRow/RemoveSkillBtn" to="." method="_on_remove_skill_pressed"]
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/Forms/FormBtnRow/AddFormBtn" to="." method="_on_add_form_pressed"]
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/Forms/FormBtnRow/RemoveFormBtn" to="." method="_on_remove_form_pressed"]
 [connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/NewBtn" to="." method="_on_new_pressed"]
 [connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
 [connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
-[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/Forms/AddFormBtn" to="." method="_on_add_form_pressed"]
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/ExportBtn" to="." method="_on_export_pressed"]
 [connection signal="item_activated" from="Main/CharList/VBox/List" to="." method="_on_load_pressed"]
