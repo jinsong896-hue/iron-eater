@@ -13,7 +13,7 @@ extends Resource
 var class_type: String = "Warrior"
 
 @export_category("Resource")
-@export var resource_name: String = ""
+@export var res_name: String = ""
 @export var resource_max: int = 100
 
 @export_category("Stats")

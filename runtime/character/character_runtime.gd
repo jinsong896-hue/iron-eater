@@ -14,10 +14,12 @@ func setup(char_data: CharacterData, form_idx: int = 0) -> void:
 	data = char_data
 	base_stats = char_data.base_stats.clone() if char_data.base_stats else StatsData.new()
 	switch_form(form_idx)
+	_recalc()
 
 
 func switch_form(idx: int) -> void:
 	if idx < 0 or idx >= data.forms.size():
+		current_form = null
 		return
 	current_form = data.forms[idx]
 	active_modifiers.clear()
@@ -54,4 +56,5 @@ func _recalc() -> void:
 
 func description() -> String:
 	var stats := get_final_stats()
-	return "%s[%s] HP:%.0f ATK:%.0f" % [data.char_name, current_form.form_name, stats.hp, stats.atk]
+	var form_name := current_form.form_name if current_form else "无形态"
+	return "%s[%s] HP:%.0f ATK:%.0f" % [data.char_name, form_name, stats.hp, stats.atk]

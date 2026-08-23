@@ -90,7 +90,7 @@ func _on_load_pressed() -> void:
 	_name_input.text = data.char_name
 	for i in _class_opt.item_count:
 		if _class_opt.get_item_text(i) == data.class_type: _class_opt.select(i); break
-	_res_name.text = data.resource_name; _res_max.value = data.resource_max
+	_res_name.text = data.res_name; _res_max.value = data.resource_max
 	_sprite.text = data.sprite_path
 	if data.base_stats:
 		_hp.value = data.base_stats.hp; _atk.value = data.base_stats.atk
@@ -110,7 +110,7 @@ func _save_character(name_str: String) -> void:
 	var data := CharacterData.new()
 	data.char_id = name_str.to_lower(); data.char_name = name_str
 	data.class_type = _class_opt.get_item_text(_class_opt.selected)
-	data.resource_name = _res_name.text; data.resource_max = int(_res_max.value)
+	data.res_name = _res_name.text; data.resource_max = int(_res_max.value)
 	data.sprite_path = _sprite.text
 	var stats := StatsData.new()
 	stats.hp = _hp.value; stats.atk = _atk.value; stats.defense = _def.value
