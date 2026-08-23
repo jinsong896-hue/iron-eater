@@ -1,10 +1,11 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://addons/iron_studio/studio_tabs.gd" id="1"]
 [ext_resource type="PackedScene" path="res://addons/iron_studio/character_dock.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://addons/iron_studio/panels/equipment_dock.tscn" id="3"]
 [ext_resource type="PackedScene" path="res://addons/iron_studio/panels/skill_dock.tscn" id="4"]
 [ext_resource type="PackedScene" path="res://addons/iron_studio/panels/monster_dock.tscn" id="5"]
+[ext_resource type="PackedScene" path="res://addons/iron_studio/panels/balance_dock.tscn" id="6"]
 
 [node name="IronStudio" type="Control"]
 script = ExtResource("1")
@@ -19,10 +20,12 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 
-[node name="Character" parent="Tabs" instance=ExtResource("2")]
+[node name="角色" parent="Tabs" instance=ExtResource("2")]
 
-[node name="Equipment" parent="Tabs" instance=ExtResource("3")]
+[node name="装备" parent="Tabs" instance=ExtResource("3")]
 
-[node name="Skill" parent="Tabs" instance=ExtResource("4")]
+[node name="技能" parent="Tabs" instance=ExtResource("4")]
 
-[node name="Monster" parent="Tabs" instance=ExtResource("5")]
+[node name="怪物" parent="Tabs" instance=ExtResource("5")]
+
+[node name="数值" parent="Tabs" instance=ExtResource("6")]

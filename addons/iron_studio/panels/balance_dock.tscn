@@ -1,0 +1,74 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://addons/iron_studio/panels/balance_dock.gd" id="1"]
+
+[node name="BalanceDock" type="Control"]
+script = ExtResource("1")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Main" type="HSplitContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
+
+[node name="Left" type="VBoxContainer" parent="Main"]
+theme_override_constants/separation = 4
+[node name="Title" type="Label" parent="Main/Left"]
+text = "选择"
+theme_override_font_sizes/font_size = 14
+[node name="CharLabel" type="Label" parent="Main/Left"]
+text = "角色:"
+[node name="CharList" type="ItemList" parent="Main/Left"]
+size_flags_vertical = 3
+allow_reselect = true
+[node name="WeaponLabel" type="Label" parent="Main/Left"]
+text = "武器:"
+[node name="WeaponList" type="ItemList" parent="Main/Left"]
+size_flags_vertical = 3
+allow_reselect = true
+
+[node name="Right" type="VBoxContainer" parent="Main"]
+[node name="Title" type="Label" parent="Main/Right"]
+text = "数值模拟"
+theme_override_font_sizes/font_size = 14
+[node name="Scroll" type="ScrollContainer" parent="Main/Right"]
+size_flags_vertical = 3
+[node name="VBox" type="VBoxContainer" parent="Main/Right/Scroll"]
+theme_override_constants/separation = 6
+
+[node name="Config" type="VBoxContainer" parent="Main/Right/Scroll/VBox"]
+[node name="Label" type="Label" parent="Main/Right/Scroll/VBox/Config"]
+text = "模拟参数"
+[node name="FormIdx" type="SpinBox" parent="Main/Right/Scroll/VBox/Config"]
+max_value = 4.0
+suffix = " 形态索引"
+[node name="Floor" type="SpinBox" parent="Main/Right/Scroll/VBox/Config"]
+min_value = 1.0
+max_value = 9.0
+value = 1.0
+suffix = " 楼层"
+
+[node name="SimBtn" type="Button" parent="Main/Right/Scroll/VBox"]
+text = "开始模拟"
+
+[node name="Result" type="Label" parent="Main/Right/Scroll/VBox"]
+text = "选择一个角色和武器，点击开始模拟"
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 11
+
+[node name="RefreshBtn" type="Button" parent="Main/Right/Scroll/VBox"]
+text = "刷新列表"
+
+[node name="Status" type="Label" parent="Main/Right/Scroll/VBox"]
+text = "就绪"
+theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
+
+[connection signal="pressed" from="Main/Right/Scroll/VBox/SimBtn" to="." method="_on_simulate_pressed"]
+[connection signal="pressed" from="Main/Right/Scroll/VBox/RefreshBtn" to="." method="_on_refresh_pressed"]
