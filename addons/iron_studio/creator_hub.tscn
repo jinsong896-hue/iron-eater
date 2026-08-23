@@ -8,21 +8,75 @@ anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 
-[node name="Main" type="HSplitContainer" parent="."]
+[node name="Main" type="VBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -8.0
+theme_override_constants/separation = 8
 
-[node name="Sidebar" type="VBoxContainer" parent="Main"]
-theme_override_constants/separation = 4
-custom_minimum_size = Vector2(0, 0)
-
-[node name="Logo" type="Label" parent="Main/Sidebar"]
-text = "IronEater"
+[node name="Title" type="Label" parent="Main"]
+text = "IronEater Creator"
 theme_override_font_sizes/font_size = 18
 horizontal_alignment = 1
 
-[node name="Content" type="ScrollContainer" parent="Main"]
-size_flags_horizontal = 3
+[node name="Grid" type="GridContainer" parent="Main"]
+columns = 2
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
+
+[node name="CharBtn" type="Button" parent="Main/Grid"]
+text = "角色编辑器"
+custom_minimum_size = Vector2(140, 50)
+
+[node name="EquipBtn" type="Button" parent="Main/Grid"]
+text = "装备编辑器"
+custom_minimum_size = Vector2(140, 50)
+
+[node name="SkillBtn" type="Button" parent="Main/Grid"]
+text = "技能编辑器"
+custom_minimum_size = Vector2(140, 50)
+
+[node name="MonsterBtn" type="Button" parent="Main/Grid"]
+text = "怪物编辑器"
+custom_minimum_size = Vector2(140, 50)
+
+[node name="BalanceBtn" type="Button" parent="Main/Grid"]
+text = "数值模拟器"
+custom_minimum_size = Vector2(140, 50)
+
+[node name="AssetBtn" type="Button" parent="Main/Grid"]
+text = "资源浏览器"
+custom_minimum_size = Vector2(140, 50)
+
+[node name="BuffBtn" type="Button" parent="Main/Grid"]
+text = "Buff编辑器"
+custom_minimum_size = Vector2(140, 50)
+
+[node name="RoomBtn" type="Button" parent="Main/Grid"]
+text = "房间编辑器"
+custom_minimum_size = Vector2(140, 50)
+
+[node name="HomeBtn" type="Button" parent="Main"]
+text = "返回主页"
+custom_minimum_size = Vector2(0, 30)
+
+[node name="Sep" type="HSeparator" parent="Main"]
+
+[node name="Content" type="Control" parent="Main"]
 size_flags_vertical = 3
+size_flags_horizontal = 3
+
+[connection signal="pressed" from="Main/Grid/CharBtn" to="." method="_on_character_pressed"]
+[connection signal="pressed" from="Main/Grid/EquipBtn" to="." method="_on_equipment_pressed"]
+[connection signal="pressed" from="Main/Grid/SkillBtn" to="." method="_on_skill_pressed"]
+[connection signal="pressed" from="Main/Grid/MonsterBtn" to="." method="_on_monster_pressed"]
+[connection signal="pressed" from="Main/Grid/BalanceBtn" to="." method="_on_balance_pressed"]
+[connection signal="pressed" from="Main/Grid/AssetBtn" to="." method="_on_asset_pressed"]
+[connection signal="pressed" from="Main/Grid/BuffBtn" to="." method="_on_buff_pressed"]
+[connection signal="pressed" from="Main/Grid/RoomBtn" to="." method="_on_room_pressed"]
+[connection signal="pressed" from="Main/HomeBtn" to="." method="_on_home_pressed"]
