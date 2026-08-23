@@ -1,10 +1,11 @@
 @tool
 extends Node2D
-## 房间编辑器 @tool 脚本 —— 直接挂在 room_editor.tscn 上
-## 打开场景 → 用 Godot TileMap 工具画瓦片 → 用本面板保存/加载
+## 房间编辑器 —— 完全可视化，打开场景即可用
 ##
 ## 图层（z 顺序）：
-##   FloorLayer(0)  DetailLayer(1)  WallLayer(2)  ObstacleLayer(3)  InteractLayer(4)
+##   Floor(0)  Detail(1)  Wall(2)  Obstacle(3)  Interact(4)
+##
+## 快捷键：Ctrl+S 保存
 
 const SAVE_DIR := "res://rooms/editor/saved"
 const DataScript := preload("res://scripts/editor/room_editor_data.gd")
@@ -12,12 +13,11 @@ const DataScript := preload("res://scripts/editor/room_editor_data.gd")
 var _current_file := ""
 
 @onready var _name_input: LineEdit = $UI/Panel/VBox/NameRow/NameInput
-@onready var _new_btn: Button = $UI/Panel/VBox/NameRow/NewBtn
-@onready var _save_btn: Button = $UI/Panel/VBox/BtnRow/SaveBtn
-@onready var _load_btn: Button = $UI/Panel/VBox/BtnRow/LoadBtn
-@onready var _clear_btn: Button = $UI/Panel/VBox/BtnRow/ClearBtn
-@onready var _next_btn: Button = $UI/Panel/VBox/BtnRow/NextBtn
-@onready var _fill_btn: Button = $UI/Panel/VBox/BtnRow/FillBtn
+@onready var _width_spin: SpinBox = $UI/Panel/VBox/SizeRow/WidthSpin
+@onready var _height_spin: SpinBox = $UI/Panel/VBox/SizeRow/HeightSpin
+@onready var _type_opt: OptionButton = $UI/Panel/VBox/TypeRow/TypeOption
+@onready var _min_spin: SpinBox = $UI/Panel/VBox/TypeRow/MinEnemy
+@onready var _max_spin: SpinBox = $UI/Panel/VBox/TypeRow/MaxEnemy
 @onready var _room_list: ItemList = $UI/Panel/VBox/RoomList
 @onready var _status: Label = $UI/Panel/VBox/Status
 
@@ -25,7 +25,7 @@ var _current_file := ""
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		_refresh_list()
-		_show("就绪 — 在场景树中选择图层，用底部 TileMap 面板画瓦片")
+		_show("就绪 - 选图层 -> TileMap 面板 -> 画瓦片 -> 保存")
 
 
 func _input(event: InputEvent) -> void:
@@ -36,8 +36,6 @@ func _input(event: InputEvent) -> void:
 			_do_save()
 			get_viewport().set_input_as_handled()
 
-
-## ---- 按钮 ----
 
 func _on_new_pressed() -> void:
 	var name_str := _name_input.text.strip_edges()
@@ -58,10 +56,9 @@ func _on_save_pressed() -> void:
 func _on_load_pressed() -> void:
 	var sel := _room_list.get_selected_items()
 	if sel.is_empty():
-		_show("请先在列表中双击一个房间")
+		_show("双击列表中的房间来加载")
 		return
-	var name_str := _room_list.get_item_text(sel[0])
-	_load_room(name_str)
+	_load_room(_room_list.get_item_text(sel[0]))
 
 
 func _on_clear_pressed() -> void:
@@ -86,18 +83,40 @@ func _on_fill_pressed() -> void:
 	if layer == null:
 		return
 	layer.clear()
-	for x in 16:
-		for y in 12:
+	var w := int(_width_spin.value)
+	var h := int(_height_spin.value)
+	for x in w:
+		for y in h:
 			var alt := TilesetFactory.TILE_FLOOR_A if (x * 7 + y * 13) % 9 != 0 else TilesetFactory.TILE_FLOOR_B
 			layer.set_cell(Vector2i(x, y), 0, alt)
-	_show("已填充地板 16×12")
+	_show("已填充地板 %dx%d" % [w, h])
+
+
+func _on_copy_pressed() -> void:
+	var name_str := _name_input.text.strip_edges()
+	if name_str.is_empty():
+		_show("请输入新名称后点另存为")
+		return
+	_do_save()
+	_show("已另存为 %s.tres" % name_str)
+
+
+func _on_delete_pressed() -> void:
+	var sel := _room_list.get_selected_items()
+	if sel.is_empty():
+		_show("请先在列表中选中要删除的房间")
+		return
+	var name_str := _room_list.get_item_text(sel[0])
+	var path := SAVE_DIR + "/" + name_str + ".tres"
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+	_show("已删除 %s" % name_str)
+	_refresh_list()
 
 
 func _on_list_activated(_idx: int) -> void:
 	_on_load_pressed()
 
-
-## ---- 核心逻辑 ----
 
 func _do_save() -> void:
 	var name_str := _name_input.text.strip_edges()
@@ -106,6 +125,12 @@ func _do_save() -> void:
 		return
 	_current_file = name_str
 	var data := _collect_data()
+	var path := SAVE_DIR + "/" + name_str + ".tres"
+	if FileAccess.file_exists(path):
+		var bak_path := path + ".bak"
+		if FileAccess.file_exists(bak_path):
+			DirAccess.remove_absolute(bak_path)
+		DirAccess.rename_absolute(path, bak_path)
 	_write_file(name_str, data)
 	_show("已保存 %s.tres" % name_str)
 	_refresh_list()
@@ -128,6 +153,11 @@ func _load_room(name_str: String) -> void:
 	_apply_tiles(_find_layer("interact"), data.call("get_interact_dict"))
 	_current_file = name_str
 	_name_input.text = name_str
+	_width_spin.value = int(data.get("room_width"))
+	_height_spin.value = int(data.get("room_height"))
+	_type_opt.select(int(data.get("room_type")))
+	_min_spin.value = float(data.get("min_enemies"))
+	_max_spin.value = float(data.get("max_enemies"))
 	_show("已加载 %s" % name_str)
 
 
@@ -135,8 +165,11 @@ func _collect_data() -> Resource:
 	var data := Resource.new()
 	data.set_script(DataScript)
 	data.set("room_name", _current_file)
-	data.set("room_width", 16)
-	data.set("room_height", 12)
+	data.set("room_width", int(_width_spin.value))
+	data.set("room_height", int(_height_spin.value))
+	data.set("room_type", _type_opt.selected)
+	data.set("min_enemies", int(_min_spin.value))
+	data.set("max_enemies", int(_max_spin.value))
 	data.call("set_floor_from_dict", _tiles_of("floor"))
 	data.call("set_wall_from_dict", _tiles_of("wall"))
 	data.call("set_detail_from_dict", _tiles_of("detail"))
@@ -195,14 +228,12 @@ func _show(msg: String) -> void:
 	print("[RoomEditor] ", msg)
 
 
-## ---- 手动写文件（不用 ResourceSaver，它在编辑器里会卡死） ----
-
 func _make_empty() -> Resource:
 	var data := Resource.new()
 	data.set_script(DataScript)
 	data.set("room_name", _current_file)
-	data.set("room_width", 16)
-	data.set("room_height", 12)
+	data.set("room_width", int(_width_spin.value))
+	data.set("room_height", int(_height_spin.value))
 	return data
 
 
