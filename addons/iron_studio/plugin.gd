@@ -5,7 +5,7 @@ var _dock: Control
 
 
 func _enter_tree() -> void:
-	_dock = preload("res://addons/iron_studio/studio_tabs.tscn").instantiate()
+	_dock = preload("res://addons/iron_studio/creator_hub.tscn").instantiate()
 	_dock.setup(get_editor_interface())
 	add_control_to_dock(DOCK_SLOT_RIGHT_UL, _dock)
 

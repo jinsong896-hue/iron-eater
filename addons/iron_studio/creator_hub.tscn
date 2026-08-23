@@ -1,0 +1,28 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://addons/iron_studio/creator_hub.gd" id="1"]
+
+[node name="CreatorHub" type="Control"]
+script = ExtResource("1")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Main" type="HSplitContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Sidebar" type="VBoxContainer" parent="Main"]
+theme_override_constants/separation = 4
+custom_minimum_size = Vector2(0, 0)
+
+[node name="Logo" type="Label" parent="Main/Sidebar"]
+text = "IronEater"
+theme_override_font_sizes/font_size = 18
+horizontal_alignment = 1
+
+[node name="Content" type="ScrollContainer" parent="Main"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
