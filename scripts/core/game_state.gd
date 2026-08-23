@@ -40,6 +40,7 @@ func reset_run() -> void:
 	_run_start_ms = Time.get_ticks_msec()
 	# 从编辑器数据加载角色属性
 	_apply_editor_character()
+	_apply_editor_weapon()
 	# 开局送 3 件白装用于体验吞噬/融合
 	var starter_pool: Array = EquipmentDB.all_templates()
 	for i in 3:
@@ -65,6 +66,21 @@ func _apply_editor_character() -> void:
 	attributes.add_modifier("editor_char", AttributeSystem.STAT_BY_NAME.get("def", 0), stats.defense, 0.0)
 	attributes.add_modifier("editor_char", AttributeSystem.STAT_BY_NAME.get("spd", 0), stats.spd, 0.0)
 	EventBus.message.emit("加载角色: %s" % char_data.char_name)
+
+
+## 从编辑器武器数据加载初始装备
+func _apply_editor_weapon() -> void:
+	var weapon_id := str(run_info.get("weapon", ""))
+	if weapon_id.is_empty():
+		return
+	var creator := IronEaterCreator.new()
+	var weapon := creator.load_weapon(weapon_id)
+	if weapon == null:
+		return
+	# 将武器属性作为额外 Modifier 加入
+	var atk_mod := EquipmentDefs.ModifierData.new() if EquipmentDefs.has_method("ModifierData") else null
+	attributes.add_modifier("editor_weapon", AttributeSystem.STAT_BY_NAME.get("atk", 0), weapon.current_atk(), 0.0)
+	EventBus.message.emit("装备武器: %s (ATK+%d)" % [weapon.weapon_name, weapon.current_atk()])
 
 
 ## 主菜单开始/继续游戏时调用：写入本局配置并重置单局

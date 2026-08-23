@@ -743,6 +743,19 @@ func _make_template_door(room, opening: Dictionary) -> RoomDoor:
 
 
 func _spawn_enemies(r: RoomData, usable: Rect2) -> void:
+	# 编辑器怪物优先
+	if not editor_monster_pool.is_empty():
+		var monster_data := editor_monster_pool[rng.randi_range(0, editor_monster_pool.size() - 1)]
+		match r.type:
+			RoomData.RoomType.NORMAL:
+				_spawn_editor_monsters(monster_data, usable, 2)
+			RoomData.RoomType.ELITE:
+				_spawn_editor_monsters(monster_data, usable, 3)
+			RoomData.RoomType.START:
+				var dummy = load("res://scenes/enemies/dummy_enemy.tscn").instantiate()
+				dummy.position = usable.get_center() + Vector2(0, 160)
+				_rooms_root.add_child(dummy)
+		return
 	match r.type:
 		RoomData.RoomType.NORMAL:
 			_spawn_chasers(usable, 2)
@@ -752,6 +765,25 @@ func _spawn_enemies(r: RoomData, usable: Rect2) -> void:
 			var dummy = load("res://scenes/enemies/dummy_enemy.tscn").instantiate()
 			dummy.position = usable.get_center() + Vector2(0, 160)
 			_rooms_root.add_child(dummy)
+
+
+func _spawn_editor_monsters(monster_data: Resource, usable: Rect2, count: int) -> void:
+	var monster_name := str(monster_data.get("monster_name"))
+	var hp: int = monster_data.get("hp")
+	var atk: int = monster_data.get("atk")
+	var defense: int = monster_data.get("defense")
+	var speed: int = monster_data.get("speed")
+	for i in count:
+		var enemy = load("res://scenes/dungeon/chaser_enemy.tscn").instantiate()
+		var margin := 80.0
+		enemy.position = Vector2(
+			rng.randf_range(usable.position.x + margin, usable.end.x - margin),
+			rng.randf_range(usable.position.y + margin, usable.end.y - margin),
+		)
+		if enemy.has_method("set_stats"):
+			enemy.set_stats(hp, atk, defense, speed)
+		_rooms_root.add_child(enemy)
+	print("[Dungeon] 生成编辑器怪物: %s x%d" % [monster_name, count])
 
 
 func _spawn_chasers(usable: Rect2, count: int) -> void:
