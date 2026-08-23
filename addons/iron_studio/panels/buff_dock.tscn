@@ -1,0 +1,69 @@
+[gd_scene load_steps=2 format=3]
+[ext_resource type="Script" path="res://addons/iron_studio/panels/buff_dock.gd" id="1"]
+
+[node name="BuffDock" type="Control"]
+script = ExtResource("1")
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Main" type="HSplitContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0 ; offset_top = 4.0 ; offset_right = -4.0 ; offset_bottom = -4.0
+
+[node name="Left" type="VBoxContainer" parent="Main"]
+[node name="Title" type="Label" parent="Main/Left"]
+text = "Buff列表" ; theme_override_font_sizes/font_size = 14
+[node name="List" type="ItemList" parent="Main/Left"]
+size_flags_vertical = 3 ; allow_reselect = true
+
+[node name="Right" type="VBoxContainer" parent="Main"]
+[node name="Title" type="Label" parent="Main/Right"]
+text = "Buff编辑" ; theme_override_font_sizes/font_size = 14
+[node name="Scroll" type="ScrollContainer" parent="Main/Right"]
+size_flags_vertical = 3
+[node name="VBox" type="VBoxContainer" parent="Main/Right/Scroll"]
+theme_override_constants/separation = 6
+
+[node name="Name" type="LineEdit" parent="Main/Right/Scroll/VBox"]
+placeholder_text = "Buff名称"
+[node name="Debuff" type="CheckBox" parent="Main/Right/Scroll/VBox"]
+text = "Debuff（负面效果）"
+[node name="Duration" type="SpinBox" parent="Main/Right/Scroll/VBox"]
+max_value = 60.0 ; value = 5.0 ; suffix = "s 持续"
+[node name="Stacks" type="SpinBox" parent="Main/Right/Scroll/VBox"]
+max_value = 10.0 ; value = 1.0 ; suffix = " 最大层数"
+
+[node name="ModStat" type="OptionButton" parent="Main/Right/Scroll/VBox"]
+item_count = 4
+popup/item_0/text = "atk" ; popup/item_1/text = "defense"
+popup/item_2/text = "spd" ; popup/item_3/text = "hp"
+[node name="ModVal" type="SpinBox" parent="Main/Right/Scroll/VBox"]
+max_value = 999.0 ; value = 10.0 ; suffix = " 值"
+[node name="AddModBtn" type="Button" parent="Main/Right/Scroll/VBox"]
+text = "+ 添加属性修改"
+[node name="ModList" type="ItemList" parent="Main/Right/Scroll/VBox"]
+min_size = Vector2(0, 60)
+
+[node name="BtnRow" type="HBoxContainer" parent="Main/Right/Scroll/VBox"]
+theme_override_constants/separation = 4
+[node name="NewBtn" type="Button" parent="Main/Right/Scroll/VBox/BtnRow"]
+text = "新建" ; size_flags_horizontal = 3
+[node name="LoadBtn" type="Button" parent="Main/Right/Scroll/VBox/BtnRow"]
+text = "加载" ; size_flags_horizontal = 3
+[node name="SaveBtn" type="Button" parent="Main/Right/Scroll/VBox/BtnRow"]
+text = "保存" ; size_flags_horizontal = 3
+
+[node name="Status" type="Label" parent="Main/Right/Scroll/VBox"]
+text = "就绪"
+theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
+
+[connection signal="pressed" from="Main/Right/Scroll/VBox/AddModBtn" to="." method="_on_add_mod_pressed"]
+[connection signal="pressed" from="Main/Right/Scroll/VBox/BtnRow/NewBtn" to="." method="_on_new_pressed"]
+[connection signal="pressed" from="Main/Right/Scroll/VBox/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
+[connection signal="pressed" from="Main/Right/Scroll/VBox/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
+[connection signal="item_activated" from="Main/Left/List" to="." method="_on_load_pressed"]
