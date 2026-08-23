@@ -1,230 +1,198 @@
 @tool
-class_name RoomEditor
 extends Node2D
-## 房间编辑器：在 Godot 编辑器中直接画房间地形
-## 用法：打开 rooms/editor/room_editor.tscn → 选图层 → 用 TileMap 工具画 → 保存
+## 房间编辑器 @tool 脚本 —— 直接挂在 room_editor.tscn 上
+## 工作流：输入名称 → 点「新建」→ 画瓦片 → 点「保存」→ 点「下一个」
 ##
-## 图层说明：
-##   FloorLayer（z=0）：地板
-##   WallLayer（z=2）：墙壁（带碰撞）
-##   DetailLayer（z=1）：装饰（草地/血迹/碎石）
-##
-## 操作流程：
-##   1. 在场景树中选中 FloorLayer / WallLayer / DetailLayer
-##   2. 在底部 TileMap 面板选瓦片（点一下就能看到所有可用瓦片）
-##   3. 在画布上点击绘制
-##   4. 点右上角面板的「保存」→ 存为 .tres
-##   5. 游戏运行时 DungeonGenerator 自动加载
-##
-## 替换素材（换成你自己的瓦片图）：
-##   1. 打开 rooms/editor/editor_tileset.tres
-##   2. 在 TileSet 底部面板找到 "Atlas" 源
-##   3. 把 Texture 替换为你的 PNG 素材
-##   4. 如果 PNG 的瓦片排列不同，调整 Texture Region Size
-##   5. 重新打开 room_editor.tscn 即可看到新素材
+## 图层：
+##   FloorLayer(z=0)   DetailLayer(z=1)   WallLayer(z=2)
+##   ObstacleLayer(z=3)   InteractLayer(z=4)
 
 const SAVE_DIR := "res://rooms/editor/saved"
+const DataScript := preload("res://scripts/editor/room_editor_data.gd")
 
-@onready var floor_layer: TileMapLayer = $FloorLayer
-@onready var wall_layer: TileMapLayer = $WallLayer
-@onready var detail_layer: TileMapLayer = $DetailLayer
-@onready var spawn_markers: Node2D = $SpawnMarkers
-@onready var chest_markers: Node2D = $ChestMarkers
-@onready var player_marker: Marker2D = $PlayerSpawn
-@onready var room_name_input: LineEdit = $EditorUI/Panel/VBox/RoomName/LineEdit
-@onready var width_spin: SpinBox = $EditorUI/Panel/VBox/Size/Width
-@onready var height_spin: SpinBox = $EditorUI/Panel/VBox/Size/Height
-@onready var room_list: ItemList = $EditorUI/Panel/VBox/RoomList
-@onready var status_label: Label = $EditorUI/Panel/VBox/Status
-@onready var type_option: OptionButton = $EditorUI/Panel/VBox/RoomTypeBox/TypeOption
-@onready var min_enemy_spin: SpinBox = $EditorUI/Panel/VBox/EnemyCountBox/MinEnemy
-@onready var max_enemy_spin: SpinBox = $EditorUI/Panel/VBox/EnemyCountBox/MaxEnemy
+var _current_file := ""  # 当前正在编辑的文件名（不含路径和扩展名）
+
+@onready var _name_input: LineEdit = $UI/NameInput
+@onready var _status: Label = $UI/Status
 
 
 func _ready() -> void:
-	# 瓦片集已预分配在场景中（editor_tileset.tres），无需运行时赋值
-	_refresh_room_list()
-	_show_status("就绪：选图层 → 选瓦片 → 画 → 保存")
+	if Engine.is_editor_hint():
+		_status.text = "输入名称 → 点「新建」"
 
 
 ## ---------------------------------------------------------------------------
 ## 按钮回调
 ## ---------------------------------------------------------------------------
 
-func _on_save_pressed() -> void:
-	var name_str := room_name_input.text.strip_edges()
+## 新建：创建空的 .tres 文件
+func _on_new_pressed() -> void:
+	var name_str := _name_input.text.strip_edges()
 	if name_str.is_empty():
-		_show_status("错误：房间名不能为空")
+		_status.text = "错误：请输入房间名"
+		return
+	_clear_all_layers()
+	_current_file = name_str
+	var data := _make_empty_data(name_str)
+	var err := ResourceSaver.save(data, _file_path())
+	if err == OK:
+		_status.text = "已新建 %s.tres，现在画瓦片" % name_str
+	else:
+		_status.text = "新建失败：%d" % err
+
+
+## 保存：把当前瓦片写入当前文件
+func _on_save_pressed() -> void:
+	if _current_file.is_empty():
+		_status.text = "错误：请先点「新建」创建文件"
 		return
 	var data := _collect_data()
-	var path := SAVE_DIR + "/" + name_str + ".tres"
-	var err := ResourceSaver.save(data, path)
+	var err := ResourceSaver.save(data, _file_path())
 	if err == OK:
-		_show_status("已保存：%s" % path)
-		_refresh_room_list()
+		_status.text = "已保存 %s.tres" % _current_file
 	else:
-		_show_status("保存失败：%d" % err)
+		_status.text = "保存失败：%d" % err
 
 
+## 加载：从列表双击加载已有房间
 func _on_load_pressed() -> void:
-	var selected := room_list.get_selected_items()
-	if selected.is_empty():
-		_show_status("请先从列表中选择一个房间")
+	var list: ItemList = $UI/RoomList
+	var sel := list.get_selected_items()
+	if sel.is_empty():
+		_status.text = "请先在列表中双击一个房间"
 		return
-	var name_str := room_list.get_item_text(selected[0])
+	var name_str := list.get_item_text(sel[0])
 	var path := SAVE_DIR + "/" + name_str + ".tres"
 	if not FileAccess.file_exists(path):
-		_show_status("文件不存在：%s" % path)
+		_status.text = "文件不存在"
 		return
 	var data: Resource = load(path)
 	if data == null:
-		_show_status("加载失败：%s" % path)
+		_status.text = "加载失败"
 		return
+	_clear_all_layers()
 	_apply_data(data)
-	_show_status("已加载：%s" % name_str)
+	_current_file = name_str
+	_name_input.text = name_str
+	_status.text = "已加载 %s" % name_str
 
 
-func _on_clear_pressed() -> void:
-	floor_layer.clear()
-	wall_layer.clear()
-	detail_layer.clear()
-	for child in spawn_markers.get_children():
-		child.queue_free()
-	for child in chest_markers.get_children():
-		child.queue_free()
-	# 自动递增房间名：room_01 → room_02 → room_03 ...
-	var old_name := room_name_input.text.strip_edges()
+## 下一个：清空图层，自动递增名称
+func _on_next_pressed() -> void:
+	_clear_all_layers()
 	var num := 1
-	if old_name.begins_with("room_"):
-		num = int(old_name.trim_prefix("room_")) + 1
-	room_name_input.text = "room_%02d" % num
-	_show_status("已清空，准备画新房间：%s" % room_name_input.text)
+	var old := _name_input.text.strip_edges()
+	if old.begins_with("room_"):
+		num = int(old.trim_prefix("room_")) + 1
+	_name_input.text = "room_%02d" % num
+	_current_file = ""
+	_status.text = "已清空，输入名称 → 新建"
 
 
-func _on_fill_floor_pressed() -> void:
-	var w := int(width_spin.value)
-	var h := int(height_spin.value)
-	for x in w:
-		for y in h:
+## 填充地板（16×12）
+func _on_fill_pressed() -> void:
+	var layer := _find_layer("floor")
+	if layer == null:
+		return
+	layer.clear()
+	for x in 16:
+		for y in 12:
 			var alt := TilesetFactory.TILE_FLOOR_A
 			if (x * 7 + y * 13) % 9 == 0:
 				alt = TilesetFactory.TILE_FLOOR_B
-			floor_layer.set_cell(Vector2i(x, y), 0, alt)
-	_show_status("已填充地板：%d×%d" % [w, h])
+			layer.set_cell(Vector2i(x, y), 0, alt)
+	_status.text = "已填充地板 16×12"
 
 
-func _on_add_spawn_pressed() -> void:
-	var marker := Marker2D.new()
-	marker.name = "Spawn_%d" % spawn_markers.get_child_count()
-	marker.position = Vector2(float(width_spin.value) * 32.0, float(height_spin.value) * 32.0)
-	spawn_markers.add_child(marker)
-	marker.owner = spawn_markers
-	_show_status("已添加敌人出生点，拖拽到目标位置")
+## 刷新房间列表
+func _on_refresh_pressed() -> void:
+	_refresh_list()
 
 
-func _on_add_chest_pressed() -> void:
-	var marker := Marker2D.new()
-	marker.name = "Chest_%d" % chest_markers.get_child_count()
-	marker.position = Vector2(float(width_spin.value) * 32.0, float(height_spin.value) * 32.0)
-	chest_markers.add_child(marker)
-	marker.owner = chest_markers
-	_show_status("已添加宝箱点，拖拽到目标位置")
-
-
-## ---------------------------------------------------------------------------
-## 数据收集 / 还原（使用 Resource 基类，避免 class_name 解析问题）
-## ---------------------------------------------------------------------------
-
-func _collect_data() -> Resource:
-	var data := RoomEditorData.new()
-	data.room_name = room_name_input.text.strip_edges()
-	data.room_width = int(width_spin.value)
-	data.room_height = int(height_spin.value)
-	data.room_type = type_option.selected
-	data.min_enemies = int(min_enemy_spin.value)
-	data.max_enemies = int(max_enemy_spin.value)
-	data.set_floor_from_dict(_collect_tiles(floor_layer))
-	data.set_wall_from_dict(_collect_tiles(wall_layer))
-	data.set_detail_from_dict(_collect_tiles(detail_layer))
-	data.player_spawn = player_marker.position
-	for child in spawn_markers.get_children():
-		if child is Marker2D:
-			data.enemy_spawns.append(child.position)
-	for child in chest_markers.get_children():
-		if child is Marker2D:
-			data.chest_spawns.append(child.position)
-	return data
-
-
-func _collect_tiles(layer: TileMapLayer) -> Dictionary:
-	var result := {}
-	for cell in layer.get_used_cells():
-		result[cell] = layer.get_cell_atlas_coords(cell)
-	return result
-
-
-func _apply_data(data: Resource) -> void:
-	if data == null:
-		return
-	floor_layer.clear()
-	wall_layer.clear()
-	detail_layer.clear()
-	for child in spawn_markers.get_children():
-		child.queue_free()
-	for child in chest_markers.get_children():
-		child.queue_free()
-	_apply_tiles(floor_layer, data.call("get_floor_dict"))
-	_apply_tiles(wall_layer, data.call("get_wall_dict"))
-	_apply_tiles(detail_layer, data.call("get_detail_dict"))
-	room_name_input.text = str(data.get("room_name"))
-	width_spin.value = float(data.get("room_width"))
-	height_spin.value = float(data.get("room_height"))
-	type_option.select(int(data.get("room_type")))
-	min_enemy_spin.value = float(data.get("min_enemies"))
-	max_enemy_spin.value = float(data.get("max_enemies"))
-	player_marker.position = data.get("player_spawn")
-	for pos in data.get("enemy_spawns"):
-		var marker := Marker2D.new()
-		marker.position = pos
-		spawn_markers.add_child(marker)
-	for pos in data.get("chest_spawns"):
-		var marker := Marker2D.new()
-		marker.position = pos
-		chest_markers.add_child(marker)
-
-
-func _apply_tiles(layer: TileMapLayer, dict: Dictionary) -> void:
-	for cell in dict:
-		layer.set_cell(cell, 0, dict[cell])
-
-
-## ---------------------------------------------------------------------------
-## 房间列表
-## ---------------------------------------------------------------------------
-
-func _refresh_room_list() -> void:
-	room_list.clear()
-	var dir := DirAccess.open(SAVE_DIR)
-	if dir == null:
-		return
-	dir.list_dir_begin()
-	var file := dir.get_next()
-	while file != "":
-		if file.ends_with(".tres"):
-			room_list.add_item(file.trim_suffix(".tres"))
-		file = dir.get_next()
-	dir.list_dir_end()
-
-
-func _on_room_list_item_activated(_index: int) -> void:
+func _on_list_activated(_idx: int) -> void:
 	_on_load_pressed()
 
 
 ## ---------------------------------------------------------------------------
-## 状态显示
+## 内部逻辑
 ## ---------------------------------------------------------------------------
 
-func _show_status(text: String) -> void:
-	if status_label:
-		status_label.text = text
-	print("[RoomEditor] %s" % text)
+func _file_path() -> String:
+	return SAVE_DIR + "/" + _current_file + ".tres"
+
+
+func _make_empty_data(name_str: String) -> Resource:
+	var data := Resource.new()
+	data.set_script(DataScript)
+	data.set("room_name", name_str)
+	data.set("room_width", 16)
+	data.set("room_height", 12)
+	return data
+
+
+func _collect_data() -> Resource:
+	var data := Resource.new()
+	data.set_script(DataScript)
+	data.set("room_name", _current_file)
+	data.set("room_width", 16)
+	data.set("room_height", 12)
+	data.call("set_floor_from_dict", _tiles_of("floor"))
+	data.call("set_wall_from_dict", _tiles_of("wall"))
+	data.call("set_detail_from_dict", _tiles_of("detail"))
+	data.call("set_obstacle_from_dict", _tiles_of("obstacle"))
+	data.call("set_interact_from_dict", _tiles_of("interact"))
+	return data
+
+
+func _apply_data(data: Resource) -> void:
+	_apply_tiles(_find_layer("floor"), data.call("get_floor_dict"))
+	_apply_tiles(_find_layer("wall"), data.call("get_wall_dict"))
+	_apply_tiles(_find_layer("detail"), data.call("get_detail_dict"))
+	_apply_tiles(_find_layer("obstacle"), data.call("get_obstacle_dict"))
+	_apply_tiles(_find_layer("interact"), data.call("get_interact_dict"))
+
+
+func _tiles_of(hint: String) -> Dictionary:
+	var layer := _find_layer(hint)
+	if layer == null:
+		return {}
+	var d := {}
+	for cell in layer.get_used_cells():
+		d[cell] = layer.get_cell_atlas_coords(cell)
+	return d
+
+
+func _apply_tiles(layer: TileMapLayer, d: Dictionary) -> void:
+	if layer == null:
+		return
+	layer.clear()
+	for cell in d:
+		layer.set_cell(cell, 0, d[cell])
+
+
+func _find_layer(hint: String) -> TileMapLayer:
+	for child in get_children():
+		if child is TileMapLayer and child.name.to_lower().find(hint) >= 0:
+			return child
+	return null
+
+
+func _clear_all_layers() -> void:
+	for child in get_children():
+		if child is TileMapLayer:
+			child.clear()
+
+
+func _refresh_list() -> void:
+	var list: ItemList = $UI/RoomList
+	list.clear()
+	var dir := DirAccess.open(SAVE_DIR)
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var f := dir.get_next()
+	while f != "":
+		if f.ends_with(".tres"):
+			list.add_item(f.trim_suffix(".tres"))
+		f = dir.get_next()
+	dir.list_dir_end()
