@@ -152,6 +152,13 @@ popup/item_7/text = "破损"
 [node name="ApplyTemplateBtn" type="Button" parent="UI/Panel/VBox/TemplateRow"]
 text = "应用"
 
+[node name="PreviewBtn" type="Button" parent="UI/Panel/VBox"]
+text = "刷新预览"
+
+[node name="PreviewRect" type="Control" parent="UI/Panel/VBox"]
+min_size = Vector2(0, 120)
+size_flags_vertical = 0
+
 [node name="Sep1" type="HSeparator" parent="UI/Panel/VBox"]
 
 [node name="BtnRow" type="GridContainer" parent="UI/Panel/VBox"]
@@ -205,6 +212,8 @@ autowrap_mode = 2
 [connection signal="pressed" from="UI/Panel/VBox/NameRow/NewBtn" to="." method="_on_new_pressed"]
 [connection signal="pressed" from="UI/Panel/VBox/NameRow/CopyBtn" to="." method="_on_copy_pressed"]
 [connection signal="pressed" from="UI/Panel/VBox/TemplateRow/ApplyTemplateBtn" to="." method="_on_template_pressed"]
+[connection signal="pressed" from="UI/Panel/VBox/PreviewBtn" to="." method="_on_preview_pressed"]
+[connection signal="draw" from="UI/Panel/VBox/PreviewRect" to="." method="_draw_preview"]
 [connection signal="pressed" from="UI/Panel/VBox/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
 [connection signal="pressed" from="UI/Panel/VBox/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
 [connection signal="pressed" from="UI/Panel/VBox/BtnRow/FillBtn" to="." method="_on_fill_pressed"]

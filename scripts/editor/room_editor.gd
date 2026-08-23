@@ -397,3 +397,54 @@ func _fmt_v2i(arr: Array) -> String:
 	for v in arr:
 		parts.append("(%d, %d)" % [v.x, v.y])
 	return ", ".join(parts)
+## ---- 房间预览 ----
+
+func _on_preview_pressed() -> void:
+	var preview: Control = $UI/Panel/VBox/PreviewRect
+	preview.queue_redraw()
+	_show("已刷新预览")
+
+
+func _draw_preview(preview: Control) -> void:
+	var w := int(_width_spin.value)
+	var h := int(_height_spin.value)
+	if w <= 0 or h <= 0:
+		return
+	var cell_w := preview.size.x / float(w)
+	var cell_h := preview.size.y / float(h)
+	var cell_size := minf(cell_w, cell_h)
+
+	# 地板
+	var floor_layer := _find_layer("floor")
+	if floor_layer:
+		for cell in floor_layer.get_used_cells():
+			var rect := Rect2(Vector2(cell) * cell_size, Vector2(cell_size, cell_size))
+			preview.draw_rect(rect, Color(0.4, 0.35, 0.3), true)
+
+	# 墙
+	var wall_layer := _find_layer("wall")
+	if wall_layer:
+		for cell in wall_layer.get_used_cells():
+			var rect := Rect2(Vector2(cell) * cell_size, Vector2(cell_size, cell_size))
+			preview.draw_rect(rect, Color(0.5, 0.45, 0.4), true)
+
+	# 装饰
+	var detail_layer := _find_layer("detail")
+	if detail_layer:
+		for cell in detail_layer.get_used_cells():
+			var rect := Rect2(Vector2(cell) * cell_size, Vector2(cell_size, cell_size))
+			preview.draw_rect(rect, Color(0.3, 0.6, 0.3), true)
+
+	# 障碍
+	var obstacle_layer := _find_layer("obstacle")
+	if obstacle_layer:
+		for cell in obstacle_layer.get_used_cells():
+			var rect := Rect2(Vector2(cell) * cell_size, Vector2(cell_size, cell_size))
+			preview.draw_rect(rect, Color(0.6, 0.3, 0.2), true)
+
+	# 交互
+	var interact_layer := _find_layer("interact")
+	if interact_layer:
+		for cell in interact_layer.get_used_cells():
+			var rect := Rect2(Vector2(cell) * cell_size, Vector2(cell_size, cell_size))
+			preview.draw_rect(rect, Color(1.0, 0.8, 0.2), true)
