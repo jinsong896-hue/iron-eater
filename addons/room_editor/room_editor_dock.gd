@@ -35,6 +35,64 @@ func _show(msg: String) -> void:
 	print("[RoomEditor] ", msg)
 
 
+## 手动生成 .tres 文本，避免 ResourceSaver 在编辑器里卡死
+func _make_tres_text(data: Resource) -> String:
+	var lines: Array = []
+	lines.append('[gd_resource type="Resource" script_class="RoomEditorData" format=3]')
+	lines.append("")
+	lines.append('[ext_resource type="Script" path="res://scripts/editor/room_editor_data.gd" id="1"]')
+	lines.append("")
+	lines.append("[resource]")
+	lines.append("script = ExtResource(\"1\")")
+	# 简单属性
+	for key in ["room_name", "room_width", "room_height", "room_type", "min_enemies", "max_enemies"]:
+		var val = data.get(key)
+		if val is String:
+			lines.append('%s = "%s"' % [key, val])
+		else:
+			lines.append("%s = %d" % [key, int(val)])
+	# 数组属性
+	for key in ["floor_cells", "floor_atlas", "wall_cells", "wall_atlas", "detail_cells", "detail_atlas", "obstacle_cells", "obstacle_atlas", "interact_cells", "interact_atlas"]:
+		var arr: Array = data.get(key)
+		if arr.is_empty():
+			continue
+		lines.append("%s = Array[Vector2i]([%s])" % [key, _format_v2i(arr)])
+	# 标记点
+	var player_spawn: Vector2 = data.get("player_spawn")
+	if player_spawn != Vector2.ZERO:
+		lines.append("player_spawn = Vector2(%f, %f)" % [player_spawn.x, player_spawn.y])
+	var enemy_spawns: Array = data.get("enemy_spawns")
+	if not enemy_spawns.is_empty():
+		lines.append("enemy_spawns = Array[Vector2]([%s])" % _format_v2(enemy_spawns))
+	var chest_spawns: Array = data.get("chest_spawns")
+	if not chest_spawns.is_empty():
+		lines.append("chest_spawns = Array[Vector2]([%s])" % _format_v2(chest_spawns))
+	return "\n".join(lines) + "\n"
+
+
+func _format_v2i(arr: Array) -> String:
+	var parts: PackedStringArray = []
+	for v in arr:
+		parts.append("(%d, %d)" % [v.x, v.y])
+	return ", ".join(parts)
+
+
+func _format_v2(arr: Array) -> String:
+	var parts: PackedStringArray = []
+	for v in arr:
+		parts.append("(%f, %f)" % [v.x, v.y])
+	return ", ".join(parts)
+
+
+func _make_empty_data(name_str: String) -> Resource:
+	var data := Resource.new()
+	data.set_script(DataScript)
+	data.set("room_name", name_str)
+	data.set("room_width", 16)
+	data.set("room_height", 12)
+	return data
+
+
 func _refresh_list() -> void:
 	_room_list.clear()
 	var dir := DirAccess.open(SAVE_DIR)
@@ -90,13 +148,12 @@ func _on_new_pressed() -> void:
 		_show("请输入房间名")
 		return
 	_clear_layers(root)
-	var data := Resource.new()
-	data.set_script(DataScript)
-	data.set("room_name", name_str)
-	data.set("room_width", 16)
-	data.set("room_height", 12)
 	DirAccess.make_dir_recursive_absolute(SAVE_DIR)
-	ResourceSaver.save(data, SAVE_DIR + "/" + name_str + ".tres")
+	var path := SAVE_DIR + "/" + name_str + ".tres"
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file:
+		file.store_string(_make_tres_text(_make_empty_data(name_str)))
+		file.close()
 	_show("已新建 %s.tres" % name_str)
 	_refresh_list()
 
@@ -135,11 +192,17 @@ func _on_save_pressed() -> void:
 	data.call("set_interact_from_dict", interact_tiles)
 
 	DirAccess.make_dir_recursive_absolute(SAVE_DIR)
-	var err := ResourceSaver.save(data, SAVE_DIR + "/" + name_str + ".tres")
-	if err == OK:
-		_show("已保存！(地板:%d 墙:%d 装饰:%d 障碍:%d 交互:%d)" % [floor_tiles.size(), wall_tiles.size(), detail_tiles.size(), obstacle_tiles.size(), interact_tiles.size()])
-		_refresh_list()
-	else:
+	var path := SAVE_DIR + "/" + name_str + ".tres"
+
+	# 手动写 .tres 文件，避开 ResourceSaver（在编辑器里会卡死）
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		_show("保存失败：无法创建文件")
+		return
+	file.store_string(_make_tres_text(data))
+	file.close()
+	_show("已保存！(地板:%d 墙:%d 装饰:%d 障碍:%d 交互:%d)" % [floor_tiles.size(), wall_tiles.size(), detail_tiles.size(), obstacle_tiles.size(), interact_tiles.size()])
+	_refresh_list()
 		_show("保存失败：%d" % err)
 
 
