@@ -53,12 +53,19 @@ func _on_tree_selected() -> void:
 	var info := ""
 	if path.ends_with(".png") or path.ends_with(".jpg"):
 		info = "类型: 纹理"
+		var tex := load(path) as Texture2D
+		if tex:
+			_preview.text = ""
+			_preview.add_theme_icon_override("texture", tex)
 	elif path.ends_with(".gd"):
 		info = "类型: 脚本"
 	elif path.ends_with(".tscn"):
 		info = "类型: 场景"
 	elif path.ends_with(".tres"):
 		info = "类型: 资源"
+		var res := load(path)
+		if res:
+			info += " (%s)" % res.get_class()
 	elif path.ends_with(".glb") or path.ends_with(".fbx"):
 		info = "类型: 3D模型"
 	_info.text = info
