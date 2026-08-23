@@ -27,7 +27,11 @@ var monsters: Dictionary = {}
 func load_character(id: String) -> CharacterData:
 	if characters.has(id):
 		return characters[id]
-	var data: CharacterData = load(CHAR_DIR + "/" + id + ".tres")
+	var path := CHAR_DIR + "/" + id + ".tres"
+	if not FileAccess.file_exists(path):
+		print("[CreatorCore] 角色文件不存在: %s" % path)
+		return null
+	var data: CharacterData = load(path) as CharacterData
 	if data:
 		characters[id] = data
 	return data
