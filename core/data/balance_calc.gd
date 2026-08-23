@@ -18,10 +18,7 @@ static func calc_final_stats(base: StatsData, modifiers: Array[ModifierData]) ->
 
 ## 计算DPS
 static func calc_dps(atk: float, aspd: float, crt: float, crd: float, defense: float, target_def: float) -> float:
-	var effective_atk := maxf(atk - target_def * 0.5, atk * 0.3)
-	var hits_per_sec := 1.0 / maxf(aspd, 0.1)
-	var crit_mult := 1.0 + crt * crd
-	return effective_atk * hits_per_sec * crit_mult
+	return CombatCore.calc_dps(atk, aspd, crt, crd, target_def)
 
 
 ## 计算生存时间（秒）
@@ -33,8 +30,7 @@ static func calc_survival(hp: float, defense: float, enemy_dps: float) -> float:
 
 ## 模拟Boss击杀时间
 static func calc_ttk(player_dps: float, boss_hp: float, boss_def: float) -> float:
-	var effective_dps := player_dps * (1.0 - boss_def / (boss_def + 100.0))
-	return boss_hp / maxf(effective_dps, 1.0)
+	return CombatCore.calc_ttk(player_dps, boss_hp, boss_def)
 
 
 ## 综合模拟报告
