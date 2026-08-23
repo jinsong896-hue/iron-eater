@@ -38,6 +38,8 @@ func reset_run() -> void:
 	elite_kills = 0
 	boss_kills = 0
 	_run_start_ms = Time.get_ticks_msec()
+	# 从编辑器数据加载角色属性
+	_apply_editor_character()
 	# 开局送 3 件白装用于体验吞噬/融合
 	var starter_pool: Array = EquipmentDB.all_templates()
 	for i in 3:
@@ -48,6 +50,21 @@ func reset_run() -> void:
 	EventBus.inventory_changed.emit()
 	EventBus.gold_changed.emit()
 	EventBus.message.emit("新的一局开始：吞噬或融合，把木桩打爆！")
+
+
+## 从 IronEater Creator 编辑器数据加载角色属性
+func _apply_editor_character() -> void:
+	var char_id := str(run_info.get("character", "warrior"))
+	var creator := IronEaterCreator.new()
+	var char_data := creator.load_character(char_id)
+	if char_data == null or char_data.base_stats == null:
+		return
+	var stats := char_data.base_stats
+	attributes.add_modifier("editor_char", AttributeSystem.STAT_BY_NAME.get("hp", 0), stats.hp, 0.0)
+	attributes.add_modifier("editor_char", AttributeSystem.STAT_BY_NAME.get("atk", 0), stats.atk, 0.0)
+	attributes.add_modifier("editor_char", AttributeSystem.STAT_BY_NAME.get("def", 0), stats.defense, 0.0)
+	attributes.add_modifier("editor_char", AttributeSystem.STAT_BY_NAME.get("spd", 0), stats.spd, 0.0)
+	EventBus.message.emit("加载角色: %s" % char_data.char_name)
 
 
 ## 主菜单开始/继续游戏时调用：写入本局配置并重置单局

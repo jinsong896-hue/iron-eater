@@ -41,6 +41,9 @@ var _corridors_root: Node2D
 ## 编辑器房间池：从 rooms/editor/saved/ 加载，随机注入普通房
 var editor_room_pool: Array = []
 
+## 编辑器怪物池：从 data/monsters/ 加载，随机注入怪物
+var editor_monster_pool: Array = []
+
 signal generated
 signal template_room_cleared(room_type: int)
 signal minimap_updated
@@ -80,6 +83,7 @@ func generate(cfg: ChapterConfig, seed_value: int = -1, bake_nav: bool = false, 
 	else:
 		rng.seed = seed_value
 	_load_editor_room_pool()
+	_load_editor_monster_pool()
 	if cfg.layer_id == 9:
 		_generate_final_layer()
 	else:
@@ -627,6 +631,23 @@ func _load_editor_room_pool() -> void:
 			var data: Resource = load("res://rooms/editor/saved/" + file)
 			if data != null and data.has_method("get_floor_dict"):
 				editor_room_pool.append(data)
+		file = dir.get_next()
+	dir.list_dir_end()
+
+
+## 扫描 data/monsters/，加载编辑器怪物
+func _load_editor_monster_pool() -> void:
+	editor_monster_pool.clear()
+	var dir := DirAccess.open("res://data/monsters")
+	if dir == null:
+		return
+	dir.list_dir_begin()
+	var file := dir.get_next()
+	while file != "":
+		if file.ends_with(".tres"):
+			var data: Resource = load("res://data/monsters/" + file)
+			if data != null:
+				editor_monster_pool.append(data)
 		file = dir.get_next()
 	dir.list_dir_end()
 
