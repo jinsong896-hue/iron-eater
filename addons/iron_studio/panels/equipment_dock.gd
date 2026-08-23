@@ -30,13 +30,28 @@ func _ready() -> void:
 
 func _refresh() -> void:
 	_list.clear()
+	var filter := _name.text.strip_edges().to_lower()
 	var dir := DirAccess.open(DATA_DIR)
 	if dir == null: return
 	dir.list_dir_begin(); var f := dir.get_next()
 	while f != "":
-		if f.ends_with(".tres"): _list.add_item(f.trim_suffix(".tres"))
+		if f.ends_with(".tres"):
+			var name := f.trim_suffix(".tres")
+			if filter.is_empty() or name.to_lower().find(filter) >= 0:
+				_list.add_item(name)
 		f = dir.get_next()
 	dir.list_dir_end()
+
+
+func _on_delete_pressed() -> void:
+	var sel := _list.get_selected_items()
+	if sel.is_empty(): _show("请先选中要删除的武器"); return
+	var name_str := _list.get_item_text(sel[0])
+	var path := DATA_DIR + "/" + name_str + ".tres"
+	if FileAccess.file_exists(path):
+		DirAccess.remove_absolute(path)
+		_show("已删除: %s" % name_str)
+		_refresh()
 
 
 func _show(msg: String) -> void:
