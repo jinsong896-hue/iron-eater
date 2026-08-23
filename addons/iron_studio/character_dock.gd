@@ -71,6 +71,24 @@ func _on_delete_pressed() -> void:
 		_refresh_list()
 
 
+func _on_batch_export_pressed() -> void:
+	var dir := DirAccess.open(DATA_DIR)
+	if dir == null: _show("目录不存在"); return
+	var count := 0
+	dir.list_dir_begin(); var f := dir.get_next()
+	while f != "":
+		if f.ends_with(".tres"):
+			var data: CharacterData = load(DATA_DIR + "/" + f)
+			if data and data.forms.size() > 0:
+				DirAccess.make_dir_recursive_absolute(FORMS_DIR)
+				for form in data.forms:
+					ResourceSaver.save(form, FORMS_DIR + "/" + data.char_id + "_" + form.form_id + ".tres")
+					count += 1
+		f = dir.get_next()
+	dir.list_dir_end()
+	_show("批量导出完成: %d个形态" % count)
+
+
 func _refresh_skill_pool() -> void:
 	_available_skills.clear(); _avail_list.clear()
 	var dir := DirAccess.open(SKILLS_DIR)
