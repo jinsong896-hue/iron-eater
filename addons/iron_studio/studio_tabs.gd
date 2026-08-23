@@ -17,6 +17,7 @@ func setup(editor_interface: EditorInterface) -> void:
 	_safe_call(tabs, "怪物", "setup", [editor_interface])
 	_safe_call(tabs, "数值", "setup", [editor_interface])
 	_safe_call(tabs, "资源", "setup", [editor_interface])
+	_safe_call(tabs, "Buff", "setup", [editor_interface])
 
 
 func _safe_call(tabs: TabContainer, tab_name: String, method: String, args: Array) -> void:
