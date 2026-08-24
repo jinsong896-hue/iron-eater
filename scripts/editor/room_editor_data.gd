@@ -12,22 +12,27 @@ extends Resource
 ## 地板层：cell_positions[i] 使用 atlas_coords[i]
 @export var floor_cells: Array[Vector2i] = []
 @export var floor_atlas: Array[Vector2i] = []
+@export var floor_sources: Array = []  ## source_id
 
 ## 墙壁层
 @export var wall_cells: Array[Vector2i] = []
 @export var wall_atlas: Array[Vector2i] = []
+@export var wall_sources: Array = []
 
 ## 细节层（草地、血迹等）
 @export var detail_cells: Array[Vector2i] = []
 @export var detail_atlas: Array[Vector2i] = []
+@export var detail_sources: Array = []
 
 ## 障碍物层（柱子、木桶、碎石等，带碰撞）
 @export var obstacle_cells: Array[Vector2i] = []
 @export var obstacle_atlas: Array[Vector2i] = []
+@export var obstacle_sources: Array = []
 
 ## 交互层（门、宝箱、火炬等可交互对象的位置标记）
 @export var interact_cells: Array[Vector2i] = []
 @export var interact_atlas: Array[Vector2i] = []
+@export var interact_sources: Array = []
 
 ## 标记点
 @export var enemy_spawns: Array[Vector2] = []
