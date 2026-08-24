@@ -28,4 +28,6 @@ z_index = 4
 
 [node name="ChestMarkers" type="Node2D" parent="."]
 
+[node name="DoorMarkers" type="Node2D" parent="."]
+
 [node name="PlayerSpawn" type="Marker2D" parent="."]

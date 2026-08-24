@@ -119,6 +119,14 @@ func _on_save_pressed() -> void:
 	data.set("room_type", _type_opt.selected)
 	data.set("min_enemies", int(_min_spin.value))
 	data.set("max_enemies", int(_max_spin.value))
+	# 收集门标记
+	var door_positions: Array[Vector2] = []
+	var door_node: Node2D = root.get_node_or_null("DoorMarkers")
+	if door_node:
+		for child in door_node.get_children():
+			if child is Marker2D:
+				door_positions.append(child.position)
+	data.set("door_markers", door_positions)
 	_set_tile_arrays(data, "floor", floor_tiles)
 	_set_tile_arrays(data, "wall", wall_tiles)
 	_set_tile_arrays(data, "detail", detail_tiles)
@@ -290,6 +298,19 @@ func _on_save_template_pressed() -> void:
 	_show("已保存当前房间为模板")
 
 
+func _on_add_door_pressed() -> void:
+	var root := _root()
+	if root == null: _show("请先打开 room_editor.tscn"); return
+	var door_markers: Node2D = root.get_node_or_null("DoorMarkers")
+	if door_markers == null: _show("场景缺少 DoorMarkers 节点"); return
+	var marker := Marker2D.new()
+	marker.name = "Door_%d" % door_markers.get_child_count()
+	marker.position = Vector2(float(_width_spin.value) * 32.0, float(_height_spin.value) * 32.0)
+	door_markers.add_child(marker)
+	marker.owner = door_markers
+	_show("已添加门生成点，拖拽到目标位置")
+
+
 func _make_empty(name_str: String) -> Resource:
 	var data := Resource.new()
 	data.set_script(DataScript)
@@ -315,10 +336,20 @@ func _make_tres(data: Resource) -> String:
 		var arr: Array = data.get(key)
 		if arr.is_empty(): continue
 		lines.append("%s = Array[Vector2i]([%s])" % [key, _fmt_v2i(arr)])
+	# 门标记
+	var door_arr: Array = data.get("door_markers")
+	if not door_arr.is_empty():
+		lines.append("door_markers = Array[Vector2]([%s])" % _fmt_v2(door_arr))
 	return "\n".join(lines) + "\n"
 
 
 func _fmt_v2i(arr: Array) -> String:
 	var parts: PackedStringArray = []
 	for v in arr: parts.append("Vector2i(%d, %d)" % [v.x, v.y])
+	return ", ".join(parts)
+
+
+func _fmt_v2(arr: Array) -> String:
+	var parts: PackedStringArray = []
+	for v in arr: parts.append("Vector2(%f, %f)" % [v.x, v.y])
 	return ", ".join(parts)
