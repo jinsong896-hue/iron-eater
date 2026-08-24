@@ -322,14 +322,14 @@ func _serialize(data: Resource) -> String:
 		if val is String: lines.append('%s = "%s"' % [key, val])
 		else: lines.append("%s = %d" % [key, int(val) if val != null else 0])
 	for key in ["floor_cells", "floor_atlas", "wall_cells", "wall_atlas", "detail_cells", "detail_atlas", "obstacle_cells", "obstacle_atlas", "interact_cells", "interact_atlas"]:
-		var arr: Array = data.get(key)
+		var arr := _safe_arr(data.get(key))
 		if arr.is_empty(): continue
 		lines.append("%s = Array[Vector2i]([%s])" % [key, _fmt_v2i(arr)])
 	for key in ["floor_sources", "wall_sources", "detail_sources", "obstacle_sources", "interact_sources"]:
-		var arr: Array = data.get(key)
+		var arr := _safe_arr(data.get(key))
 		if arr.is_empty(): continue
 		lines.append("%s = Array[int]([%s])" % [key, _fmt_int(arr)])
-	var doors: Array = data.get("door_markers")
+	var doors := _safe_arr(data.get("door_markers"))
 	if not doors.is_empty():
 		lines.append("door_markers = Array[Vector2]([%s])" % _fmt_v2(doors))
 	return "\n".join(lines) + "\n"
