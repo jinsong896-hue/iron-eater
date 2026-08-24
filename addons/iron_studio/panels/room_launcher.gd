@@ -199,7 +199,7 @@ func _on_fill_pressed() -> void:
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find("floor") >= 0:
 			var layer := child as TileMapLayer
-			child.clear()
+			layer.clear()
 			for x in w:
 				for y in h:
 					var alt := TilesetFactory.TILE_FLOOR_A if (x * 7 + y * 13) % 9 != 0 else TilesetFactory.TILE_FLOOR_B
@@ -215,15 +215,15 @@ func _on_fill_walls_pressed() -> void:
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find("wall") >= 0:
 			var wlayer := child as TileMapLayer
-			child.clear()
+			layer.clear()
 			for x in w:
 				for i in 2:
-					child.set_cell(Vector2i(x, i), 0, TilesetFactory.TILE_WALL)
-					child.set_cell(Vector2i(x, h - 1 - i), 0, TilesetFactory.TILE_WALL)
+					wlayer.set_cell(Vector2i(x, i), 0, TilesetFactory.TILE_WALL)
+					wlayer.set_cell(Vector2i(x, h - 1 - i), 0, TilesetFactory.TILE_WALL)
 			for y in h:
 				for i in 2:
-					child.set_cell(Vector2i(i, y), 0, TilesetFactory.TILE_WALL)
-					child.set_cell(Vector2i(w - 1 - i, y), 0, TilesetFactory.TILE_WALL)
+					wlayer.set_cell(Vector2i(i, y), 0, TilesetFactory.TILE_WALL)
+					wlayer.set_cell(Vector2i(w - 1 - i, y), 0, TilesetFactory.TILE_WALL)
 	_show("已填充墙壁 %dx%d" % [w, h])
 
 
@@ -237,7 +237,7 @@ func _on_template_pressed() -> void:
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find("wall") >= 0:
 			var wlayer := child as TileMapLayer
-			wall_layer = child; break
+			wall_layer = wlayer; break
 	if wall_layer == null: return
 	wall_layer.clear()
 	match key:
@@ -327,8 +327,10 @@ func _on_add_door_pressed() -> void:
 
 
 func _arr(data: Resource, key: String) -> Array:
-	var v = data.get(key)
-	return v if v is Array else []
+	var raw = data.get(key)
+	return raw if raw is Array else []
+	
+	
 
 
 func _make_empty(name_str: String) -> Resource:
@@ -352,6 +354,10 @@ func _make_tres(data: Resource) -> String:
 		var val = data.get(key)
 		if val is String: lines.append('%s = "%s"' % [key, val])
 		else: lines.append("%s = %d" % [key, int(val) if val != null else 0])
+tfor key in ["floor_sources", "wall_sources", "detail_sources", "obstacle_sources", "interact_sources"]:
+		var sarr: Array = data.get(key)
+		if sarr.is_empty(): continue
+		lines.append("%s = Array[int]([%s])" % [key, _fmt_int(sarr)])
 	for key in ["floor_cells", "floor_atlas", "wall_cells", "wall_atlas", "detail_cells", "detail_atlas", "obstacle_cells", "obstacle_atlas", "interact_cells", "interact_atlas"]:
 		var arr: Array = data.get(key)
 		if arr.is_empty(): continue
@@ -364,6 +370,10 @@ func _make_tres(data: Resource) -> String:
 
 
 func _fmt_v2i(arr: Array) -> String:
+nfunc _fmt_int(arr: Array) -> String:
+	var parts: PackedStringArray = []
+	for v in arr: parts.append(str(v))
+	return ", ".join(parts)
 	var parts: PackedStringArray = []
 	for v in arr: parts.append("Vector2i(%d, %d)" % [v.x, v.y])
 	return ", ".join(parts)
