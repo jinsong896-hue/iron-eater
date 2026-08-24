@@ -57,9 +57,10 @@ func _collect_layer(root: Node2D, hint: String) -> Dictionary:
 	var d := {}
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find(hint) >= 0:
-			for cell in child.get_used_cells():
-				var sid := child.get_cell_source_id(cell)
-				var atlas := child.get_cell_atlas_coords(cell)
+			var layer := child as TileMapLayer
+			for cell in layer.get_used_cells():
+				var sid: int = layer.get_cell_source_id(cell)
+				var atlas: Vector2i = layer.get_cell_atlas_coords(cell)
 				d[cell] = {"s": sid, "a": atlas}
 	return d
 
@@ -67,27 +68,29 @@ func _collect_layer(root: Node2D, hint: String) -> Dictionary:
 func _apply_layer(root: Node2D, hint: String, d: Dictionary) -> void:
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find(hint) >= 0:
-			child.clear()
+			var layer := child as TileMapLayer
+			layer.clear()
 			for cell in d:
 				var info: Dictionary = d[cell]
 				var sid: int = info.get("s", 0)
 				var atlas: Vector2i = info.get("a", Vector2i.ZERO)
-				child.set_cell(cell, sid, atlas)
+				layer.set_cell(cell, sid, atlas)
 
 
 func _apply_layer_from_arrays(root: Node2D, hint: String, cells: Array, atlas: Array, sources: Array) -> void:
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find(hint) >= 0:
-			child.clear()
+			var layer := child as TileMapLayer
+			layer.clear()
 			for i in cells.size():
 				var sid: int = sources[i] if i < sources.size() else 0
-				child.set_cell(cells[i], sid, atlas[i])
+				layer.set_cell(cells[i], sid, atlas[i])
 
 
 func _clear_layers(root: Node2D) -> void:
 	for child in root.get_children():
 		if child is TileMapLayer:
-			child.clear()
+			(child as TileMapLayer).clear()
 
 
 func _on_new_pressed() -> void:
@@ -195,11 +198,12 @@ func _on_fill_pressed() -> void:
 	var h := int(_height_spin.value)
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find("floor") >= 0:
+			var layer := child as TileMapLayer
 			child.clear()
 			for x in w:
 				for y in h:
 					var alt := TilesetFactory.TILE_FLOOR_A if (x * 7 + y * 13) % 9 != 0 else TilesetFactory.TILE_FLOOR_B
-					child.set_cell(Vector2i(x, y), 0, alt)
+					layer.set_cell(Vector2i(x, y), 0, alt)
 	_show("已填充地板 %dx%d" % [w, h])
 
 
@@ -210,6 +214,7 @@ func _on_fill_walls_pressed() -> void:
 	var h := int(_height_spin.value)
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find("wall") >= 0:
+			var wlayer := child as TileMapLayer
 			child.clear()
 			for x in w:
 				for i in 2:
@@ -231,6 +236,7 @@ func _on_template_pressed() -> void:
 	var wall_layer: TileMapLayer = null
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find("wall") >= 0:
+			var wlayer := child as TileMapLayer
 			wall_layer = child; break
 	if wall_layer == null: return
 	wall_layer.clear()
