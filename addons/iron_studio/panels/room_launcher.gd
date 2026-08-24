@@ -288,18 +288,6 @@ func _on_save_template_pressed() -> void:
 	_show("已保存当前房间为模板")
 
 
-func _on_add_door_pressed() -> void:
-	var root := _root()
-	if root == null: _show("请先打开 room_editor.tscn"); return
-	var door_node := root.get_node_or_null("DoorMarkers") as Node2D
-	if door_node == null: _show("场景缺少 DoorMarkers 节点"); return
-	var marker := Marker2D.new()
-	marker.name = "Door_%d" % door_node.get_child_count()
-	marker.position = Vector2(float(_width_spin.value) * 32.0, float(_height_spin.value) * 32.0)
-	door_node.add_child(marker)
-	_show("已添加门生成点，拖拽到目标位置")
-
-
 func _make_empty(name_str: String) -> Resource:
 	var data := Resource.new()
 	data.set_script(DataScript)
