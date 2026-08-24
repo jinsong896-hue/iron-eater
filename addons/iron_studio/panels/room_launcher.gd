@@ -58,7 +58,9 @@ func _collect_layer(root: Node2D, hint: String) -> Dictionary:
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find(hint) >= 0:
 			for cell in child.get_used_cells():
-				d[cell] = child.get_cell_atlas_coords(cell)
+				var sid := child.get_cell_source_id(cell)
+				var atlas := child.get_cell_atlas_coords(cell)
+				d[cell] = {"s": sid, "a": atlas}
 	return d
 
 
@@ -67,15 +69,19 @@ func _apply_layer(root: Node2D, hint: String, d: Dictionary) -> void:
 		if child is TileMapLayer and child.name.to_lower().find(hint) >= 0:
 			child.clear()
 			for cell in d:
-				child.set_cell(cell, 0, d[cell])
+				var info: Dictionary = d[cell]
+				var sid: int = info.get("s", 0)
+				var atlas: Vector2i = info.get("a", Vector2i.ZERO)
+				child.set_cell(cell, sid, atlas)
 
 
-func _apply_layer_from_arrays(root: Node2D, hint: String, cells: Array, atlas: Array) -> void:
+func _apply_layer_from_arrays(root: Node2D, hint: String, cells: Array, atlas: Array, sources: Array) -> void:
 	for child in root.get_children():
 		if child is TileMapLayer and child.name.to_lower().find(hint) >= 0:
 			child.clear()
 			for i in cells.size():
-				child.set_cell(cells[i], 0, atlas[i])
+				var sid: int = sources[i] if i < sources.size() else 0
+				child.set_cell(cells[i], sid, atlas[i])
 
 
 func _clear_layers(root: Node2D) -> void:
@@ -153,11 +159,11 @@ func _on_load_pressed() -> void:
 	var root := _root()
 	if root == null: return
 	_clear_layers(root)
-	_apply_layer_from_arrays(root, "floor", data.get("floor_cells"), data.get("floor_atlas"))
-	_apply_layer_from_arrays(root, "wall", data.get("wall_cells"), data.get("wall_atlas"))
-	_apply_layer_from_arrays(root, "detail", data.get("detail_cells"), data.get("detail_atlas"))
-	_apply_layer_from_arrays(root, "obstacle", data.get("obstacle_cells"), data.get("obstacle_atlas"))
-	_apply_layer_from_arrays(root, "interact", data.get("interact_cells"), data.get("interact_atlas"))
+	_apply_layer_from_arrays(root, "floor", data.get("floor_cells"), data.get("floor_atlas"), data.get("floor_sources"))
+	_apply_layer_from_arrays(root, "wall", data.get("wall_cells"), data.get("wall_atlas"), data.get("wall_sources"))
+	_apply_layer_from_arrays(root, "detail", data.get("detail_cells"), data.get("detail_atlas"), data.get("detail_sources"))
+	_apply_layer_from_arrays(root, "obstacle", data.get("obstacle_cells"), data.get("obstacle_atlas"), data.get("obstacle_sources"))
+	_apply_layer_from_arrays(root, "interact", data.get("interact_cells"), data.get("interact_atlas"), data.get("interact_sources"))
 	_name_input.text = name_str
 	_width_spin.value = float(data.get("room_width"))
 	_height_spin.value = float(data.get("room_height"))
@@ -272,11 +278,15 @@ func _draw_border(layer: TileMapLayer, w: int, h: int) -> void:
 func _set_tile_arrays(data: Resource, prefix: String, dict: Dictionary) -> void:
 	var cells: Array[Vector2i] = []
 	var atlas: Array[Vector2i] = []
+	var sources: Array = []
 	for cell in dict:
+		var info: Dictionary = dict[cell]
 		cells.append(cell)
-		atlas.append(dict[cell])
+		atlas.append(info.get("a", Vector2i.ZERO))
+		sources.append(info.get("s", 0))
 	data.set(prefix + "_cells", cells)
 	data.set(prefix + "_atlas", atlas)
+	data.set(prefix + "_sources", sources)
 
 
 func _on_delete_pressed() -> void:
@@ -307,7 +317,6 @@ func _on_add_door_pressed() -> void:
 	marker.name = "Door_%d" % door_markers.get_child_count()
 	marker.position = Vector2(float(_width_spin.value) * 32.0, float(_height_spin.value) * 32.0)
 	door_markers.add_child(marker)
-	marker.owner = door_markers
 	_show("已添加门生成点，拖拽到目标位置")
 
 

@@ -100,8 +100,10 @@ text = "应用模板"
 [node name="SaveTemplateBtn" type="Button" parent="Main/TemplateRow"]
 text = "保存当前为模板"
 
-[node name="BtnRow" type="HBoxContainer" parent="Main"]
-theme_override_constants/separation = 4
+[node name="BtnRow" type="GridContainer" parent="Main"]
+columns = 4
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 4
 [node name="SaveBtn" type="Button" parent="Main/BtnRow"]
 text = "保存"
 size_flags_horizontal = 3
