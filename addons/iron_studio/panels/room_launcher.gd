@@ -162,11 +162,11 @@ func _on_load_pressed() -> void:
 	var root := _root()
 	if root == null: return
 	_clear_layers(root)
-	_apply_layer_from_arrays(root, "floor", data.get("floor_cells"), data.get("floor_atlas"), data.get("floor_sources"))
-	_apply_layer_from_arrays(root, "wall", data.get("wall_cells"), data.get("wall_atlas"), data.get("wall_sources"))
-	_apply_layer_from_arrays(root, "detail", data.get("detail_cells"), data.get("detail_atlas"), data.get("detail_sources"))
-	_apply_layer_from_arrays(root, "obstacle", data.get("obstacle_cells"), data.get("obstacle_atlas"), data.get("obstacle_sources"))
-	_apply_layer_from_arrays(root, "interact", data.get("interact_cells"), data.get("interact_atlas"), data.get("interact_sources"))
+	_apply_layer_from_arrays(root, "floor", _arr(data, "floor_cells"), _arr(data, "floor_atlas"), _arr(data, "floor_sources"))
+	_apply_layer_from_arrays(root, "wall", _arr(data, "wall_cells"), _arr(data, "wall_atlas"), _arr(data, "wall_sources"))
+	_apply_layer_from_arrays(root, "detail", _arr(data, "detail_cells"), _arr(data, "detail_atlas"), _arr(data, "detail_sources"))
+	_apply_layer_from_arrays(root, "obstacle", _arr(data, "obstacle_cells"), _arr(data, "obstacle_atlas"), _arr(data, "obstacle_sources"))
+	_apply_layer_from_arrays(root, "interact", _arr(data, "interact_cells"), _arr(data, "interact_atlas"), _arr(data, "interact_sources"))
 	_name_input.text = name_str
 	_width_spin.value = float(data.get("room_width"))
 	_height_spin.value = float(data.get("room_height"))
@@ -324,6 +324,11 @@ func _on_add_door_pressed() -> void:
 	marker.position = Vector2(float(_width_spin.value) * 32.0, float(_height_spin.value) * 32.0)
 	door_markers.add_child(marker)
 	_show("已添加门生成点，拖拽到目标位置")
+
+
+func _arr(data: Resource, key: String) -> Array:
+	var v = data.get(key)
+	return v if v is Array else []
 
 
 func _make_empty(name_str: String) -> Resource:
