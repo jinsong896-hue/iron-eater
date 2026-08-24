@@ -320,5 +320,5 @@ func _make_tres(data: Resource) -> String:
 
 func _fmt_v2i(arr: Array) -> String:
 	var parts: PackedStringArray = []
-	for v in arr: parts.append("(%d, %d)" % [v.x, v.y])
+	for v in arr: parts.append("Vector2i(%d, %d)" % [v.x, v.y])
 	return ", ".join(parts)
