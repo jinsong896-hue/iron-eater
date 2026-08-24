@@ -285,6 +285,11 @@ func _on_copy_pressed() -> void:
 	_show("已另存为 %s.tres" % _name_input.text.strip_edges())
 
 
+func _on_save_template_pressed() -> void:
+	_on_save_pressed()
+	_show("已保存当前房间为模板")
+
+
 func _make_empty(name_str: String) -> Resource:
 	var data := Resource.new()
 	data.set_script(DataScript)

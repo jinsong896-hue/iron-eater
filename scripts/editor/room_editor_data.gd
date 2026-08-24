@@ -1,3 +1,4 @@
+@tool
 class_name RoomEditorData
 extends Resource
 ## 房间编辑器保存的数据：瓦片坐标数组 + 标记点
