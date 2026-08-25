@@ -138,8 +138,9 @@ func _equip_to_slot(slot: Node3D, model_path: String) -> void:
 	for child in slot.get_children(): child.queue_free()
 	var res := load(model_path)
 	if res == null: return
-	var mesh := res.instantiate() if res is PackedScene else null
-	if mesh: slot.add_child(mesh)
+	if res is PackedScene:
+		var mesh: Node = res.instantiate()
+		slot.add_child(mesh)
 
 
 func set_model(scene: PackedScene) -> void:
