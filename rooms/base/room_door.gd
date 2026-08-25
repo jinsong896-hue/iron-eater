@@ -1,14 +1,15 @@
 class_name RoomDoor
 extends Node2D
-## 房间门：《房间生成.md》—— 检测门（Area2D）与实体门（StaticBody2D）分离
+## 房间门：支持4方向精灵图 + 前后左右朝向
+## 精灵图命名：door_north.png / door_south.png / door_east.png / door_west.png
 
 enum Direction { NORTH, EAST, SOUTH, WEST }
 
 signal used(door: RoomDoor)
 
 @export var direction: Direction = Direction.NORTH
+@export var door_sprite_path: String = ""  ## 门精灵图目录路径
 var target_room_data: RoomData = null
-
 var locked := false
 
 
@@ -22,17 +23,14 @@ func _ready() -> void:
 
 
 func _ensure_children() -> void:
-	if get_node_or_null("DoorVisual") == null:
-		var visual := Polygon2D.new()
-		visual.name = "DoorVisual"
-		var horizontal := direction == Direction.NORTH or direction == Direction.SOUTH
-		var size := Vector2(192, 128) if horizontal else Vector2(128, 192)
-		visual.polygon = PackedVector2Array([
-			Vector2.ZERO, Vector2(size.x, 0), size, Vector2(0, size.y),
-		])
-		visual.color = Color(0.45, 0.4, 0.35)
-		visual.position = -size / 2.0
-		add_child(visual)
+	# 门精灵
+	if get_node_or_null("DoorSprite") == null:
+		var sprite := Sprite2D.new()
+		sprite.name = "DoorSprite"
+		sprite.centered = true
+		_load_door_sprite(sprite)
+		add_child(sprite)
+	# 碰撞体
 	if get_node_or_null("Blocker") == null:
 		var blocker := StaticBody2D.new()
 		blocker.name = "Blocker"
@@ -42,6 +40,7 @@ func _ensure_children() -> void:
 		shape.shape = box
 		blocker.add_child(shape)
 		add_child(blocker)
+	# 触发器
 	if get_node_or_null("Trigger") == null:
 		var trigger := Area2D.new()
 		trigger.name = "Trigger"
@@ -55,15 +54,41 @@ func _ensure_children() -> void:
 		add_child(trigger)
 
 
+func _load_door_sprite(sprite: Sprite2D) -> void:
+	var dir_name := ""
+	match direction:
+		Direction.NORTH: dir_name = "north"
+		Direction.SOUTH: dir_name = "south"
+		Direction.EAST: dir_name = "east"
+		Direction.WEST: dir_name = "west"
+	var path := door_sprite_path + "/door_" + dir_name + ".png" if not door_sprite_path.is_empty() else ""
+	if not path.is_empty() and ResourceLoader.exists(path):
+		sprite.texture = load(path) as Texture2D
+	else:
+		# 回退到色块占位
+		sprite.texture = null
+		_draw_fallback(sprite)
+
+
+func _draw_fallback(sprite: Sprite2D) -> void:
+	sprite.queue_redraw()
+	var rect := ColorRect.new()
+	rect.name = "FallbackColor"
+	rect.color = Color(0.45, 0.4, 0.35)
+	rect.size = Vector2(192, 128) if direction == Direction.NORTH or direction == Direction.SOUTH else Vector2(128, 192)
+	rect.position = -rect.size / 2.0
+	sprite.add_child(rect)
+
+
 func set_locked(value: bool) -> void:
 	locked = value
 	var blocker := get_node_or_null("Blocker")
 	if blocker:
 		blocker.set_deferred("collision_layer", 1 if locked else 0)
 		blocker.set_deferred("collision_mask", 1 if locked else 0)
-	var visual: CanvasItem = get_node_or_null("DoorVisual")
-	if visual:
-		visual.modulate.a = 1.0 if locked else 0.3
+	var sprite: Sprite2D = get_node_or_null("DoorSprite")
+	if sprite:
+		sprite.modulate.a = 1.0 if locked else 0.3
 
 
 func _on_body_entered(body: Node2D) -> void:

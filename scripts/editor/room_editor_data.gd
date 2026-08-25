@@ -38,6 +38,7 @@ extends Resource
 @export var enemy_spawns: Array[Vector2] = []
 @export var chest_spawns: Array[Vector2] = []
 @export var door_markers: Array[Vector2] = []  ## 门生成点，x=瓦片坐标.x, y=瓦片坐标.y
+@export var door_sprite_path: String = ""  ## 门精灵图目录（含door_north/south/east/west.png）
 @export var player_spawn := Vector2.ZERO
 @export var min_enemies := 3
 @export var max_enemies := 5

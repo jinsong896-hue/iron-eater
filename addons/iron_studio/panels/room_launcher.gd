@@ -141,6 +141,7 @@ func _on_save_pressed() -> void:
 			if c is Marker2D:
 				doors.append(c.position)
 	data.set("door_markers", doors)
+	data.set("door_sprite_path", "res://assets/doors")  ## 门精灵目录
 
 	DirAccess.make_dir_recursive_absolute(SAVE_DIR)
 	var path := SAVE_DIR + "/" + name_str + ".tres"
@@ -305,7 +306,7 @@ func _serialize(data: Resource) -> String:
 	lines.append("")
 	lines.append("[resource]")
 	lines.append("script = ExtResource(\"1\")")
-	for key in ["room_name", "room_width", "room_height", "room_type", "min_enemies", "max_enemies"]:
+	for key in ["room_name", "room_width", "room_height", "room_type", "min_enemies", "max_enemies", "door_sprite_path"]:
 		var val = data.get(key)
 		if val is String: lines.append('%s = "%s"' % [key, val])
 		else: lines.append("%s = %d" % [key, int(val) if val != null else 0])
