@@ -1,103 +1,87 @@
 @tool
 extends Control
-## 角色编辑器 v3 —— 完整形态Modifier编辑 + Sprite + 技能选择
-## 文档：ai/框架相关.md Character Studio
+## 角色编辑器 v4 —— 动画管理 + 3D模型 + 技能 + 形态
 
 const DATA_DIR := "res://data/characters"
 const FORMS_DIR := "res://data/forms"
 const SKILLS_DIR := "res://data/skills"
+const AnimSetScript := preload("res://core/data/animation_set_data.gd")
 
 var _editor_interface: EditorInterface = null
 var _forms: Array[FormData] = []
 var _skills: Array[SkillData] = []
-var _available_skills: Array[String] = []
+var _anim_set: Resource = null
 
 @onready var _char_list: ItemList = $Main/CharList/VBox/List
 @onready var _name_input: LineEdit = $Main/EditPanel/Scroll/VBox/Identity/NameInput
 @onready var _class_opt: OptionButton = $Main/EditPanel/Scroll/VBox/Identity/ClassOpt
 @onready var _res_name: LineEdit = $Main/EditPanel/Scroll/VBox/Identity/ResName
 @onready var _res_max: SpinBox = $Main/EditPanel/Scroll/VBox/Identity/ResMax
-@onready var _sprite: LineEdit = $Main/EditPanel/Scroll/VBox/Identity/Sprite
+@onready var _model_path: LineEdit = $Main/EditPanel/Scroll/VBox/Model/ModelPath
 @onready var _hp: SpinBox = $Main/EditPanel/Scroll/VBox/Stats/HP
 @onready var _atk: SpinBox = $Main/EditPanel/Scroll/VBox/Stats/ATK
 @onready var _def: SpinBox = $Main/EditPanel/Scroll/VBox/Stats/DEF
 @onready var _spd: SpinBox = $Main/EditPanel/Scroll/VBox/Stats/SPD
-@onready var _aspd: SpinBox = $Main/EditPanel/Scroll/VBox/Stats/ASPD
-@onready var _crt: SpinBox = $Main/EditPanel/Scroll/VBox/Stats/CRT
 @onready var _skill_list: ItemList = $Main/EditPanel/Scroll/VBox/Skills/SkillList
 @onready var _avail_list: ItemList = $Main/EditPanel/Scroll/VBox/Skills/AvailList
 @onready var _form_list: ItemList = $Main/EditPanel/Scroll/VBox/Forms/FormList
 @onready var _form_name: LineEdit = $Main/EditPanel/Scroll/VBox/Forms/FormName
 @onready var _form_floor: SpinBox = $Main/EditPanel/Scroll/VBox/Forms/FormFloor
-@onready var _form_sp: LineEdit = $Main/EditPanel/Scroll/VBox/Forms/FormSprite
 @onready var _mod_atk: SpinBox = $Main/EditPanel/Scroll/VBox/Forms/ModATK
 @onready var _mod_hp: SpinBox = $Main/EditPanel/Scroll/VBox/Forms/ModHP
 @onready var _mod_spd: SpinBox = $Main/EditPanel/Scroll/VBox/Forms/ModSPD
 @onready var _status: Label = $Main/EditPanel/Scroll/VBox/Status
 
+# 动画字段
+var _anim_fields: Dictionary = {}
+
 
 func setup(editor_interface: EditorInterface) -> void:
 	_editor_interface = editor_interface
-
-
-func _ready() -> void:
 	_refresh_list()
 	_refresh_skill_pool()
 
 
+func _ready() -> void:
+	_init_anim_fields()
+
+
+func _init_anim_fields() -> void:
+	var anim_box: VBoxContainer = $Main/EditPanel/Scroll/VBox/Animations
+	for action in ["idle", "run", "jump", "attack_1", "attack_2", "attack_3", "attack_4", "run_attack", "jump_attack", "hit", "death"]:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		var label := Label.new()
+		label.text = action + ":"
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.custom_minimum_size = Vector2(80, 0)
+		row.add_child(label)
+		var input := LineEdit.new()
+		input.placeholder_text = "动画名称"
+		input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(input)
+		anim_box.add_child(row)
+		_anim_fields[action] = input
+
+
 func _refresh_list() -> void:
 	_char_list.clear()
-	var filter := _name_input.text.strip_edges().to_lower()
 	var dir := DirAccess.open(DATA_DIR)
 	if dir == null: return
 	dir.list_dir_begin(); var f := dir.get_next()
 	while f != "":
-		if f.ends_with(".tres"):
-			var name := f.trim_suffix(".tres")
-			if filter.is_empty() or name.to_lower().find(filter) >= 0:
-				_char_list.add_item(name)
+		if f.ends_with(".tres"): _char_list.add_item(f.trim_suffix(".tres"))
 		f = dir.get_next()
 	dir.list_dir_end()
-
-
-func _on_delete_pressed() -> void:
-	var sel := _char_list.get_selected_items()
-	if sel.is_empty(): _show("请先选中要删除的角色"); return
-	var name_str := _char_list.get_item_text(sel[0])
-	var path := DATA_DIR + "/" + name_str + ".tres"
-	if FileAccess.file_exists(path):
-		DirAccess.remove_absolute(path)
-		_show("已删除: %s" % name_str)
-		_refresh_list()
-
-
-func _on_batch_export_pressed() -> void:
-	var dir := DirAccess.open(DATA_DIR)
-	if dir == null: _show("目录不存在"); return
-	var count := 0
-	dir.list_dir_begin(); var f := dir.get_next()
-	while f != "":
-		if f.ends_with(".tres"):
-			var data: CharacterData = load(DATA_DIR + "/" + f)
-			if data and data.forms.size() > 0:
-				DirAccess.make_dir_recursive_absolute(FORMS_DIR)
-				for form in data.forms:
-					ResourceSaver.save(form, FORMS_DIR + "/" + data.char_id + "_" + form.form_id + ".tres")
-					count += 1
-		f = dir.get_next()
-	dir.list_dir_end()
-	_show("批量导出完成: %d个形态" % count)
 
 
 func _refresh_skill_pool() -> void:
-	_available_skills.clear(); _avail_list.clear()
+	_avail_list.clear()
 	var dir := DirAccess.open(SKILLS_DIR)
 	if dir == null: return
 	dir.list_dir_begin(); var f := dir.get_next()
 	while f != "":
-		if f.ends_with(".tres"):
-			_available_skills.append(f.trim_suffix(".tres"))
-			_avail_list.add_item(f.trim_suffix(".tres"))
+		if f.ends_with(".tres"): _avail_list.add_item(f.trim_suffix(".tres"))
 		f = dir.get_next()
 	dir.list_dir_end()
 
@@ -107,13 +91,13 @@ func _show(msg: String) -> void:
 	print("[IronStudio] ", msg)
 
 
-## ---- 角色 ----
-
 func _on_new_pressed() -> void:
 	var n := _name_input.text.strip_edges()
 	if n.is_empty(): _show("请输入名称"); return
 	_forms.clear(); _skills.clear()
 	_form_list.clear(); _skill_list.clear()
+	_anim_set = Resource.new()
+	_anim_set.set_script(AnimSetScript)
 	_save_character(n); _show("已创建: %s" % n); _refresh_list()
 
 
@@ -127,11 +111,21 @@ func _on_load_pressed() -> void:
 	for i in _class_opt.item_count:
 		if _class_opt.get_item_text(i) == data.class_type: _class_opt.select(i); break
 	_res_name.text = data.res_name; _res_max.value = data.resource_max
-	_sprite.text = data.sprite_path
+	if data.animation_set:
+		_anim_set = data.animation_set
+		_model_path.text = str(_anim_set.get("model_path"))
+		for action in _anim_fields:
+			var input: LineEdit = _anim_fields[action]
+			input.text = str(_anim_set.call("get_anim", action))
+	else:
+		_anim_set = Resource.new()
+		_anim_set.set_script(AnimSetScript)
+		_model_path.text = ""
+		for action in _anim_fields:
+			(_anim_fields[action] as LineEdit).text = ""
 	if data.base_stats:
 		_hp.value = data.base_stats.hp; _atk.value = data.base_stats.atk
 		_def.value = data.base_stats.defense; _spd.value = data.base_stats.spd
-		_aspd.value = data.base_stats.aspd; _crt.value = data.base_stats.crt
 	_forms = data.forms.duplicate(); _refresh_form_list()
 	_show("已加载: %s (%d形态)" % [data.char_name, _forms.size()])
 
@@ -139,39 +133,30 @@ func _on_load_pressed() -> void:
 func _on_save_pressed() -> void:
 	var n := _name_input.text.strip_edges()
 	if n.is_empty(): _show("请输入名称"); return
-	_save_character(n)
-	# 数据验证
-	var result := DataValidator.validate_character(_make_data(n))
-	if result["valid"]:
-		_show("已保存: %s (验证通过)" % n)
-	else:
-		_show("已保存: %s (警告:%d)" % [n, result["warnings"].size()])
-		for w in result["warnings"]:
-			print("[IronStudio] WARNING: %s" % w)
-	_refresh_list()
-
-
-func _make_data(n: String) -> CharacterData:
-	var data := CharacterData.new()
-	data.char_id = n.to_lower(); data.char_name = n
-	data.class_type = _class_opt.get_item_text(_class_opt.selected)
-	data.res_name = _res_name.text; data.resource_max = int(_res_max.value)
-	data.sprite_path = _sprite.text
-	var stats := StatsData.new()
-	stats.hp = _hp.value; stats.atk = _atk.value; stats.defense = _def.value
-	stats.spd = _spd.value; stats.aspd = _aspd.value; stats.crt = _crt.value
-	data.base_stats = stats
-	data.forms = _forms.duplicate()
-	return data
+	_save_character(n); _show("已保存: %s" % n); _refresh_list()
 
 
 func _save_character(name_str: String) -> void:
-	var data := _make_data(name_str)
+	var data := CharacterData.new()
+	data.char_id = name_str.to_lower(); data.char_name = name_str
+	data.class_type = _class_opt.get_item_text(_class_opt.selected)
+	data.res_name = _res_name.text; data.resource_max = int(_res_max.value)
+	# 动画集
+	if _anim_set == null:
+		_anim_set = Resource.new()
+		_anim_set.set_script(AnimSetScript)
+	_anim_set.set("model_path", _model_path.text)
+	for action in _anim_fields:
+		_anim_set.call("set_anim", action, (_anim_fields[action] as LineEdit).text)
+	data.animation_set = _anim_set
+	var stats := StatsData.new()
+	stats.hp = _hp.value; stats.atk = _atk.value; stats.defense = _def.value
+	stats.spd = _spd.value; stats.aspd = 1.0; stats.crt = 0.05
+	data.base_stats = stats
+	data.forms = _forms.duplicate()
 	DirAccess.make_dir_recursive_absolute(DATA_DIR)
 	ResourceSaver.save(data, DATA_DIR + "/" + name_str.to_lower() + ".tres")
 
-
-## ---- 技能 ----
 
 func _on_add_skill_pressed() -> void:
 	var sel := _avail_list.get_selected_items()
@@ -187,7 +172,6 @@ func _on_remove_skill_pressed() -> void:
 	var sel := _skill_list.get_selected_items()
 	if sel.is_empty(): return
 	_skills.remove_at(sel[0]); _refresh_skill_list()
-	_show("已删除技能")
 
 
 func _refresh_skill_list() -> void:
@@ -196,51 +180,38 @@ func _refresh_skill_list() -> void:
 		_skill_list.add_item("%s (CD %.1fs)" % [s.skill_name, s.cooldown])
 
 
-## ---- 形态 ----
-
 func _on_add_form_pressed() -> void:
 	var n := _form_name.text.strip_edges()
 	if n.is_empty(): _show("请输入形态名称"); return
 	var form := FormData.new()
 	form.form_id = n.to_lower(); form.form_name = n
 	form.unlock_floor = int(_form_floor.value)
-	form.visual_path = _form_sp.text
 	form.skills = _skills.duplicate()
-	# 构建 Modifier
-	if _mod_hp.value != 0:
-		form.modifiers.append(_make_mod("hp", _mod_hp.value))
-	if _mod_atk.value != 0:
-		form.modifiers.append(_make_mod("atk", _mod_atk.value))
-	if _mod_spd.value != 0:
-		form.modifiers.append(_make_mod("spd", _mod_spd.value))
+	if _mod_hp.value != 0: form.modifiers.append(_make_mod("hp", _mod_hp.value))
+	if _mod_atk.value != 0: form.modifiers.append(_make_mod("atk", _mod_atk.value))
+	if _mod_spd.value != 0: form.modifiers.append(_make_mod("spd", _mod_spd.value))
 	_forms.append(form); _refresh_form_list()
-	_show("已添加形态: %s (第%d层, %d技能, %d修改器)" % [n, form.unlock_floor, _skills.size(), form.modifiers.size()])
+	_show("已添加形态: %s" % n)
 
 
 func _on_remove_form_pressed() -> void:
 	var sel := _form_list.get_selected_items()
 	if sel.is_empty(): return
 	_forms.remove_at(sel[0]); _refresh_form_list()
-	_show("已删除形态")
 
 
 func _refresh_form_list() -> void:
 	_form_list.clear()
 	for f in _forms:
-		var mods := ""
-		for m in f.modifiers:
-			mods += " %s" % m.description()
-		_form_list.add_item("%s (第%d层, %d技能)%s" % [f.form_name, f.unlock_floor, f.skills.size(), mods])
+		_form_list.add_item("%s (第%d层, %d技能)" % [f.form_name, f.unlock_floor, f.skills.size()])
 
 
 func _make_mod(stat: String, val: float) -> ModifierData:
 	var m := ModifierData.new()
 	m.target_stat = stat; m.value = val
-	m.operation = ModifierData.Operation.MULTIPLY if val < 1.0 else ModifierData.Operation.ADD
+	m.operation = ModifierData.Operation.ADD
 	return m
 
-
-## ---- 导出 ----
 
 func _on_export_pressed() -> void:
 	var n := _name_input.text.strip_edges()
@@ -252,18 +223,11 @@ func _on_export_pressed() -> void:
 	_show("已导出角色+%d形态" % _forms.size())
 
 
-func _on_preview_pressed() -> void:
-	var data := _make_data(_name_input.text.strip_edges())
-	var lines: PackedStringArray = []
-	lines.append("=== 角色预览 ===")
-	lines.append("名称: %s | 职业: %s" % [data.char_name, data.class_type])
-	lines.append("资源: %s (最大%d)" % [data.res_name, data.resource_max])
-	if data.base_stats:
-		lines.append("HP:%.0f ATK:%.0f DEF:%.0f SPD:%.0f ASPD:%.1f CRT:%.2f" % [data.base_stats.hp, data.base_stats.atk, data.base_stats.defense, data.base_stats.spd, data.base_stats.aspd, data.base_stats.crt])
-	lines.append("形态: %d个" % data.forms.size())
-	for f in data.forms:
-		var mods := ""
-		for m in f.modifiers:
-			mods += " %s" % m.description()
-		lines.append("  %s (第%d层) %d技能%s" % [f.form_name, f.unlock_floor, f.skills.size(), mods])
-	_show("\n".join(lines))
+func _on_delete_pressed() -> void:
+	var sel := _char_list.get_selected_items()
+	if sel.is_empty(): _show("请先选中要删除的角色"); return
+	var name_str := _char_list.get_item_text(sel[0])
+	var path := DATA_DIR + "/" + name_str + ".tres"
+	if FileAccess.file_exists(path): DirAccess.remove_absolute(path)
+	_show("已删除: %s" % name_str); _refresh_list()
+ENDOFFILE

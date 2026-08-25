@@ -46,8 +46,17 @@ popup/item_2/text = "猎人" ; popup/item_3/text = "武僧" ; popup/item_4/text 
 placeholder_text = "资源名称（如：怒气）"
 [node name="ResMax" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Identity"]
 min_value = 50.0 ; max_value = 500.0 ; value = 100.0
-[node name="Sprite" type="LineEdit" parent="Main/EditPanel/Scroll/VBox/Identity"]
-placeholder_text = "精灵图路径"
+
+[node name="Model" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Model"]
+text = "3D模型"
+[node name="ModelPath" type="LineEdit" parent="Main/EditPanel/Scroll/VBox/Model"]
+placeholder_text = "模型路径 (res://assets/models/xxx.glb)"
+
+[node name="Animations" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
+[node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Animations"]
+text = "动画绑定（idle/run/jump/attack_1-4/run_attack/jump_attack/hit/death）"
+[node name="SepA" type="HSeparator" parent="Main/EditPanel/Scroll/VBox"]
 
 [node name="Stats" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
 [node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Stats"]
@@ -60,10 +69,6 @@ max_value = 9999.0 ; value = 10.0 ; suffix = " ATK"
 max_value = 9999.0 ; value = 5.0 ; suffix = " DEF"
 [node name="SPD" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats"]
 max_value = 9999.0 ; value = 100.0 ; suffix = " SPD"
-[node name="ASPD" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats"]
-max_value = 5.0 ; value = 1.0 ; step = 0.1 ; suffix = " ASPD"
-[node name="CRT" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Stats"]
-max_value = 1.0 ; value = 0.05 ; step = 0.01 ; suffix = " CRT"
 
 [node name="Skills" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
 [node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Skills"]
@@ -74,9 +79,9 @@ min_size = Vector2(0, 50)
 min_size = Vector2(0, 50) ; allow_reselect = true
 [node name="SkillBtnRow" type="HBoxContainer" parent="Main/EditPanel/Scroll/VBox/Skills"]
 [node name="AddSkillBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/Skills/SkillBtnRow"]
-text = "← 添加" ; size_flags_horizontal = 3
+text = "< 添加" ; size_flags_horizontal = 3
 [node name="RemoveSkillBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/Skills/SkillBtnRow"]
-text = "删除 →" ; size_flags_horizontal = 3
+text = "删除 >" ; size_flags_horizontal = 3
 
 [node name="Forms" type="VBoxContainer" parent="Main/EditPanel/Scroll/VBox"]
 [node name="Label" type="Label" parent="Main/EditPanel/Scroll/VBox/Forms"]
@@ -85,8 +90,6 @@ text = "形态（绑定技能+Modifier）"
 placeholder_text = "形态名称"
 [node name="FormFloor" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Forms"]
 min_value = 0.0 ; max_value = 9.0 ; value = 3.0 ; suffix = "层解锁"
-[node name="FormSprite" type="LineEdit" parent="Main/EditPanel/Scroll/VBox/Forms"]
-placeholder_text = "形态精灵路径"
 [node name="ModATK" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Forms"]
 max_value = 999.0 ; suffix = " ATK+"
 [node name="ModHP" type="SpinBox" parent="Main/EditPanel/Scroll/VBox/Forms"]
@@ -111,6 +114,8 @@ text = "加载" ; size_flags_horizontal = 3
 text = "保存" ; size_flags_horizontal = 3
 [node name="ExportBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/BtnRow"]
 text = "导出" ; size_flags_horizontal = 3
+[node name="DeleteBtn" type="Button" parent="Main/EditPanel/Scroll/VBox/BtnRow"]
+text = "删除" ; size_flags_horizontal = 3
 
 [node name="Status" type="Label" parent="Main/EditPanel/Scroll/VBox"]
 text = "就绪"
@@ -124,5 +129,6 @@ theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
 [connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
 [connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
 [connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/ExportBtn" to="." method="_on_export_pressed"]
+[connection signal="pressed" from="Main/EditPanel/Scroll/VBox/BtnRow/DeleteBtn" to="." method="_on_delete_pressed"]
 [connection signal="item_activated" from="Main/CharList/VBox/List" to="." method="_on_load_pressed"]
 [connection signal="item_activated" from="Main/EditPanel/Scroll/VBox/Skills/AvailList" to="." method="_on_add_skill_pressed"]

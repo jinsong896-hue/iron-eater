@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="CharacterData" format=3 uid="uid://clrcnlphmdoxt"]
+
+[ext_resource type="Script" uid="uid://du6my2kabxsaq" path="res://core/data/stats_data.gd" id="1_34hxv"]
+[ext_resource type="Script" uid="uid://dvm0oc8l4ni6b" path="res://core/data/form_data.gd" id="2_86t0h"]
+[ext_resource type="Script" uid="uid://cok1uysy28d7e" path="res://core/data/character_data.gd" id="3_6j3jx"]
+
+[sub_resource type="Resource" id="Resource_ardih"]
+script = ExtResource("1_34hxv")
+hp = 0.0
+atk = 0.0
+defense = 0.0
+spd = 0.0
+aspd = 0.0
+crt = 0.0
+
+[resource]
+script = ExtResource("3_6j3jx")
+char_id = "战士1"
+char_name = "战士1"
+class_type = "战士"
+resource_max = 50
+base_stats = SubResource("Resource_ardih")
