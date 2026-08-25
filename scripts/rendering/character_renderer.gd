@@ -190,4 +190,3 @@ func set_model(scene: PackedScene) -> void:
 func play_animation(anim_name: String) -> void:
 	if _model_instance and _model_instance.has_method("play_animation"):
 		_model_instance.play_animation(anim_name)
-ENDOFFILE

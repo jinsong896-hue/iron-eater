@@ -23,26 +23,7 @@ const CLASS_COLORS := {
 func _ready() -> void:
 	add_to_group("player")
 	z_index = 10
-t	_load_character_model()
 
-
-nfunc _load_character_model() -> void:
-	## 从 IronEater Creator 数据加载角色 3D 模型
-	var renderer := get_node_or_null("CharacterRenderer") as CharacterRenderer
-	if renderer == null: return
-	var char_id := str(GameState.run_info.get("character", ""))
-	if char_id.is_empty(): return
-	var creator := IronEaterCreator.new()
-	var char_data := creator.load_character(char_id)
-	if char_data == null: return
-	if not char_data.sprite_path.is_empty():
-		var model: PackedScene = load(char_data.sprite_path) as PackedScene
-		if model: renderer.set_model(model)
-	var weapon_id := str(GameState.run_info.get("weapon", ""))
-	if not weapon_id.is_empty():
-		var weapon := creator.load_weapon(weapon_id)
-		if weapon and not weapon.sprite_path.is_empty():
-			renderer.equip_weapon(weapon.sprite_path)
 
 func _physics_process(delta: float) -> void:
 	_attack_timer = maxf(_attack_timer - delta, 0.0)
