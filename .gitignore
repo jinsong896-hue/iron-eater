@@ -1,10 +1,30 @@
 # Godot 4 generated files
 .godot/
-
-# 编辑器/系统临时文件
+.import/
 *.tmp
-~$*
+
+# Mono / C# 构建产物
+*.csproj.user
+.mono/
+
+# IDE
+.vscode/
+.idea/
+
+# 系统文件
+.DS_Store
 Thumbs.db
+
+# 日志
+*.log
+logs/
+
+# 构建产物
+build/
+dist/
+*.exe
+*.pck
+*.zip
 
 # MCP 辅助会话与日志（不入库）
 .gdd_build/mcp_session.txt
