@@ -9,6 +9,7 @@ extends CanvasLayer
 
 @onready var gold_label: Label = $TopLeft/GoldLabel
 @onready var floor_label: Label = $TopLeft/FloorLabel
+@onready var combo_label: Label = $TopLeft/ComboLabel
 @onready var message_label: Label = $TopLeft/MessageLabel
 @onready var buff_bar: HBoxContainer = $BuffBar
 @onready var minimap: Control = $Minimap
@@ -22,6 +23,20 @@ func _ready() -> void:
 	_collect_item_buttons()
 	_connect_signals()
 	_update_display()
+	set_process(true)
+
+
+## 每帧刷新连击数（轮询玩家，简单可靠）
+func _process(_delta: float) -> void:
+	if combo_label == null:
+		return
+	var players := get_tree().get_nodes_in_group("player")
+	if players.is_empty():
+		return
+	var p = players[0]
+	if p and p.has_method("get_hit_combo"):
+		var count: int = p.get_hit_combo()
+		combo_label.text = "连击 x%d" % count if count >= 2 else ""
 
 
 func _collect_skill_buttons() -> void:

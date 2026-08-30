@@ -39,6 +39,9 @@ func _init() -> void:
 	# Boss 房闭环测试
 	test_boss_room_loop()
 
+	# 连段状态机测试
+	test_attack_combo()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -308,6 +311,107 @@ func test_room_combat_loop() -> void:
 		_check(controller.is_cleared, "全灭后房间清空")
 
 	room_root.queue_free()
+
+
+## 连段状态机测试：四段推进 / 窗口超时 / 特殊攻击接入
+func test_attack_combo() -> void:
+	_current_test = "AttackCombo"
+	print("\n--- %s ---" % _current_test)
+
+	var AC = _require_script("res://gameplay/combat/attack_combo.gd")
+	if AC == null:
+		return
+
+	var combo = AC.new()
+	# 注入测试配置（避免依赖 GameBalance 常量变更）
+	combo.combo_stages = [
+		[0.28, 1.0, 2.0, 60.0, 0.0],
+		[0.28, 1.1, 2.2, 65.0, 0.0],
+		[0.32, 1.3, 2.6, 75.0, 1.5],
+		[0.45, 1.8, 3.2, 90.0, 4.0],
+	]
+	combo.combo_window = 0.45
+
+	# --- 四段连击推进 ---
+	var s1: int = combo.request_normal()
+	_check(s1 == 1, "第一击为普攻1", [s1])
+	combo.begin_attack()
+	_check(combo.request_normal() == 0, "动作进行中拒绝输入")
+	combo.end_attack()
+	_check(combo.is_combo_active(), "攻击后处于连击窗口")
+
+	var s2: int = combo.request_normal()
+	_check(s2 == 2, "窗口内第二击接普攻2", [s2])
+	combo.begin_attack()
+	combo.end_attack()
+	var s3: int = combo.request_normal()
+	_check(s3 == 3, "第三击接普攻3", [s3])
+	combo.begin_attack()
+	combo.end_attack()
+	var s4: int = combo.request_normal()
+	_check(s4 == 4, "第四击接普攻4（终结）", [s4])
+
+	# --- 段位参数 ---
+	var p4: Array = combo.stage_params(4)
+	_check(p4[1] == 1.8, "普攻4 倍率 1.8", [p4[1]])
+	_check(p4[2] == 3.2, "普攻4 距离 3.2（范围递增）", [p4[2]])
+	var p1: Array = combo.stage_params(1)
+	_check(p1[2] < p4[2], "普攻1 范围 < 普攻4 范围")
+	_check(combo.stage_params(1)[1] < combo.stage_params(2)[1]
+		and combo.stage_params(2)[1] < combo.stage_params(3)[1]
+		and combo.stage_params(3)[1] < combo.stage_params(4)[1],
+		"四段伤害递增")
+
+	# --- 第四段后窗口超时回普攻1 ---
+	combo.begin_attack()
+	combo.end_attack()
+	combo.tick(0.5)  # 超过 0.45 窗口
+	_check(not combo.is_combo_active(), "窗口超时连击断")
+	var s_after: int = combo.request_normal()
+	_check(s_after == 1, "超时后回到普攻1", [s_after])
+
+	# --- 奔跑攻击接入普攻3 ---
+	combo = AC.new()
+	combo.combo_stages = [[0.3, 1.0], [0.3, 1.1], [0.3, 1.3], [0.3, 1.8]]
+	combo.combo_window = 0.45
+	_check(combo.request_sprint(), "奔跑攻击被接受")
+	combo.begin_attack()
+	combo.end_attack()
+	var after_sprint: int = combo.request_normal()
+	_check(after_sprint == 3, "奔跑攻击后接普攻3", [after_sprint])
+	combo.begin_attack()
+	combo.end_attack()
+	var after_sprint2: int = combo.request_normal()
+	_check(after_sprint2 == 4, "奔跑攻击→普攻3→普攻4", [after_sprint2])
+
+	# --- 跳跃攻击接入普攻3 ---
+	combo = AC.new()
+	combo.combo_stages = [[0.3, 1.0], [0.3, 1.1], [0.3, 1.3], [0.3, 1.8]]
+	combo.combo_window = 0.45
+	_check(combo.request_jump(), "跳跃攻击被接受")
+	combo.begin_attack()
+	combo.end_attack()
+	var after_jump: int = combo.request_normal()
+	_check(after_jump == 3, "跳跃攻击后接普攻3", [after_jump])
+
+	# --- 特殊攻击进行中拒绝 ---
+	combo = AC.new()
+	combo.combo_stages = [[0.3, 1.0], [0.3, 1.1], [0.3, 1.3], [0.3, 1.8]]
+	combo.begin_attack()
+	_check(not combo.request_sprint(), "动作中拒绝奔跑攻击")
+	_check(not combo.request_jump(), "动作中拒绝跳跃攻击")
+
+	# --- 普攻中断连击（tick 在非动作期推进窗口）---
+	combo = AC.new()
+	combo.combo_stages = [[0.3, 1.0], [0.3, 1.1], [0.3, 1.3], [0.3, 1.8]]
+	combo.combo_window = 0.45
+	combo.request_normal()
+	combo.begin_attack()
+	combo.end_attack()
+	combo.tick(0.2)
+	_check(combo.is_combo_active(), "窗口内连击保持")
+	combo.tick(0.3)
+	_check(not combo.is_combo_active(), "累计超窗连击断")
 
 
 ## Boss 房闭环测试：boss 房 JSON 可解析 → 刷 Boss → 杀 Boss → 传送门出现

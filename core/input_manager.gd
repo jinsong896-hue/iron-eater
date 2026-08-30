@@ -11,6 +11,14 @@ var move_direction := Vector2.ZERO
 var attack_direction := Vector2.ZERO
 var _last_attack_direction := Vector2.DOWN
 
+# 攻击输入缓存（冷却中按下不丢，ATTACK_INPUT_BUFFER 秒内有效）
+var _buffered_attack := Vector2.ZERO
+var _buffered_attack_time := -999.0
+
+# 跳跃攻击组合：空格后短时间内按攻击（或同时）→ 跳跃攻击
+var _dodge_time := -999.0
+const DODGE_COMBO_WINDOW := 0.18
+
 # 技能输入
 var skill_1_pressed := false
 var skill_2_pressed := false
@@ -28,7 +36,11 @@ func _process(_delta: float) -> void:
 	# 移动方向
 	move_direction = Input.get_vector("move_left", "move_right", "move_up", "move_down")
 
-	# 攻击方向（立即响应，不持续）
+	# 翻滚时间戳（跳跃攻击组合判定用）
+	if Input.is_action_just_pressed("dodge"):
+		_dodge_time = Time.get_ticks_msec() / 1000.0
+
+	# 攻击方向（立即响应，不持续）+ 缓存
 	attack_direction = Vector2.ZERO
 	if Input.is_action_just_pressed("attack_up"):
 		attack_direction = Vector2.UP
@@ -39,9 +51,11 @@ func _process(_delta: float) -> void:
 	elif Input.is_action_just_pressed("attack_right"):
 		attack_direction = Vector2.RIGHT
 
-	# 更新最后攻击方向
 	if attack_direction != Vector2.ZERO:
 		_last_attack_direction = attack_direction
+		# 记录缓存（带时间戳）
+		_buffered_attack = attack_direction
+		_buffered_attack_time = Time.get_ticks_msec() / 1000.0
 
 	# 技能
 	skill_1_pressed = Input.is_action_just_pressed("skill_1")
@@ -54,6 +68,27 @@ func _process(_delta: float) -> void:
 	devour_pressed = Input.is_action_just_pressed("devour")
 	inventory_toggle_pressed = Input.is_action_just_pressed("toggle_inventory")
 	pause_pressed = Input.is_action_just_pressed("pause")
+
+
+## 当前帧是否有攻击请求（新按下）
+func has_attack_request() -> bool:
+	return attack_direction != Vector2.ZERO
+
+
+## 取缓存攻击方向（ATTACK_INPUT_BUFFER 内有效；过期返回 ZERO）
+func take_buffered_attack(buffer_time: float = 0.2) -> Vector2:
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _buffered_attack_time <= buffer_time:
+		return _buffered_attack
+	return Vector2.ZERO
+
+
+## 攻击是否属于跳跃攻击组合（本次攻击按键落在空格后 DODGE_COMBO_WINDOW 内）
+func attack_is_jump_combo() -> bool:
+	if attack_direction == Vector2.ZERO:
+		return false
+	var now := Time.get_ticks_msec() / 1000.0
+	return now - _dodge_time <= DODGE_COMBO_WINDOW
 
 
 ## 获取当前攻击方向（如果没有攻击输入，返回最后攻击方向）
