@@ -70,6 +70,7 @@ func start_new_run(info: Dictionary) -> void:
 
 ## 重置局内状态
 func _reset_run() -> void:
+	EquipmentDB.init_white_equipment()
 	attributes = load("res://data/attributes/attribute_system.gd").new()
 	equipment_manager = load("res://gameplay/inventory/equipment_manager.gd").new()
 	equipment_manager.rng = rng
