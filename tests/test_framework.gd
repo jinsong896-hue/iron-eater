@@ -36,6 +36,9 @@ func _init() -> void:
 	# 房间刷怪闭环集成测试
 	test_room_combat_loop()
 
+	# Boss 房闭环测试
+	test_boss_room_loop()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -303,5 +306,65 @@ func test_room_combat_loop() -> void:
 			if is_instance_valid(e):
 				e.take_damage(99999.0)
 		_check(controller.is_cleared, "全灭后房间清空")
+
+	room_root.queue_free()
+
+
+## Boss 房闭环测试：boss 房 JSON 可解析 → 刷 Boss → 杀 Boss → 传送门出现
+func test_boss_room_loop() -> void:
+	_current_test = "BossRoomLoop"
+	print("\n--- %s ---" % _current_test)
+
+	var RC = _require_script("res://gameplay/dungeon/room_controller.gd")
+	var RD = _require_script("res://data/rooms/room_data.gd")
+	if RC == null or RD == null:
+		return
+
+	# Boss 房 JSON 可解析且类型正确
+	var boss_room = RD.load_from_file("res://data/rooms/room_boss.json")
+	_check(boss_room != null, "boss 房 JSON 可加载")
+	if boss_room:
+		_check(boss_room.room_type == "boss", "boss 房类型为 boss", [boss_room.room_type])
+		var boss_spawns: Array = []
+		for e in boss_room.entities:
+			if str(e.get("type", "")) == "boss_spawn":
+				boss_spawns.append(e)
+		_check(boss_spawns.size() == 1, "boss 房恰有 1 个 Boss 点", [boss_spawns.size()])
+		var boss_spawn: Dictionary = boss_room.get_player_spawn()
+		_check(not boss_spawn.is_empty(), "boss 房有玩家入口")
+
+	# 构造 boss 房场景：boss_spawn 标记 → 激活 → Boss 生成 → 杀死 → 传送门
+	var room_root := Node3D.new()
+	room_root.name = "Room_Boss_Test"
+	root.add_child(room_root)
+
+	var spawns := Node3D.new()
+	spawns.name = "SpawnPoints"
+	room_root.add_child(spawns)
+	var boss_marker := Marker3D.new()
+	boss_marker.position = Vector3(5, 0, 5)
+	boss_marker.add_to_group("boss_spawn")
+	spawns.add_child(boss_marker)
+
+	var controller = RC.new()
+	controller.name = "RoomController"
+	controller.set("room_data", {"room_id": "room_boss", "room_type": "boss"})
+	room_root.add_child(controller)
+	await process_frame
+
+	controller.activate()
+	_check(controller.is_boss_room, "识别为 Boss 房")
+	_check(controller.enemies_alive == 1, "刷出 1 只 Boss", [controller.enemies_alive])
+	var boss = controller.get("_boss")
+	_check(boss != null, "Boss 实例存在")
+	if boss:
+		_check(boss.max_hp >= 480.0, "Boss 血量 ≥ 480（普通难度 600×0.8 下限）", [boss.max_hp])
+
+		# 杀 Boss → 房间清空 + 传送门出现
+		boss.take_damage(999999.0)
+		await process_frame
+		_check(controller.is_cleared, "Boss 死后房间清空")
+		var portal = controller.get("_portal")
+		_check(portal != null and is_instance_valid(portal), "生成下一层传送门")
 
 	room_root.queue_free()

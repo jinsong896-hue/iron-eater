@@ -186,8 +186,8 @@ func die() -> void:
 	if not is_inside_tree():
 		return
 	AudioManager.play("death")
-	var result := GameManager.finish_run("defeated")
-	EventBus.run_finished.emit(result)
+	# finish_run 内部已发 run_finished（结算面板监听显示）
+	GameManager.finish_run("defeated")
 	set_physics_process(false)
 	hide()
 

@@ -8,9 +8,15 @@ extends CanvasLayer
 @onready var continue_btn: Button = $CenterContainer/VBox/ContinueBtn
 
 
+## 结算面板需在暂停下仍可交互
 func _ready() -> void:
+	process_mode = PROCESS_MODE_ALWAYS
 	if continue_btn:
 		continue_btn.pressed.connect(_on_continue)
+	# 监听本局结束（死亡/通关/放弃）显示结算
+	var bus := get_node_or_null("/root/EventBus")
+	if bus:
+		bus.run_finished.connect(show_result)
 
 
 ## 显示结算数据
@@ -43,6 +49,7 @@ func show_result(result: Dictionary) -> void:
 	_add_stat("融合次数", "%d" % result.get("fusions", 0))
 
 	visible = true
+	get_tree().paused = true
 
 
 func _add_stat(label: String, value: String) -> void:
@@ -77,6 +84,7 @@ func _format_time(seconds: float) -> String:
 
 func _on_continue() -> void:
 	visible = false
+	get_tree().paused = false
 	var sm := get_node_or_null("/root/SceneManager")
 	if sm and sm.has_method("go_to_main_menu"):
 		sm.go_to_main_menu()

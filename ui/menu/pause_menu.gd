@@ -53,13 +53,12 @@ func _on_main_menu() -> void:
 
 
 func _on_abandon() -> void:
+	visible = false
 	get_tree().paused = false
+	# 结算面板监听 run_finished 自行显示；由结算页「继续」回主菜单
 	var gm := get_node_or_null("/root/GameManager")
 	if gm and gm.has_method("finish_run"):
 		gm.finish_run("abandoned")
-	var sm := get_node_or_null("/root/SceneManager")
-	if sm:
-		sm.go_to_main_menu()
 
 
 func _on_quit() -> void:

@@ -55,15 +55,22 @@ func _roll_gold(enemy_data) -> int:
 	return rng.randi_range(int(GameBalance.GOLD_DROP_RANGE.x), int(GameBalance.GOLD_DROP_RANGE.y))
 
 
-## 掉落装备模板：显式 loot_table 优先；否则按 BASE_DROP_CHANCE 从白装池随机
+## 掉落装备模板：显式 loot_table 优先；Boss 必掉；否则按 BASE_DROP_CHANCE 从白装池随机
 func _roll_template(enemy_data) -> EquipmentTemplate:
 	# 显式掉落表
 	var loot_id := _explicit_loot_id(enemy_data)
 	if not loot_id.is_empty():
 		return EquipmentDB.get_template(StringName(loot_id))
 
+	# Boss 必掉
+	var is_boss := false
+	if enemy_data is Dictionary:
+		is_boss = enemy_data.get("boss", false)
+	elif enemy_data is Object and enemy_data.has_meta("boss_loot"):
+		is_boss = enemy_data.get_meta("boss_loot")
+
 	# 白装池随机掉落
-	if rng.randf() > GameBalance.BASE_DROP_CHANCE:
+	if not is_boss and rng.randf() > GameBalance.BASE_DROP_CHANCE:
 		return null
 	var pool := EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.WHITE)
 	if pool.is_empty():

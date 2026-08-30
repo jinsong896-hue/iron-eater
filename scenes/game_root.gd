@@ -39,6 +39,36 @@ func _init_dungeon() -> void:
 	_activate_current_room()
 
 
+## 进入下一层：清空当前层 → 重生成地牢 → 回初始房
+func next_floor() -> void:
+	# 清空旧房间
+	if current_room_node:
+		current_room_node.queue_free()
+		current_room_node = null
+	room_state.clear()
+
+	# 层数推进由 RoomController 传送门写入 run_info；此处读取
+	var gm := get_node_or_null("/root/GameManager")
+	var floor_num := 1
+	if gm:
+		floor_num = int(gm.run_info.get("floor", 1))
+	var seed_value := randi()
+	if gm and gm.rng:
+		seed_value = gm.rng.randi()
+
+	generate_dungeon(seed_value, 13)
+	load_current_room()
+	_place_player()
+	_activate_current_room()
+
+	if gm:
+		gm.set_state(GameManager.GamePhase.DUNGEON)
+	var bus := get_node_or_null("/root/EventBus")
+	if bus:
+		bus.floor_changed.emit(floor_num)
+		bus.message.emit("进入第 %d 层" % floor_num)
+
+
 # ============================================================
 # 模板注册
 # ============================================================

@@ -50,6 +50,12 @@ func _connect_signals() -> void:
 		eb.message.connect(_on_message)
 	if eb.has_signal("player_hit"):
 		eb.player_hit.connect(_on_player_hit)
+	if eb.has_signal("floor_changed"):
+		eb.floor_changed.connect(_on_floor_changed)
+	# 初始层数显示
+	var gm0 := get_node_or_null("/root/GameManager")
+	if gm0 and floor_label:
+		floor_label.text = "第 %d 层" % int(gm0.run_info.get("floor", 1))
 
 
 func _update_display() -> void:
@@ -100,6 +106,11 @@ func _on_player_hit(_damage: float, _pos: Vector3) -> void:
 		var tween := create_tween()
 		tween.tween_property(health_orb, "modulate", Color.RED, 0.1)
 		tween.tween_property(health_orb, "modulate", Color.WHITE, 0.2)
+
+
+## 楼层变化回调
+func _on_floor_changed(floor_num: int) -> void:
+	set_floor(floor_num)
 
 
 ## 更新楼层显示

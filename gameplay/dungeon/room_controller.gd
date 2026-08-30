@@ -3,6 +3,7 @@ extends Node3D
 ## 房间控制器 —— HD-2D 重构版
 ## 管理房间生命周期：激活 → 战斗 → 清空 → 离开
 ## 以撒式房间锁门机制：进房锁门 → 刷怪 → 全灭开门
+## Boss 房：击杀 Boss 后生成下一层传送门
 
 var room_data = null   # RoomData（JSON Dictionary）
 
@@ -10,9 +11,13 @@ var room_data = null   # RoomData（JSON Dictionary）
 var is_cleared := false
 var is_active := false
 var enemies_alive := 0
+var is_boss_room := false
 var _spawn_points: Array[Marker3D] = []
+var _boss_spawn: Marker3D = null
 var _doors: Array[Node3D] = []
 var _living_enemies: Array[EnemyBase] = []
+var _boss: EnemyBase = null
+var _portal: Area3D = null
 
 
 func _ready() -> void:
@@ -29,12 +34,18 @@ func _collect_nodes() -> void:
 	if spawns_node:
 		for child in spawns_node.get_children():
 			if child is Marker3D:
-				_spawn_points.append(child as Marker3D)
+				var m := child as Marker3D
+				if m.is_in_group("boss_spawn"):
+					_boss_spawn = m
+				else:
+					_spawn_points.append(m)
 
 	# 门是房间根下的直接子节点（Door_* 命名）
 	for sibling in room_root.get_children():
 		if sibling.name.begins_with("Door_"):
 			_doors.append(sibling)
+
+	is_boss_room = _boss_spawn != null or _room_type() == "boss"
 
 
 ## 激活房间（玩家进入）
@@ -49,9 +60,14 @@ func activate() -> void:
 
 	if is_cleared:
 		_open_doors()
+		if is_boss_room:
+			_show_portal()
 		return
 
-	_spawn_enemies()
+	if is_boss_room:
+		_spawn_boss()
+	else:
+		_spawn_enemies()
 
 	if enemies_alive == 0:
 		_on_cleared()
@@ -73,6 +89,11 @@ func _on_cleared() -> void:
 		return
 	is_cleared = true
 	_open_doors()
+	if is_boss_room and _boss != null:
+		var gm = _game_manager()
+		if gm:
+			gm.boss_kills += 1
+		_show_portal()
 	var bus = _event_bus()
 	if bus:
 		bus.room_cleared.emit(_room_id())
@@ -91,14 +112,7 @@ func _spawn_enemies() -> void:
 	if _spawn_points.is_empty():
 		return
 
-	var difficulty_mult := 1.0
-	var gm = _game_manager()
-	if gm:
-		match str(gm.run_info.get("difficulty", "normal")):
-			"easy":
-				difficulty_mult = 0.8
-			"hard":
-				difficulty_mult = 1.35
+	var difficulty_mult := _difficulty_mult()
 
 	for point in _spawn_points:
 		if randf() < 0.7:
@@ -118,6 +132,122 @@ func _spawn_enemy_at(point: Marker3D, difficulty_mult: float) -> EnemyBase:
 	enemy.died.connect(on_enemy_died)
 	add_child(enemy)
 	return enemy
+
+
+## 生成 Boss（难度缩放 + Boss 必掉装备）
+func _spawn_boss() -> void:
+	if _boss_spawn == null:
+		return
+	var mult := _difficulty_mult()
+	_boss = EnemyBase.new()
+	_boss.position = _boss_spawn.global_position
+	_boss.max_hp = 600.0 * mult
+	_boss.atk = 18.0 * mult
+	_boss.defense = 15.0
+	_boss.move_speed = 2.6
+	_boss.attack_range = 2.6
+	_boss.attack_interval = 1.4
+	_boss.gold_min = 50
+	_boss.gold_max = 120
+	# Boss 必掉装备：掉落表指向随机白装由 LootSystem 处理，这里用必掉标记
+	_boss.set_meta("boss_loot", true)
+	_boss.died.connect(_on_boss_died)
+	add_child(_boss)
+	enemies_alive += 1
+	_living_enemies.append(_boss)
+
+
+## Boss 死亡：必掉两件装备 + 房间清空
+func _on_boss_died(world_position: Vector3) -> void:
+	enemies_alive = maxf(enemies_alive - 1, 0)
+	if enemies_alive <= 0:
+		_on_cleared()
+
+
+## 难度倍率
+func _difficulty_mult() -> float:
+	var gm = _game_manager()
+	if gm == null:
+		return 1.0
+	match str(gm.run_info.get("difficulty", "normal")):
+		"easy":
+			return 0.8
+		"hard":
+			return 1.35
+	return 1.0
+
+
+## 生成下一层传送门（Boss 房清空后出现，触碰进入下一层）
+func _show_portal() -> void:
+	if _portal != null and is_instance_valid(_portal):
+		_portal.visible = true
+		return
+
+	var room_root := get_parent()
+	if room_root == null:
+		return
+
+	# 传送门放在 Boss 出生点
+	var pos: Vector3 = _boss_spawn.global_position if _boss_spawn else Vector3.ZERO
+	_portal = Area3D.new()
+	_portal.name = "NextFloorPortal"
+	_portal.position = pos + Vector3(0, 1.0, 0)
+
+	var col := CollisionShape3D.new()
+	var shape := CylinderShape3D.new()
+	shape.radius = 1.2
+	shape.height = 2.0
+	col.shape = shape
+	_portal.add_child(col)
+
+	# 视觉：发光圆柱
+	var mesh := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 1.0
+	cyl.bottom_radius = 1.0
+	cyl.height = 2.0
+	mesh.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.4, 0.8, 1.0, 0.6)
+	mat.emission_enabled = true
+	mat.emission = Color(0.3, 0.7, 1.0)
+	mat.emission_energy_multiplier = 1.5
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mesh.material_override = mat
+	_portal.add_child(mesh)
+
+	_portal.body_entered.connect(_on_portal_entered)
+	room_root.add_child(_portal)
+
+	var bus = _event_bus()
+	if bus:
+		bus.message.emit("Boss 已击败！进入传送门前往下一层")
+
+
+## 触碰传送门 → 进入下一层
+func _on_portal_entered(body: Node3D) -> void:
+	if not body.is_in_group("player"):
+		return
+	var gm = _game_manager()
+	if gm:
+		gm.run_info["floor"] = int(gm.run_info.get("floor", 1)) + 1
+		if int(gm.run_info["floor"]) > 9:
+			gm.finish_run("cleared")
+			return
+	# 通知 GameRoot 重建地牢（下一层）
+	var room_root := get_parent()
+	var game_root := room_root.get_parent() if room_root else null
+	if game_root and game_root.has_method("next_floor"):
+		game_root.call("next_floor")
+
+
+## 房间类型（兼容 Dictionary 与 RoomData）
+func _room_type() -> String:
+	if room_data == null:
+		return ""
+	if room_data is Dictionary:
+		return str(room_data.get("room_type", room_data.get("type", "")))
+	return str(room_data.room_type)
 
 
 ## 锁定所有门（设置阻挡体）
