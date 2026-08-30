@@ -28,7 +28,7 @@ func _setup_post_process() -> void:
 	_quad.mesh = quad_mesh
 
 	# 加载着色器
-	var shader := load("res://shaders/pixel_post_process.gdshader")
+	var shader := load("res://rendering/shaders/pixel_post_process.gdshader")
 	if shader == null:
 		push_error("PixelRenderer: failed to load shader")
 		return
