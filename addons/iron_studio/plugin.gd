@@ -251,13 +251,13 @@ func _commit_brush_action(op: Dictionary) -> void:
 		return
 	ur.create_action("编辑房间笔刷")
 	# 新增的节点：do=已添加（空操作，core 已执行），undo=移除
-	for node in added:
+	for node: Node in added:
 		var n: Node = node
 		var parent: Node = n.get_parent()
 		ur.add_do_method(self, "_noop")
 		ur.add_undo_method(parent, "remove_child", n)
 	# 删除的节点：do=已移除（空操作，core 已执行），undo=重新添加
-	for entry in removed:
+	for entry: Dictionary in removed:
 		var node: Node = entry["node"]
 		var parent: Node = entry["parent"]
 		ur.add_do_method(self, "_noop")
