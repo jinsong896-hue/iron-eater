@@ -5,31 +5,10 @@
 [node name="BackpackMenu" type="PanelContainer"]
 unique_name_in_owner = true
 visible = false
-custom_minimum_size = Vector2(120, 0)
+custom_minimum_size = Vector2(140, 0)
 mouse_filter = 1
 script = ExtResource("1_menu")
 
 [node name="VBox" type="VBoxContainer" parent="."]
 layout_mode = 2
 theme_override_constants/separation = 2
-
-[node name="EquipBtn" type="Button" parent="VBox"]
-layout_mode = 2
-text = "穿戴"
-
-[node name="DevourBtn" type="Button" parent="VBox"]
-layout_mode = 2
-text = "吞噬"
-
-[node name="LockBtn" type="Button" parent="VBox"]
-layout_mode = 2
-text = "锁定"
-
-[node name="DropBtn" type="Button" parent="VBox"]
-layout_mode = 2
-text = "丢弃"
-
-[connection signal="pressed" from="VBox/EquipBtn" to="." method="_on_equip_pressed"]
-[connection signal="pressed" from="VBox/DevourBtn" to="." method="_on_devour_pressed"]
-[connection signal="pressed" from="VBox/LockBtn" to="." method="_on_lock_pressed"]
-[connection signal="pressed" from="VBox/DropBtn" to="." method="_on_drop_pressed"]

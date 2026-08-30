@@ -6,6 +6,7 @@ extends Button
 
 signal swap_requested(from: int, to: int)
 signal menu_requested(index: int, screen_pos: Vector2)
+signal item_clicked(index: int)
 
 ## 当前格子的装备实例（null=空格）
 var item: EquipmentInstance = null:
@@ -20,7 +21,14 @@ var index: int = -1
 
 
 func _ready() -> void:
+	pressed.connect(_on_pressed)
 	_update_display()
+
+
+## 左键按下：发出选中信号
+func _on_pressed() -> void:
+	if has_item():
+		item_clicked.emit(index)
 
 
 ## 是否有物品
@@ -51,13 +59,14 @@ func _update_display() -> void:
 	_name_label.text = item.display_name().substr(0, 1)
 
 
-## 右键弹菜单
+## 右键弹菜单（左键走 pressed 信号）
 func _gui_input(event: InputEvent) -> void:
 	if not has_item():
 		return
 	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-			var screen_pos := global_position + (event as InputEventMouseButton).position
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+			var screen_pos := global_position + mb.position
 			menu_requested.emit(index, screen_pos)
 
 

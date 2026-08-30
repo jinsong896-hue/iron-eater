@@ -1,0 +1,9 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://tests/test_backpack_ui.gd" id="1_test"]
+[ext_resource type="PackedScene" path="res://ui/inventory/backpack_ui.tscn" id="2_ui"]
+
+[node name="TestBackpackUI" type="Node"]
+script = ExtResource("1_test")
+
+[node name="BackpackUI" parent="." instance=ExtResource("2_ui")]
