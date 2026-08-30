@@ -39,7 +39,7 @@ project/assembly_name="噬铁者"
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/ChineseNodeSelector/plugin.cfg", "res://addons/at-icons/plugin.cfg", "res://addons/compute_flow/plugin.cfg", "res://addons/gdUnit4/plugin.cfg", "res://addons/godot_ai/plugin.cfg", "res://addons/iron_studio/plugin.cfg", "res://addons/phantom_camera/plugin.cfg", "res://addons/terrain_3d/plugin.cfg")
+enabled=PackedStringArray("res://addons/gdUnit4/plugin.cfg", "res://addons/godot_ai/plugin.cfg", "res://addons/iron_studio/plugin.cfg", "res://addons/phantom_camera/plugin.cfg", "res://addons/terrain_3d/plugin.cfg")
 
 [input]
 
