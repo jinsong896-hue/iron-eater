@@ -5,7 +5,7 @@ extends Control
 const DATA_DIR := "res://data/characters"
 const FORMS_DIR := "res://data/forms"
 const SKILLS_DIR := "res://data/skills"
-const AnimSetScript := preload("res://core/data/animation_set_data.gd")
+const AnimSetScript := preload("res://data/animation_set_data.gd")
 
 var _editor_interface: EditorInterface = null
 var _forms: Array[FormData] = []

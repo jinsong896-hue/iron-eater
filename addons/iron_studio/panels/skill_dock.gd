@@ -4,7 +4,7 @@ extends Control
 ## 文档：ai/框架相关.md Skill Studio
 
 const DATA_DIR := "res://data/skills"
-const SkillDataScript := preload("res://core/data/skill_data.gd")
+const SkillDataScript := preload("res://data/skill_data.gd")
 
 var _effects: Array[EffectData] = []
 

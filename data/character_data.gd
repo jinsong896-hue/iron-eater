@@ -4,7 +4,7 @@ extends Resource
 ## 角色数据 —— 职业模板
 ## 文档：ai/框架相关.md 三、CharacterData
 
-const AnimSetScript := preload("res://core/data/animation_set_data.gd")
+const AnimSetScript := preload("res://data/animation_set_data.gd")
 
 @export_category("Identity")
 @export var char_id: String = ""

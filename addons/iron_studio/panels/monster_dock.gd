@@ -86,7 +86,7 @@ func _on_save_pressed() -> void:
 
 func _save(name_str: String) -> void:
 	var data := Resource.new()
-	data.set_script(preload("res://core/data/monster_data.gd"))
+	data.set_script(preload("res://data/monster_data.gd"))
 	data.set("monster_name", name_str)
 	data.set("ai_type", _ai.get_item_text(_ai.selected))
 	data.set("hp", int(_hp.value)); data.set("atk", int(_atk.value))
