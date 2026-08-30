@@ -1,6 +1,191 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="1"]
+[ext_resource type="Script" path="res://ui/hud/hud.gd" id="1_hud"]
 
 [node name="HUD" type="CanvasLayer"]
-script = ExtResource("1")
+script = ExtResource("1_hud")
+
+[node name="BottomBar" type="HBoxContainer" parent="."]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -400.0
+offset_top = -100.0
+offset_right = 400.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 0
+alignment = 1
+theme_override_constants/separation = 8
+
+[node name="HealthOrb" type="TextureProgressBar" parent="BottomBar"]
+custom_minimum_size = Vector2(80, 80)
+min_value = 0.0
+max_value = 500.0
+value = 500.0
+radial_fill_degrees = 360.0
+
+[node name="HealthLabel" type="Label" parent="BottomBar/HealthOrb"]
+layout_mode = 0
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -40.0
+offset_top = -12.0
+offset_right = 40.0
+offset_bottom = 12.0
+text = "500"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(1, 0.3, 0.3, 1)
+
+[node name="Separator1" type="Control" parent="BottomBar"]
+custom_minimum_size = Vector2(10, 80)
+
+[node name="SkillBar" type="HBoxContainer" parent="BottomBar"]
+custom_minimum_size = Vector2(360, 80)
+alignment = 1
+theme_override_constants/separation = 4
+
+[node name="Skill1" type="Button" parent="BottomBar/SkillBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "Q"
+flat = true
+
+[node name="Skill2" type="Button" parent="BottomBar/SkillBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "E"
+flat = true
+
+[node name="Skill3" type="Button" parent="BottomBar/SkillBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "R"
+flat = true
+
+[node name="Skill4" type="Button" parent="BottomBar/SkillBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "F"
+flat = true
+
+[node name="Skill5" type="Button" parent="BottomBar/SkillBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "1"
+flat = true
+
+[node name="Skill6" type="Button" parent="BottomBar/SkillBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "2"
+flat = true
+
+[node name="Separator2" type="Control" parent="BottomBar"]
+custom_minimum_size = Vector2(10, 80)
+
+[node name="ItemBar" type="HBoxContainer" parent="BottomBar"]
+custom_minimum_size = Vector2(240, 80)
+alignment = 1
+theme_override_constants/separation = 4
+
+[node name="Item1" type="Button" parent="BottomBar/ItemBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "1"
+flat = true
+
+[node name="Item2" type="Button" parent="BottomBar/ItemBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "2"
+flat = true
+
+[node name="Item3" type="Button" parent="BottomBar/ItemBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "3"
+flat = true
+
+[node name="Item4" type="Button" parent="BottomBar/ItemBar"]
+custom_minimum_size = Vector2(52, 52)
+text = "4"
+flat = true
+
+[node name="Separator3" type="Control" parent="BottomBar"]
+custom_minimum_size = Vector2(10, 80)
+
+[node name="ManaOrb" type="TextureProgressBar" parent="BottomBar"]
+custom_minimum_size = Vector2(80, 80)
+min_value = 0.0
+max_value = 100.0
+value = 100.0
+radial_fill_degrees = 360.0
+
+[node name="ManaLabel" type="Label" parent="BottomBar/ManaOrb"]
+layout_mode = 0
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -40.0
+offset_top = -12.0
+offset_right = 40.0
+offset_bottom = 12.0
+text = "100"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.3, 0.5, 1, 1)
+
+[node name="TopLeft" type="VBoxContainer" parent="."]
+anchors_preset = 1
+anchor_left = 0.0
+anchor_top = 0.0
+anchor_right = 0.0
+anchor_bottom = 0.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 300.0
+offset_bottom = 100.0
+theme_override_constants/separation = 5
+
+[node name="GoldLabel" type="Label" parent="TopLeft"]
+layout_mode = 2
+text = "金币: 0"
+theme_override_font_sizes/font_size = 20
+theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
+
+[node name="FloorLabel" type="Label" parent="TopLeft"]
+layout_mode = 2
+text = "第 1 层"
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.6, 0.58, 0.55, 1)
+
+[node name="MessageLabel" type="Label" parent="TopLeft"]
+layout_mode = 2
+text = ""
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.9, 0.88, 0.85, 1)
+
+[node name="BuffBar" type="HBoxContainer" parent="."]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = -60.0
+offset_right = 300.0
+offset_bottom = -10.0
+grow_vertical = 0
+theme_override_constants/separation = 5
+
+[node name="Minimap" type="Control" parent="."]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_top = 0.0
+anchor_right = 1.0
+anchor_bottom = 0.0
+offset_left = -170.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = 170.0
+grow_horizontal = 0

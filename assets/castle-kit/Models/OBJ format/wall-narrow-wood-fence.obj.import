@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://b5p5rxg3snnl4"
-path="res://.godot/imported/wall-narrow-wood-fence.obj-9add6fa30cdd934f5d9434bd32e55780.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/wall-narrow-wood-fence.obj-9add6fa30cdd934f5d9434bd32e55780.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/wall-narrow-wood-fence.obj"
-dest_files=["res://.godot/imported/wall-narrow-wood-fence.obj-9add6fa30cdd934f5d9434bd32e55780.mesh", "res://.godot/imported/wall-narrow-wood-fence.obj-9add6fa30cdd934f5d9434bd32e55780.mesh"]
 
 [params]
 

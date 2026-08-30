@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://co8i1sqp28r85"
-path="res://.godot/imported/wall-narrow-corner.obj-47549c451bc90f3f739663ec4f76a2fa.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/wall-narrow-corner.obj-47549c451bc90f3f739663ec4f76a2fa.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/wall-narrow-corner.obj"
-dest_files=["res://.godot/imported/wall-narrow-corner.obj-47549c451bc90f3f739663ec4f76a2fa.mesh", "res://.godot/imported/wall-narrow-corner.obj-47549c451bc90f3f739663ec4f76a2fa.mesh"]
 
 [params]
 

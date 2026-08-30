@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://dhf7qujbcw101"
-path="res://.godot/imported/ground-hills.obj-c875529ea1efa0b60ed30af3f9fc6ce7.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/ground-hills.obj-c875529ea1efa0b60ed30af3f9fc6ce7.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/ground-hills.obj"
-dest_files=["res://.godot/imported/ground-hills.obj-c875529ea1efa0b60ed30af3f9fc6ce7.mesh", "res://.godot/imported/ground-hills.obj-c875529ea1efa0b60ed30af3f9fc6ce7.mesh"]
 
 [params]
 

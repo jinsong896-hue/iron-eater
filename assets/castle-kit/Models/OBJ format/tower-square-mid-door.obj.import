@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://eksv7sqimcgq"
-path="res://.godot/imported/tower-square-mid-door.obj-67a831feef7b97a9533adb17690f4b9e.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/tower-square-mid-door.obj-67a831feef7b97a9533adb17690f4b9e.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/tower-square-mid-door.obj"
-dest_files=["res://.godot/imported/tower-square-mid-door.obj-67a831feef7b97a9533adb17690f4b9e.mesh", "res://.godot/imported/tower-square-mid-door.obj-67a831feef7b97a9533adb17690f4b9e.mesh"]
 
 [params]
 

@@ -1,6 +1,92 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/ui/menu/pause_menu.gd" id="1"]
+[ext_resource type="Script" path="res://ui/menu/pause_menu.gd" id="1_pause"]
 
 [node name="PauseMenu" type="CanvasLayer"]
-script = ExtResource("1")
+script = ExtResource("1_pause")
+visible = false
+
+[node name="Overlay" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0, 0, 0, 0.6)
+
+[node name="RightPanel" type="VBoxContainer" parent="."]
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 1100.0
+offset_top = 200.0
+offset_right = -60.0
+offset_bottom = -100.0
+grow_vertical = 0
+theme_override_constants/separation = 20
+
+[node name="Title" type="Label" parent="RightPanel"]
+layout_mode = 2
+text = "暂停"
+theme_override_font_sizes/font_size = 36
+theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
+
+[node name="BtnResume" type="Button" parent="RightPanel"]
+layout_mode = 2
+text = "继续游戏"
+theme_override_font_sizes/font_size = 26
+flat = true
+
+[node name="BtnSettings" type="Button" parent="RightPanel"]
+layout_mode = 2
+text = "设置"
+theme_override_font_sizes/font_size = 26
+flat = true
+
+[node name="BtnMainMenu" type="Button" parent="RightPanel"]
+layout_mode = 2
+text = "返回主菜单"
+theme_override_font_sizes/font_size = 26
+flat = true
+
+[node name="BtnAbandon" type="Button" parent="RightPanel"]
+layout_mode = 2
+text = "放弃本次探索"
+theme_override_font_sizes/font_size = 26
+flat = true
+
+[node name="BtnQuit" type="Button" parent="RightPanel"]
+layout_mode = 2
+text = "退出至桌面"
+theme_override_font_sizes/font_size = 26
+flat = true
+
+[node name="LeftInfo" type="VBoxContainer" parent="."]
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 60.0
+offset_top = 200.0
+offset_right = 500.0
+offset_bottom = -100.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/separation = 10
+
+[node name="Lbl1" type="Label" parent="LeftInfo"]
+layout_mode = 2
+text = "当前探索"
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.6, 0.58, 0.55, 1)
+
+[node name="LblFloor" type="Label" parent="LeftInfo"]
+layout_mode = 2
+text = "第 1 层 · 监牢入口"
+theme_override_font_sizes/font_size = 18
+
+[node name="LblChar" type="Label" parent="LeftInfo"]
+layout_mode = 2
+text = "战士 · 狂怒之刃"
+theme_override_font_sizes/font_size = 18
+
+[node name="LblTime" type="Label" parent="LeftInfo"]
+layout_mode = 2
+text = "本局时间 00:00"
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.5, 0.48, 0.45, 1)

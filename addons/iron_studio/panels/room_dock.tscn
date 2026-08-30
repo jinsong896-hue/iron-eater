@@ -1,0 +1,285 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://addons/iron_studio/panels/room_dock.gd" id="1"]
+
+[sub_resource type="ButtonGroup" id="BG_tools"]
+
+[node name="RoomDock" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1")
+
+[node name="Scroll" type="ScrollContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
+
+[node name="VBox" type="VBoxContainer" parent="Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="Scroll/VBox"]
+layout_mode = 2
+text = "3D 房间编辑器"
+theme_override_font_sizes/font_size = 15
+horizontal_alignment = 1
+
+[node name="ToolSection" type="VBoxContainer" parent="Scroll/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="ToolLabel" type="Label" parent="Scroll/VBox/ToolSection"]
+layout_mode = 2
+text = "工具："
+theme_override_font_sizes/font_size = 12
+
+[node name="ToolGrid" type="GridContainer" parent="Scroll/VBox/ToolSection"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/h_separation = 2
+theme_override_constants/v_separation = 2
+columns = 2
+
+[node name="FloorBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "地板"
+button_group = SubResource("BG_tools")
+toggle_mode = true
+
+[node name="WallEdgeBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "墙-边缘"
+button_group = SubResource("BG_tools")
+toggle_mode = true
+
+[node name="WallCellBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "墙-格内"
+button_group = SubResource("BG_tools")
+toggle_mode = true
+
+[node name="WallLineBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "墙-拖线"
+button_group = SubResource("BG_tools")
+toggle_mode = true
+
+[node name="DoorBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "门"
+button_group = SubResource("BG_tools")
+toggle_mode = true
+
+[node name="SpawnBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "刷怪点"
+button_group = SubResource("BG_tools")
+toggle_mode = true
+
+[node name="EraserBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "橡皮擦"
+button_group = SubResource("BG_tools")
+toggle_mode = true
+
+[node name="ToolHint" type="Label" parent="Scroll/VBox/ToolSection"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "选择工具..."
+theme_override_colors/font_color = Color(0.6, 0.8, 0.6, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="Sep1" type="HSeparator" parent="Scroll/VBox"]
+layout_mode = 2
+
+[node name="SpawnSection" type="VBoxContainer" parent="Scroll/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="SpawnLabel" type="Label" parent="Scroll/VBox/SpawnSection"]
+layout_mode = 2
+text = "刷怪点配置："
+theme_override_font_sizes/font_size = 12
+
+[node name="SpawnTypeRow" type="HBoxContainer" parent="Scroll/VBox/SpawnSection"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Scroll/VBox/SpawnSection/SpawnTypeRow"]
+layout_mode = 2
+text = "类型:"
+vertical_alignment = 1
+
+[node name="SpawnType" type="OptionButton" parent="Scroll/VBox/SpawnSection/SpawnTypeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+item_count = 5
+popup/item_0/text = "普通怪"
+popup/item_1/text = "精英怪"
+popup/item_2/text = "Boss"
+popup/item_3/text = "宝箱"
+popup/item_4/text = "玩家出生"
+
+[node name="MonsterRow" type="HBoxContainer" parent="Scroll/VBox/SpawnSection"]
+layout_mode = 2
+
+[node name="Label2" type="Label" parent="Scroll/VBox/SpawnSection/MonsterRow"]
+layout_mode = 2
+text = "怪物:"
+vertical_alignment = 1
+
+[node name="MonsterList" type="OptionButton" parent="Scroll/VBox/SpawnSection/MonsterRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Sep2" type="HSeparator" parent="Scroll/VBox"]
+layout_mode = 2
+
+[node name="MetaSection" type="VBoxContainer" parent="Scroll/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="NameRow" type="HBoxContainer" parent="Scroll/VBox/MetaSection"]
+layout_mode = 2
+
+[node name="Label3" type="Label" parent="Scroll/VBox/MetaSection/NameRow"]
+layout_mode = 2
+text = "名称:"
+vertical_alignment = 1
+
+[node name="NameInput" type="LineEdit" parent="Scroll/VBox/MetaSection/NameRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "room_new"
+
+[node name="SizeRow" type="HBoxContainer" parent="Scroll/VBox/MetaSection"]
+layout_mode = 2
+
+[node name="Label4" type="Label" parent="Scroll/VBox/MetaSection/SizeRow"]
+layout_mode = 2
+text = "尺寸:"
+vertical_alignment = 1
+
+[node name="WidthSpin" type="SpinBox" parent="Scroll/VBox/MetaSection/SizeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 8.0
+max_value = 50.0
+value = 20.0
+
+[node name="Label5" type="Label" parent="Scroll/VBox/MetaSection/SizeRow"]
+layout_mode = 2
+text = "x"
+vertical_alignment = 1
+
+[node name="HeightSpin" type="SpinBox" parent="Scroll/VBox/MetaSection/SizeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = 6.0
+max_value = 40.0
+value = 15.0
+
+[node name="ResizeBtn" type="Button" parent="Scroll/VBox/MetaSection/SizeRow"]
+layout_mode = 2
+text = "应用"
+
+[node name="TypeRow" type="HBoxContainer" parent="Scroll/VBox/MetaSection"]
+layout_mode = 2
+
+[node name="Label6" type="Label" parent="Scroll/VBox/MetaSection/TypeRow"]
+layout_mode = 2
+text = "类型:"
+vertical_alignment = 1
+
+[node name="TypeOption" type="OptionButton" parent="Scroll/VBox/MetaSection/TypeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+item_count = 5
+popup/item_0/text = "起始房"
+popup/item_1/text = "普通房"
+popup/item_2/text = "精英房"
+popup/item_3/text = "宝箱房"
+popup/item_4/text = "Boss房"
+selected = 1
+
+[node name="Sep3" type="HSeparator" parent="Scroll/VBox"]
+layout_mode = 2
+
+[node name="BtnRow" type="HBoxContainer" parent="Scroll/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="NewBtn" type="Button" parent="Scroll/VBox/BtnRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "新建"
+
+[node name="SaveBtn" type="Button" parent="Scroll/VBox/BtnRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "保存"
+
+[node name="LoadBtn" type="Button" parent="Scroll/VBox/BtnRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "加载"
+
+[node name="DeleteBtn" type="Button" parent="Scroll/VBox/BtnRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "删除"
+
+[node name="RoomListLabel" type="Label" parent="Scroll/VBox"]
+layout_mode = 2
+text = "房间列表："
+theme_override_font_sizes/font_size = 12
+
+[node name="RoomList" type="ItemList" parent="Scroll/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 100)
+allow_reselect = true
+
+[node name="Status" type="Label" parent="Scroll/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "就绪"
+theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
+theme_override_font_sizes/font_size = 11
+
+[connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/FloorBtn" to="." method="_on_floor_btn_pressed"]
+[connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/WallEdgeBtn" to="." method="_on_wall_edge_btn_pressed"]
+[connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/WallCellBtn" to="." method="_on_wall_cell_btn_pressed"]
+[connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/WallLineBtn" to="." method="_on_wall_line_btn_pressed"]
+[connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/DoorBtn" to="." method="_on_door_btn_pressed"]
+[connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/SpawnBtn" to="." method="_on_spawn_btn_pressed"]
+[connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/EraserBtn" to="." method="_on_eraser_btn_pressed"]
+[connection signal="item_selected" from="Scroll/VBox/SpawnSection/SpawnTypeRow/SpawnType" to="." method="_on_spawn_type_selected"]
+[connection signal="item_selected" from="Scroll/VBox/SpawnSection/MonsterRow/MonsterList" to="." method="_on_monster_selected"]
+[connection signal="pressed" from="Scroll/VBox/MetaSection/SizeRow/ResizeBtn" to="." method="_on_resize_pressed"]
+[connection signal="pressed" from="Scroll/VBox/BtnRow/NewBtn" to="." method="_on_new_pressed"]
+[connection signal="pressed" from="Scroll/VBox/BtnRow/SaveBtn" to="." method="_on_save_pressed"]
+[connection signal="pressed" from="Scroll/VBox/BtnRow/LoadBtn" to="." method="_on_load_pressed"]
+[connection signal="pressed" from="Scroll/VBox/BtnRow/DeleteBtn" to="." method="_on_delete_pressed"]
+[connection signal="item_activated" from="Scroll/VBox/RoomList" to="." method="_on_load_pressed"]

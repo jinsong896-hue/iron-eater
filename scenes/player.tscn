@@ -1,24 +1,21 @@
-[gd_scene load_steps=4 format=3 uid="uid://ch6im6m0xgdu2"]
+[gd_scene load_steps=4 format=3 uid="uid://player_hd2d"]
 
-[ext_resource type="Script" uid="uid://qcqwgol8t0d7" path="res://scripts/player/player.gd" id="1"]
-[ext_resource type="Script" uid="uid://cdmqrvol8m3x2" path="res://scripts/dungeon/room_camera.gd" id="2"]
-[ext_resource type="Script" path="res://scripts/rendering/character_renderer.gd" id="3"]
+[ext_resource type="Script" path="res://entities/player/player.gd" id="1_player"]
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_1"]
-radius = 16.0
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
+radius = 0.5
+height = 2.0
 
-[node name="Player" type="CharacterBody2D" unique_id=1882184268]
-script = ExtResource("1")
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_player"]
+radius = 0.4
+height = 1.6
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="." unique_id=189881596]
-shape = SubResource("CircleShape2D_1")
+[node name="Player" type="CharacterBody3D"]
+script = ExtResource("1_player")
 
-[node name="CharacterRenderer" type="Node2D" parent="." unique_id=2146789012]
-script = ExtResource("3")
-render_size = Vector2i(128, 128)
-target_fps = 12
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CapsuleShape3D_player")
 
-[node name="Camera2D" type="Camera2D" parent="." unique_id=693879232]
-position_smoothing_enabled = true
-position_smoothing_speed = 6.0
-script = ExtResource("2")
+[node name="Model" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+mesh = SubResource("CapsuleMesh_player")

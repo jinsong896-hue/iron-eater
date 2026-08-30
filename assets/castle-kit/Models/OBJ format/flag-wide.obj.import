@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://b60s7nh5boguy"
-path="res://.godot/imported/flag-wide.obj-8e431d7c751f86a3aadaa111f545a3f8.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/flag-wide.obj-8e431d7c751f86a3aadaa111f545a3f8.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/flag-wide.obj"
-dest_files=["res://.godot/imported/flag-wide.obj-8e431d7c751f86a3aadaa111f545a3f8.mesh", "res://.godot/imported/flag-wide.obj-8e431d7c751f86a3aadaa111f545a3f8.mesh"]
 
 [params]
 

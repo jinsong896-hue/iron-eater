@@ -1,4 +1,4 @@
-class_name RoomData
+class_name LegacyRoomData
 extends RefCounted
 ## 逻辑房间数据：布局矩形（格）、类型、门方向
 ## 对应《关卡设计分册》2.1 母网格 / 3.1 房间类型分配
@@ -25,13 +25,12 @@ const TYPE_NAMES := {
 
 var rect: Rect2i            # 布局格矩形（整数格坐标）
 var type: int = RoomType.NORMAL
-var room_coord: Vector2i = Vector2i.ZERO
+var doors: Array[Vector2i] = []   # 相对方向（格单位），用于逻辑连通
 var door_cells: Array[Vector2i] = []  # 与走廊相接的格坐标（自动开洞）
 
 
 func _init(r: Rect2i = Rect2i()) -> void:
 	rect = r
-	room_coord = r.position
 
 
 func center_cell() -> Vector2i:

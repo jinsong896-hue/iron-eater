@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://68pmn026nbht"
-path="res://.godot/imported/siege-ram-demolished.obj-d3b2612451ad7a320f3f58c2a7a0b34b.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/siege-ram-demolished.obj-d3b2612451ad7a320f3f58c2a7a0b34b.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/siege-ram-demolished.obj"
-dest_files=["res://.godot/imported/siege-ram-demolished.obj-d3b2612451ad7a320f3f58c2a7a0b34b.mesh", "res://.godot/imported/siege-ram-demolished.obj-d3b2612451ad7a320f3f58c2a7a0b34b.mesh"]
 
 [params]
 

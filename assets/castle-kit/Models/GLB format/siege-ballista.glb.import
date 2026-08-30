@@ -4,12 +4,11 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://s0p11rgis4jy"
-path="res://.godot/imported/siege-ballista.glb-45d07502c385ec86efe623db91234f9f.scn"
+valid=false
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/siege-ballista.glb"
-dest_files=["res://.godot/imported/siege-ballista.glb-45d07502c385ec86efe623db91234f9f.scn"]
 
 [params]
 

@@ -1,7 +1,0 @@
-[gd_scene load_steps=2 format=3]
-
-[ext_resource type="Script" path="res://scripts/objects/torch.gd" id="1"]
-
-[node name="Torch" type="PointLight2D"]
-energy = 2.5
-script = ExtResource("1")

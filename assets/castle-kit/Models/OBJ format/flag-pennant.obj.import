@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://c8cjpgo8kxv6y"
-path="res://.godot/imported/flag-pennant.obj-94b770b5cbc224e65d04ae102a8290bc.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/flag-pennant.obj-94b770b5cbc224e65d04ae102a8290bc.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/flag-pennant.obj"
-dest_files=["res://.godot/imported/flag-pennant.obj-94b770b5cbc224e65d04ae102a8290bc.mesh", "res://.godot/imported/flag-pennant.obj-94b770b5cbc224e65d04ae102a8290bc.mesh"]
 
 [params]
 

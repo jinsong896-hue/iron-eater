@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://b1gromk1xfd8e"
-path="res://.godot/imported/siege-ballista.obj-b8f7fd7e808ee4e135849309ef9fc8e2.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/siege-ballista.obj-b8f7fd7e808ee4e135849309ef9fc8e2.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/siege-ballista.obj"
-dest_files=["res://.godot/imported/siege-ballista.obj-b8f7fd7e808ee4e135849309ef9fc8e2.mesh", "res://.godot/imported/siege-ballista.obj-b8f7fd7e808ee4e135849309ef9fc8e2.mesh"]
 
 [params]
 

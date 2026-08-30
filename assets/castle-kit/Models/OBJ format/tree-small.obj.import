@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://bubnfwvjfcn0o"
-path="res://.godot/imported/tree-small.obj-59d77191f88ecd439cde8ac44a8d2034.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/tree-small.obj-59d77191f88ecd439cde8ac44a8d2034.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/tree-small.obj"
-dest_files=["res://.godot/imported/tree-small.obj-59d77191f88ecd439cde8ac44a8d2034.mesh", "res://.godot/imported/tree-small.obj-59d77191f88ecd439cde8ac44a8d2034.mesh"]
 
 [params]
 

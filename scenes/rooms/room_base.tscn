@@ -1,0 +1,15 @@
+[gd_scene load_steps=1 format=3]
+
+[node name="RoomBase" type="Node3D"]
+
+[node name="Floor" type="Node3D" parent="."]
+
+[node name="Walls" type="Node3D" parent="."]
+
+[node name="Doors" type="Node3D" parent="."]
+
+[node name="Props" type="Node3D" parent="."]
+
+[node name="SpawnPoints" type="Node3D" parent="."]
+
+[node name="Entities" type="Node3D" parent="."]

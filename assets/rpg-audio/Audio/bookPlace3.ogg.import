@@ -3,12 +3,11 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://cixmmuy3xbn8i"
-path="res://.godot/imported/bookPlace3.ogg-863507563b7e037515fb907059fec363.oggvorbisstr"
+valid=false
 
 [deps]
 
 source_file="res://assets/rpg-audio/Audio/bookPlace3.ogg"
-dest_files=["res://.godot/imported/bookPlace3.ogg-863507563b7e037515fb907059fec363.oggvorbisstr"]
 
 [params]
 

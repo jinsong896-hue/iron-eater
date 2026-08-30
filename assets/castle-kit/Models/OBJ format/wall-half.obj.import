@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://cjcok1kbuhw1s"
-path="res://.godot/imported/wall-half.obj-853c3ae0b8ff650cb711260a3dfce662.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/wall-half.obj-853c3ae0b8ff650cb711260a3dfce662.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/wall-half.obj"
-dest_files=["res://.godot/imported/wall-half.obj-853c3ae0b8ff650cb711260a3dfce662.mesh", "res://.godot/imported/wall-half.obj-853c3ae0b8ff650cb711260a3dfce662.mesh"]
 
 [params]
 

@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://dcdu0ms2l8jah"
-path="res://.godot/imported/wall-stud.obj-ceb8988fef03e740536846116d04a277.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/wall-stud.obj-ceb8988fef03e740536846116d04a277.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/wall-stud.obj"
-dest_files=["res://.godot/imported/wall-stud.obj-ceb8988fef03e740536846116d04a277.mesh", "res://.godot/imported/wall-stud.obj-ceb8988fef03e740536846116d04a277.mesh"]
 
 [params]
 

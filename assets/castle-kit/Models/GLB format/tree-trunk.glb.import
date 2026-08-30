@@ -4,12 +4,11 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://bqobk4e5lbnuh"
-path="res://.godot/imported/tree-trunk.glb-d485f1afa979ee45ee2d8639f65b7b20.scn"
+valid=false
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/tree-trunk.glb"
-dest_files=["res://.godot/imported/tree-trunk.glb-d485f1afa979ee45ee2d8639f65b7b20.scn"]
 
 [params]
 

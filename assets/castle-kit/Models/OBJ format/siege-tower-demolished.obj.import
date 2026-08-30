@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://bpm4bkjqy4rsy"
-path="res://.godot/imported/siege-tower-demolished.obj-db3cdefd7d0ff7563d76de0264e20775.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/siege-tower-demolished.obj-db3cdefd7d0ff7563d76de0264e20775.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/siege-tower-demolished.obj"
-dest_files=["res://.godot/imported/siege-tower-demolished.obj-db3cdefd7d0ff7563d76de0264e20775.mesh", "res://.godot/imported/siege-tower-demolished.obj-db3cdefd7d0ff7563d76de0264e20775.mesh"]
 
 [params]
 

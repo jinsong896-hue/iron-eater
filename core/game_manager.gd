@@ -1,0 +1,145 @@
+extends Node
+## 游戏状态管理器 —— HD-2D 重构版
+## 管理游戏全局状态机：MENU → TOWN → DUNGEON → BOSS → DEAD
+## 同时管理角色属性、装备、金币等局内状态
+## 注意：使用 untyped 变量避免编译期循环依赖
+
+enum GamePhase {
+	MENU,       # 主菜单
+	TOWN,       # 城镇（未实现，预留）
+	DUNGEON,    # 地下城探索中
+	BOSS,       # Boss 战
+	DEAD,       # 死亡结算
+}
+
+var current_state: GamePhase = GamePhase.MENU
+var previous_state: GamePhase = GamePhase.MENU
+
+# 局内运行时数据（untyped 避免编译期依赖）
+var attributes   # AttributeSystem
+var equipment_manager   # EquipmentManager
+var rng := RandomNumberGenerator.new()
+var gold := 0
+var kills := 0
+var total_damage := 0.0
+var devoured_count := 0
+var fusion_count := 0
+var elite_kills := 0
+var boss_kills := 0
+
+# 本局配置
+var run_info := {
+	"character": "warrior",
+	"mode": "dungeon",
+	"difficulty": "normal",
+	"floor": 1,
+	"seed": 0,
+}
+
+var _run_start_ms := 0
+
+
+func _ready() -> void:
+	rng.set_seed(int(run_info.get("seed", 0)))
+	_run_start_ms = Time.get_ticks_msec()
+
+
+## 切换游戏状态
+func set_state(new_state: GamePhase) -> void:
+	previous_state = current_state
+	current_state = new_state
+	match new_state:
+		GamePhase.MENU:
+			_on_enter_menu()
+		GamePhase.DUNGEON:
+			_on_enter_dungeon()
+		GamePhase.BOSS:
+			_on_enter_boss()
+		GamePhase.DEAD:
+			_on_enter_dead()
+
+
+## 开始新的一局
+func start_new_run(info: Dictionary) -> void:
+	run_info = info.duplicate()
+	rng.set_seed(int(run_info.get("seed", 0)))
+	_reset_run()
+	EventBus.game_started.emit()
+	set_state(GamePhase.DUNGEON)
+
+
+## 重置局内状态
+func _reset_run() -> void:
+	attributes = load("res://data/attributes/attribute_system.gd").new()
+	equipment_manager = load("res://gameplay/inventory/equipment_manager.gd").new()
+	equipment_manager.rng = rng
+	gold = 0
+	kills = 0
+	total_damage = 0.0
+	devoured_count = 0
+	fusion_count = 0
+	elite_kills = 0
+	boss_kills = 0
+	_run_start_ms = Time.get_ticks_msec()
+
+
+## 本局结束
+func finish_run(reason: String) -> Dictionary:
+	var play_seconds := float(Time.get_ticks_msec() - _run_start_ms) / 1000.0
+	var result := {
+		"reason": reason,
+		"floor": int(run_info.get("floor", 1)),
+		"kills": kills,
+		"elite_kills": elite_kills,
+		"boss_kills": boss_kills,
+		"gold": gold,
+		"total_damage": total_damage,
+		"devoured": devoured_count,
+		"fusions": fusion_count,
+		"play_seconds": play_seconds,
+	}
+	EventBus.run_finished.emit(result)
+	set_state(GamePhase.DEAD)
+	return result
+
+
+## 便捷访问：获取属性值
+func stat_value(stat_name: String) -> float:
+	if attributes == null:
+		return 0.0
+	return attributes.get_value(attributes.STAT_BY_NAME.get(stat_name, 0))
+
+
+## 融合攻击加成
+func fusion_attack_bonus() -> float:
+	if equipment_manager == null:
+		return 0.0
+	return equipment_manager.fusion_attack_bonus()
+
+
+## 吞噬物品
+func devour_item(item) -> Dictionary:  # item: EquipmentInstance
+	if equipment_manager == null:
+		return {"ok": false, "reason": "装备管理器未初始化"}
+	var result: Dictionary = equipment_manager.devour(item)
+	if result.get("ok", false):
+		devoured_count += 1
+		EventBus.stats_changed.emit()
+	return result
+
+
+func _on_enter_menu() -> void:
+	pass
+
+
+func _on_enter_dungeon() -> void:
+	# 地下城生成由 GameRoot 场景负责
+	pass
+
+
+func _on_enter_boss() -> void:
+	pass
+
+
+func _on_enter_dead() -> void:
+	pass

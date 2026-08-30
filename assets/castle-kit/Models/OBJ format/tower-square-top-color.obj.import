@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://c8fdcteup0frt"
-path="res://.godot/imported/tower-square-top-color.obj-8855f128ee6f9878e70e4ec52eb499e4.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/tower-square-top-color.obj-8855f128ee6f9878e70e4ec52eb499e4.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/tower-square-top-color.obj"
-dest_files=["res://.godot/imported/tower-square-top-color.obj-8855f128ee6f9878e70e4ec52eb499e4.mesh", "res://.godot/imported/tower-square-top-color.obj-8855f128ee6f9878e70e4ec52eb499e4.mesh"]
 
 [params]
 

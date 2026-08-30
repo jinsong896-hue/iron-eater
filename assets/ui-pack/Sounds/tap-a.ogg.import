@@ -3,12 +3,11 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://canbtt3b3dvdd"
-path="res://.godot/imported/tap-a.ogg-1b6ac5da243730b2b1966683787d88c7.oggvorbisstr"
+valid=false
 
 [deps]
 
 source_file="res://assets/ui-pack/Sounds/tap-a.ogg"
-dest_files=["res://.godot/imported/tap-a.ogg-1b6ac5da243730b2b1966683787d88c7.oggvorbisstr"]
 
 [params]
 

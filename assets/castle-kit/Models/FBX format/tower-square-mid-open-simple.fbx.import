@@ -4,12 +4,11 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://cda3he18dm0nj"
-path="res://.godot/imported/tower-square-mid-open-simple.fbx-2c0d792765700b1cb1b9c4ca1b8c58e2.scn"
+valid=false
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/FBX format/tower-square-mid-open-simple.fbx"
-dest_files=["res://.godot/imported/tower-square-mid-open-simple.fbx-2c0d792765700b1cb1b9c4ca1b8c58e2.scn"]
 
 [params]
 

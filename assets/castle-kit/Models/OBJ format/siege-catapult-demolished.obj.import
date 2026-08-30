@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://cr8rlgqapi0v1"
-path="res://.godot/imported/siege-catapult-demolished.obj-2ddda680e57106a3d0c33be1818d3e59.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/siege-catapult-demolished.obj-2ddda680e57106a3d0c33be1818d3e59.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/siege-catapult-demolished.obj"
-dest_files=["res://.godot/imported/siege-catapult-demolished.obj-2ddda680e57106a3d0c33be1818d3e59.mesh", "res://.godot/imported/siege-catapult-demolished.obj-2ddda680e57106a3d0c33be1818d3e59.mesh"]
 
 [params]
 

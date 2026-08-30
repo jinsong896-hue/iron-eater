@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://b6ky3a7mjpa26"
-path="res://.godot/imported/ground.obj-4b4079c1cd2c764c53cf15f373049fc0.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/ground.obj-4b4079c1cd2c764c53cf15f373049fc0.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/ground.obj"
-dest_files=["res://.godot/imported/ground.obj-4b4079c1cd2c764c53cf15f373049fc0.mesh", "res://.godot/imported/ground.obj-4b4079c1cd2c764c53cf15f373049fc0.mesh"]
 
 [params]
 

@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://c8xblo27x4qv2"
-path="res://.godot/imported/siege-ram.obj-b9344192f9b902827a37bab95b9320e1.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/siege-ram.obj-b9344192f9b902827a37bab95b9320e1.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/siege-ram.obj"
-dest_files=["res://.godot/imported/siege-ram.obj-b9344192f9b902827a37bab95b9320e1.mesh", "res://.godot/imported/siege-ram.obj-b9344192f9b902827a37bab95b9320e1.mesh"]
 
 [params]
 

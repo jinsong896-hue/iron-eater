@@ -3,12 +3,11 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://bdaoihegccr46"
-path="res://.godot/imported/footstep03.ogg-ffa63431f242168765f8ef8328995307.oggvorbisstr"
+valid=false
 
 [deps]
 
 source_file="res://assets/rpg-audio/Audio/footstep03.ogg"
-dest_files=["res://.godot/imported/footstep03.ogg-ffa63431f242168765f8ef8328995307.oggvorbisstr"]
 
 [params]
 

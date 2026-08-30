@@ -1,10 +1,136 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/ui/menu/settings_panel.gd" id="1"]
+[ext_resource type="Script" path="res://ui/menu/settings_panel.gd" id="1_settings"]
 
 [node name="SettingsPanel" type="Control"]
-layout_mode = 3
+layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-script = ExtResource("1")
+script = ExtResource("1_settings")
+
+[node name="VBox" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 60.0
+offset_top = 60.0
+offset_right = -60.0
+offset_bottom = -60.0
+theme_override_constants/separation = 15
+
+[node name="Title" type="Label" parent="VBox"]
+layout_mode = 2
+text = "设置"
+theme_override_font_sizes/font_size = 32
+theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
+
+[node name="TabBar" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="BtnDisplay" type="Button" parent="VBox/TabBar"]
+layout_mode = 2
+text = "显示"
+flat = true
+
+[node name="BtnAudio" type="Button" parent="VBox/TabBar"]
+layout_mode = 2
+text = "音频"
+flat = true
+
+[node name="BtnControl" type="Button" parent="VBox/TabBar"]
+layout_mode = 2
+text = "控制"
+flat = true
+
+[node name="BtnGame" type="Button" parent="VBox/TabBar"]
+layout_mode = 2
+text = "游戏"
+flat = true
+
+[node name="Pages" type="Control" parent="VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="DisplayPage" type="VBoxContainer" parent="VBox/Pages"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 15
+
+[node name="Lbl1" type="Label" parent="VBox/Pages/DisplayPage"]
+layout_mode = 2
+text = "显示模式：无边框窗口"
+
+[node name="Lbl2" type="Label" parent="VBox/Pages/DisplayPage"]
+layout_mode = 2
+text = "分辨率：1920×1080"
+
+[node name="Lbl3" type="Label" parent="VBox/Pages/DisplayPage"]
+layout_mode = 2
+text = "垂直同步：开"
+
+[node name="Lbl4" type="Label" parent="VBox/Pages/DisplayPage"]
+layout_mode = 2
+text = "FPS 上限：60"
+
+[node name="AudioPage" type="VBoxContainer" parent="VBox/Pages"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 15
+
+[node name="Lbl1" type="Label" parent="VBox/Pages/AudioPage"]
+layout_mode = 2
+text = "主音量：━━━━━━━━━━━━●━━━━ 75"
+
+[node name="Lbl2" type="Label" parent="VBox/Pages/AudioPage"]
+layout_mode = 2
+text = "音乐音量：━━━━━━━━━●━━━━━ 60"
+
+[node name="Lbl3" type="Label" parent="VBox/Pages/AudioPage"]
+layout_mode = 2
+text = "音效音量：━━━━━━━━━━━━━●━━ 85"
+
+[node name="ControlPage" type="VBoxContainer" parent="VBox/Pages"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 15
+
+[node name="Lbl1" type="Label" parent="VBox/Pages/ControlPage"]
+layout_mode = 2
+text = "键位设置（开发中）"
+
+[node name="Lbl2" type="Label" parent="VBox/Pages/ControlPage"]
+layout_mode = 2
+text = "手柄灵敏度：━━━━━━●━━━━━━━━ 50"
+
+[node name="GamePage" type="VBoxContainer" parent="VBox/Pages"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 15
+
+[node name="Lbl1" type="Label" parent="VBox/Pages/GamePage"]
+layout_mode = 2
+text = "语言：中文"
+
+[node name="Lbl2" type="Label" parent="VBox/Pages/GamePage"]
+layout_mode = 2
+text = "显示伤害数字：开"
+
+[node name="Lbl3" type="Label" parent="VBox/Pages/GamePage"]
+layout_mode = 2
+text = "屏幕震动：开"
+
+[node name="Lbl4" type="Label" parent="VBox/Pages/GamePage"]
+layout_mode = 2
+text = "减少界面动态：关"
+
+[node name="RestoreBtn" type="Button" parent="VBox"]
+layout_mode = 2
+text = "恢复默认设置"
+
+[node name="EscHint" type="Label" parent="VBox"]
+layout_mode = 2
+text = "ESC 返回"
+theme_override_colors/font_color = Color(0.4, 0.4, 0.4, 1)

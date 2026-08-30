@@ -1,0 +1,73 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://ui/backpack/backpack_ui.gd" id="1_ui"]
+[ext_resource type="PackedScene" path="res://ui/backpack/backpack_menu.tscn" id="2_menu"]
+
+[sub_resource type="StyleBoxFlat" id="SB_panel"]
+bg_color = Color(0.08, 0.08, 0.1, 0.95)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.3, 0.3, 0.35, 1)
+
+[sub_resource type="Theme" id="Theme_panel"]
+Panel/styles/panel = SubResource("SB_panel")
+
+[node name="BackpackUI" type="CanvasLayer"]
+process_mode = 3
+visible = false
+script = ExtResource("1_ui")
+
+[node name="SafeZone" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="Panel" parent="SafeZone"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 80.0
+offset_top = 80.0
+offset_right = -80.0
+offset_bottom = -80.0
+theme = SubResource("Theme_panel")
+
+[node name="Margin" type="MarginContainer" parent="SafeZone/Panel"]
+layout_mode = 2
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="VBox" type="VBoxContainer" parent="SafeZone/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="SafeZone/Panel/Margin/VBox"]
+layout_mode = 2
+text = "背包"
+theme_override_font_sizes/font_size = 22
+horizontal_alignment = 1
+
+[node name="Scroll" type="ScrollContainer" parent="SafeZone/Panel/Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Grid" type="GridContainer" parent="SafeZone/Panel/Margin/VBox/Scroll"]
+layout_mode = 2
+columns = 8
+theme_override_constants/h_separation = 4
+theme_override_constants/v_separation = 4
+
+[node name="Menu" parent="." instance=ExtResource("2_menu")]
+
+[connection signal="action_requested" from="Menu" to="." method="_on_action_requested"]

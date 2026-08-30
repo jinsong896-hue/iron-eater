@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://b0r7qyr1e7yvq"
-path="res://.godot/imported/stairs-stone.obj-af28330b1c6fed872ca330b9fe3d9259.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/stairs-stone.obj-af28330b1c6fed872ca330b9fe3d9259.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/stairs-stone.obj"
-dest_files=["res://.godot/imported/stairs-stone.obj-af28330b1c6fed872ca330b9fe3d9259.mesh", "res://.godot/imported/stairs-stone.obj-af28330b1c6fed872ca330b9fe3d9259.mesh"]
 
 [params]
 

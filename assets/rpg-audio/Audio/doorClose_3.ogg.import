@@ -3,12 +3,11 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://um06miok3svu"
-path="res://.godot/imported/doorClose_3.ogg-e410dceec971d23ff25faa4610f2294c.oggvorbisstr"
+valid=false
 
 [deps]
 
 source_file="res://assets/rpg-audio/Audio/doorClose_3.ogg"
-dest_files=["res://.godot/imported/doorClose_3.ogg-e410dceec971d23ff25faa4610f2294c.oggvorbisstr"]
 
 [params]
 

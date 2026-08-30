@@ -3,12 +3,11 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://5kfoy1v32s70"
-path="res://.godot/imported/cloth1.ogg-e1401dcb2bc2bdaf2bfa939baae4be83.oggvorbisstr"
+valid=false
 
 [deps]
 
 source_file="res://assets/rpg-audio/Audio/cloth1.ogg"
-dest_files=["res://.godot/imported/cloth1.ogg-e1401dcb2bc2bdaf2bfa939baae4be83.oggvorbisstr"]
 
 [params]
 

@@ -1,0 +1,77 @@
+[gd_scene format=3 uid="uid://ces8pehrc5hso"]
+
+[ext_resource type="Script" uid="uid://s43v02ssfw0p" path="res://addons/iron_studio/room_editor_scene.gd" id="1_script"]
+
+[sub_resource type="Environment" id="Environment_editor"]
+background_mode = 1
+background_color = Color(0.05, 0.05, 0.1, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.2, 0.2, 0.25, 1)
+ambient_light_energy = 0.6
+tonemap_mode = 3
+ssao_enabled = true
+ssao_radius = 2.0
+ssao_intensity = 1.0
+glow_enabled = true
+glow_intensity = 0.6
+fog_enabled = true
+fog_mode = 1
+fog_light_color = Color(0.3, 0.35, 0.5, 1)
+fog_density = 0.015
+
+[sub_resource type="StandardMaterial3D" id="Mat_ground"]
+albedo_color = Color(0.12, 0.12, 0.14, 1)
+roughness = 0.9
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(60, 60)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_25hlu"]
+transparency = 1
+cull_mode = 2
+shading_mode = 0
+albedo_color = Color(0.3, 0.3, 0.35, 0.5)
+
+[sub_resource type="ImmediateMesh" id="ImmediateMesh_imp4h"]
+
+[node name="RoomEditorRoot" type="Node3D" unique_id=1847863766]
+script = ExtResource("1_script")
+room_width = 30
+room_height = 20
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1478132856]
+environment = SubResource("Environment_editor")
+
+[node name="Lights" type="Node3D" parent="." unique_id=905521816]
+
+[node name="SunLight" type="DirectionalLight3D" parent="Lights" unique_id=986589873]
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 0, 0)
+light_color = Color(1, 0.95, 0.85, 1)
+light_energy = 2.0
+shadow_enabled = true
+
+[node name="AmbientLight" type="DirectionalLight3D" parent="Lights" unique_id=336052191]
+transform = Transform3D(1, 0, 0, 0, 4.37114e-08, 1, 0, -1, 4.37114e-08, 0, 0, 0)
+light_color = Color(0.4, 0.5, 0.7, 1)
+light_energy = 0.4
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=1396547655]
+transform = Transform3D(1, 0, 0, 0, 0.5547002, 0.83205026, 0, -0.83205026, 0.5547002, 15, 27, 28)
+current = true
+fov = 50.0
+
+[node name="Ground" type="MeshInstance3D" parent="." unique_id=139983240]
+material_override = SubResource("Mat_ground")
+mesh = SubResource("PlaneMesh_ground")
+
+[node name="Floor" type="Node3D" parent="." unique_id=506284784]
+
+[node name="Walls" type="Node3D" parent="." unique_id=2095528475]
+
+[node name="Doors" type="Node3D" parent="." unique_id=2090299012]
+
+[node name="Spawns" type="Node3D" parent="." unique_id=1195944830]
+
+[node name="GridLines" type="MeshInstance3D" parent="." unique_id=748611461]
+material_override = SubResource("StandardMaterial3D_25hlu")
+mesh = SubResource("ImmediateMesh_imp4h")

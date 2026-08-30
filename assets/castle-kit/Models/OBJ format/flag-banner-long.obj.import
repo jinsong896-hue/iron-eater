@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://b82tcqeljmgyh"
-path="res://.godot/imported/flag-banner-long.obj-4c2ddd5773cbe6290e03e945a282caee.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/flag-banner-long.obj-4c2ddd5773cbe6290e03e945a282caee.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/flag-banner-long.obj"
-dest_files=["res://.godot/imported/flag-banner-long.obj-4c2ddd5773cbe6290e03e945a282caee.mesh", "res://.godot/imported/flag-banner-long.obj-4c2ddd5773cbe6290e03e945a282caee.mesh"]
 
 [params]
 

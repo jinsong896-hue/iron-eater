@@ -3,12 +3,11 @@
 importer="font_data_dynamic"
 type="FontFile"
 uid="uid://3ro3nou88c11"
-path="res://.godot/imported/Kenney Future Narrow.ttf-7d09ee76948aa1ff81260193b7c19ad7.fontdata"
+valid=false
 
 [deps]
 
 source_file="res://assets/ui-pack/Font/Kenney Future Narrow.ttf"
-dest_files=["res://.godot/imported/Kenney Future Narrow.ttf-7d09ee76948aa1ff81260193b7c19ad7.fontdata"]
 
 [params]
 

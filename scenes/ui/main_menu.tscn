@@ -1,10 +1,413 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/ui/menu/main_menu_controller.gd" id="1"]
+[ext_resource type="Script" path="res://ui/menu/main_menu.gd" id="1_menu"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-script = ExtResource("1")
+script = ExtResource("1_menu")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.035, 0.035, 0.043, 1)
+
+[node name="ArtPlaceholder" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 0.7
+anchor_bottom = 1.0
+color = Color(0.05, 0.05, 0.06, 1)
+
+[node name="ArtLabel" type="Label" parent="ArtPlaceholder"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -30.0
+offset_right = 200.0
+offset_bottom = 30.0
+text = "噬 铁 者"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 72
+theme_override_colors/font_color = Color(0.9, 0.88, 0.85, 0.15)
+
+[node name="MainPanel" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_left = 0.7
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="VBox" type="VBoxContainer" parent="MainPanel"]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 40.0
+offset_top = 200.0
+offset_right = -40.0
+offset_bottom = -100.0
+grow_vertical = 0
+theme_override_constants/separation = 20
+
+[node name="BtnStart" type="Button" parent="MainPanel/VBox"]
+layout_mode = 2
+text = "开始游戏"
+theme_override_font_sizes/font_size = 28
+flat = true
+
+[node name="BtnSettings" type="Button" parent="MainPanel/VBox"]
+layout_mode = 2
+text = "设置"
+theme_override_font_sizes/font_size = 28
+flat = true
+
+[node name="BtnQuit" type="Button" parent="MainPanel/VBox"]
+layout_mode = 2
+text = "退出游戏"
+theme_override_font_sizes/font_size = 28
+flat = true
+
+[node name="VersionLabel" type="Label" parent="MainPanel"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -120.0
+offset_top = -40.0
+offset_right = -20.0
+offset_bottom = -15.0
+grow_horizontal = 0
+grow_vertical = 0
+text = "V0.1.0"
+horizontal_alignment = 2
+theme_override_colors/font_color = Color(0.4, 0.4, 0.4, 1)
+
+[node name="RecentLabel" type="Label" parent="MainPanel"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_top = -80.0
+offset_right = -20.0
+offset_bottom = -50.0
+grow_horizontal = 0
+grow_vertical = 0
+text = ""
+horizontal_alignment = 2
+theme_override_colors/font_color = Color(0.5, 0.48, 0.45, 1)
+
+[node name="SaveSelectPanel" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Title" type="Label" parent="SaveSelectPanel"]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -100.0
+offset_top = 40.0
+offset_right = 100.0
+offset_bottom = 80.0
+text = "选择存档"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 36
+theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
+
+[node name="ScrollContainer" type="ScrollContainer" parent="SaveSelectPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_left = 0.3
+anchor_top = 0.12
+anchor_right = 0.95
+anchor_bottom = 0.95
+offset_left = 20.0
+
+[node name="SaveList" type="VBoxContainer" parent="SaveSelectPanel/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 15
+
+[node name="ProfilePanel" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Title" type="Label" parent="ProfilePanel"]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -100.0
+offset_top = 40.0
+offset_right = 100.0
+offset_bottom = 80.0
+text = "存档 01"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 36
+theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
+
+[node name="VBox" type="VBoxContainer" parent="ProfilePanel"]
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 750.0
+offset_top = 150.0
+offset_right = -60.0
+offset_bottom = -100.0
+grow_vertical = 0
+theme_override_constants/separation = 20
+
+[node name="BtnNewGame" type="Button" parent="ProfilePanel/VBox"]
+layout_mode = 2
+text = "开始游戏"
+theme_override_font_sizes/font_size = 26
+flat = true
+
+[node name="BtnContinue" type="Button" parent="ProfilePanel/VBox"]
+layout_mode = 2
+text = "继续游戏"
+theme_override_font_sizes/font_size = 26
+flat = true
+
+[node name="Hint" type="Label" parent="ProfilePanel/VBox/BtnContinue"]
+layout_mode = 0
+offset_left = 150.0
+offset_top = 10.0
+offset_right = 400.0
+offset_bottom = 40.0
+text = ""
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.5, 0.48, 0.45, 1)
+
+[node name="BtnUpgrade" type="Button" parent="ProfilePanel/VBox"]
+layout_mode = 2
+text = "升级"
+theme_override_font_sizes/font_size = 26
+flat = true
+
+[node name="BtnBackSave" type="Button" parent="ProfilePanel/VBox"]
+layout_mode = 2
+text = "返回存档选择"
+theme_override_font_sizes/font_size = 22
+flat = true
+
+[node name="NewGamePanel" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="VBox" type="VBoxContainer" parent="NewGamePanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 300.0
+offset_top = 60.0
+offset_right = -60.0
+offset_bottom = -60.0
+theme_override_constants/separation = 15
+
+[node name="Label" type="Label" parent="NewGamePanel/VBox"]
+layout_mode = 2
+text = "开始新的探索"
+theme_override_font_sizes/font_size = 32
+theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
+
+[node name="CharLabel" type="Label" parent="NewGamePanel/VBox"]
+layout_mode = 2
+text = "职业"
+
+[node name="CharSelect" type="ItemList" parent="NewGamePanel/VBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 120)
+
+[node name="CharDesc" type="Label" parent="NewGamePanel/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 80)
+text = ""
+theme_override_colors/font_color = Color(0.6, 0.58, 0.55, 1)
+autowrap_mode = 3
+
+[node name="ModeLabel" type="Label" parent="NewGamePanel/VBox"]
+layout_mode = 2
+text = "模式"
+
+[node name="ModeSelect" type="ItemList" parent="NewGamePanel/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 60)
+
+[node name="DiffLabel" type="Label" parent="NewGamePanel/VBox"]
+layout_mode = 2
+text = "难度"
+
+[node name="DifficultySelect" type="ItemList" parent="NewGamePanel/VBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 60)
+
+[node name="BtnStartGame" type="Button" parent="NewGamePanel/VBox"]
+layout_mode = 2
+text = "开始探索"
+theme_override_font_sizes/font_size = 24
+
+[node name="UpgradePanel" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Placeholder" type="Label" parent="UpgradePanel"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -100.0
+offset_right = 200.0
+offset_bottom = 100.0
+text = "局外养成系统
+
+开发中...
+
+未来将包含：
+· 天赋树
+· 形态解锁
+· 局外锻造
+· 图鉴"
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0.5, 0.48, 0.45, 1)
+
+[node name="SettingsPanel" type="Control" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="VBox" type="VBoxContainer" parent="SettingsPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 60.0
+offset_top = 60.0
+offset_right = -60.0
+offset_bottom = -60.0
+theme_override_constants/separation = 15
+
+[node name="Title" type="Label" parent="SettingsPanel/VBox"]
+layout_mode = 2
+text = "设置"
+theme_override_font_sizes/font_size = 32
+theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
+
+[node name="Tabs" type="HBoxContainer" parent="SettingsPanel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="BtnDisplay" type="Button" parent="SettingsPanel/VBox/Tabs"]
+layout_mode = 2
+text = "显示"
+flat = true
+
+[node name="BtnAudio" type="Button" parent="SettingsPanel/VBox/Tabs"]
+layout_mode = 2
+text = "音频"
+flat = true
+
+[node name="BtnControl" type="Button" parent="SettingsPanel/VBox/Tabs"]
+layout_mode = 2
+text = "控制"
+flat = true
+
+[node name="BtnGame" type="Button" parent="SettingsPanel/VBox/Tabs"]
+layout_mode = 2
+text = "游戏"
+flat = true
+
+[node name="Content" type="Control" parent="SettingsPanel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="DisplayPage" type="VBoxContainer" parent="SettingsPanel/VBox/Content"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Lbl1" type="Label" parent="SettingsPanel/VBox/Content/DisplayPage"]
+layout_mode = 2
+text = "显示模式：无边框窗口"
+
+[node name="Lbl2" type="Label" parent="SettingsPanel/VBox/Content/DisplayPage"]
+layout_mode = 2
+text = "分辨率：1920x1080"
+
+[node name="Lbl3" type="Label" parent="SettingsPanel/VBox/Content/DisplayPage"]
+layout_mode = 2
+text = "垂直同步：开"
+
+[node name="AudioPage" type="VBoxContainer" parent="SettingsPanel/VBox/Content"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Lbl1" type="Label" parent="SettingsPanel/VBox/Content/AudioPage"]
+layout_mode = 2
+text = "主音量：75%"
+
+[node name="Lbl2" type="Label" parent="SettingsPanel/VBox/Content/AudioPage"]
+layout_mode = 2
+text = "音乐音量：60%"
+
+[node name="ControlPage" type="VBoxContainer" parent="SettingsPanel/VBox/Content"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Lbl1" type="Label" parent="SettingsPanel/VBox/Content/ControlPage"]
+layout_mode = 2
+text = "键位：WASD移动 / 方向键攻击"
+
+[node name="GamePage" type="VBoxContainer" parent="SettingsPanel/VBox/Content"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Lbl1" type="Label" parent="SettingsPanel/VBox/Content/GamePage"]
+layout_mode = 2
+text = "语言：中文"
+
+[node name="Lbl2" type="Label" parent="SettingsPanel/VBox/Content/GamePage"]
+layout_mode = 2
+text = "显示伤害数字：开"
+
+[node name="ConfirmDialog" type="AcceptDialog" parent="."]
+title = "确认"
+initial_position = 2
+size = Vector2i(500, 200)

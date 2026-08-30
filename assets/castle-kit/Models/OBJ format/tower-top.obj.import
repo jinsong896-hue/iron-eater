@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://cgrjavutvqcvw"
-path="res://.godot/imported/tower-top.obj-0f631714628ef8f7f07c397bb430d0ae.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/tower-top.obj-0f631714628ef8f7f07c397bb430d0ae.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/tower-top.obj"
-dest_files=["res://.godot/imported/tower-top.obj-0f631714628ef8f7f07c397bb430d0ae.mesh", "res://.godot/imported/tower-top.obj-0f631714628ef8f7f07c397bb430d0ae.mesh"]
 
 [params]
 

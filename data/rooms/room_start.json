@@ -1,0 +1,112 @@
+{
+	"cell_size": 1.0,
+	"doors": [
+		{
+			"direction": "north",
+			"id": "north",
+			"x": 0,
+			"y": -1
+		},
+		{
+			"direction": "east",
+			"id": "east",
+			"x": 2,
+			"y": 0
+		},
+		{
+			"direction": "east",
+			"id": "east",
+			"x": -3,
+			"y": 0
+		}
+	],
+	"entities": [
+		{
+			"type": "player_spawn",
+			"x": 0,
+			"y": 0
+		}
+	],
+	"floor": [
+		{
+			"type": "stone",
+			"x": -2,
+			"y": -1
+		},
+		{
+			"type": "stone",
+			"x": -1,
+			"y": -1
+		},
+		{
+			"type": "stone",
+			"x": -1,
+			"y": 0
+		},
+		{
+			"type": "stone",
+			"x": 0,
+			"y": 0
+		},
+		{
+			"type": "stone",
+			"x": 1,
+			"y": 0
+		},
+		{
+			"type": "stone",
+			"x": 2,
+			"y": 0
+		},
+		{
+			"type": "stone",
+			"x": 2,
+			"y": 1
+		},
+		{
+			"type": "stone",
+			"x": 1,
+			"y": 1
+		},
+		{
+			"type": "stone",
+			"x": -1,
+			"y": 1
+		},
+		{
+			"type": "stone",
+			"x": -2,
+			"y": 1
+		},
+		{
+			"type": "stone",
+			"x": -2,
+			"y": 0
+		},
+		{
+			"type": "stone",
+			"x": 0,
+			"y": -1
+		},
+		{
+			"type": "stone",
+			"x": 1,
+			"y": -1
+		},
+		{
+			"type": "stone",
+			"x": 2,
+			"y": -1
+		}
+	],
+	"height": 15,
+	"id": "room_start",
+	"room_type": "start",
+	"tags": [
+		"start"
+	],
+	"theme": "crypt",
+	"version": 2,
+	"walls": [],
+	"width": 20
+}

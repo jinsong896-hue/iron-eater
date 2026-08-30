@@ -3,12 +3,11 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://dvq6fom8b4hb4"
-path="res://.godot/imported/metalPot1.ogg-5bd4ccdc20e926a95859ae8f05d84832.oggvorbisstr"
+valid=false
 
 [deps]
 
 source_file="res://assets/rpg-audio/Audio/metalPot1.ogg"
-dest_files=["res://.godot/imported/metalPot1.ogg-5bd4ccdc20e926a95859ae8f05d84832.oggvorbisstr"]
 
 [params]
 

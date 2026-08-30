@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://dqe6u816j2kjc"
-path="res://.godot/imported/rocks-small.obj-c76f3de285357bc7d2a5e8da9bce9966.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/rocks-small.obj-c76f3de285357bc7d2a5e8da9bce9966.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/rocks-small.obj"
-dest_files=["res://.godot/imported/rocks-small.obj-c76f3de285357bc7d2a5e8da9bce9966.mesh", "res://.godot/imported/rocks-small.obj-c76f3de285357bc7d2a5e8da9bce9966.mesh"]
 
 [params]
 

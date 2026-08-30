@@ -38,12 +38,12 @@ var _anim_fields: Dictionary = {}
 
 func setup(editor_interface: EditorInterface) -> void:
 	_editor_interface = editor_interface
-	_refresh_list()
-	_refresh_skill_pool()
 
 
 func _ready() -> void:
 	_init_anim_fields()
+	_refresh_list()
+	_refresh_skill_pool()
 
 
 func _init_anim_fields() -> void:
@@ -230,4 +230,3 @@ func _on_delete_pressed() -> void:
 	var path := DATA_DIR + "/" + name_str + ".tres"
 	if FileAccess.file_exists(path): DirAccess.remove_absolute(path)
 	_show("已删除: %s" % name_str); _refresh_list()
-ENDOFFILE

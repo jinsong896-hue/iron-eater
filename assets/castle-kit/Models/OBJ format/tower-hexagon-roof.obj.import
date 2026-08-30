@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://cj8y7c5mtfawf"
-path="res://.godot/imported/tower-hexagon-roof.obj-af797048c5cb4b8a28ef4c325d00d46b.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/tower-hexagon-roof.obj-af797048c5cb4b8a28ef4c325d00d46b.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/tower-hexagon-roof.obj"
-dest_files=["res://.godot/imported/tower-hexagon-roof.obj-af797048c5cb4b8a28ef4c325d00d46b.mesh", "res://.godot/imported/tower-hexagon-roof.obj-af797048c5cb4b8a28ef4c325d00d46b.mesh"]
 
 [params]
 

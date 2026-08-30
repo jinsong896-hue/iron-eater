@@ -3,12 +3,11 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://br3pvu8hvlcy7"
-path="res://.godot/imported/drawKnife1.ogg-565e701625cf19d293f91c8af96f1d80.oggvorbisstr"
+valid=false
 
 [deps]
 
 source_file="res://assets/rpg-audio/Audio/drawKnife1.ogg"
-dest_files=["res://.godot/imported/drawKnife1.ogg-565e701625cf19d293f91c8af96f1d80.oggvorbisstr"]
 
 [params]
 

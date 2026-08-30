@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://0sjyxfq0kr2j"
-path="res://.godot/imported/wall-narrow-stairs.obj-82e02ac2d0a53bf07ddb96b11fb7973f.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/wall-narrow-stairs.obj-82e02ac2d0a53bf07ddb96b11fb7973f.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/wall-narrow-stairs.obj"
-dest_files=["res://.godot/imported/wall-narrow-stairs.obj-82e02ac2d0a53bf07ddb96b11fb7973f.mesh", "res://.godot/imported/wall-narrow-stairs.obj-82e02ac2d0a53bf07ddb96b11fb7973f.mesh"]
 
 [params]
 

@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://8sinwceuc7h"
-path="res://.godot/imported/tower-hexagon-top-wood.obj-15da0c1a6308e45c45eb7b1e94e1028a.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/tower-hexagon-top-wood.obj-15da0c1a6308e45c45eb7b1e94e1028a.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/tower-hexagon-top-wood.obj"
-dest_files=["res://.godot/imported/tower-hexagon-top-wood.obj-15da0c1a6308e45c45eb7b1e94e1028a.mesh", "res://.godot/imported/tower-hexagon-top-wood.obj-15da0c1a6308e45c45eb7b1e94e1028a.mesh"]
 
 [params]
 

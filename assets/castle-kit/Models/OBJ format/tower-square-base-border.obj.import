@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://cs4kwfuui6dwk"
-path="res://.godot/imported/tower-square-base-border.obj-bd0cf534347f5f5a34dd63c31be659a2.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/tower-square-base-border.obj-bd0cf534347f5f5a34dd63c31be659a2.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/tower-square-base-border.obj"
-dest_files=["res://.godot/imported/tower-square-base-border.obj-bd0cf534347f5f5a34dd63c31be659a2.mesh", "res://.godot/imported/tower-square-base-border.obj-bd0cf534347f5f5a34dd63c31be659a2.mesh"]
 
 [params]
 

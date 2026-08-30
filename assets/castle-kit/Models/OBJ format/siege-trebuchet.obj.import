@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://bd0g11qhojasc"
-path="res://.godot/imported/siege-trebuchet.obj-b2d8fdef6cf5ddd9debb3d4f4e0a4a90.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/siege-trebuchet.obj-b2d8fdef6cf5ddd9debb3d4f4e0a4a90.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/siege-trebuchet.obj"
-dest_files=["res://.godot/imported/siege-trebuchet.obj-b2d8fdef6cf5ddd9debb3d4f4e0a4a90.mesh", "res://.godot/imported/siege-trebuchet.obj-b2d8fdef6cf5ddd9debb3d4f4e0a4a90.mesh"]
 
 [params]
 

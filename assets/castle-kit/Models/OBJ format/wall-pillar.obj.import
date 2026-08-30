@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://be6jg6fmkqhcl"
-path="res://.godot/imported/wall-pillar.obj-bd111ca3a5cc3f046dea0914b0bb4858.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/wall-pillar.obj-bd111ca3a5cc3f046dea0914b0bb4858.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/wall-pillar.obj"
-dest_files=["res://.godot/imported/wall-pillar.obj-bd111ca3a5cc3f046dea0914b0bb4858.mesh", "res://.godot/imported/wall-pillar.obj-bd111ca3a5cc3f046dea0914b0bb4858.mesh"]
 
 [params]
 

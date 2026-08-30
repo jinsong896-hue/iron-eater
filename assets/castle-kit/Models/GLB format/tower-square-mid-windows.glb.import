@@ -4,12 +4,11 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://451wf22uuajp"
-path="res://.godot/imported/tower-square-mid-windows.glb-383a7980aebea0e3269319d21656553e.scn"
+valid=false
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/tower-square-mid-windows.glb"
-dest_files=["res://.godot/imported/tower-square-mid-windows.glb-383a7980aebea0e3269319d21656553e.scn"]
 
 [params]
 

@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://b38tvt3n8y61p"
-path="res://.godot/imported/metal-gate.obj-6fccd1bcafcbf3a21564bcab01599555.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/metal-gate.obj-6fccd1bcafcbf3a21564bcab01599555.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/metal-gate.obj"
-dest_files=["res://.godot/imported/metal-gate.obj-6fccd1bcafcbf3a21564bcab01599555.mesh", "res://.godot/imported/metal-gate.obj-6fccd1bcafcbf3a21564bcab01599555.mesh"]
 
 [params]
 

@@ -1,7 +1,0 @@
-[gd_scene load_steps=3 format=3]
-
-[ext_resource type="PackedScene" path="res://rooms/base/room_base.tscn" id="1"]
-[ext_resource type="Script" path="res://rooms/layer_01/normal/layer1_room_template.gd" id="2"]
-
-[node name="Layer1RoomTemplate" instance=ExtResource("1")]
-script = ExtResource("2")

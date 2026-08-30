@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://dylffgt14jw6"
-path="res://.godot/imported/wall-corner-half.obj-a8f76c593aafdb6bc8f3c3abbf0bcbe6.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/wall-corner-half.obj-a8f76c593aafdb6bc8f3c3abbf0bcbe6.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/wall-corner-half.obj"
-dest_files=["res://.godot/imported/wall-corner-half.obj-a8f76c593aafdb6bc8f3c3abbf0bcbe6.mesh", "res://.godot/imported/wall-corner-half.obj-a8f76c593aafdb6bc8f3c3abbf0bcbe6.mesh"]
 
 [params]
 

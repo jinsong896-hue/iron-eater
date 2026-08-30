@@ -4,12 +4,11 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://dxpv4uujeskvk"
-path="res://.godot/imported/tower-square-top-roof.fbx-bbfac703d4c2467db90591bc7ac8f537.scn"
+valid=false
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/FBX format/tower-square-top-roof.fbx"
-dest_files=["res://.godot/imported/tower-square-top-roof.fbx-bbfac703d4c2467db90591bc7ac8f537.scn"]
 
 [params]
 

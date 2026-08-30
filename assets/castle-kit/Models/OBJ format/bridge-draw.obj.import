@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://bd6ycbg5xfvy0"
-path="res://.godot/imported/bridge-draw.obj-ffb15c110ce4d1645d25723c36f4f692.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/bridge-draw.obj-ffb15c110ce4d1645d25723c36f4f692.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/bridge-draw.obj"
-dest_files=["res://.godot/imported/bridge-draw.obj-ffb15c110ce4d1645d25723c36f4f692.mesh", "res://.godot/imported/bridge-draw.obj-ffb15c110ce4d1645d25723c36f4f692.mesh"]
 
 [params]
 

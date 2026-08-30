@@ -4,12 +4,11 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://s228vu1jvkr8"
-path="res://.godot/imported/tower-top.glb-d1be09f2198b7aa535dff39f1dd9a182.scn"
+valid=false
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/tower-top.glb"
-dest_files=["res://.godot/imported/tower-top.glb-d1be09f2198b7aa535dff39f1dd9a182.scn"]
 
 [params]
 

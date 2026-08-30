@@ -4,12 +4,11 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://bighxjbyj8mp2"
-path="res://.godot/imported/tree-log.fbx-79e8c2c0ebf22ea86fb981be72d0200d.scn"
+valid=false
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/FBX format/tree-log.fbx"
-dest_files=["res://.godot/imported/tree-log.fbx-79e8c2c0ebf22ea86fb981be72d0200d.scn"]
 
 [params]
 

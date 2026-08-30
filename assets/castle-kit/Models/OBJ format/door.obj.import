@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://kptu83gp0410"
-path="res://.godot/imported/door.obj-1949bac264e4305a231bf7e18f7208c8.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/door.obj-1949bac264e4305a231bf7e18f7208c8.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/door.obj"
-dest_files=["res://.godot/imported/door.obj-1949bac264e4305a231bf7e18f7208c8.mesh", "res://.godot/imported/door.obj-1949bac264e4305a231bf7e18f7208c8.mesh"]
 
 [params]
 

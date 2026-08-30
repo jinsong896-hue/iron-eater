@@ -1,10 +1,53 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/ui/menu/settlement_panel.gd" id="1"]
+[ext_resource type="Script" path="res://ui/menu/settlement_panel.gd" id="1_settle"]
 
-[node name="SettlementPanel" type="Control"]
-layout_mode = 3
+[node name="SettlementPanel" type="CanvasLayer"]
+visible = false
+script = ExtResource("1_settle")
+
+[node name="Overlay" type="ColorRect" parent="."]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-script = ExtResource("1")
+color = Color(0, 0, 0, 0.85)
+
+[node name="CenterContainer" type="CenterContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="VBox" type="VBoxContainer" parent="CenterContainer"]
+layout_mode = 2
+theme_override_constants/separation = 15
+alignment = 1
+
+[node name="Title" type="Label" parent="CenterContainer/VBox"]
+layout_mode = 2
+text = "探 索 终 止"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 42
+theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
+
+[node name="FloorLabel" type="Label" parent="CenterContainer/VBox"]
+layout_mode = 2
+text = "抵达 第 1 层"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 24
+theme_override_colors/font_color = Color(0.6, 0.58, 0.55, 1)
+
+[node name="Separator" type="HSeparator" parent="CenterContainer/VBox"]
+layout_mode = 2
+
+[node name="StatsContainer" type="VBoxContainer" parent="CenterContainer/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Separator2" type="HSeparator" parent="CenterContainer/VBox"]
+layout_mode = 2
+
+[node name="ContinueBtn" type="Button" parent="CenterContainer/VBox"]
+layout_mode = 2
+text = "继续"
+theme_override_font_sizes/font_size = 24
+custom_minimum_size = Vector2(200, 0)

@@ -4,12 +4,11 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://cxrp7l7qeygtl"
-path="res://.godot/imported/tree-large.fbx-220c6daf962c1bf0fe85709b840dd1a3.scn"
+valid=false
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/FBX format/tree-large.fbx"
-dest_files=["res://.godot/imported/tree-large.fbx-220c6daf962c1bf0fe85709b840dd1a3.scn"]
 
 [params]
 

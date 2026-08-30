@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://celau24xuvvqc"
-path="res://.godot/imported/siege-tower.obj-c372e7114781ef3167ca622dfe47ae19.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/siege-tower.obj-c372e7114781ef3167ca622dfe47ae19.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/siege-tower.obj"
-dest_files=["res://.godot/imported/siege-tower.obj-c372e7114781ef3167ca622dfe47ae19.mesh", "res://.godot/imported/siege-tower.obj-c372e7114781ef3167ca622dfe47ae19.mesh"]
 
 [params]
 

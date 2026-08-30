@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://b3ixxta7pehqs"
-path="res://.godot/imported/wall-narrow-gate.obj-72c1bbec1475c2c1269faa06a9be3336.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/wall-narrow-gate.obj-72c1bbec1475c2c1269faa06a9be3336.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/wall-narrow-gate.obj"
-dest_files=["res://.godot/imported/wall-narrow-gate.obj-72c1bbec1475c2c1269faa06a9be3336.mesh", "res://.godot/imported/wall-narrow-gate.obj-72c1bbec1475c2c1269faa06a9be3336.mesh"]
 
 [params]
 

@@ -4,14 +4,11 @@ importer="wavefront_obj"
 importer_version=1
 type="Mesh"
 uid="uid://bawdvj55ivwrq"
-path="res://.godot/imported/wall-corner-slant.obj-7a39ebc08363391f9edc49545757754d.mesh"
+valid=false
 
 [deps]
 
-files=["res://.godot/imported/wall-corner-slant.obj-7a39ebc08363391f9edc49545757754d.mesh"]
-
 source_file="res://assets/castle-kit/Models/OBJ format/wall-corner-slant.obj"
-dest_files=["res://.godot/imported/wall-corner-slant.obj-7a39ebc08363391f9edc49545757754d.mesh", "res://.godot/imported/wall-corner-slant.obj-7a39ebc08363391f9edc49545757754d.mesh"]
 
 [params]
 
