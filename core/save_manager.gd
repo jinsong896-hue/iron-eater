@@ -161,7 +161,9 @@ func _collect_save_data() -> Dictionary:
 		data["devoured_count"] = gm.devoured_count
 		data["fusion_count"] = gm.fusion_count
 		data["play_time"] = _format_time(gm._run_start_ms)
-		data["has_active_run"] = true
+		# 仅当局内属性已初始化（DUNGEON/BOSS 阶段）才视为进行中
+		if gm.attributes != null:
+			data["has_active_run"] = true
 	return data
 
 
