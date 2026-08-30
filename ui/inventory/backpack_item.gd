@@ -57,7 +57,7 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
-			var screen_pos: Vector2 = global_position + event.position
+			var screen_pos := global_position + (event as InputEventMouseButton).position
 			menu_requested.emit(index, screen_pos)
 
 
