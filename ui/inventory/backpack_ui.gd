@@ -4,7 +4,7 @@ extends CanvasLayer
 ## 对接 GameManager.equipment_manager 的 EquipmentInstance 列表
 ## Tab 键开关，EventBus.inventory_changed 驱动刷新
 
-const ITEM_SCENE := preload("res://ui/backpack/backpack_item.tscn")
+const ITEM_SCENE := preload("res://ui/inventory/backpack_item.tscn")
 const CAPACITY := 40  # 背包容量（8列 × 5行）
 const COLUMNS := 8
 

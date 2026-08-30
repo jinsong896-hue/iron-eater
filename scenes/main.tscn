@@ -7,7 +7,7 @@
 [ext_resource type="Script" uid="uid://x74jvue55h82" path="res://scenes/game_root.gd" id="5_game_root"]
 [ext_resource type="Script" uid="uid://dgp2h8t0yv5tn" path="res://rendering/camera/camera_rig.gd" id="6_camera"]
 [ext_resource type="Script" uid="uid://cjw46n5bibk00" path="res://rendering/effects/pixel_renderer.gd" id="7_pixel"]
-[ext_resource type="PackedScene" path="res://ui/backpack/backpack_ui.tscn" id="8_backpack"]
+[ext_resource type="PackedScene" path="res://ui/inventory/backpack_ui.tscn" id="8_backpack"]
 [ext_resource type="Script" uid="uid://328gmmesnpmx" path="res://rendering/effects/damage_text_renderer.gd" id="9_dmg_text"]
 
 [sub_resource type="Environment" id="Environment_hd2d"]

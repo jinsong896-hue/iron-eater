@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://ui/backpack/backpack_item.gd" id="1_item"]
+[ext_resource type="Script" path="res://ui/inventory/backpack_item.gd" id="1_item"]
 
 [node name="BackpackItem" type="Button"]
 custom_minimum_size = Vector2(64, 64)
