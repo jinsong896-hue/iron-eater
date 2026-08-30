@@ -196,12 +196,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_inventory"):
 		EventBus.message.emit("背包")
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("interact"):
+		_pickup_nearby()
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("devour"):
 		_devour_nearby()
 		get_viewport().set_input_as_handled()
 
 
-func _devour_nearby() -> void:
+## 查找最近的掉落物（拾取/吞噬共用）
+func _nearest_pickup() -> Node3D:
 	var nearest: Node3D = null
 	var nearest_d := INF
 	for node in get_tree().get_nodes_in_group("pickups"):
@@ -211,12 +215,33 @@ func _devour_nearby() -> void:
 		if d < nearest_d:
 			nearest_d = d
 			nearest = node
+	return nearest
 
+
+## 拾取最近掉落物进背包
+func _pickup_nearby() -> void:
+	var nearest := _nearest_pickup()
+	if nearest == null:
+		EventBus.message.emit("附近没有可拾取的掉落物")
+		return
+
+	if nearest.has_method("pick_up"):
+		var result: Dictionary = nearest.call("pick_up")
+		if not result.get("ok", false):
+			EventBus.message.emit(result.get("reason", "拾取失败"))
+
+
+## 吞噬最近掉落物（本局永久成长）
+func _devour_nearby() -> void:
+	var nearest := _nearest_pickup()
 	if nearest == null:
 		EventBus.message.emit("附近没有可吞噬的掉落物")
 		return
 
 	if nearest.has_method("devour"):
-		nearest.call("devour")
-		EventBus.message.emit("吞噬成功！")
-		AudioManager.play("pickup")
+		var result: Dictionary = nearest.call("devour")
+		if result.get("ok", false):
+			EventBus.message.emit("吞噬成功！")
+			AudioManager.play("pickup")
+		else:
+			EventBus.message.emit(result.get("reason", "吞噬失败"))

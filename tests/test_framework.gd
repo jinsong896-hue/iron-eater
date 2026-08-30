@@ -18,6 +18,9 @@ func _init() -> void:
 	# 属性系统测试
 	test_attribute_system()
 
+	# 白装数据库测试（36 件 V1 基准池；先于通用装备测试，避免后者注册测试模板污染计数）
+	test_white_equipment_db()
+
 	# 装备系统测试
 	test_equipment_system()
 
@@ -29,6 +32,9 @@ func _init() -> void:
 
 	# 房间数据测试
 	test_room_data()
+
+	# 房间刷怪闭环集成测试
+	test_room_combat_loop()
 
 	print("=".repeat(60))
 	if _failed == 0:
@@ -127,6 +133,60 @@ func test_equipment_system() -> void:
 	_check(inst2.template_id == inst.template_id, "反序列化后 template_id 一致")
 
 
+func test_white_equipment_db() -> void:
+	_current_test = "WhiteEquipmentDB"
+	print("\n--- %s ---" % _current_test)
+
+	var EDB = _require_script("res://data/equipment/equipment_db.gd")
+	var ED = _require_script("res://data/equipment/equipment_defs.gd")
+	if EDB == null or ED == null:
+		return
+
+	EDB.init_white_equipment()
+
+	_check(EDB.template_count() == 36, "白装总数 = 36（12 武器 + 18 护甲 + 6 饰品）", [EDB.template_count()])
+	_check(EDB.get_templates_by_rarity(ED.Rarity.WHITE).size() == 36, "全部为白装稀有度")
+	_check(EDB.get_templates_by_slot(ED.Slot.HEAD).size() == 3, "头部护甲 3 件（轻/中/重）")
+	_check(EDB.get_templates_by_slot(ED.Slot.CHEST).size() == 3, "胸甲 3 件")
+
+	# 抽查代表性条目
+	var sword = EDB.get_template(&"W01")
+	_check(sword != null, "W01 铁制单手剑存在")
+	if sword:
+		_check(sword.display_name == "铁制单手剑", "W01 名称正确", [sword.display_name])
+		_check(sword.weapon_type == "sword", "W01 单手剑类型")
+		_check(sword.is_one_handed_weapon(), "W01 判定为单手")
+		_check(sword.base_affix.value == 35.0, "W01 基础 ATK +35", [sword.base_affix.value])
+		_check(sword.devour_affix.value == 0.5, "W01 吞噬 ATK +0.5", [sword.devour_affix.value])
+		_check(sword.fusion_affix.value == 0.03, "W01 融合 ATK +3%", [sword.fusion_affix.value])
+
+	var greatsword = EDB.get_template(&"W06")
+	_check(greatsword != null, "W06 铁制巨剑存在")
+	if greatsword:
+		_check(greatsword.is_two_handed_weapon(), "W06 判定为双手")
+		_check(greatsword.base_affix.value == 56.0, "W06 基础 ATK +56", [greatsword.base_affix.value])
+
+	var staff = EDB.get_template(&"W11")
+	_check(staff != null, "W11 学徒长杖存在")
+	if staff:
+		_check(staff.base_affix.stat == 6, "W11 基础词条为 AP（Stat.AP=6）", [staff.base_affix.stat])
+
+	var helm = EDB.get_template(&"A03")
+	_check(helm != null, "A03 铁制头盔存在")
+	if helm:
+		_check(helm.armor_class == ED.ArmorClass.HEAVY, "A03 重甲")
+
+	var boots = EDB.get_template(&"A16")
+	_check(boots != null, "A16 布质软靴存在")
+	if boots:
+		_check(boots.armor_class == ED.ArmorClass.LIGHT, "A16 轻甲")
+
+	var amulet = EDB.get_template(&"J03")
+	_check(amulet != null, "J03 骨牙吊坠存在")
+	if amulet:
+		_check(amulet.base_affix.value == 25.0, "J03 基础 HP +25", [amulet.base_affix.value])
+
+
 func test_damage_pipeline() -> void:
 	_current_test = "DamagePipeline"
 	print("\n--- %s ---" % _current_test)
@@ -192,3 +252,56 @@ func test_room_data() -> void:
 
 	var player: Dictionary = room.get_player_spawn()
 	_check(not player.is_empty(), "有玩家出生点")
+
+
+## 房间刷怪闭环集成测试：建房间 → 激活 → 刷怪 → 全灭 → 清空
+func test_room_combat_loop() -> void:
+	_current_test = "RoomCombatLoop"
+	print("\n--- %s ---" % _current_test)
+
+	var RC = _require_script("res://gameplay/dungeon/room_controller.gd")
+	var EB = _require_script("res://entities/enemies/enemy_base.gd")
+	var EDB = _require_script("res://data/equipment/equipment_db.gd")
+	if RC == null or EB == null or EDB == null:
+		return
+
+	EDB.init_white_equipment()
+
+	# 构造房间结构：Room_N/{SpawnPoints, Doors, RoomController}
+	var room_root := Node3D.new()
+	room_root.name = "Room_Test"
+	root.add_child(room_root)
+
+	var spawns := Node3D.new()
+	spawns.name = "SpawnPoints"
+	room_root.add_child(spawns)
+
+	# 4 个生成点 → 70% 概率刷怪，为确定性直接种固定数量的敌人不好控制，
+	# 改为验证：激活后 alive > 0（13 个点几乎必然 ≥1）与清空逻辑
+	for i in range(13):
+		var m := Marker3D.new()
+		m.position = Vector3(float(i), 0.0, 0.0)
+		spawns.add_child(m)
+
+	var controller = RC.new()
+	controller.name = "RoomController"
+	controller.set("room_data", {"room_id": "test_room", "room_type": "normal"})
+	room_root.add_child(controller)
+
+	# 等待 _ready 收集节点
+	await process_frame
+
+	controller.activate()
+	_check(controller.is_active, "房间激活")
+	var alive: int = controller.enemies_alive
+	_check(alive > 0, "激活后刷出敌人（alive=%d）" % alive, [alive])
+
+	if alive > 0:
+		# 杀死所有活敌 → 房间清空
+		var enemies: Array = controller.get("_living_enemies")
+		for e in enemies:
+			if is_instance_valid(e):
+				e.take_damage(99999.0)
+		_check(controller.is_cleared, "全灭后房间清空")
+
+	room_root.queue_free()

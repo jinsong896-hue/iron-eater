@@ -32,10 +32,17 @@ enum EnemyState {
 	DEAD,
 }
 
+## 死亡信号（RoomController 计数、LootSystem 掉落都监听它）
+signal died(world_position: Vector3)
+
+@export var loot_table: String = ""  ## 掉落表 ID（空 = 默认白装池）
+@export var gold_min := 3
+@export var gold_max := 12
+
 var _current_state := EnemyState.IDLE
 var _hp: float
 var _attack_timer := 0.0
-var _player: Player
+var _player  # Player（动态类型：避免 --script 测试模式下 class_name 编译依赖）
 
 
 func _ready() -> void:
@@ -48,7 +55,7 @@ func _ready() -> void:
 func _find_player() -> void:
 	var players := get_tree().get_nodes_in_group("player")
 	if players.size() > 0:
-		_player = players[0] as Player
+		_player = players[0]
 
 
 ## 创建临时视觉模型
@@ -144,14 +151,22 @@ func _perform_attack() -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
 
-	var result = DamagePipeline.physical(atk, 1.0, 0.0, GameManager.stat_value("def"))
+	var player_def := 0.0
+	var gm = _game_manager()
+	if gm:
+		player_def = gm.stat_value("def")
+	var result = DamagePipeline.physical(atk, 1.0, 0.0, player_def)
 	_player.take_damage(result.damage)
-	EventBus.damage_dealt.emit(self, _player, result.damage, "physical", false)
+	var bus = _event_bus()
+	if bus:
+		bus.damage_dealt.emit(self, _player, result.damage, "physical", false)
 
 
 func take_damage(amount: float, _is_crit: bool = false) -> void:
 	_hp = maxf(_hp - amount, 0.0)
-	GameManager.total_damage += amount
+	var gm = _game_manager()
+	if gm:
+		gm.total_damage += amount
 
 	if _hp <= 0.0:
 		die()
@@ -159,10 +174,35 @@ func take_damage(amount: float, _is_crit: bool = false) -> void:
 
 func die() -> void:
 	_current_state = EnemyState.DEAD
-	GameManager.kills += 1
-	EventBus.enemy_died.emit(self, global_position, [])
+	var gm = _game_manager()
+	if gm:
+		gm.kills += 1
+	var bus = _event_bus()
+	if bus:
+		bus.enemy_died.emit(self, global_position, [])
+	died.emit(global_position)
+
+	# 掉落（挂在房间节点下，随房间销毁）
+	if gm:
+		var loot := LootSystem.new()
+		var parent := get_parent()
+		if parent:
+			loot.generate_loot(self, global_position, parent)
+
 	set_physics_process(false)
 	hide()
 	# 延迟销毁
 	await get_tree().create_timer(0.5).timeout
 	queue_free()
+
+
+## 获取 GameManager autoload（--script 测试模式下不存在，返回 null）
+func _game_manager():
+	var node := get_node_or_null("/root/GameManager")
+	return node
+
+
+## 获取 EventBus autoload（--script 测试模式下不存在，返回 null）
+func _event_bus():
+	var node := get_node_or_null("/root/EventBus")
+	return node

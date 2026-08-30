@@ -87,18 +87,20 @@ static func _on_door_trigger(body: Node3D, area: Area3D) -> void:
 
 ## 计算门在房间边界的位置
 static func _get_door_position(data, direction: String) -> Vector3:
-	var center_x := float(data.get("width", 16)) / 2.0
-	var center_y := float(data.get("height", 12)) / 2.0
+	var width := float(data.get("width", 16))
+	var height := float(data.get("height", 12))
+	var center_x := width / 2.0
+	var center_y := height / 2.0
 
 	match direction:
 		"north":
 			return Vector3(center_x, DOOR_HEIGHT / 2.0, -0.5)
 		"south":
-			return Vector3(center_x, DOOR_HEIGHT / 2.0, float(data.height) - 0.5)
+			return Vector3(center_x, DOOR_HEIGHT / 2.0, height - 0.5)
 		"west":
 			return Vector3(-0.5, DOOR_HEIGHT / 2.0, center_y)
 		"east":
-			return Vector3(float(data.width) - 0.5, DOOR_HEIGHT / 2.0, center_y)
+			return Vector3(width - 0.5, DOOR_HEIGHT / 2.0, center_y)
 
 	return Vector3.ZERO
 

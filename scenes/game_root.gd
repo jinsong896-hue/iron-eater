@@ -23,6 +23,9 @@ var room_state: Dictionary = {}
 
 
 func _ready() -> void:
+	# 直跑场景兜底：未经主菜单 start_new_run 时初始化局内数据
+	if GameManager.attributes == null:
+		GameManager.start_new_run(GameManager.run_info.duplicate())
 	_register_templates()
 	EventBus.door_opened.connect(_on_door_entered)
 	# 延迟生成地下城
