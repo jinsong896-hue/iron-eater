@@ -21,7 +21,7 @@ static func attack_bonus_at(count: int) -> float:
 	if count <= 0:
 		return 0.0
 	if count < 5:
-		return 0.0 + (count / 5.0) * 0.15
+		return (count / 5.0) * 0.15
 	if count < 10:
 		return 0.15 + ((count - 5) / 5.0) * 0.15
 	if count < 15:

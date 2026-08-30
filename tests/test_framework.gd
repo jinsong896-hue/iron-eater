@@ -2,6 +2,8 @@ extends SceneTree
 ## 测试框架 —— HD-2D 重构版
 ## 用法：Godot --headless --path . --script res://tests/test_framework.gd
 ## 注意：--script 模式下 class_name 不可用，使用 load() 替代
+## 注意：load() 返回 null（脚本编译失败）会被 _require_script 计入失败，
+##       避免脚本加载失败导致整组测试被静默跳过形成"假绿灯"。
 
 var _failed := 0
 var _passed := 0
@@ -34,7 +36,16 @@ func _init() -> void:
 	else:
 		print("FAILED: %d / %d" % [_failed, _passed + _failed])
 	print("=".repeat(60))
-	quit(_failed)
+	quit(1 if _failed > 0 else 0)
+
+
+## 加载被测脚本；编译失败（load 返回 null）计入失败并返回 null
+func _require_script(path: String):
+	var script = load(path)
+	if script == null:
+		_failed += 1
+		print("  FAIL [%s]: 脚本加载失败（编译错误）: %s" % [_current_test, path])
+	return script
 
 
 func _check(condition: bool, desc: String, failed: Array = []) -> void:
@@ -51,7 +62,9 @@ func test_attribute_system() -> void:
 	_current_test = "AttributeSystem"
 	print("\n--- %s ---" % _current_test)
 
-	var AS = load("res://old_data/attributes/attribute_system.gd")
+	var AS = _require_script("res://data/attributes/attribute_system.gd")
+	if AS == null:
+		return
 	var attrs = AS.new()
 	_check(attrs.hp == 500.0, "初始 HP = 500", [attrs.hp])
 	_check(attrs.max_hp == 500.0, "初始 max_hp = 500", [attrs.max_hp])
@@ -81,11 +94,13 @@ func test_equipment_system() -> void:
 	_current_test = "EquipmentSystem"
 	print("\n--- %s ---" % _current_test)
 
-	var ET = load("res://old_data/equipment/equipment_template.gd")
-	var ED = load("res://old_data/equipment/equipment_defs.gd")
-	var EI = load("res://old_data/equipment/equipment_instance.gd")
-	var EDB = load("res://old_data/equipment/equipment_db.gd")
-	var AD = load("res://old_data/equipment/affix_data.gd")
+	var ET = _require_script("res://data/equipment/equipment_template.gd")
+	var ED = _require_script("res://data/equipment/equipment_defs.gd")
+	var EI = _require_script("res://data/equipment/equipment_instance.gd")
+	var EDB = _require_script("res://data/equipment/equipment_db.gd")
+	var AD = _require_script("res://data/equipment/affix_data.gd")
+	if ET == null or ED == null or EI == null or EDB == null or AD == null:
+		return
 
 	var template = ET.new()
 	template.id = "test_sword"
@@ -107,7 +122,8 @@ func test_equipment_system() -> void:
 	_check(inst.fusion_count == 0, "初始融合等级为 0")
 
 	var d: Dictionary = inst.to_dict()
-	var inst2 = EI.from_dict(d)
+	var inst2 = EI.create(template)
+	inst2.from_dict(d)
 	_check(inst2.template_id == inst.template_id, "反序列化后 template_id 一致")
 
 
@@ -115,7 +131,9 @@ func test_damage_pipeline() -> void:
 	_current_test = "DamagePipeline"
 	print("\n--- %s ---" % _current_test)
 
-	var DP = load("res://gameplay/combat/damage_pipeline.gd")
+	var DP = _require_script("res://gameplay/combat/damage_pipeline.gd")
+	if DP == null:
+		return
 
 	var result = DP.physical(100.0, 1.0, 0.0, 50.0)
 	_check(result.damage > 0.0, "物理伤害 > 0", [result.damage])
@@ -135,13 +153,16 @@ func test_fusion_rules() -> void:
 	_current_test = "FusionRules"
 	print("\n--- %s ---" % _current_test)
 
-	var FR = load("res://old_data/equipment/fusion_rules.gd")
+	var FR = _require_script("res://data/equipment/fusion_rules.gd")
+	if FR == null:
+		return
 
 	_check(FR.attack_bonus_at(0) == 0.0, "融合 0 = 0%加成")
-	_check(FR.attack_bonus_at(5) == 1.0, "融合 5 = 100%加成")
+	_check(FR.attack_bonus_at(5) == 0.15, "融合 5 = 15%加成")
+	_check(FR.attack_bonus_at(25) == 1.0, "融合 25 = 100%加成（满级）")
 	_check(FR.can_fuse(0), "融合 0 可以继续融合")
-	_check(FR.can_fuse(4), "融合 4 可以继续融合")
-	_check(not FR.can_fuse(5), "融合 5 不可继续融合")
+	_check(FR.can_fuse(24), "融合 24 可以继续融合")
+	_check(not FR.can_fuse(25), "融合 25 不可继续融合（上限 25）")
 	_check(FR.next_fusion_count(0) == 1, "融合后等级 +1")
 
 
@@ -149,7 +170,9 @@ func test_room_data() -> void:
 	_current_test = "RoomData"
 	print("\n--- %s ---" % _current_test)
 
-	var RD = load("res://data/rooms/room_data.gd")
+	var RD = _require_script("res://data/rooms/room_data.gd")
+	if RD == null:
+		return
 
 	var room = RD.new()
 	room.room_id = "test_room"

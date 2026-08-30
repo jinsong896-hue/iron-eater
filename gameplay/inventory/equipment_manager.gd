@@ -61,12 +61,19 @@ func devour(item: EquipmentInstance) -> Dictionary:
 
 	# 应用吞噬词条
 	var affix := template.devour_affix
-	GameManager.attributes.add_modifier(
-		"devour_%s" % item.instance_id,
-		affix.stat,
-		affix.value,
-		affix.percent
-	)
+	if affix.operation == AffixData.Operation.PERCENT:
+		GameManager.attributes.add_modifier(
+			"devour_%s" % item.instance_id,
+			affix.stat,
+			0.0,
+			affix.value
+		)
+	else:
+		GameManager.attributes.add_modifier(
+			"devour_%s" % item.instance_id,
+			affix.stat,
+			affix.value
+		)
 
 	remove_item(item)
 	EventBus.item_devoured.emit(item.instance_id, item.display_name())
@@ -114,24 +121,30 @@ func get_equipped() -> Dictionary:
 	return _equipped.duplicate()
 
 
+## 应用装备基础词条到属性系统
 func _apply_equipment_modifiers(inst: EquipmentInstance) -> void:
 	var template := inst.get_template()
 	if template == null or template.base_affix == null:
 		return
 	var affix := template.base_affix
 	var value := inst.base_affix_value()
+	var percent := 0.0
+	if affix.operation == AffixData.Operation.PERCENT:
+		percent = affix.value * inst.enhancement_mult()
 	GameManager.attributes.add_modifier(
 		"equip_%s" % inst.instance_id,
 		affix.stat,
 		value,
-		affix.percent * inst.enhancement_mult()
+		percent
 	)
 
 
+## 移除装备词条
 func _remove_equipment_modifiers(inst: EquipmentInstance) -> void:
 	GameManager.attributes.remove_modifiers("equip_%s" % inst.instance_id)
 
 
+## 重算背包内所有物品的融合加成总和
 func _recalc_fusion_bonus() -> void:
 	_fusion_attack_bonus = 0.0
 	for item in _inventory:

@@ -1,96 +1,77 @@
 # 《噬铁者》Godot 原型框架
 
-引擎：Godot 4.7（GDScript）
+引擎：Godot 4.7 mono（GDScript，Forward+ 渲染器，HD-2D 风格）
 
-## 当前内容（M0 最小可玩闭环 + 随机地牢 + 装备系统）
+## 当前状态（2026-08-31：HD-2D 重构中期）
 
-- 俯视角移动（WASD）+ 方向键朝向与普攻（扇形判定）
-- 玩家血量与死亡：受击掉血 → 本局结算 → 回主菜单
-- 敌人接触攻击 + 难度缩放（简单/普通/困难）
-- 通关流程：击败本层 Boss 解锁下一层，第 9 层三 Boss 通关结算
-- 属性系统：11 项基础属性 + Modifier 叠加（口径见《名词设计分册》）
-- 伤害管线：物理伤害公式 `ATK × 倍率 × (1+增伤) × (1 - 护甲减伤)`
-- 装备 Resource 数据 + 吞噬 / 融合核心逻辑 + HUD（属性 / 金币 / 背包 / 调试按钮）
-- **装备系统**（依据 `ai/基础装备相关.md` 方案 V0.9）：
-  - 模板/实例分离：`EquipmentTemplate` 只描述装备，运行时数据全部在 `EquipmentInstance`
-  - 36 件白装基准池：12 武器 + 18 护甲 + 6 饰品（数据源 `data/equipment/white_equipment_data.gd`，运行时唯一数据源）
-  - 10 槽位（6 防具 + 饰品×2 + 武器×2）、单手/双手自动判定、双手占槽属性只计一次
-  - 每件装备三词条：基础（穿戴）/ 吞噬（本局永久）/ 融合（作为材料贡献）
-  - 吞噬：确定成功、批量多选、当前→本次→最终汇总
-  - 融合：策划公式计费、同槽位校验、同名升级/异名继承、失败原因提示
-  - 强化：只提升基础词条、固定 +5%/级、无失败
-  - 装备管理界面：装备 / 背包 / 强化（强化+融合）/ 吞噬 四页，左键查看完整对比，右键功能条（装备/查看/吞噬/强化/锁定/丢弃），背包筛选+排序+清除筛选
-- **开始页面系统**（依据 `ai/开始页面相关.md`）：
-  - 主菜单（世界观美术 + 文字选项）→ 三存档（创建/进入/删除，二次确认）→ 存档主页（开始/继续/升级/退出）→ 新游戏配置（五职业/模式/难度）
-  - `SaveManager`：user:// 三存档 + .bak 备份 + .tmp 原子写入 + 版本/修订号 + 坏档回退 + 局外数据与当前局
-  - `SettingsManager`：显示/音频/游戏设置，持久化 user://settings.cfg，主菜单与暂停菜单共用
-  - 游戏内 ESC 暂停（真暂停）：继续 / 设置 / 返回主菜单（保留探索）/ 放弃探索（结算）/ 退出桌面
-  - 结算页：层数/击杀/金币/时长/记忆残渣，写入存档历史
-- **成品化收尾**：
-  - HUD：血量条、本局信息（职业/难度/时长）、Boss 提示、下一层按钮门控
-  - 音效（Kenney rpg-audio CC0）：攻击/拾取/死亡/开门/UI；Music/SFX 总线接入设置
-  - 职业配色区分五职业
-  - **素材落实**：主菜单背景（roguelike-rpg-pack）、按钮皮肤（ui-pack）、面板边框（fantasy-ui-borders）、地牢瓦片集（roguelike-rpg-pack）、音效（rpg-audio）
-- **随机地牢生成**（依据《关卡设计分册》与 `ai/关卡相关.md` 方案）：
-  - BSP 布局：母网格 14×14 → 30×30（第 9 层线性链），房间 1～3 格
-  - 初始房固定中心 (0,0)、Boss 房最远端、商店/宝箱/泉水/事件/隐藏房按距离规则分配、精英房 20%～30%
-  - 瓦片规格：64×64 瓦片、2 瓦片墙、门洞自动开凿、走廊连通
-  - 房间切换 + 相机边界锁定（RoomCamera，房间 < 视口时自动居中）
-  - NavigationServer2D 寻路网格（手工构建：房间可用区 + 门洞桥接 + 走廊）
-  - 追踪敌人（NavigationAgent2D）与木桩敌人
-- **房间生成系统**（依据 `ai/房间生成.md` 方案）：
-  - `RoomBase` 统一房间生命周期：玩家进入 → 锁门 → 刷怪 → 清怪 → 开门
-  - `RoomDoor` 门系统：检测门（Area2D）与实体门（StaticBody2D）分离，战斗锁门/完成后解锁
-  - 瓦片集工厂：从 Kenney roguelike 精灵表构建 16×16 瓦片集（地/墙/草/栅栏，墙带碰撞）
-  - 初始安全房：中央暖光、四周草地、南入口/北出口（`rooms/layer_01/start_room.tscn`）
-  - 第一层 10 种普通战斗房模板（T01~T10，`rooms/layer_01/normal/L1_Normal_T*.tscn`），40×24 格、3~5 怪、可配置四向门
-  - 已接入地牢生成器：第一层初始房/普通房/精英房自动使用模板池，按走廊入口动态开凿门洞并加门锁
+> 项目正处于旧 2D 版本向 HD-2D（3D 场景 + 像素表现）重构的中途。
+> 下述条目为**重构后当前实际状态**，与旧 2D 版本能力有差异。
+
+### 已完成（HD-2D 新架构）
+
+- 四层分离架构：`core/`（Autoload）→ `data/`（纯数据）→ `gameplay/`（规则）→ `world/entities/rendering/ui/`（表现）
+- HD-2D 渲染：WorldEnvironment（SSAO/Glow/Fog/色调映射）+ CameraRig + 像素渲染管线 + 伤害飘字
+- 玩家 3D 控制：WASD 移动、双击/Shift 奔跑、空格翻滚（无敌帧）、方向键扇形攻击
+- 属性系统：11 项基础属性 + Modifier 叠加（来源无关）
+- 伤害管线：`ATK × 倍率 × (1+增伤) × (1 - 护甲减伤)` + 暴击
+- 装备系统数据层（**7 件白装最小版**，36 件全量待补）：模板/实例分离、
+  穿戴/吞噬/融合核心逻辑（融合上限 25 次、攻击加成分段至 +100%）
+- 地下城：DungeonGenerator（种子随机）+ GameRoot 房间加载/切换 + RoomController 生命周期
+- 房间构建：Floor/Wall/Door/Decoration Builder + 13 个 JSON 房间蓝图
+- UI 骨架：主菜单 / 暂停菜单 / 设置 / 存档卡 / 结算 / HUD / 背包（背包待重接新数据层）
+- 三存档 SaveManager（.bak 备份 + .tmp 原子写入）+ SettingsManager
+
+### 进行中 / 待完成（见 docs/progress/ 任务清单）
+
+- 装备管理界面重接新数据层（四页：装备/背包/强化+融合/吞噬）
+- 36 件白装补全、强化系统 UI 入口、掉落链路（LootSystem ↔ 地牢互连）
+- 房间刷怪闭环（EnemySpawner ↔ RoomController）、特殊房与 Boss 房
+- 绿装及以上稀有度、12 件红武、六元素词条
 
 ## 操作
 
-- `WASD` 移动
-- 方向键（↑↓←→）切换朝向并攻击（朝面向方向，扇形判定）
-- `R` 重新生成本层　`N` 下一层
-- HUD 按钮：+金币 / 生成装备 / 重置单局 / **装备管理** / 重新生成本层 / 下一层
-- 装备管理界面：ESC 关闭；左键查看+对比，右键功能条
-- 游戏内 `ESC`：暂停菜单（继续 / 设置 / 返回主菜单 / 放弃探索 / 退出桌面）
+- `WASD` 移动　`Shift`/双击 奔跑　`空格` 翻滚
+- 方向键（↑↓←→）切换朝向并攻击（扇形判定）
+- `F` 吞噬附近掉落物　`I` 背包（入口待重接）
+- 游戏内 `ESC`：暂停菜单
 
 ## 目录结构
 
 ```text
-scenes/
-  ui/main_menu.tscn      # 开始页面（主菜单/存档/新游戏配置/设置/升级）
-  ui/pause_menu.tscn     # 游戏内暂停菜单（含结算页）
-  main.tscn              # 地牢主场景（DungeonManager + Player + HUD）
-  dungeon/               # room / chaser_enemy
-  player.tscn            # 玩家（Camera2D = RoomCamera）
-  ui/hud.tscn            # HUD
-scripts/
-  core/                  # 属性系统、事件总线、局内状态（吞噬/融合）、输入、存档/设置/目录
-  combat/                # 伤害管线
-  equipment/             # 装备数据 Resource、掉落拾取
-  equipment/             # 定义/词条/模板/实例/槽位/融合/强化/管理器/数据库
-  player/                # 玩家控制器
-  enemies/               # 木桩敌人、追踪敌人
-  dungeon/               # BSP 节点、房间数据、章节配置、分配器、生成器、相机、触发器、层管理器
-rooms/
-  base/                  # room_base / room_door / tileset_factory / room_base_carve
-  layer_01/              # start_room + 10 种普通房模板（T01~T10）
-  ui/                    # HUD
-  ui/menu/               # 主菜单控制器、存档卡、设置面板、确认弹窗、过渡、结算、暂停菜单
-data/
-  equipment/            # 白装数据源（white_equipment_data.gd，运行时唯一数据源）
-  dungeon/layers/        # 9 层章节配置（Layer01~09.tres，含主题配色与房间数量）
-tests/                   # test_framework / test_dungeon / test_equipment / test_room / test_menu
+core/                   Autoload：EventBus, GameManager, SaveManager, AudioManager,
+                        InputManager, SceneManager, SettingsManager, ResourceManager, DataValidator
+data/                   数据层 Resource：attributes/ (11属性+Modifier), equipment/
+                        (defs/template/instance/db/affix/fusion), rooms/ (room_data + JSON),
+                        balance/ (game_balance), character/monster/weapon/skill/stats 等数据类
+gameplay/               combat/ (damage_pipeline, combat_core), skills/, inventory/
+                        (equipment_manager), loot/, enemies/, dungeon/, status/
+world/                  rooms/ (floor/wall/door/decoration builders), navigation/, environment/, themes/
+entities/               player/player.gd (CharacterBody3D), enemies/enemy_base.gd
+rendering/              camera/, lighting/, shaders/, post_process/, effects/, materials/
+ui/                     hud/, menu/ (main/pause/settings/settlement), inventory/ (backpack)
+scenes/                 main.tscn (GameRoot), player.tscn, ui/, rooms/, props/, world/
+tests/                  test_framework.gd（自研，--script 模式）
+docs/progress/          进度文档（PROGRESS_YYYYMMDD.md）
+ai/                     技术方案文档（装备 V0.9、HD-2D、关卡、框架等）
+策划书/                  六分册设计文档（docx）
+addons/                 gdUnit4, godot_ai, iron_studio, phantom_camera, terrain_3d
 ```
 
 ## 打开方式
 
-用 Godot 4.7 打开 `E:\unity`，运行主场景（开始页面）即可；主菜单进入存档后开始/继续游戏进入地牢。
+用 Godot 4.7 mono 打开 `E:\unity`，运行主场景（`scenes/ui/main_menu.tscn`）。
+
+命令行验证（注意：新克隆/清理后必须先跑 `--import` 重建类缓存，见 CLAUDE.md）：
+
+```bash
+GODOT="F:/Godot_v4.7.1-stable_mono_win64/Godot_v4.7.1-stable_mono_win64.exe"
+"$GODOT" --headless --path . --import   # 重建 .godot/global_script_class_cache.cfg
+"$GODOT" --headless --path . --script res://tests/test_framework.gd
+```
 
 ## 下一步建议
 
-1. 房间主题模板（每层 5～8 种 PackedScene 布局，接入 ThemeConfig）
-2. 商店 / 泉水 / 宝箱 / 事件房交互内容
-3. Boss 房逻辑（第 8 层破坏神化身等）
+1. 装备管理界面重接新数据层（P1 起点）
+2. 36 件白装补全 + 掉落链路打通
+3. 房间刷怪闭环 + 特殊房交互 + Boss 房逻辑
 4. 职业形态切换 + 绿装及以上稀有度、从 CSV 导入数值表

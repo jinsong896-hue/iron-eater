@@ -1,31 +1,51 @@
 class_name LootSystem
 extends RefCounted
 ## 掉落系统 —— HD-2D 重构版
-## 根据敌人类型和难度生成掉落（装备 + 金币）
+## 根据怪物数据生成掉落（装备 + 金币）
+## enemy_data 兼容 MonsterData（.tres）与动态 Dictionary 两种来源
 
 var rng := RandomNumberGenerator.new()
 
 
-## 生成掉落
-func generate_loot(enemy_data: EnemyData, position: Vector3, parent: Node3D) -> void:
+## 生成掉落（enemy_data: MonsterData 或含 hp/gold/loot 字段的 Dictionary）
+func generate_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 	# 金币掉落
-	var gold := enemy_data.get_random_gold(rng)
+	var gold := _roll_gold(enemy_data)
 	if gold > 0:
 		GameManager.gold += gold
 		EventBus.gold_changed.emit(GameManager.gold)
 
 	# 装备掉落
-	var loot_id := enemy_data.get_random_loot(rng)
+	var loot_id := _roll_loot(enemy_data)
 	if loot_id.is_empty():
 		return
 
-	var template := EquipmentDB.get_template(loot_id)
+	var template := EquipmentDB.get_template(StringName(loot_id))
 	if template == null:
 		return
 
 	var item := EquipmentInstance.create(template)
-	# TODO: 创建 3D 掉落物
 	_spawn_pickup(item, position, parent)
+
+
+## 金币掉落（基线范围 × 难度权重，来源字段可选）
+func _roll_gold(enemy_data) -> int:
+	if enemy_data == null:
+		return 0
+	if enemy_data is Dictionary and enemy_data.has("gold"):
+		return int(enemy_data["gold"])
+	return rng.randi_range(int(GameBalance.GOLD_DROP_RANGE.x), int(GameBalance.GOLD_DROP_RANGE.y))
+
+
+## 装备掉落 ID（优先 loot_table 字段）
+func _roll_loot(enemy_data) -> String:
+	if enemy_data == null:
+		return ""
+	if enemy_data is Dictionary and enemy_data.has("loot"):
+		return str(enemy_data["loot"])
+	if "loot_table" in enemy_data and not str(enemy_data.loot_table).is_empty():
+		return str(enemy_data.loot_table)
+	return ""
 
 
 ## 创建掉落物节点
@@ -43,32 +63,47 @@ func _spawn_pickup(item: EquipmentInstance, position: Vector3, parent: Node3D) -
 	box.size = Vector3(0.3, 0.3, 0.3)
 	mesh.mesh = box
 
+	var rarity_color: Color = EquipmentDefs.RARITY_COLORS.get(item.rarity, Color.WHITE)
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = EquipmentDefs.rarity_color(item.rarity)
+	mat.albedo_color = rarity_color
 	mat.emission_enabled = true
-	mat.emission = EquipmentDefs.rarity_color(item.rarity)
+	mat.emission = rarity_color
 	mat.emission_energy_multiplier = 0.5
 	mesh.material_override = mat
 
-	# 旋转动画
-	var script := GDScript.new()
-	script.source_code = """
+	# 旋转动画（item 用元数据传递，避免动态脚本引用全局类名）
+	pickup.set_meta("instance_id", item.instance_id)
+	pickup.set_meta("template_id", str(item.template_id))
+	pickup.set_meta("rarity", item.rarity)
+	var anim := pickup_anim_script()
+	pickup.set_script(anim)
+	pickup.set("item", item)
+
+	pickup.add_child(mesh)
+	parent.add_child(pickup)
+
+
+## 掉落物动画脚本（缓存，避免每次掉落重新编译）
+static var _anim_script: GDScript
+
+
+static func pickup_anim_script() -> GDScript:
+	if _anim_script == null:
+		var script := GDScript.new()
+		script.source_code = """
 extends Node3D
 
-var item: EquipmentInstance
+var item: Resource
 
 func _process(delta: float) -> void:
 	rotate_y(delta * 2.0)
 	position.y += sin(Time.get_ticks_msec() * 0.003) * 0.005
 
 func devour() -> void:
-	var result := GameManager.devour_item(item)
+	var result: Dictionary = GameManager.devour_item(item)
 	if result.ok:
 		queue_free()
 """
-	script.reload()
-	pickup.set_script(script)
-	pickup.set("item", item)
-
-	pickup.add_child(mesh)
-	parent.add_child(pickup)
+		script.reload()
+		_anim_script = script
+	return _anim_script

@@ -50,7 +50,7 @@ func base_affix_value() -> float:
 	return t.base_affix.value * (1.0 + enhancement_level * 0.05)
 
 
-## 融合攻击加成（临时简化版）
+## 融合攻击加成
 func fusion_bonus() -> float:
 	return fusion_count * 0.02
 
@@ -73,7 +73,7 @@ func to_dict() -> Dictionary:
 	}
 
 
-## 反序列化
+## 反序列化（实例方法：填充自身）
 func from_dict(d: Dictionary) -> EquipmentInstance:
 	instance_id = d.get("instance_id", _generate_uuid())
 	template_id = StringName(d.get("template_id", ""))
@@ -85,7 +85,7 @@ func from_dict(d: Dictionary) -> EquipmentInstance:
 	return self
 
 
-## 静态工厂
+## 静态工厂：从模板创建实例
 static func create(template: EquipmentTemplate) -> EquipmentInstance:
 	var inst := EquipmentInstance.new()
 	if template == null:
@@ -95,7 +95,6 @@ static func create(template: EquipmentTemplate) -> EquipmentInstance:
 	return inst
 
 
-## 生成简单 UUID
 func _generate_uuid() -> String:
 	var chars := "0123456789abcdef"
 	var s := ""

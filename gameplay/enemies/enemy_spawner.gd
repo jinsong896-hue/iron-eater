@@ -57,17 +57,20 @@ func _load_monster(id: String) -> MonsterData:
 	return data
 
 
-## 生成 Boss
-func spawn_boss(boss_data: EnemyData, position: Vector3, parent: Node3D) -> EnemyBase:
+## 生成 Boss（boss_data: MonsterData 或含战斗字段的 Dictionary）
+func spawn_boss(boss_data, position: Vector3, parent: Node3D) -> EnemyBase:
 	var enemy := EnemyBase.new()
 	enemy.position = position
-	enemy.max_hp = boss_data.max_hp
-	enemy.atk = boss_data.atk
-	enemy.defense = boss_data.defense
-	enemy.move_speed = boss_data.speed
-	enemy.attack_range = boss_data.attack_range
-	enemy.detect_range = boss_data.detect_range
-	enemy.attack_interval = boss_data.attack_interval
+	enemy.max_hp = float(boss_data.max_hp if "max_hp" in boss_data else boss_data.hp)
+	enemy.atk = float(boss_data.atk)
+	enemy.defense = float(boss_data.defense if "defense" in boss_data else 0.0)
+	enemy.move_speed = float(boss_data.speed if "speed" in boss_data else boss_data.move_speed) / 40.0
+	if "attack_range" in boss_data:
+		enemy.attack_range = float(boss_data.attack_range)
+	if "detect_range" in boss_data:
+		enemy.detect_range = float(boss_data.detect_range)
+	if "attack_interval" in boss_data:
+		enemy.attack_interval = float(boss_data.attack_interval)
 
 	parent.add_child(enemy)
 	return enemy
