@@ -250,7 +250,7 @@ func _on_door_entered(direction: String, _door_id: String) -> void:
 	var target_idx := _find_room_in_direction(direction)
 	if target_idx < 0:
 		return
-	_transition_to_room(target_idx)
+	_transition_to_room(target_idx, direction)
 
 
 func _find_room_in_direction(direction: String) -> int:
@@ -272,7 +272,7 @@ func _find_room_in_direction(direction: String) -> int:
 	return -1
 
 
-func _transition_to_room(target_idx: int) -> void:
+func _transition_to_room(target_idx: int, enter_direction: String = "") -> void:
 	if target_idx == current_room_index:
 		return
 
@@ -293,7 +293,7 @@ func _transition_to_room(target_idx: int) -> void:
 	# 加载新房间
 	load_current_room()
 	_activate_current_room()
-	_place_player()
+	_place_player(enter_direction)
 
 
 func _activate_current_room() -> void:
@@ -304,11 +304,49 @@ func _activate_current_room() -> void:
 		(ctrl as RoomController).activate()
 
 
-func _place_player() -> void:
+## 放置玩家：优先 player_spawn 标记；无标记时按进入方向放在入口门内侧
+func _place_player(enter_direction: String = "") -> void:
 	if player == null:
 		return
 	var spawns := get_tree().get_nodes_in_group("player_spawn")
 	if spawns.size() > 0:
 		player.global_position = (spawns[0] as Node3D).global_position
+		return
+
+	if enter_direction != "" and current_room_node:
+		var placed := _place_player_at_door(enter_direction)
+		if placed:
+			return
+
+	# 兜底：房间中心
+	if current_room_node:
+		player.global_position = Vector3.ZERO
 	else:
 		player.global_position = Vector3(15, 0, 15)
+
+
+## 按进入方向把玩家放在入口门内侧 1.5m（相对门触发器位置）
+func _place_player_at_door(enter_direction: String) -> bool:
+	if current_room_node == null:
+		return false
+	var doors_node := current_room_node.get_node_or_null("Doors")
+	if doors_node == null:
+		return false
+
+	# 玩家从 enter_direction 的门进入（例如从北门进，即当前房的 north 门）
+	for door in doors_node.get_children():
+		if not door.name.begins_with("Door_"):
+			continue
+		var trig = door.get_node_or_null("DoorTrigger")
+		if trig == null or str(trig.get("direction")) != enter_direction:
+			continue
+		# 门内侧方向：与进入方向相反
+		var inward := Vector3.ZERO
+		match enter_direction:
+			"north": inward = Vector3(0, 0, 1)
+			"south": inward = Vector3(0, 0, -1)
+			"west":  inward = Vector3(1, 0, 0)
+			"east":  inward = Vector3(-1, 0, 0)
+		player.global_position = door.global_position + inward * 1.5
+		return true
+	return false

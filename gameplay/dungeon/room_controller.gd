@@ -24,7 +24,7 @@ func _ready() -> void:
 	_collect_nodes()
 
 
-## 收集生成点（房间根下的 SpawnPoints 容器）与门节点（兄弟节点）
+## 收集生成点（房间根下的 SpawnPoints 容器）与门节点（Doors 容器）
 func _collect_nodes() -> void:
 	var room_root := get_parent()
 	if room_root == null:
@@ -40,10 +40,12 @@ func _collect_nodes() -> void:
 				else:
 					_spawn_points.append(m)
 
-	# 门是房间根下的直接子节点（Door_* 命名）
-	for sibling in room_root.get_children():
-		if sibling.name.begins_with("Door_"):
-			_doors.append(sibling)
+	# 门在房间根下的 Doors 容器内（Door_* 命名）
+	var doors_node := room_root.get_node_or_null("Doors")
+	if doors_node:
+		for child in doors_node.get_children():
+			if child.name.begins_with("Door_"):
+				_doors.append(child)
 
 	is_boss_room = _boss_spawn != null or _room_type() == "boss"
 

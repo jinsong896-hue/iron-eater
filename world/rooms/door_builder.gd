@@ -40,10 +40,11 @@ static func _create_door(parent: Node3D, door_data: Dictionary, data) -> void:
 	door.rotation = _get_door_rotation(direction)
 	door.name = "Door_%s" % door_id
 
-	# 设置门属性
+	# 设置门属性：触发器写入方向（door_opened 信号用其定位目标房间）
 	for child in door.get_children():
 		if child is Area3D:
 			child.add_to_group("door_trigger")
+			child.set("direction", direction)
 			if child.has_method("_on_body_entered"):
 				child.body_entered.connect(_on_door_trigger.bind(child))
 
