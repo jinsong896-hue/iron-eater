@@ -106,6 +106,92 @@ func _on_floor_type_selected(idx: int) -> void:
 
 
 # ============================================================
+# 坐标放置（单点/两点矩形，全部元素）
+# ============================================================
+
+## P 键取点循环状态：0=单点 1=矩形起点 2=矩形终点
+var _pick_slot := 0
+
+## 坐标元素类型 → 内部标识
+func _coord_element() -> String:
+	var opt := get_node_or_null("%CoordElement") as OptionButton
+	if opt == null:
+		return "floor"
+	return ["floor", "wall", "door", "spawn"][mini(opt.selected, 3)]
+
+
+## 坐标朝向下拉 → 方向字符串
+func _coord_direction() -> String:
+	var opt := get_node_or_null("%CoordDirection") as OptionButton
+	if opt == null:
+		return "north"
+	return ["north", "east", "south", "west"][mini(opt.selected, 3)]
+
+
+## 单点放置按钮
+func _on_coord_single_pressed() -> void:
+	if _plugin == null or not _plugin.has_method("place_at_coord"):
+		_show_status("插件未就绪")
+		return
+	var x := _spin_value("%SingleX")
+	var y := _spin_value("%SingleY")
+	var result: Dictionary = _plugin.place_at_coord(
+		Vector2i(x, y), _coord_element(), _coord_direction(),
+		_floor_type, _spawn_type, _spawn_monster_id
+	)
+	_show_status(result.get("msg", "已放置"))
+
+
+## 矩形生成按钮
+func _on_coord_rect_pressed() -> void:
+	if _plugin == null or not _plugin.has_method("place_rect_at_coords"):
+		_show_status("插件未就绪")
+		return
+	var x1 := _spin_value("%RectX1")
+	var y1 := _spin_value("%RectY1")
+	var x2 := _spin_value("%RectX2")
+	var y2 := _spin_value("%RectY2")
+	var result: Dictionary = _plugin.place_rect_at_coords(
+		Vector2i(x1, y1), Vector2i(x2, y2), _coord_element(),
+		_coord_direction(), _floor_type, _spawn_type, _spawn_monster_id
+	)
+	_show_status(result.get("msg", "已生成"))
+
+
+## P 键取点回调（plugin 调用）：按 单点→矩形1→矩形2 循环填入
+func fill_coord_from_pick(cell: Vector2i) -> void:
+	match _pick_slot:
+		0:
+			_set_spin("%SingleX", cell.x)
+			_set_spin("%SingleY", cell.y)
+			_show_status("取点→单点 (%d,%d)" % [cell.x, cell.y])
+			_pick_slot = 1
+		1:
+			_set_spin("%RectX1", cell.x)
+			_set_spin("%RectY1", cell.y)
+			_show_status("取点→矩形起点 (%d,%d)" % [cell.x, cell.y])
+			_pick_slot = 2
+		2:
+			_set_spin("%RectX2", cell.x)
+			_set_spin("%RectY2", cell.y)
+			_show_status("取点→矩形终点 (%d,%d)" % [cell.x, cell.y])
+			_pick_slot = 0
+
+
+## 读 SpinBox 值
+func _spin_value(path: String) -> int:
+	var sp := get_node_or_null(path) as SpinBox
+	return int(sp.value) if sp else 0
+
+
+## 写 SpinBox 值
+func _set_spin(path: String, value: int) -> void:
+	var sp := get_node_or_null(path) as SpinBox
+	if sp:
+		sp.value = value
+
+
+# ============================================================
 # 快捷操作
 # ============================================================
 

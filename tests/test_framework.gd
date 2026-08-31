@@ -45,6 +45,9 @@ func _init() -> void:
 	# 房间编辑器核心测试（JSON 往返 + 矩形填充/围墙/校验）
 	test_room_editor_core()
 
+	# 坐标放置测试（单点全元素/矩形墙圈/对角/钳制）
+	test_coord_placement()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -501,6 +504,70 @@ func test_room_editor_core() -> void:
 		if str(issue).contains("玩家出生"):
 			has_spawn_issue = true
 	_check(has_spawn_issue, "起始房缺玩家出生点被报出")
+
+	root.queue_free()
+
+
+## 坐标放置测试：单点全元素 / 矩形墙圈 / 对角放置 / 坐标钳制
+func test_coord_placement() -> void:
+	_current_test = "CoordPlacement"
+	print("\n--- %s ---" % _current_test)
+
+	var RE = _require_script("res://addons/iron_studio/room_editor_core.gd")
+	if RE == null:
+		return
+
+	var root := Node3D.new()
+	root.name = "RoomEditorRoot"
+	for c in ["Floor", "Walls", "Doors", "Spawns"]:
+		var n := Node3D.new()
+		n.name = c
+		root.add_child(n)
+	self.root.add_child(root)
+
+	# --- 单点放置：四种元素各放一个 ---
+	var op_f: Dictionary = RE.place_single(root, Vector2i(3, 3), "floor", "north", "wood")
+	_check(op_f.get("added", []).size() == 1, "单点放置地砖")
+	var op_w: Dictionary = RE.place_single(root, Vector2i(4, 3), "wall", "east")
+	_check(op_w.get("added", []).size() == 1, "单点放置墙（east）")
+	var op_d: Dictionary = RE.place_single(root, Vector2i(0, 3), "door", "west")
+	_check(op_d.get("added", []).size() == 1, "单点放置门")
+	var op_s: Dictionary = RE.place_single(root, Vector2i(5, 5), "spawn", "north", "stone", "enemy_spawn", "slime")
+	_check(op_s.get("added", []).size() == 1, "单点放置刷怪点")
+
+	# 序列化验证元素类型正确
+	var data: Dictionary = RE.serialize_tree(root, {"id": "cp", "width": 10, "height": 8})
+	_check(data.get("floor", []).size() == 1, "地砖序列化 1 块")
+	_check(data.get("floor", [])[0].get("type") == "wood", "地砖材质正确")
+	_check(data.get("walls", []).size() == 1, "墙序列化 1 段")
+	_check(data.get("walls", [])[0].get("direction") == "east", "墙朝向正确")
+	_check(data.get("doors", []).size() == 1, "门序列化 1 扇")
+	_check(data.get("entities", []).size() == 1, "刷怪点序列化 1 个")
+	_check(data.get("entities", [])[0].get("monster_id") == "slime", "刷怪点怪物绑定")
+
+	# --- 矩形墙圈：2x2 矩形四边（含角，角双面墙）---
+	RE.clear_tree(root)
+	var rect_op: Dictionary = RE.place_wall_rect(root, Vector2i(2, 2), Vector2i(4, 4))
+	# 3x3 矩形：上边3+下边3+左边3+右边3=12，角重复计 4 次 → 实际新增 8 段位置（角双面）
+	var rect_count: int = rect_op.get("added", []).size()
+	_check(rect_count == 12, "3x3 矩形墙圈 12 段（角落双面）", [str(rect_count)])
+
+	# --- 对角放置（门）：两点各一扇 ---
+	RE.clear_tree(root)
+	var corner_op: Dictionary = RE.place_corners(root, Vector2i(0, 0), Vector2i(9, 7), "door", "north", "south")
+	_check(corner_op.get("added", []).size() == 2, "对角放置 2 扇门")
+	var cdata: Dictionary = RE.serialize_tree(root, {"id": "cp2", "width": 10, "height": 8})
+	_check(cdata.get("doors", []).size() == 2, "对角门序列化 2 扇")
+	var door_ids := []
+	for d in cdata.get("doors", []):
+		door_ids.append(str(d.get("id")))
+	_check(door_ids[0] != door_ids[1], "两扇门 id 不同（唯一性）", door_ids)
+
+	# --- 坐标钳制 ---
+	var c1: Vector2i = RE.clamp_cell(Vector2i(-5, 3), 10, 8)
+	_check(c1 == Vector2i(0, 3), "负坐标钳制到 0", [str(c1)])
+	var c2: Vector2i = RE.clamp_cell(Vector2i(15, 99), 10, 8)
+	_check(c2 == Vector2i(9, 7), "越界坐标钳制到边界", [str(c2)])
 
 	root.queue_free()
 

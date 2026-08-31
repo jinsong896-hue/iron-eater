@@ -145,6 +145,149 @@ popup/item_2/text = "草地"
 [node name="Sep0" type="HSeparator" parent="Scroll/VBox"]
 layout_mode = 2
 
+[node name="CoordSection" type="VBoxContainer" parent="Scroll/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="CoordLabel" type="Label" parent="Scroll/VBox/CoordSection"]
+layout_mode = 2
+text = "坐标放置："
+theme_override_font_sizes/font_size = 12
+
+[node name="CoordElemRow" type="HBoxContainer" parent="Scroll/VBox/CoordSection"]
+layout_mode = 2
+
+[node name="LabelC1" type="Label" parent="Scroll/VBox/CoordSection/CoordElemRow"]
+layout_mode = 2
+text = "元素:"
+vertical_alignment = 1
+
+[node name="CoordElement" type="OptionButton" parent="Scroll/VBox/CoordSection/CoordElemRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+item_count = 4
+popup/item_0/text = "地砖"
+popup/item_1/text = "墙"
+popup/item_2/text = "门"
+popup/item_3/text = "刷怪点"
+
+[node name="CoordDirRow" type="HBoxContainer" parent="Scroll/VBox/CoordSection"]
+layout_mode = 2
+
+[node name="LabelC2" type="Label" parent="Scroll/VBox/CoordSection/CoordDirRow"]
+layout_mode = 2
+text = "朝向:"
+vertical_alignment = 1
+
+[node name="CoordDirection" type="OptionButton" parent="Scroll/VBox/CoordSection/CoordDirRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+item_count = 4
+popup/item_0/text = "北 N"
+popup/item_1/text = "东 E"
+popup/item_2/text = "南 S"
+popup/item_3/text = "西 W"
+
+[node name="SingleRow" type="HBoxContainer" parent="Scroll/VBox/CoordSection"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="LabelC3" type="Label" parent="Scroll/VBox/CoordSection/SingleRow"]
+layout_mode = 2
+text = "单点:"
+vertical_alignment = 1
+
+[node name="SingleX" type="SpinBox" parent="Scroll/VBox/CoordSection/SingleRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -99.0
+max_value = 99.0
+value = 0.0
+
+[node name="SingleY" type="SpinBox" parent="Scroll/VBox/CoordSection/SingleRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -99.0
+max_value = 99.0
+value = 0.0
+
+[node name="SinglePlaceBtn" type="Button" parent="Scroll/VBox/CoordSection/SingleRow"]
+layout_mode = 2
+text = "放置"
+
+[node name="RectRow1" type="HBoxContainer" parent="Scroll/VBox/CoordSection"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="LabelC4" type="Label" parent="Scroll/VBox/CoordSection/RectRow1"]
+layout_mode = 2
+text = "矩形:"
+vertical_alignment = 1
+
+[node name="RectX1" type="SpinBox" parent="Scroll/VBox/CoordSection/RectRow1"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -99.0
+max_value = 99.0
+value = 0.0
+
+[node name="RectY1" type="SpinBox" parent="Scroll/VBox/CoordSection/RectRow1"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -99.0
+max_value = 99.0
+value = 0.0
+
+[node name="RectRow2" type="HBoxContainer" parent="Scroll/VBox/CoordSection"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="LabelC5" type="Label" parent="Scroll/VBox/CoordSection/RectRow2"]
+layout_mode = 2
+text = "到:"
+vertical_alignment = 1
+
+[node name="RectX2" type="SpinBox" parent="Scroll/VBox/CoordSection/RectRow2"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -99.0
+max_value = 99.0
+value = 5.0
+
+[node name="RectY2" type="SpinBox" parent="Scroll/VBox/CoordSection/RectRow2"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -99.0
+max_value = 99.0
+value = 5.0
+
+[node name="RectGenBtn" type="Button" parent="Scroll/VBox/CoordSection/RectRow2"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "生成矩形（含端点）"
+
+[node name="PickRow" type="HBoxContainer" parent="Scroll/VBox/CoordSection"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="PickHint" type="Label" parent="Scroll/VBox/CoordSection/PickRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "3D 视口悬停按 P 填入坐标（单点→矩形1→矩形2 循环）"
+theme_override_colors/font_color = Color(0.5, 0.5, 0.55, 1)
+theme_override_font_sizes/font_size = 10
+
+[node name="Sep0b" type="HSeparator" parent="Scroll/VBox"]
+layout_mode = 2
+
 [node name="QuickSection" type="VBoxContainer" parent="Scroll/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 3
@@ -337,7 +480,7 @@ allow_reselect = true
 
 [node name="ShortcutHint" type="Label" parent="Scroll/VBox"]
 layout_mode = 2
-text = "快捷键：数字 1-8 切工具 · R 旋转墙朝向 · 左键画/右键擦 · 左键拖动连画"
+text = "快捷键：数字 1-8 切工具 · R 旋转墙朝向 · P 坐标取点 · 左键画/右键擦 · 左键拖动连画"
 theme_override_colors/font_color = Color(0.5, 0.5, 0.55, 1)
 theme_override_font_sizes/font_size = 10
 autowrap_mode = 3
@@ -358,6 +501,8 @@ theme_override_font_sizes/font_size = 11
 [connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/SpawnBtn" to="." method="_on_spawn_btn_pressed"]
 [connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/EraserBtn" to="." method="_on_eraser_btn_pressed"]
 [connection signal="item_selected" from="Scroll/VBox/FloorSection/FloorRow/FloorType" to="." method="_on_floor_type_selected"]
+[connection signal="pressed" from="Scroll/VBox/CoordSection/SingleRow/SinglePlaceBtn" to="." method="_on_coord_single_pressed"]
+[connection signal="pressed" from="Scroll/VBox/CoordSection/RectRow2/RectGenBtn" to="." method="_on_coord_rect_pressed"]
 [connection signal="pressed" from="Scroll/VBox/QuickSection/QuickGrid/AutoWallBtn" to="." method="_on_auto_wall_pressed"]
 [connection signal="pressed" from="Scroll/VBox/QuickSection/QuickGrid/ValidateBtn" to="." method="_on_validate_pressed"]
 [connection signal="item_selected" from="Scroll/VBox/SpawnSection/SpawnTypeRow/SpawnType" to="." method="_on_spawn_type_selected"]

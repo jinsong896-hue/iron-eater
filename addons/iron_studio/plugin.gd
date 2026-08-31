@@ -158,6 +158,10 @@ func _forward_3d_gui_input(viewport_camera: Camera3D, event: InputEvent) -> int:
 		if key >= KEY_1 and key <= KEY_8:
 			_set_tool_by_index(key - KEY_1)
 			return AFTER_GUI_INPUT_STOP
+		# P 键取点（坐标放置：填入当前悬停格坐标）
+		if key == KEY_P:
+			_pick_hover_cell()
+			return AFTER_GUI_INPUT_STOP
 		# R 旋转墙-格内朝向
 		if key == KEY_R and _current_tool == RoomEditorCore.Tool.WALL_CELL:
 			_wall_cell_direction = _rotate_direction(_wall_cell_direction)
@@ -311,6 +315,89 @@ func validate_room(meta: Dictionary) -> Array:
 	if root == null:
 		return ["没有打开的编辑场景"]
 	return RoomEditorCore.validate_room(root, meta)
+
+
+# ============================================================
+# 坐标放置（面板坐标输入 + P 键视口取点）
+# ============================================================
+
+## 单点放置（dock 坐标放置区调用）
+## element: "floor" / "wall" / "door" / "spawn"
+func place_at_coord(
+	cell: Vector2i, element: String, direction: String = "north",
+	tile_type: String = "stone", spawn_type: String = "enemy_spawn",
+	monster_id: String = ""
+) -> Dictionary:
+	var root := _get_editor_root()
+	if root == null:
+		return {"ok": false, "msg": "没有打开的编辑场景"}
+	# 钳制到房间范围
+	var clamped := RoomEditorCore.clamp_cell(
+		cell, _room_width(), _room_height()
+	)
+	var op := RoomEditorCore.place_single(
+		root, clamped, element, direction, tile_type, spawn_type, monster_id
+	)
+	_commit_brush_action(op)
+	var clamped_note := "" if clamped == cell else "（坐标已钳制 %d,%d）" % [clamped.x, clamped.y]
+	return {"ok": true, "msg": "已放置 %s 于 (%d,%d)%s" % [element, clamped.x, clamped.y, clamped_note]}
+
+
+## 矩形放置（dock 坐标放置区调用）
+## 地板=铺满矩形；墙=四条边墙圈；门/刷怪点=对角两点
+func place_rect_at_coords(
+	from_cell: Vector2i, to_cell: Vector2i, element: String,
+	direction: String = "north", tile_type: String = "stone",
+	spawn_type: String = "enemy_spawn", monster_id: String = ""
+) -> Dictionary:
+	var root := _get_editor_root()
+	if root == null:
+		return {"ok": false, "msg": "没有打开的编辑场景"}
+	var f := RoomEditorCore.clamp_cell(from_cell, _room_width(), _room_height())
+	var t := RoomEditorCore.clamp_cell(to_cell, _room_width(), _room_height())
+	var op: Dictionary
+	var count := 0
+	match element:
+		"floor":
+			op = RoomEditorCore.fill_rect_floor(root, f, t, tile_type)
+		"wall":
+			op = RoomEditorCore.place_wall_rect(root, f, t)
+		"door":
+			# 对角点门：from 用指定朝向，to 用相同朝向（调用方可两次单点放不同朝向）
+			op = RoomEditorCore.place_corners(root, f, t, "door", direction, direction)
+		"spawn":
+			op = RoomEditorCore.place_corners(
+				root, f, t, "spawn", direction, direction, spawn_type, monster_id
+			)
+		_:
+			return {"ok": false, "msg": "未知元素类型"}
+	count = op.get("added", []).size()
+	_commit_brush_action(op)
+	return {"ok": true, "msg": "已生成 %s 矩形 (%d,%d)~(%d,%d)：新增 %d 个" % [
+		element, f.x, f.y, t.x, t.y, count]}
+
+
+## 当前编辑房间尺寸（从编辑场景根读取）
+func _room_width() -> int:
+	var root := _get_editor_root()
+	if root and "room_width" in root:
+		return int(root.room_width)
+	return 20
+
+
+func _room_height() -> int:
+	var root := _get_editor_root()
+	if root and "room_height" in root:
+		return int(root.room_height)
+	return 15
+
+
+## P 键取点：把当前悬停格坐标发给 dock 填入输入框
+func _pick_hover_cell() -> void:
+	if _hover_cell.x < 0:
+		return
+	if _room_dock and _room_dock.has_method("fill_coord_from_pick"):
+		_room_dock.fill_coord_from_pick(_hover_cell)
 
 
 ## 提交笔刷操作到 EditorUndoRedoManager

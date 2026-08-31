@@ -289,6 +289,78 @@ static func clear_rect_floor(root: Node3D, from_cell: Vector2i, to_cell: Vector2
 	return {"added": [], "removed": removed}
 
 
+## 矩形墙圈：沿 from..to 矩形四条边放墙（内部不填充）
+## 朝向按边决定：上边 north / 下边 south / 左边 west / 右边 east
+static func place_wall_rect(root: Node3D, from_cell: Vector2i, to_cell: Vector2i) -> Dictionary:
+	var added: Array = []
+	var x0 := mini(from_cell.x, to_cell.x)
+	var x1 := maxi(from_cell.x, to_cell.x)
+	var y0 := mini(from_cell.y, to_cell.y)
+	var y1 := maxi(from_cell.y, to_cell.y)
+	# 上边（north）与下边（south）
+	for x in range(x0, x1 + 1):
+		var op_n := paint_wall(root, Vector2i(x, y0), "north")
+		added.append_array(op_n.get("added", []))
+		var op_s := paint_wall(root, Vector2i(x, y1), "south")
+		added.append_array(op_s.get("added", []))
+	# 左边（west）与右边（east）
+	for y in range(y0, y1 + 1):
+		var op_w := paint_wall(root, Vector2i(x0, y), "west")
+		added.append_array(op_w.get("added", []))
+		var op_e := paint_wall(root, Vector2i(x1, y), "east")
+		added.append_array(op_e.get("added", []))
+	return {"added": added, "removed": []}
+
+
+## 矩形对角放置（门/刷怪点用）：只在两个对角点各放一个
+static func place_corners(
+	root: Node3D, from_cell: Vector2i, to_cell: Vector2i,
+	element: String, dir_from: String, dir_to: String,
+	spawn_type: String = "", monster_id: String = ""
+) -> Dictionary:
+	var added: Array = []
+	var op1 := _place_single(root, from_cell, element, dir_from, spawn_type, monster_id)
+	added.append_array(op1.get("added", []))
+	var op2 := _place_single(root, to_cell, element, dir_to, spawn_type, monster_id)
+	added.append_array(op2.get("added", []))
+	return {"added": added, "removed": []}
+
+
+## 单点放置统一入口（坐标放置面板用）
+## element: "floor" / "wall" / "door" / "spawn"
+static func place_single(
+	root: Node3D, cell: Vector2i, element: String,
+	direction: String = "north", tile_type: String = "stone",
+	spawn_type: String = "enemy_spawn", monster_id: String = ""
+) -> Dictionary:
+	return _place_single(root, cell, element, direction, spawn_type, monster_id, tile_type)
+
+
+## 单点放置（内部）
+static func _place_single(
+	root: Node3D, cell: Vector2i, element: String, direction: String,
+	spawn_type: String = "", monster_id: String = "", tile_type: String = "stone"
+) -> Dictionary:
+	match element:
+		"floor":
+			return paint_floor(root, cell, tile_type)
+		"wall":
+			return paint_wall(root, cell, direction)
+		"door":
+			return paint_door(root, cell, direction)
+		"spawn":
+			return paint_spawn(root, cell, spawn_type, monster_id)
+	return {}
+
+
+## 坐标钳制到房间范围 [0, width-1] × [0, height-1]
+static func clamp_cell(cell: Vector2i, width: int, height: int) -> Vector2i:
+	return Vector2i(
+		clampi(cell.x, 0, width - 1),
+		clampi(cell.y, 0, height - 1)
+	)
+
+
 ## 自动围墙：按房间尺寸在四周放墙，已有门的位置自动留洞
 ## 返回 {added, removed, msg}
 static func auto_walls(root: Node3D, width: int, height: int) -> Dictionary:
