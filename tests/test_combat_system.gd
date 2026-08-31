@@ -89,11 +89,16 @@ func _test_normal_combo_damage() -> void:
 
 ## 跳跃攻击：后跳→俯冲→落地 AOE 全流程
 func _test_jump_attack_phases() -> void:
+	# 重置玩家到初始位置（前序测试可能移动过，避免撞墙干扰俯冲）
+	var room_center := Vector3(10, 0, 7)
+	player.global_position = room_center
 	var start_pos: Vector3 = player.global_position
-	# 敌人放在俯冲落点（前方 4m）
+	# 敌人放在俯冲落点（前方 4m，关碰撞避免挡住玩家位移）
 	var enemy := _spawn_dummy(start_pos + Vector3(0, 0, -4.0))
 	enemy._hp = 10000.0
 	var hp_before: float = enemy._hp
+	for col in enemy.find_children("", "CollisionShape3D", true, false):
+		(col as CollisionShape3D).disabled = true
 
 	player._facing = Vector3(0, 0, -1)
 	player._start_jump_attack()

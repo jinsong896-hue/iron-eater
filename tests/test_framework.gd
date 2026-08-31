@@ -42,6 +42,9 @@ func _init() -> void:
 	# 连段状态机测试
 	test_attack_combo()
 
+	# 房间编辑器核心测试（JSON 往返 + 矩形填充/围墙/校验）
+	test_room_editor_core()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -412,6 +415,94 @@ func test_attack_combo() -> void:
 	_check(combo.is_combo_active(), "窗口内连击保持")
 	combo.tick(0.3)
 	_check(not combo.is_combo_active(), "累计超窗连击断")
+
+
+## 房间编辑器核心测试：JSON 往返一致性 + 矩形填充/自动围墙/校验
+func test_room_editor_core() -> void:
+	_current_test = "RoomEditorCore"
+	print("\n--- %s ---" % _current_test)
+
+	var RE = _require_script("res://addons/iron_studio/room_editor_core.gd")
+	if RE == null:
+		return
+
+	# 构造编辑器节点树（容器结构同 room_editor_scene）
+	var root := Node3D.new()
+	root.name = "RoomEditorRoot"
+	for c in ["Floor", "Walls", "Doors", "Spawns"]:
+		var n := Node3D.new()
+		n.name = c
+		root.add_child(n)
+	# 挂到场景树根（节点生命周期管理；编辑器核心是纯静态方法）
+	self.root.add_child(root)
+
+	# --- JSON 往返一致性 ---
+	var source := {
+		"version": 2, "id": "rt_test", "room_type": "normal",
+		"width": 10, "height": 8, "tags": ["normal", "custom_tag"],
+		"doors": [{"direction": "south", "id": "south_5_7", "x": 5, "y": 7}],
+		"floor": [{"x": 1, "y": 1, "type": "stone"}, {"x": 2, "y": 1, "type": "wood"}],
+		"walls": [{"x": 0, "y": 0, "direction": "north", "type": "normal_wall"}],
+		"entities": [{"type": "enemy_spawn", "x": 3, "y": 3, "monster_id": "slime"}],
+	}
+	RE.build_editor_tree(root, source)
+	var meta := {"id": "rt_test", "room_type": "normal", "width": 10, "height": 8, "tags": ["normal", "custom_tag"]}
+	var round: Dictionary = RE.serialize_tree(root, meta)
+
+	_check(round.get("tags") == ["normal", "custom_tag"], "tags 透传不丢失", [str(round.get("tags"))])
+	_check(round.get("floor", []).size() == 2, "地板往返数量一致")
+	_check(round.get("floor", [])[1].get("type") == "wood", "地板材质往返一致")
+	_check(round.get("walls", []).size() == 1, "墙往返数量一致")
+	var rt_door: Dictionary = round.get("doors", [])[0]
+	_check(rt_door.get("id") == "south_5_7", "门 id 含坐标后缀（唯一）", [rt_door.get("id")])
+	_check(rt_door.get("x") == 5 and rt_door.get("y") == 7, "门坐标往返一致")
+	var rt_spawn: Dictionary = round.get("entities", [])[0]
+	_check(rt_spawn.get("monster_id") == "slime", "刷怪点怪物绑定往返一致")
+
+	# --- 门位置：编辑器与游戏 DoorBuilder 同口径 ---
+	var DB = _require_script("res://world/rooms/door_builder.gd")
+	if DB:
+		var pos: Vector3 = DB._door_position_from_cell({"x": 5, "y": 7}, "south")
+		_check(pos == Vector3(5.0, 1.5, 7.5), "门位置=格子边缘（编辑器=游戏口径）", [pos])
+		var fallback: Vector3 = DB._door_position_from_cell({}, "south")
+		_check(fallback == Vector3.INF, "旧数据无 x/y 返回回退标记")
+
+	# --- 矩形填充 ---
+	RE.clear_tree(root)
+	var fill_op: Dictionary = RE.fill_rect_floor(root, Vector2i(1, 1), Vector2i(3, 3), "grass")
+	_check(fill_op.get("added", []).size() == 9, "矩形填充 3x3=9 格", [str(fill_op.get("added", []).size())])
+	var filled: Dictionary = RE.serialize_tree(root, meta)
+	_check(filled.get("floor", []).size() == 9, "填充后序列化 9 块地板")
+
+	# --- 橡皮擦清全部 ---
+	var erase_op: Dictionary = RE.erase_cell(root, Vector2i(2, 2))
+	_check(erase_op.get("removed", []).size() == 1, "橡皮擦清除该格地板")
+
+	# --- 自动围墙（10x8 → 边界 2*(10+8)=36 段，角落双面墙）---
+	RE.clear_tree(root)
+	var wall_op: Dictionary = RE.auto_walls(root, 10, 8)
+	var wall_count: int = wall_op.get("added", []).size()
+	_check(wall_count == 2 * (10 + 8), "自动围墙 36 段（角落双面）", [str(wall_count)])
+
+	# --- 校验 ---
+	# 空房间 → 地板未铺满 + 无门问题不报（无门=没检查对象）
+	var issues: Array = RE.validate_room(root, {"width": 10, "height": 8, "room_type": "normal"})
+	_check(issues.size() > 0, "空房间校验发现问题（地板未铺满）", [str(issues)])
+	var has_floor_issue := false
+	for issue in issues:
+		if str(issue).contains("地板"):
+			has_floor_issue = true
+	_check(has_floor_issue, "校验报出地板覆盖问题")
+
+	# start 房无玩家出生点
+	var issues2: Array = RE.validate_room(root, {"width": 10, "height": 8, "room_type": "start"})
+	var has_spawn_issue := false
+	for issue in issues2:
+		if str(issue).contains("玩家出生"):
+			has_spawn_issue = true
+	_check(has_spawn_issue, "起始房缺玩家出生点被报出")
+
+	root.queue_free()
 
 
 ## Boss 房闭环测试：boss 房 JSON 可解析 → 刷 Boss → 杀 Boss → 传送门出现

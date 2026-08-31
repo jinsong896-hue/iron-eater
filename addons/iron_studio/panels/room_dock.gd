@@ -12,6 +12,12 @@ var _plugin: EditorPlugin = null
 var _spawn_type := "enemy_spawn"
 var _spawn_monster_id := ""
 
+# 房间原 tags（加载时读出，保存时透传）
+var _room_tags: Array = []
+
+# 当前地板笔刷类型（矩形填充/涂地板共用）
+var _floor_type := "stone"
+
 
 ## studio_tabs 调用：传入 editor_interface
 func setup(editor_interface: EditorInterface) -> void:
@@ -29,13 +35,16 @@ func set_plugin(plugin: EditorPlugin) -> void:
 # ============================================================
 
 ## 各工具按钮回调（对应 RoomEditorCore.Tool 枚举）
+## 枚举：FLOOR=0, RECT_FILL=1, WALL_EDGE=2, WALL_CELL=3, WALL_LINE=4,
+##       DOOR=5, SPAWN=6, ERASER=7
 func _on_floor_btn_pressed() -> void: _on_tool_selected(0)
-func _on_wall_edge_btn_pressed() -> void: _on_tool_selected(1)
-func _on_wall_cell_btn_pressed() -> void: _on_tool_selected(2)
-func _on_wall_line_btn_pressed() -> void: _on_tool_selected(3)
-func _on_door_btn_pressed() -> void: _on_tool_selected(4)
-func _on_spawn_btn_pressed() -> void: _on_tool_selected(5)
-func _on_eraser_btn_pressed() -> void: _on_tool_selected(6)
+func _on_rect_fill_btn_pressed() -> void: _on_tool_selected(1)
+func _on_wall_edge_btn_pressed() -> void: _on_tool_selected(2)
+func _on_wall_cell_btn_pressed() -> void: _on_tool_selected(3)
+func _on_wall_line_btn_pressed() -> void: _on_tool_selected(4)
+func _on_door_btn_pressed() -> void: _on_tool_selected(5)
+func _on_spawn_btn_pressed() -> void: _on_tool_selected(6)
+func _on_eraser_btn_pressed() -> void: _on_tool_selected(7)
 
 
 ## 选中工具按钮时调用
@@ -45,22 +54,92 @@ func _on_tool_selected(tool_idx: int) -> void:
 	# tool_idx 对应 RoomEditorCore.Tool 枚举顺序
 	_plugin.set_tool(tool_idx)
 	_show_tool_hint(tool_idx)
+	highlight_tool(tool_idx)
+
+
+## 高亮指定工具按钮（数字键切换时由 plugin 回调）
+func highlight_tool(tool_idx: int) -> void:
+	var grid := get_node_or_null("Scroll/VBox/ToolSection/ToolGrid")
+	if grid == null:
+		return
+	var buttons := [
+		"FloorBtn", "RectFillBtn", "WallEdgeBtn", "WallCellBtn",
+		"WallLineBtn", "DoorBtn", "SpawnBtn", "EraserBtn",
+	]
+	for i in buttons.size():
+		var btn := grid.get_node_or_null(buttons[i]) as Button
+		if btn:
+			btn.button_pressed = i == tool_idx
+	_show_tool_hint(tool_idx)
 
 
 func _show_tool_hint(tool_idx: int) -> void:
 	var hints := {
-		0: "地板：左键涂地板，右键擦除",
-		1: "墙-边缘：点击格子边缘放墙，朝向由边缘决定",
-		2: "墙-格内：点击格子放墙，R 键旋转朝向",
-		3: "墙-拖线：拖拽画一排墙，自动判断朝向",
-		4: "门：点击格子边缘放门",
-		5: "刷怪点：点击放刷怪点，绑定下方选中的怪物",
-		6: "橡皮擦：点击删除该格所有元素",
+		0: "地板：左键涂地板，右键擦除；材质用下方下拉选择",
+		1: "矩形填充：拖一个矩形框填充地板，右键拖动清除",
+		2: "墙-边缘：点击格子边缘放墙，朝向由边缘决定",
+		3: "墙-格内：点击格子放墙，R 键旋转朝向",
+		4: "墙-拖线：拖拽画一排墙（L 形路径：先横后纵）",
+		5: "门：点击格子边缘放门（放在房间边界）",
+		6: "刷怪点：点击放刷怪点，绑定下方选中的怪物",
+		7: "橡皮擦：点击/拖动删除该格所有元素",
 	}
 	var hint := hints.get(tool_idx, "") as String
 	var label := get_node_or_null("%ToolHint") as Label
 	if label:
 		label.text = hint
+
+
+# ============================================================
+# 地板材质
+# ============================================================
+
+## 地板材质下拉变化
+func _on_floor_type_selected(idx: int) -> void:
+	var opt := get_node_or_null("%FloorType") as OptionButton
+	if opt == null:
+		return
+	var types := ["stone", "wood", "grass"]
+	_floor_type = types[mini(idx, types.size() - 1)]
+	if _plugin != null and _plugin.has_method("set_floor_type"):
+		_plugin.set_floor_type(_floor_type)
+
+
+# ============================================================
+# 快捷操作
+# ============================================================
+
+## 自动围墙：四周放墙，门位置自动留洞
+func _on_auto_wall_pressed() -> void:
+	if _plugin == null or not _plugin.has_method("auto_walls"):
+		_show_status("插件未就绪")
+		return
+	var meta := _collect_meta()
+	var result: Dictionary = _plugin.auto_walls(meta)
+	_show_status("自动围墙：%s" % result.get("msg", "完成"))
+
+
+## 校验房间：地板覆盖/门越界/spawn 撞墙
+func _on_validate_pressed() -> void:
+	if _plugin == null or not _plugin.has_method("validate_room"):
+		_show_status("插件未就绪")
+		return
+	var meta := _collect_meta()
+	var issues: Array = _plugin.validate_room(meta)
+	var vr := get_node_or_null("%ValidateResult") as Label
+	if issues.is_empty():
+		if vr:
+			vr.text = "房间校验通过：无问题"
+			vr.add_theme_color_override("font_color", Color(0.4, 0.9, 0.5))
+		_show_status("校验通过")
+	else:
+		var text := "发现问题 %d 项：\n" % issues.size()
+		for issue in issues:
+			text += "- %s\n" % issue
+		if vr:
+			vr.text = text
+			vr.add_theme_color_override("font_color", Color(0.95, 0.55, 0.3))
+		_show_status("校验发现 %d 个问题" % issues.size())
 
 
 # ============================================================
@@ -147,7 +226,21 @@ func _on_load_pressed() -> void:
 	# 读取房间元信息填入面板
 	_read_room_meta(path)
 	_plugin.load_room(path)
+	_update_current_room_label()
 	_show_status("已加载: %s" % path.get_file())
+
+
+## 更新当前房间显示
+func _update_current_room_label() -> void:
+	var label := get_node_or_null("%CurrentRoom") as Label
+	if label == null:
+		return
+	var ni := get_node_or_null("%NameInput") as LineEdit
+	var name_str := ni.text.strip_edges() if ni else ""
+	if name_str.is_empty():
+		label.text = "（未加载房间）"
+	else:
+		label.text = "当前编辑：%s" % name_str
 
 
 ## 保存房间
@@ -173,6 +266,8 @@ func _on_new_pressed() -> void:
 		_show_status("插件未就绪")
 		return
 	_plugin.new_room()
+	_room_tags = []
+	_update_current_room_label()
 	_show_status("已新建空房间")
 
 
@@ -231,6 +326,7 @@ func _read_room_meta(path: String) -> void:
 	var ws := get_node_or_null("%WidthSpin") as SpinBox
 	var hs := get_node_or_null("%HeightSpin") as SpinBox
 	var to := get_node_or_null("%TypeOption") as OptionButton
+	var fl := get_node_or_null("%FloorType") as OptionButton
 	if ni:
 		ni.text = str(data.get("id", "room_new"))
 	if ws:
@@ -242,6 +338,13 @@ func _read_room_meta(path: String) -> void:
 		var rt := str(data.get("room_type", "normal"))
 		var idx := types.find(rt)
 		to.selected = idx if idx >= 0 else 1
+	if fl:
+		var floor_types := ["stone", "wood", "grass"]
+		var ft := str(data.get("editor_floor_type", "stone"))
+		var fidx := floor_types.find(ft)
+		fl.selected = fidx if fidx >= 0 else 0
+	# 保留原 tags（保存时透传，防止编辑器覆盖）
+	_room_tags = data.get("tags", [])
 
 
 ## 收集面板上的房间元信息
@@ -250,15 +353,24 @@ func _collect_meta() -> Dictionary:
 	var ws := get_node_or_null("%WidthSpin") as SpinBox
 	var hs := get_node_or_null("%HeightSpin") as SpinBox
 	var to := get_node_or_null("%TypeOption") as OptionButton
+	var fl := get_node_or_null("%FloorType") as OptionButton
 	var types := ["start", "normal", "elite", "treasure", "boss"]
 	var tidx := to.selected if to else 1
-	return {
+	if fl:
+		var floor_types := ["stone", "wood", "grass"]
+		_floor_type = floor_types[fl.selected] if fl.selected >= 0 else "stone"
+	var meta := {
 		"id": ni.text.strip_edges() if ni else "room_new",
 		"room_type": types[tidx] if tidx >= 0 and tidx < types.size() else "normal",
 		"width": int(ws.value) if ws else 20,
 		"height": int(hs.value) if hs else 15,
 		"theme": "crypt",
+		"editor_floor_type": _floor_type,
 	}
+	# tags 透传（有原 tags 用原的，否则按房间类型生成）
+	if not _room_tags.is_empty():
+		meta["tags"] = _room_tags
+	return meta
 
 
 func _show_status(msg: String) -> void:

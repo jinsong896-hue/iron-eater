@@ -38,4 +38,8 @@ func _on_body_entered(body: Node3D) -> void:
 	if is_locked or not is_open:
 		return
 	if body.is_in_group("player"):
-		EventBus.door_opened.emit(direction, direction)
+		# EventBus 运行时获取（--script 测试模式下不存在）
+		var tree := Engine.get_main_loop() as SceneTree
+		var bus = tree.root.get_node_or_null("EventBus") if tree and tree.root else null
+		if bus:
+			bus.door_opened.emit(direction, direction)

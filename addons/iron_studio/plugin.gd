@@ -13,10 +13,12 @@ var _room_dock: Control
 var _current_tool: int = 0  # RoomEditorCore.Tool
 var _spawn_type := "enemy_spawn"
 var _spawn_monster_id := ""
+var _floor_type := "stone"  # 地板笔刷类型（room_dock 同步）
 var _wall_cell_direction := "north"  # 墙-格内模式当前朝向（R 键旋转）
 var _is_painting := false
+var _is_erasing := false  # 右键拖动连续擦除
 var _last_paint_cell := Vector2i(-1, -1)
-var _line_start_cell := Vector2i(-1, -1)  # 墙-拖线起点
+var _line_start_cell := Vector2i(-1, -1)  # 墙-拖线/矩形填充起点
 var _hover_cell := Vector2i(-1, -1)  # 鼠标悬停格子（预览用）
 var _hover_direction := ""  # 悬停边缘方向（墙-边缘/门模式用）
 var _hover_world_pos := Vector3.ZERO  # 鼠标悬停世界坐标
@@ -55,6 +57,11 @@ func set_tool(tool_idx: int) -> void:
 func set_spawn_config(type: String, monster_id: String) -> void:
 	_spawn_type = type
 	_spawn_monster_id = monster_id
+
+
+## 设置地板笔刷类型（room_dock 的类型下拉同步）
+func set_floor_type(floor_type: String) -> void:
+	_floor_type = floor_type
 
 
 ## 加载房间：读 JSON → 打开编辑场景 → 构建节点树
@@ -144,11 +151,17 @@ func _forward_3d_gui_input(viewport_camera: Camera3D, event: InputEvent) -> int:
 	if root == null:
 		return result  # 没有打开编辑场景，不拦截
 
-	# R 键旋转墙-格内模式的朝向
-	if event is InputEventKey and event.pressed and event.keycode == KEY_R:
-		if _current_tool == RoomEditorCore.Tool.WALL_CELL:
+	# 键盘快捷键
+	if event is InputEventKey and event.pressed and not event.echo:
+		var key := (event as InputEventKey).keycode
+		# 数字 1-8 切换工具
+		if key >= KEY_1 and key <= KEY_8:
+			_set_tool_by_index(key - KEY_1)
+			return AFTER_GUI_INPUT_STOP
+		# R 旋转墙-格内朝向
+		if key == KEY_R and _current_tool == RoomEditorCore.Tool.WALL_CELL:
 			_wall_cell_direction = _rotate_direction(_wall_cell_direction)
-		return result
+			return AFTER_GUI_INPUT_STOP
 
 	if not (event is InputEventMouseButton) and not (event is InputEventMouseMotion):
 		return result
@@ -175,29 +188,67 @@ func _forward_3d_gui_input(viewport_camera: Camera3D, event: InputEvent) -> int:
 			_is_painting = mb.pressed
 			if mb.pressed:
 				_last_paint_cell = Vector2i(-1, -1)
-				if _current_tool == RoomEditorCore.Tool.WALL_LINE:
-					_line_start_cell = cell  # 拖线起点
+				if _current_tool in [RoomEditorCore.Tool.WALL_LINE, RoomEditorCore.Tool.RECT_FILL]:
+					_line_start_cell = cell  # 拖线/矩形填充起点
 				else:
 					_apply_brush(root, world_pos, cell, mb.button_index)
 			else:
-				_line_start_cell = Vector2i(-1, -1)  # 松开重置拖线
+				# 松开：完成矩形填充 / 拖线
+				if _current_tool == RoomEditorCore.Tool.RECT_FILL and _line_start_cell.x >= 0:
+					_commit_rect_fill(root, _line_start_cell, cell)
+				_line_start_cell = Vector2i(-1, -1)
 			result = AFTER_GUI_INPUT_STOP
-		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
-			_apply_brush(root, world_pos, cell, mb.button_index)
+		elif mb.button_index == MOUSE_BUTTON_RIGHT:
+			_is_erasing = mb.pressed
+			if mb.pressed:
+				_last_paint_cell = Vector2i(-1, -1)
+				# 右键：矩形填充模式下拖框清除，其他模式直接擦
+				if _current_tool == RoomEditorCore.Tool.RECT_FILL:
+					_line_start_cell = cell
+				else:
+					_apply_brush(root, world_pos, cell, mb.button_index)
+			else:
+				if _current_tool == RoomEditorCore.Tool.RECT_FILL and _line_start_cell.x >= 0:
+					_commit_rect_clear(root, _line_start_cell, cell)
+				_line_start_cell = Vector2i(-1, -1)
 			result = AFTER_GUI_INPUT_STOP
 
-	# 鼠标移动（拖动绘制）
-	elif event is InputEventMouseMotion and _is_painting:
+	# 鼠标移动（拖动绘制/擦除）
+	elif event is InputEventMouseMotion:
 		if cell != _last_paint_cell:
 			_last_paint_cell = cell
-			if _current_tool == RoomEditorCore.Tool.WALL_LINE:
-				# 拖线模式：从起点到当前格画一排墙
+			if _is_painting and _current_tool == RoomEditorCore.Tool.WALL_LINE:
+				# 拖线模式：从起点到当前格画 L 形墙排
 				_paint_wall_line(root, _line_start_cell, cell)
-			else:
+			elif _is_painting and _current_tool != RoomEditorCore.Tool.RECT_FILL:
 				_apply_brush(root, world_pos, cell, MOUSE_BUTTON_LEFT)
-		result = AFTER_GUI_INPUT_STOP
+			elif _is_erasing and _current_tool != RoomEditorCore.Tool.RECT_FILL:
+				# 右键拖动连续擦除
+				_apply_brush(root, world_pos, cell, MOUSE_BUTTON_RIGHT)
+		if _is_painting or _is_erasing:
+			result = AFTER_GUI_INPUT_STOP
 
 	return result
+
+
+## 数字键切工具（同步 dock 按钮状态）
+func _set_tool_by_index(tool_idx: int) -> void:
+	_current_tool = tool_idx
+	# 同步 dock 工具按钮高亮
+	if _room_dock and _room_dock.has_method("highlight_tool"):
+		_room_dock.highlight_tool(tool_idx)
+
+
+## 提交矩形填充
+func _commit_rect_fill(root: Node3D, from_cell: Vector2i, to_cell: Vector2i) -> void:
+	var op := RoomEditorCore.fill_rect_floor(root, from_cell, to_cell, _floor_type)
+	_commit_brush_action(op)
+
+
+## 提交矩形清除
+func _commit_rect_clear(root: Node3D, from_cell: Vector2i, to_cell: Vector2i) -> void:
+	var op := RoomEditorCore.clear_rect_floor(root, from_cell, to_cell)
+	_commit_brush_action(op)
 
 
 ## 应用笔刷（按当前工具），结果提交到撤销/重做栈
@@ -209,7 +260,9 @@ func _apply_brush(root: Node3D, world_pos: Vector3, cell: Vector2i, button: int)
 			if is_erase:
 				op = RoomEditorCore.erase_cell(root, cell)
 			else:
-				op = RoomEditorCore.paint_floor(root, cell)
+				op = RoomEditorCore.paint_floor(root, cell, _floor_type)
+		RoomEditorCore.Tool.RECT_FILL:
+			pass  # 拖框在 _commit_rect_fill 处理
 		RoomEditorCore.Tool.WALL_EDGE:
 			var dir := RoomEditorCore.edge_direction_at(world_pos, cell)
 			if is_erase:
@@ -222,7 +275,7 @@ func _apply_brush(root: Node3D, world_pos: Vector3, cell: Vector2i, button: int)
 			else:
 				op = RoomEditorCore.paint_wall(root, cell, _wall_cell_direction)
 		RoomEditorCore.Tool.WALL_LINE:
-			# 拖线在 mouse motion 里处理，单次点击不画
+			# 拖线在 mouse motion 里处理
 			pass
 		RoomEditorCore.Tool.DOOR:
 			var dir := RoomEditorCore.edge_direction_at(world_pos, cell)
@@ -238,6 +291,26 @@ func _apply_brush(root: Node3D, world_pos: Vector3, cell: Vector2i, button: int)
 		RoomEditorCore.Tool.ERASER:
 			op = RoomEditorCore.erase_cell(root, cell)
 	_commit_brush_action(op)
+
+
+## 自动围墙（dock 调用）
+func auto_walls(meta: Dictionary) -> Dictionary:
+	var root := _get_editor_root()
+	if root == null:
+		return {"msg": "没有打开的编辑场景"}
+	var op := RoomEditorCore.auto_walls(
+		root, int(meta.get("width", 20)), int(meta.get("height", 15))
+	)
+	_commit_brush_action(op)
+	return op
+
+
+## 校验房间（dock 调用）
+func validate_room(meta: Dictionary) -> Array:
+	var root := _get_editor_root()
+	if root == null:
+		return ["没有打开的编辑场景"]
+	return RoomEditorCore.validate_room(root, meta)
 
 
 ## 提交笔刷操作到 EditorUndoRedoManager
@@ -269,30 +342,24 @@ func _noop() -> void:
 	pass
 
 
-## 拖线画墙：从 start 到 end 画一排墙，自动判断朝向（合并为单个 undo action）
+## 拖线画墙：从 start 到 end 的 L 形路径（先横后纵），墙朝向按线段方向
+## 合并为单个 undo action
 func _paint_wall_line(root: Node3D, start: Vector2i, end: Vector2i) -> void:
 	if start.x < 0 or start.y < 0:
 		return
 	var all_added: Array = []
-	# 判断主方向（水平 or 垂直）
-	var dx := end.x - start.x
-	var dy := end.y - start.y
-	if abs(dx) >= abs(dy):
-		# 水平线：墙朝 north/south
-		var dir := "north"
-		var x0 := mini(start.x, end.x)
-		var x1 := maxi(start.x, end.x)
-		for x in range(x0, x1 + 1):
-			var op := RoomEditorCore.paint_wall(root, Vector2i(x, start.y), dir)
-			all_added.append_array(op.get("added", []))
-	else:
-		# 垂直线：墙朝 east/west
-		var dir := "west"
-		var y0 := mini(start.y, end.y)
-		var y1 := maxi(start.y, end.y)
-		for y in range(y0, y1 + 1):
-			var op := RoomEditorCore.paint_wall(root, Vector2i(start.x, y), dir)
-			all_added.append_array(op.get("added", []))
+	# 第一段：横向（墙朝 north，沿 x 推进）
+	var x0 := mini(start.x, end.x)
+	var x1 := maxi(start.x, end.x)
+	for x in range(x0, x1 + 1):
+		var op := RoomEditorCore.paint_wall(root, Vector2i(x, start.y), "north")
+		all_added.append_array(op.get("added", []))
+	# 第二段：纵向（墙朝 west，沿 y 推进）
+	var y0 := mini(start.y, end.y)
+	var y1 := maxi(start.y, end.y)
+	for y in range(y0, y1 + 1):
+		var op := RoomEditorCore.paint_wall(root, Vector2i(end.x, y), "west")
+		all_added.append_array(op.get("added", []))
 	_commit_brush_action({"added": all_added, "removed": []})
 
 
@@ -361,6 +428,8 @@ func _brush_preview_color() -> Color:
 	match _current_tool:
 		RoomEditorCore.Tool.FLOOR:
 			return Color(0.3, 0.8, 0.3, 0.7)
+		RoomEditorCore.Tool.RECT_FILL:
+			return Color(0.3, 0.6, 0.9, 0.7)
 		RoomEditorCore.Tool.WALL_EDGE, RoomEditorCore.Tool.WALL_CELL, RoomEditorCore.Tool.WALL_LINE:
 			return Color(0.8, 0.3, 0.3, 0.7)
 		RoomEditorCore.Tool.DOOR:

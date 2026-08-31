@@ -6,13 +6,14 @@ extends RefCounted
 
 # 笔刷工具枚举
 enum Tool {
-	FLOOR,
-	WALL_EDGE,
-	WALL_CELL,
-	WALL_LINE,
-	DOOR,
-	SPAWN,
-	ERASER,
+	FLOOR,      # 涂地板
+	RECT_FILL,  # 矩形填充地板
+	WALL_EDGE,  # 墙-边缘
+	WALL_CELL,  # 墙-格内
+	WALL_LINE,  # 墙-拖线
+	DOOR,       # 门
+	SPAWN,      # 刷怪点
+	ERASER,     # 橡皮擦
 }
 
 const CELL_SIZE := 1.0
@@ -60,14 +61,14 @@ static func build_editor_tree(root: Node3D, data: Dictionary) -> void:
 	for tile in data.get("floor", []):
 		_add_floor(floor_root, tile)
 
-	# 墙（用数据里的 direction，缺失则推断）
+	# 墙（用数据里的 direction，缺失则推断；type 透传）
 	var w: int = data.get("width", 16)
 	var h: int = data.get("height", 12)
 	for wall in data.get("walls", []):
 		var direction := str(wall.get("direction", ""))
 		if direction.is_empty():
 			direction = _infer_wall_direction(int(wall.get("x", 0)), int(wall.get("y", 0)), w, h)
-		_add_wall(wall_root, int(wall.get("x", 0)), int(wall.get("y", 0)), direction)
+		_add_wall(wall_root, int(wall.get("x", 0)), int(wall.get("y", 0)), direction, str(wall.get("type", "normal_wall")))
 
 	# 门
 	for door in data.get("doors", []):
@@ -121,7 +122,7 @@ static func serialize_tree(root: Node3D, meta: Dictionary) -> Dictionary:
 				"x": cell.x,
 				"y": cell.y,
 				"direction": cell.get("direction", "north"),
-				"type": "normal_wall",
+				"type": cell.get("type", "normal_wall"),
 			})
 
 	var door_root := root.get_node_or_null("Doors")
@@ -131,7 +132,13 @@ static func serialize_tree(root: Node3D, meta: Dictionary) -> Dictionary:
 			if cell.is_empty():
 				continue
 			var dir := str(cell.get("direction", "north"))
-			doors.append({"direction": dir, "id": dir, "x": cell.x, "y": cell.y})
+			# id 加坐标后缀保证唯一（同方向多扇门不再重名）
+			doors.append({
+				"direction": dir,
+				"id": "%s_%d_%d" % [dir, cell.x, cell.y],
+				"x": cell.x,
+				"y": cell.y,
+			})
 
 	var spawn_root := root.get_node_or_null("Spawns")
 	if spawn_root:
@@ -157,7 +164,7 @@ static func serialize_tree(root: Node3D, meta: Dictionary) -> Dictionary:
 		"height": meta.get("height", 15),
 		"cell_size": 1.0,
 		"theme": meta.get("theme", "crypt"),
-		"tags": [meta.get("room_type", "normal")],
+		"tags": meta.get("tags", [meta.get("room_type", "normal")]),
 		"doors": doors,
 		"floor": floor_tiles,
 		"walls": walls,
@@ -225,26 +232,168 @@ static func paint_spawn(
 	return {"added": [node], "removed": []} if node != null else {}
 
 
-## 橡皮擦：删除该格子的所有元素。返回操作记录（removed 节点用 remove_child 保留引用供 undo）
+## 橡皮擦：删除该格子的所有元素（四向墙+门+地板+刷怪点）
+## removed 节点用 remove_child 保留引用供 undo
 static func erase_cell(root: Node3D, cell: Vector2i) -> Dictionary:
 	var removed: Array = []
 	for child_name in ["Floor", "Walls", "Doors", "Spawns"]:
 		var node := root.get_node_or_null(child_name)
 		if node == null:
 			continue
-		# 删该格子所有墙/门（任意方向）
-		if child_name in ["Walls", "Doors"]:
-			for child in node.get_children():
-				var c: Dictionary = child.get_meta("cell", {})
-				if c.x == cell.x and c.y == cell.y:
-					node.remove_child(child)
-					removed.append({"node": child, "parent": node})
-		else:
-			var target := _find_node_at_cell(node, cell)
-			if target:
-				node.remove_child(target)
-				removed.append({"node": target, "parent": node})
+		# 该格子下所有元素（墙四向/门/地板/刷怪点全部匹配）
+		for child in node.get_children():
+			var c: Dictionary = child.get_meta("cell", {})
+			if not c.is_empty() and c.x == cell.x and c.y == cell.y:
+				node.remove_child(child)
+				removed.append({"node": child, "parent": node})
 	return {"added": [], "removed": removed}
+
+
+## 矩形填充地板：from..to 矩形区域铺满指定材质（已存在的跳过）
+static func fill_rect_floor(
+	root: Node3D, from_cell: Vector2i, to_cell: Vector2i, tile_type: String = "stone"
+) -> Dictionary:
+	var floor_root := root.get_node_or_null("Floor")
+	if floor_root == null:
+		return {}
+	var added: Array = []
+	var x0 := mini(from_cell.x, to_cell.x)
+	var x1 := maxi(from_cell.x, to_cell.x)
+	var y0 := mini(from_cell.y, to_cell.y)
+	var y1 := maxi(from_cell.y, to_cell.y)
+	for y in range(y0, y1 + 1):
+		for x in range(x0, x1 + 1):
+			var node := _add_floor(floor_root, {"x": x, "y": y, "type": tile_type})
+			if node != null:
+				added.append(node)
+	return {"added": added, "removed": []}
+
+
+## 矩形清除地板：from..to 矩形区域地板全删
+static func clear_rect_floor(root: Node3D, from_cell: Vector2i, to_cell: Vector2i) -> Dictionary:
+	var floor_root := root.get_node_or_null("Floor")
+	if floor_root == null:
+		return {}
+	var removed: Array = []
+	var x0 := mini(from_cell.x, to_cell.x)
+	var x1 := maxi(from_cell.x, to_cell.x)
+	var y0 := mini(from_cell.y, to_cell.y)
+	var y1 := maxi(from_cell.y, to_cell.y)
+	for child in floor_root.get_children():
+		var c: Dictionary = child.get_meta("cell", {})
+		if c.is_empty():
+			continue
+		if x0 <= c.x and c.x <= x1 and y0 <= c.y and c.y <= y1:
+			floor_root.remove_child(child)
+			removed.append({"node": child, "parent": floor_root})
+	return {"added": [], "removed": removed}
+
+
+## 自动围墙：按房间尺寸在四周放墙，已有门的位置自动留洞
+## 返回 {added, removed, msg}
+static func auto_walls(root: Node3D, width: int, height: int) -> Dictionary:
+	var wall_root := root.get_node_or_null("Walls")
+	var door_root := root.get_node_or_null("Doors")
+	if wall_root == null:
+		return {"added": [], "removed": [], "msg": "无墙容器"}
+
+	# 收集已有门的格子（门位置对应的边缘不放墙）
+	var door_cells := {}
+	if door_root:
+		for child in door_root.get_children():
+			var c: Dictionary = child.get_meta("cell", {})
+			if not c.is_empty():
+				door_cells["%d_%d_%s" % [c.x, c.y, c.get("direction", "")]] = true
+
+	var added: Array = []
+	var count := 0
+	for x in range(width):
+		for dir_y in [["north", 0], ["south", height - 1]]:
+			var key := "%d_%d_%s" % [x, dir_y[1], dir_y[0]]
+			if not door_cells.has(key):
+				var op := paint_wall(root, Vector2i(x, dir_y[1]), dir_y[0])
+				added.append_array(op.get("added", []))
+				count += 1
+	for y in range(height):
+		for dir_x in [["west", 0], ["east", width - 1]]:
+			var key := "%d_%d_%s" % [dir_x[1], y, dir_x[0]]
+			if not door_cells.has(key):
+				var op := paint_wall(root, Vector2i(dir_x[1], y), dir_x[0])
+				added.append_array(op.get("added", []))
+				count += 1
+	return {
+		"added": added,
+		"removed": [],
+		"msg": "补墙 %d 段（已有墙跳过，门位置留洞）" % count,
+	}
+
+
+## 校验房间：返回问题列表（空=通过）
+## 检查：地板覆盖率 / 门越界 / spawn 在无地板格 / 无 player_spawn
+static func validate_room(root: Node3D, meta: Dictionary) -> Array:
+	var issues: Array = []
+	var width: int = meta.get("width", 20)
+	var height: int = meta.get("height", 15)
+
+	# 收集数据
+	var floor_cells := {}
+	var door_list: Array = []
+	var spawn_list: Array = []
+	var floor_root := root.get_node_or_null("Floor")
+	if floor_root:
+		for child in floor_root.get_children():
+			var c: Dictionary = child.get_meta("cell", {})
+			if not c.is_empty():
+				floor_cells[Vector2i(c.x, c.y)] = true
+	var door_root := root.get_node_or_null("Doors")
+	if door_root:
+		for child in door_root.get_children():
+			var c: Dictionary = child.get_meta("cell", {})
+			if not c.is_empty():
+				door_list.append(c)
+	var spawn_root := root.get_node_or_null("Spawns")
+	if spawn_root:
+		for child in spawn_root.get_children():
+			var c: Dictionary = child.get_meta("cell", {})
+			if not c.is_empty():
+				spawn_list.append(c)
+
+	# 1. 地板覆盖率
+	var total := width * height
+	if floor_cells.size() < total:
+		issues.append("地板未铺满：%d/%d 格（可用矩形填充或自动围墙后铺地）" % [floor_cells.size(), total])
+
+	# 2. 门越界 / 门无地板
+	for d in door_list:
+		var dc := Vector2i(d.x, d.y)
+		var dir := str(d.get("direction", ""))
+		# 门在边界格子检查（north 门应在 y=0 行，south 在 y=height-1 行等）
+		var on_boundary := false
+		match dir:
+			"north": on_boundary = dc.y == 0
+			"south": on_boundary = dc.y == height - 1
+			"west":  on_boundary = dc.x == 0
+			"east":  on_boundary = dc.x == width - 1
+		if not on_boundary:
+			issues.append("门 (%d,%d,%s) 不在房间边界上" % [dc.x, dc.y, dir])
+		if not floor_cells.has(dc):
+			issues.append("门 (%d,%d,%s) 所在格无地板" % [dc.x, dc.y, dir])
+
+	# 3. spawn 检查
+	var has_player_spawn := false
+	for s in spawn_list:
+		var sc := Vector2i(s.x, s.y)
+		var stype := str(s.get("type", ""))
+		if stype == "player_spawn":
+			has_player_spawn = true
+		if not floor_cells.has(sc):
+			issues.append("刷怪点 (%d,%d,%s) 在无地板格" % [sc.x, sc.y, stype])
+		if sc.x < 0 or sc.x >= width or sc.y < 0 or sc.y >= height:
+			issues.append("刷怪点 (%d,%d) 超出房间范围" % [sc.x, sc.y])
+	if not has_player_spawn and str(meta.get("room_type", "")) == "start":
+		issues.append("起始房缺少玩家出生点")
+
+	return issues
 
 
 ## 删除格子指定方向的墙。返回操作记录
@@ -281,14 +430,14 @@ static func _add_floor(parent: Node3D, tile: Dictionary) -> Node3D:
 
 
 ## 创建墙节点
-static func _add_wall(parent: Node3D, x: int, y: int, direction: String) -> Node3D:
+static func _add_wall(parent: Node3D, x: int, y: int, direction: String, wall_type: String = "normal_wall") -> Node3D:
 	var node := _instantiate_scene(WALL_SCENE)
 	if node == null:
 		node = _create_wall_placeholder()
 	node.position = _edge_position(x, y, direction)
 	node.rotation = _edge_rotation(direction)
 	node.name = "Wall_%d_%d_%s" % [x, y, direction]
-	node.set_meta("cell", {"x": x, "y": y, "direction": direction})
+	node.set_meta("cell", {"x": x, "y": y, "direction": direction, "type": wall_type})
 	parent.add_child(node)
 	return node
 
@@ -354,9 +503,9 @@ static func _find_door(parent: Node3D, cell: Vector2i, direction: String) -> Nod
 # 几何与材质（内部）
 # ============================================================
 
-## 墙/门在格子边缘的位置（与 WallBuilder._get_edge_position 一致）
+## 墙/门在格子边缘的位置（与 WallBuilder._get_edge_position 一致：y=高度/2）
 static func _edge_position(x: int, y: int, direction: String) -> Vector3:
-	var p := cell_to_world(Vector2i(x, y))
+	var p := Vector3(float(x), 1.5, float(y))
 	match direction:
 		"north":
 			p.z -= CELL_SIZE * 0.5

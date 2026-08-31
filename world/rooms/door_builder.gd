@@ -22,8 +22,11 @@ static func _create_door(parent: Node3D, door_data: Dictionary, data) -> void:
 	var direction := str(door_data.get("direction", "north"))
 	var door_id := str(door_data.get("id", direction))
 
-	# 计算门的位置
-	var position := _get_door_position(data, direction)
+	# 门位置：优先用 JSON 的格子坐标（编辑器口径，x/y 是格子）
+	# 旧数据无 x/y 时回退到房间边界中心公式
+	var position: Vector3 = _door_position_from_cell(door_data, direction)
+	if position == Vector3.INF:
+		position = _get_door_position(data, direction)
 
 	# 尝试加载预制体，失败则创建基础门
 	var door: Node3D
@@ -49,6 +52,26 @@ static func _create_door(parent: Node3D, door_data: Dictionary, data) -> void:
 				child.body_entered.connect(_on_door_trigger.bind(child))
 
 	parent.add_child(door)
+
+
+## 由格子坐标计算门位置（编辑器口径：门在格子边缘，与墙同算法）
+## JSON 无 x/y 时返回 Vector3.INF（走回退公式）
+static func _door_position_from_cell(door_data: Dictionary, direction: String) -> Vector3:
+	if not door_data.has("x") or not door_data.has("y"):
+		return Vector3.INF
+	var x := int(door_data["x"])
+	var y := int(door_data["y"])
+	var p := Vector3(float(x), DOOR_HEIGHT / 2.0, float(y))
+	match direction:
+		"north":
+			p.z -= 0.5
+		"south":
+			p.z += 0.5
+		"west":
+			p.x -= 0.5
+		"east":
+			p.x += 0.5
+	return p
 
 
 ## 创建基础门节点

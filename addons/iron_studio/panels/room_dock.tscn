@@ -1,8 +1,10 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://addons/iron_studio/panels/room_dock.gd" id="1"]
 
 [sub_resource type="ButtonGroup" id="BG_tools"]
+
+[sub_resource type="ButtonGroup" id="BG_paint"]
 
 [node name="RoomDock" type="Control"]
 layout_mode = 3
@@ -32,17 +34,24 @@ text = "3D 房间编辑器"
 theme_override_font_sizes/font_size = 15
 horizontal_alignment = 1
 
+[node name="CurrentRoom" type="Label" parent="Scroll/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "（未加载房间）"
+theme_override_colors/font_color = Color(0.7, 0.7, 0.75, 1)
+theme_override_font_sizes/font_size = 11
+horizontal_alignment = 1
+
 [node name="ToolSection" type="VBoxContainer" parent="Scroll/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 3
 
 [node name="ToolLabel" type="Label" parent="Scroll/VBox/ToolSection"]
 layout_mode = 2
-text = "工具："
+text = "绘制工具："
 theme_override_font_sizes/font_size = 12
 
 [node name="ToolGrid" type="GridContainer" parent="Scroll/VBox/ToolSection"]
-unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/h_separation = 2
 theme_override_constants/v_separation = 2
@@ -51,49 +60,56 @@ columns = 2
 [node name="FloorBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "地板"
+text = "地板 [1]"
+button_group = SubResource("BG_tools")
+toggle_mode = true
+
+[node name="RectFillBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "矩形填充 [2]"
 button_group = SubResource("BG_tools")
 toggle_mode = true
 
 [node name="WallEdgeBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "墙-边缘"
+text = "墙-边缘 [3]"
 button_group = SubResource("BG_tools")
 toggle_mode = true
 
 [node name="WallCellBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "墙-格内"
+text = "墙-格内 [4]"
 button_group = SubResource("BG_tools")
 toggle_mode = true
 
 [node name="WallLineBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "墙-拖线"
+text = "墙-拖线 [5]"
 button_group = SubResource("BG_tools")
 toggle_mode = true
 
 [node name="DoorBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "门"
+text = "门 [6]"
 button_group = SubResource("BG_tools")
 toggle_mode = true
 
 [node name="SpawnBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "刷怪点"
+text = "刷怪点 [7]"
 button_group = SubResource("BG_tools")
 toggle_mode = true
 
 [node name="EraserBtn" type="Button" parent="Scroll/VBox/ToolSection/ToolGrid"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "橡皮擦"
+text = "橡皮擦 [8]"
 button_group = SubResource("BG_tools")
 toggle_mode = true
 
@@ -103,6 +119,64 @@ layout_mode = 2
 text = "选择工具..."
 theme_override_colors/font_color = Color(0.6, 0.8, 0.6, 1)
 theme_override_font_sizes/font_size = 10
+autowrap_mode = 3
+
+[node name="FloorSection" type="VBoxContainer" parent="Scroll/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="FloorRow" type="HBoxContainer" parent="Scroll/VBox/FloorSection"]
+layout_mode = 2
+
+[node name="Label7" type="Label" parent="Scroll/VBox/FloorSection/FloorRow"]
+layout_mode = 2
+text = "地板材质:"
+vertical_alignment = 1
+
+[node name="FloorType" type="OptionButton" parent="Scroll/VBox/FloorSection/FloorRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+item_count = 3
+popup/item_0/text = "石地板"
+popup/item_1/text = "木地板"
+popup/item_2/text = "草地"
+
+[node name="Sep0" type="HSeparator" parent="Scroll/VBox"]
+layout_mode = 2
+
+[node name="QuickSection" type="VBoxContainer" parent="Scroll/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="QuickLabel" type="Label" parent="Scroll/VBox/QuickSection"]
+layout_mode = 2
+text = "快捷操作："
+theme_override_font_sizes/font_size = 12
+
+[node name="QuickGrid" type="GridContainer" parent="Scroll/VBox/QuickSection"]
+layout_mode = 2
+theme_override_constants/h_separation = 2
+theme_override_constants/v_separation = 2
+columns = 2
+
+[node name="AutoWallBtn" type="Button" parent="Scroll/VBox/QuickSection/QuickGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "自动围墙"
+
+[node name="ValidateBtn" type="Button" parent="Scroll/VBox/QuickSection/QuickGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "校验房间"
+
+[node name="ValidateResult" type="Label" parent="Scroll/VBox/QuickSection"]
+unique_name_in_owner = true
+layout_mode = 2
+text = ""
+theme_override_colors/font_color = Color(0.85, 0.75, 0.4, 1)
+theme_override_font_sizes/font_size = 10
+autowrap_mode = 3
 
 [node name="Sep1" type="HSeparator" parent="Scroll/VBox"]
 layout_mode = 2
@@ -251,7 +325,7 @@ text = "删除"
 
 [node name="RoomListLabel" type="Label" parent="Scroll/VBox"]
 layout_mode = 2
-text = "房间列表："
+text = "房间列表（双击加载）："
 theme_override_font_sizes/font_size = 12
 
 [node name="RoomList" type="ItemList" parent="Scroll/VBox"]
@@ -261,6 +335,13 @@ size_flags_vertical = 3
 custom_minimum_size = Vector2(0, 100)
 allow_reselect = true
 
+[node name="ShortcutHint" type="Label" parent="Scroll/VBox"]
+layout_mode = 2
+text = "快捷键：数字 1-8 切工具 · R 旋转墙朝向 · 左键画/右键擦 · 左键拖动连画"
+theme_override_colors/font_color = Color(0.5, 0.5, 0.55, 1)
+theme_override_font_sizes/font_size = 10
+autowrap_mode = 3
+
 [node name="Status" type="Label" parent="Scroll/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
@@ -269,12 +350,16 @@ theme_override_colors/font_color = Color(0.4, 0.9, 0.5, 1)
 theme_override_font_sizes/font_size = 11
 
 [connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/FloorBtn" to="." method="_on_floor_btn_pressed"]
+[connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/RectFillBtn" to="." method="_on_rect_fill_btn_pressed"]
 [connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/WallEdgeBtn" to="." method="_on_wall_edge_btn_pressed"]
 [connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/WallCellBtn" to="." method="_on_wall_cell_btn_pressed"]
 [connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/WallLineBtn" to="." method="_on_wall_line_btn_pressed"]
 [connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/DoorBtn" to="." method="_on_door_btn_pressed"]
 [connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/SpawnBtn" to="." method="_on_spawn_btn_pressed"]
 [connection signal="pressed" from="Scroll/VBox/ToolSection/ToolGrid/EraserBtn" to="." method="_on_eraser_btn_pressed"]
+[connection signal="item_selected" from="Scroll/VBox/FloorSection/FloorRow/FloorType" to="." method="_on_floor_type_selected"]
+[connection signal="pressed" from="Scroll/VBox/QuickSection/QuickGrid/AutoWallBtn" to="." method="_on_auto_wall_pressed"]
+[connection signal="pressed" from="Scroll/VBox/QuickSection/QuickGrid/ValidateBtn" to="." method="_on_validate_pressed"]
 [connection signal="item_selected" from="Scroll/VBox/SpawnSection/SpawnTypeRow/SpawnType" to="." method="_on_spawn_type_selected"]
 [connection signal="item_selected" from="Scroll/VBox/SpawnSection/MonsterRow/MonsterList" to="." method="_on_monster_selected"]
 [connection signal="pressed" from="Scroll/VBox/MetaSection/SizeRow/ResizeBtn" to="." method="_on_resize_pressed"]
