@@ -40,16 +40,16 @@ func _process(_delta: float) -> void:
 	if Input.is_action_just_pressed("dodge"):
 		_dodge_time = Time.get_ticks_msec() / 1000.0
 
-	# 攻击方向（立即响应，不持续）+ 缓存
+	# 攻击方向（立即响应，不持续）+ 缓存；方向键组合 = 斜向 45°
 	attack_direction = Vector2.ZERO
 	if Input.is_action_just_pressed("attack_up"):
-		attack_direction = Vector2.UP
+		attack_direction.y -= 1.0
 	elif Input.is_action_just_pressed("attack_down"):
-		attack_direction = Vector2.DOWN
-	elif Input.is_action_just_pressed("attack_left"):
-		attack_direction = Vector2.LEFT
+		attack_direction.y += 1.0
+	if Input.is_action_just_pressed("attack_left"):
+		attack_direction.x -= 1.0
 	elif Input.is_action_just_pressed("attack_right"):
-		attack_direction = Vector2.RIGHT
+		attack_direction.x += 1.0
 
 	if attack_direction != Vector2.ZERO:
 		_last_attack_direction = attack_direction

@@ -30,8 +30,10 @@ enum EnemyState {
 	IDLE,
 	DETECT,
 	CHASE,
+	WINDUP,   # 攻击前摇（可被受击打断）
 	ATTACK,
 	RECOVER,
+	STAGGERED,  # 受击硬直（AI 暂停，velocity 走击退摩擦）
 	DASH,   # 突进冲刺中
 	DEAD,
 }
@@ -61,6 +63,11 @@ var _hp: float
 var _attack_timer := 0.0
 var _player  # Player（动态类型：避免 --script 测试模式下 class_name 编译依赖）
 var _visual_color := Color(0.8, 0.2, 0.2)
+
+# 前摇与硬直
+var _windup_timer := 0.0        # 前摇剩余
+var _stagger_timer := 0.0       # 硬直剩余
+var _knockback_velocity := Vector3.ZERO  # 硬直期间击退速度（摩擦衰减）
 
 
 func _ready() -> void:
@@ -157,6 +164,11 @@ func _physics_process(delta: float) -> void:
 		_update_dash(delta)
 		return
 
+	# 受击硬直：AI 暂停，走击退摩擦位移
+	if _current_state == EnemyState.STAGGERED:
+		_update_stagger(delta)
+		return
+
 	if _player == null:
 		_find_player()
 		if _player == null:
@@ -167,10 +179,10 @@ func _physics_process(delta: float) -> void:
 			_state_idle()
 		EnemyState.CHASE:
 			_state_chase(delta)
+		EnemyState.WINDUP:
+			_state_windup(delta)
 		EnemyState.ATTACK:
 			_state_attack()
-		EnemyState.RECOVER:
-			_state_recover(delta)
 		EnemyState.DEAD:
 			pass
 
@@ -239,12 +251,71 @@ func _state_attack() -> void:
 	if _attack_timer > 0.0:
 		return
 
+	# 进入攻击前摇（高伤害怪前摇更长，可被打断）
 	_attack_timer = attack_interval
-	_perform_attack()
+	_windup_timer = _windup_duration()
+	_current_state = EnemyState.WINDUP
+	_set_windup_visual(true)
 
 
-func _state_recover(delta: float) -> void:
+## 前摇时长：普通 0.5s；高伤害（≥35 攻）加长到 1.0s（分册约束）
+func _windup_duration() -> float:
+	if atk >= 35.0:
+		return 1.0
+	return 0.5
+
+
+## 前摇推进：结束才结算伤害；目标脱离范围则取消
+func _state_windup(delta: float) -> void:
+	if _player == null:
+		_cancel_windup()
+		return
+	var dist: float = global_position.distance_to(_player.global_position)
+	if dist > attack_range * 1.4:
+		_cancel_windup()
+		return
+	_windup_timer -= delta
+	if _windup_timer <= 0.0:
+		_set_windup_visual(false)
+		_current_state = EnemyState.ATTACK
+		_perform_attack()
+		_current_state = EnemyState.CHASE
+
+
+## 取消前摇（目标脱离/被打断）
+func _cancel_windup() -> void:
+	_set_windup_visual(false)
 	_current_state = EnemyState.CHASE
+
+
+## 前摇视觉：模型发白光预警
+func _set_windup_visual(active: bool) -> void:
+	var model := get_node_or_null("Model") as MeshInstance3D
+	if model == null:
+		return
+	var mat := model.material_override as StandardMaterial3D
+	if mat == null:
+		return
+	if active:
+		mat.emission_enabled = true
+		mat.emission = Color(1.0, 0.95, 0.5)
+		mat.emission_energy_multiplier = 0.8
+	elif not death_poison:
+		mat.emission_enabled = false
+	else:
+		mat.emission = Color(0.2, 0.8, 0.2)
+		mat.emission_energy_multiplier = 0.4
+
+
+## 受击硬直推进：AI 暂停，击退速度摩擦衰减
+func _update_stagger(delta: float) -> void:
+	_stagger_timer -= delta
+	velocity = _knockback_velocity
+	_knockback_velocity = _knockback_velocity.move_toward(Vector3.ZERO, 12.0 * delta)
+	move_and_slide()
+	if _stagger_timer <= 0.0:
+		_knockback_velocity = Vector3.ZERO
+		_current_state = EnemyState.CHASE
 
 
 ## 开始突进冲刺
@@ -353,7 +424,7 @@ func _on_projectile_hit(body: Node3D, proj: Node3D, damage: float) -> void:
 	proj.queue_free()
 
 
-func take_damage(amount: float, _is_crit: bool = false) -> void:
+func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vector3.ZERO) -> void:
 	# 闪避判定（迷雾幽灵 30%）
 	if dodge_pct > 0.0 and rng.randf() < dodge_pct:
 		var bus0 = _event_bus()
@@ -367,6 +438,15 @@ func take_damage(amount: float, _is_crit: bool = false) -> void:
 
 	if _hp <= 0.0:
 		die()
+		return
+
+	# 受击硬直：打断前摇/攻击，进入 STAGGERED（击退为向量速度）
+	_knockback_velocity = knockback
+	_stagger_timer = 0.3
+	if _current_state == EnemyState.WINDUP:
+		_set_windup_visual(false)
+		_attack_timer = maxf(_attack_timer, 0.4)  # 打断后惩罚：短冷却
+	_current_state = EnemyState.STAGGERED
 
 
 func die() -> void:

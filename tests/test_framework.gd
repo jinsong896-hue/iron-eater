@@ -312,10 +312,11 @@ func test_room_combat_loop() -> void:
 	_check(alive > 0, "激活后刷出敌人（alive=%d）" % alive, [alive])
 
 	if alive > 0:
-		# 杀死所有活敌 → 房间清空
+		# 杀死所有活敌 → 房间清空（先清闪避，确保击杀确定性）
 		var enemies: Array = controller.get("_living_enemies")
 		for e in enemies:
 			if is_instance_valid(e):
+				e.set("dodge_pct", 0.0)
 				e.take_damage(99999.0)
 		_check(controller.is_cleared, "全灭后房间清空")
 

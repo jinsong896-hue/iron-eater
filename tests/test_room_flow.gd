@@ -46,6 +46,7 @@ func _ready() -> void:
 		# 杀光敌人
 		for e in ctrl._living_enemies.duplicate():
 			if is_instance_valid(e):
+				e.set("dodge_pct", 0.0)
 				e.take_damage(999999.0)
 		await get_tree().process_frame
 		await get_tree().process_frame

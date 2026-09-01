@@ -199,6 +199,11 @@ func _start_normal_attack() -> void:
 	var aspd := GameManager.stat_value("aspd")
 	_attack_timer = params[0] / maxf(aspd, 0.1)
 	_perform_melee_attack(params[1], params[2], deg_to_rad(params[3]), params[4])
+	# 挥砍视觉：终结技（第 4 段）金色大扇形，其余白
+	if stage == 4:
+		_spawn_slash_visual(params[2], deg_to_rad(params[3]), Color(1.0, 0.8, 0.2, 0.55))
+	else:
+		_spawn_slash_visual(params[2], deg_to_rad(params[3]))
 	_combo.end_attack()
 
 
@@ -217,6 +222,8 @@ func _start_sprint_attack() -> void:
 	_is_sprinting = false  # 消耗冲刺惯性
 
 	_perform_charge_attack(params[1], params[2], params[3], params[4])
+	# 冲撞视觉：橙红色宽扇形
+	_spawn_slash_visual(params[2], deg_to_rad(55.0), Color(1.0, 0.45, 0.15, 0.5))
 	_combo.end_attack()
 
 
@@ -266,6 +273,9 @@ func _update_jump_attack(delta: float) -> void:
 func _perform_jump_landing() -> void:
 	var params: Array = GameBalance.JUMP_ATTACK
 	_perform_aoe_attack(params[1], params[4], params[5])
+	# 落地视觉：青色全向扇形（360°）+ 强震屏
+	_spawn_slash_visual(params[4], PI, Color(0.4, 0.9, 1.0, 0.5))
+	_screen_shake(0.3)
 	# 视觉反馈：落地消息
 	var bus := get_node_or_null("/root/EventBus")
 	if bus:
@@ -346,15 +356,20 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	var crit := GameManager.rng.randf() < crt
 	var total := DamagePipeline.with_crit(result.damage, crit, crd)
 
-	enemy.call("take_damage", total, crit)
+	# 击退向量（EnemyBase 硬直期间消费）
+	var push: Vector3 = Vector3.ZERO
+	if knockback > 0.0:
+		push = (enemy.global_position - global_position)
+		push.y = 0.0
+		if push.length_squared() > 0.001:
+			push = push.normalized() * knockback
+		else:
+			push = _facing * knockback
+	enemy.call("take_damage", total, crit, push)
 	EventBus.damage_popup.emit(enemy.global_position, total, "crit" if crit else "normal")
-
-	# 击退（击退力 > 0 时）
-	if knockback > 0.0 and enemy is CharacterBody3D:
-		var push_dir: Vector3 = (enemy.global_position - global_position)
-		push_dir.y = 0.0
-		if push_dir.length_squared() > 0.001:
-			(enemy as CharacterBody3D).velocity += push_dir.normalized() * knockback
+	# 暴击/重击 hitstop 顿帧
+	if crit or multiplier >= 1.5:
+		_hitstop(0.06)
 
 
 ## 攻击收尾反馈
@@ -362,6 +377,78 @@ func _finish_attack_feedback(hit_any: bool) -> void:
 	if hit_any:
 		EventBus.player_attacked.emit(_facing, "")
 		AudioManager.play("hit")
+		_screen_shake(0.15)
+
+
+## Hitstop：短暂全局减速制造顿帧感
+func _hitstop(duration: float) -> void:
+	if _hitstop_active:
+		return
+	_hitstop_active = true
+	Engine.time_scale = 0.05
+	await get_tree().create_timer(duration, true, false, true).timeout
+	Engine.time_scale = 1.0
+	_hitstop_active = false
+
+var _hitstop_active := false
+
+
+## 屏幕震动：相机 rig 短促偏移衰减
+func _screen_shake(strength: float) -> void:
+	var rig := get_node_or_null("../CameraRig")
+	if rig == null:
+		return
+	var tween := create_tween()
+	var offset := Vector3(
+		rng_shake.randf_range(-strength, strength),
+		0.0,
+		rng_shake.randf_range(-strength, strength)
+	)
+	rig.position += offset
+	tween.tween_property(rig, "position", rig.position - offset, 0.2)\
+		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
+var rng_shake := RandomNumberGenerator.new()
+
+
+## 挥砍视觉：面前渐隐扇形 mesh（普攻/奔跑/跳跃攻击调用）
+func _spawn_slash_visual(reach: float, half_angle: float, color: Color = Color(1, 1, 0.85, 0.5)) -> void:
+	var slash := MeshInstance3D.new()
+	var mesh := ImmediateMesh.new()
+	slash.mesh = mesh
+
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = color
+	mat.emission_enabled = true
+	mat.emission = color
+	mat.emission_energy_multiplier = 1.5
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	slash.material_override = mat
+
+	# 扇形几何（在局部 Z+ 方向画弧，节点朝向 = 攻击面向；三角形条带拼扇形）
+	var steps := 12
+	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(steps):
+		var a0 := -half_angle + (2.0 * half_angle * i / steps)
+		var a1 := -half_angle + (2.0 * half_angle * (i + 1) / steps)
+		var v0 := Vector3(sin(a0) * reach, 0.0, cos(a0) * reach)
+		var v1 := Vector3(sin(a1) * reach, 0.0, cos(a1) * reach)
+		mesh.surface_set_color(color)
+		mesh.surface_add_vertex(Vector3.ZERO)
+		mesh.surface_add_vertex(v1)
+		mesh.surface_add_vertex(v0)
+	mesh.surface_end()
+
+	var rot_y := atan2(_facing.x, _facing.z)
+	slash.position = global_position + Vector3(0, 1.0, 0)
+	slash.rotation.y = rot_y
+
+	get_parent().add_child(slash)
+	# 渐隐销毁
+	var tween := create_tween()
+	tween.tween_property(mat, "albedo_color:a", 0.0, 0.12)
+	tween.tween_callback(slash.queue_free)
 
 
 ## 敌人有效性检查
