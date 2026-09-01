@@ -52,6 +52,22 @@ const ATTACK_REACH := 2.0
 func _ready() -> void:
 	add_to_group("player")
 	_combo = AttackCombo.new()
+	# 击杀回血（监听全局敌死信号）
+	var bus := get_node_or_null("/root/EventBus")
+	if bus and bus.has_signal("enemy_died"):
+		bus.enemy_died.connect(_on_enemy_killed)
+
+
+## 击杀回血回调
+func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
+	if GameBalance.KILL_HEAL <= 0.0:
+		return
+	if GameManager.attributes and not GameManager.attributes.is_dead():
+		var healed: float = GameManager.attributes.heal(GameBalance.KILL_HEAL)
+		# 绿色回血飘字
+		var bus := get_node_or_null("/root/EventBus")
+		if bus and healed > 0.0:
+			bus.damage_popup.emit(global_position, healed, "heal")
 
 
 func _physics_process(delta: float) -> void:

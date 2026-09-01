@@ -98,6 +98,13 @@ func apply_monster_config(m: Dictionary) -> void:
 	attack_interval = float(m.get("attack_interval", 3.0))
 	dodge_pct = float(m.get("dodge_pct", 0.0))
 	body_scale = float(m.get("scale", 1.0))
+	# 金币按血量档位（血厚值钱：飞行/闪避怪低、高血怪高）
+	var hp := float(m.get("hp", 100))
+	gold_min = int(maxi(3, hp / 25.0))
+	gold_max = gold_min + 8
+	if bool(m.get("is_boss", false)):
+		gold_min = 50
+		gold_max = 120
 
 	var special: Dictionary = m.get("special", {})
 	death_poison = special.get("death_poison", false)

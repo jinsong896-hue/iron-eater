@@ -48,6 +48,15 @@ const COMBO_DAMAGE_PER_HIT := 0.02
 const COMBO_DAMAGE_CAP := 0.30
 ## 连段中攻击朝向锁定（攻击后摇期间不改面向）
 const COMBO_FACE_LOCK := true
+# --- 资源系统 ---
+## 击杀回血（每次击杀回复 HP；0=关闭）
+const KILL_HEAL := 2.0
+## 层间传送门：HP 全恢复（进新层满状态）
+const FLOOR_TRANSITION_FULL_HEAL := true
+## 宝箱金币范围
+const CHEST_GOLD_RANGE := Vector2(20, 50)
+## 击杀金币范围（原 3~12 偏低，强化 20+/次）
+const KILL_GOLD_RANGE := Vector2(6, 18)
 
 # ============================================================
 # 技能预设（内联数据，后续可迁移到 Resource）

@@ -252,9 +252,15 @@ func _on_portal_entered(body: Node3D) -> void:
 	var gm = _game_manager()
 	if gm:
 		gm.run_info["floor"] = int(gm.run_info.get("floor", 1)) + 1
+		# 层间全恢复（满状态进新层）
+		if GameBalance.FLOOR_TRANSITION_FULL_HEAL and gm.attributes:
+			gm.attributes.hp = gm.attributes.max_hp
 		if int(gm.run_info["floor"]) > 9:
 			gm.finish_run("cleared")
 			return
+		var bus0 = _event_bus()
+		if bus0:
+			bus0.stats_changed.emit()
 	# 通知 GameRoot 重建地牢（下一层）
 	var room_root := get_parent()
 	var game_root := room_root.get_parent() if room_root else null

@@ -51,6 +51,9 @@ func _init() -> void:
 	# 第一层怪物数据库测试
 	test_monster_db_layer1()
 
+	# 资源系统测试（宝箱/回血/层间恢复/金币产出）
+	test_resource_system()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -641,6 +644,61 @@ func test_monster_db_layer1() -> void:
 	var elite: Dictionary = MDB.random_elite(rng)
 	_check(elite.get("id") in ["berserk_prisoner", "hound_jailer", "rat_mutant", "zombie_prison"],
 		"精英池四选一", [str(elite.get("id"))])
+
+
+## 资源系统测试：宝箱/回血/层间恢复/金币产出
+func test_resource_system() -> void:
+	_current_test = "ResourceSystem"
+	print("\n--- %s ---" % _current_test)
+
+	var AS = _require_script("res://data/attributes/attribute_system.gd")
+	var LS = _require_script("res://gameplay/loot/loot_system.gd")
+	var EB = _require_script("res://entities/enemies/enemy_base.gd")
+	var MDB = _require_script("res://data/monsters/monster_db.gd")
+	if AS == null or LS == null or EB == null or MDB == null:
+		return
+
+	# --- heal 返回实际回复量 ---
+	var attrs = AS.new()
+	attrs.take_damage(50.0)  # 450/500
+	var healed1: float = attrs.heal(20.0)
+	_check(healed1 == 20.0, "未满血回复 20 返回 20", [healed1])
+	attrs.heal(100.0)  # 满血
+	var healed2: float = attrs.heal(30.0)  # 溢出
+	_check(healed2 == 0.0, "满血时回复返回 0", [healed2])
+
+	# --- 击杀回血配置 ---
+	_check(GameBalance.KILL_HEAL > 0.0, "击杀回血开启（每击 %.0f）" % GameBalance.KILL_HEAL)
+	_check(GameBalance.FLOOR_TRANSITION_FULL_HEAL, "层间传送门全恢复开启")
+
+	# --- 宝箱金币范围与击杀金币范围 ---
+	_check(GameBalance.CHEST_GOLD_RANGE.x < GameBalance.CHEST_GOLD_RANGE.y, "宝箱金币范围有效")
+	_check(GameBalance.KILL_GOLD_RANGE.x >= 5, "击杀金币下限 ≥5（经济可循环）",
+		[GameBalance.KILL_GOLD_RANGE.x])
+
+	# --- 宝箱掉落（必掉白装）---
+	var EDB = _require_script("res://data/equipment/equipment_db.gd")
+	if EDB:
+		EDB.init_white_equipment()
+		var parent := Node3D.new()
+		self.root.add_child(parent)
+		var loot = LS.new()
+		loot.generate_chest_loot(Vector3.ZERO, parent, 1)
+		_check(parent.get_child_count() == 1, "宝箱掉落生成 1 件拾取物",
+			[parent.get_child_count()])
+		parent.queue_free()
+
+	# --- 怪物金币按血量档位 ---
+	var zombie: CharacterBody3D = EB.new()
+	zombie.apply_monster_config(MDB.get_monster("zombie_prison"))
+	_check(zombie.gold_min >= 3, "僵尸金币下限 ≥3（血量档位）", [zombie.gold_min])
+	var rat: CharacterBody3D = EB.new()
+	rat.apply_monster_config(MDB.get_monster("rat_mutant"))
+	_check(rat.gold_min > zombie.gold_min, "巨鼠金币 > 僵尸（血厚值钱）",
+		["%d vs %d" % [rat.gold_min, zombie.gold_min]])
+	var boss: CharacterBody3D = EB.new()
+	boss.apply_monster_config(MDB.boss_monster())
+	_check(boss.gold_min == 50 and boss.gold_max == 120, "Boss 金币 50~120")
 
 
 ## Boss 房闭环测试：boss 房 JSON 可解析 → 刷 Boss → 杀 Boss → 传送门出现

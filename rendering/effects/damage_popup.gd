@@ -52,6 +52,8 @@ static func create(parent: Node3D, world_pos: Vector3, amount: float, kind: Stri
 			popup.color = Color(0.7, 0.3, 1.0)
 		"armor":  # 终结技霸体期受击（金色）
 			popup.color = Color(1.0, 0.85, 0.3)
+		"heal":  # 回血（绿色）
+			popup.color = Color(0.3, 0.95, 0.4)
 		_:
 			popup.color = Color.WHITE
 

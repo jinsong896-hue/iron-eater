@@ -90,15 +90,31 @@ func _update_display() -> void:
 	if health_label:
 		health_label.text = "%d" % int(hp)
 
-	# MP（暂时用 AP 属性）
-	var mp: float = gm.stat_value("mp")
+	# 连击伤害加成（原 MP 球——技能系统未实装前展示真实数据）
+	var combo_bonus := _combo_damage_bonus()
 	if mana_orb:
-		mana_orb.value = mp
+		mana_orb.max_value = GameBalance.COMBO_DAMAGE_CAP * 100.0
+		mana_orb.value = combo_bonus * 100.0
 	if mana_label:
-		mana_label.text = "%d" % int(mp)
+		mana_label.text = "+%d%%" % int(combo_bonus * 100.0)
 
 	if gold_label:
 		gold_label.text = "金币: %d" % gm.get("gold")
+
+
+## 当前连击伤害加成（从玩家读连击数）
+func _combo_damage_bonus() -> float:
+	var players := get_tree().get_nodes_in_group("player")
+	if players.is_empty():
+		return 0.0
+	var p = players[0]
+	if p and p.has_method("get_hit_combo"):
+		var count: int = p.get_hit_combo()
+		return minf(
+			count * GameBalance.COMBO_DAMAGE_PER_HIT,
+			GameBalance.COMBO_DAMAGE_CAP
+		)
+	return 0.0
 
 
 func _on_gold_changed(amount: int) -> void:

@@ -69,8 +69,11 @@ func take_damage(amount: float) -> void:
 	hp = maxf(hp - amount, 0.0)
 
 
-func heal(amount: float) -> void:
+## 治疗（返回实际回复量）
+func heal(amount: float) -> float:
+	var before := hp
 	hp = minf(hp + amount, max_hp)
+	return hp - before
 
 
 func is_dead() -> bool:

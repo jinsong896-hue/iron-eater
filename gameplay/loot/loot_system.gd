@@ -27,6 +27,17 @@ func generate_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 	_spawn_pickup(item, position, parent)
 
 
+## 宝箱掉落：必掉 count 件白装（无金币——金币由 Chest 自身入账）
+func generate_chest_loot(position: Vector3, parent: Node3D, count: int = 1) -> void:
+	var pool := EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.WHITE)
+	if pool.is_empty():
+		return
+	for i in range(count):
+		var template = pool[rng.randi_range(0, pool.size() - 1)]
+		var item := EquipmentInstance.create(template)
+		_spawn_pickup(item, position + Vector3(float(i) * 0.6 - 0.3, 0.0, 0.0), parent)
+
+
 ## 获取 GameManager autoload（--script 测试模式下不存在，返回 null）
 func _game_manager():
 	var tree := Engine.get_main_loop() as SceneTree
@@ -43,16 +54,17 @@ func _event_bus():
 	return null
 
 
-## 金币掉落（来源字段优先，否则基线范围随机）
+## 金币掉落（来源字段优先，否则击杀基线范围随机）
 func _roll_gold(enemy_data) -> int:
 	if enemy_data == null:
 		return 0
+	var base_lo := int(GameBalance.KILL_GOLD_RANGE.x)
+	var base_hi := int(GameBalance.KILL_GOLD_RANGE.y)
 	if enemy_data is Dictionary:
-		return int(enemy_data.get("gold", rng.randi_range(
-			int(GameBalance.GOLD_DROP_RANGE.x), int(GameBalance.GOLD_DROP_RANGE.y))))
+		return int(enemy_data.get("gold", rng.randi_range(base_lo, base_hi)))
 	if "gold_min" in enemy_data and "gold_max" in enemy_data:
 		return rng.randi_range(int(enemy_data.gold_min), int(enemy_data.gold_max))
-	return rng.randi_range(int(GameBalance.GOLD_DROP_RANGE.x), int(GameBalance.GOLD_DROP_RANGE.y))
+	return rng.randi_range(base_lo, base_hi)
 
 
 ## 掉落装备模板：显式 loot_table 优先；Boss 必掉；否则按 BASE_DROP_CHANCE 从白装池随机
@@ -138,21 +150,35 @@ func _process(delta: float) -> void:
 	rotate_y(delta * 2.0)
 	position.y += sin(Time.get_ticks_msec() * 0.003) * 0.005
 
+## autoload 运行时获取（--script 测试模式下不存在）
+func _gm():
+	return get_node_or_null("/root/GameManager")
+
+func _bus():
+	return get_node_or_null("/root/EventBus")
+
 ## 拾取进背包
 func pick_up() -> Dictionary:
 	if item == null:
 		return {"ok": false, "reason": "无效物品"}
-	if not GameManager.equipment_manager.add_item(item):
+	var gm = _gm()
+	if gm == null:
+		return {"ok": false, "reason": "GameManager 不可用"}
+	if not gm.equipment_manager.add_item(item):
 		return {"ok": false, "reason": "背包已满"}
-	EventBus.item_picked_up.emit(item.instance_id, item.display_name())
-	EventBus.message.emit("拾取：%s" % item.display_name())
-	AudioManager.play("pickup")
+	var bus = _bus()
+	if bus:
+		bus.item_picked_up.emit(item.instance_id, item.display_name())
+		bus.message.emit("拾取：%s" % item.display_name())
 	queue_free()
 	return {"ok": true}
 
 ## 原地吞噬（本局永久成长）
 func devour() -> Dictionary:
-	var result: Dictionary = GameManager.devour_item(item)
+	var gm = _gm()
+	if gm == null:
+		return {"ok": false, "reason": "GameManager 不可用"}
+	var result: Dictionary = gm.devour_item(item)
 	if result.get("ok", false):
 		queue_free()
 	return result

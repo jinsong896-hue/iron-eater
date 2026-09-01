@@ -225,6 +225,22 @@ func _build_spawn_markers(parent: Node3D, data) -> void:
 		marker.position = Vector3(float(entity.get("x", 0)), 0.0, float(entity.get("y", 0)))
 		marker.add_to_group(gn)
 		parent.add_child(marker)
+		# 宝箱：chest_spawn 处实例化宝箱实体（可交互掉落）
+		if etype == "chest_spawn":
+			_spawn_chest(marker.position, parent)
+
+
+## 在标记位置生成宝箱实体
+func _spawn_chest(pos: Vector3, parent: Node3D) -> void:
+	var chest_scene := "res://scenes/props/chest.tscn"
+	if not ResourceLoader.exists(chest_scene):
+		return
+	var scene := ResourceLoader.load(chest_scene, "PackedScene", ResourceLoader.CACHE_MODE_REUSE) as PackedScene
+	if scene == null:
+		return
+	var chest := scene.instantiate()
+	chest.position = pos
+	parent.add_child(chest)
 
 
 func _create_fallback_room() -> Node3D:
