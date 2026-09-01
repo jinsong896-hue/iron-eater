@@ -48,6 +48,9 @@ func _init() -> void:
 	# 坐标放置测试（单点全元素/矩形墙圈/对角/钳制）
 	test_coord_placement()
 
+	# 第一层怪物数据库测试
+	test_monster_db_layer1()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -570,6 +573,73 @@ func test_coord_placement() -> void:
 	_check(c2 == Vector2i(9, 7), "越界坐标钳制到边界", [str(c2)])
 
 	root.queue_free()
+
+
+## 第一层怪物数据库测试：数量/数值口径/AI 映射/Boss/精英池
+func test_monster_db_layer1() -> void:
+	_current_test = "MonsterDBLayer1"
+	print("\n--- %s ---" % _current_test)
+
+	var MDB = _require_script("res://data/monsters/monster_db.gd")
+	var EB = _require_script("res://entities/enemies/enemy_base.gd")
+	if MDB == null or EB == null:
+		return
+
+	MDB.init_layer1()
+	var all: Array = MDB.all_monsters()
+	_check(all.size() == 10, "第一层怪物 10 种", [str(all.size())])
+
+	# 抽查设计分册数值口径
+	var zombie = MDB.get_monster("zombie_prison")
+	_check(zombie.get("hp") == 120 and zombie.get("atk") == 25, "监牢僵尸 120/25")
+	var archer = MDB.get_monster("skeleton_archer")
+	_check(archer.get("hp") == 70 and archer.get("attack_range") == 8.0, "骷髅弓手 70 血/射程 8")
+	_check(archer.get("ai") == "kite", "弓手 AI = 风筝")
+	var sentinel = MDB.get_monster("tomb_sentinel")
+	_check(sentinel.get("ai") == "sentry" and sentinel.get("speed_pct") == 0, "哨兵固定不移动")
+	var phantom = MDB.get_monster("mist_phantom")
+	_check(phantom.get("dodge_pct") == 0.3, "迷雾幽灵闪避 30%", [str(phantom.get("dodge_pct"))])
+	var rat = MDB.get_monster("rat_mutant")
+	_check(rat.get("hp") == 250 and rat.get("speed_pct") == 35, "巨鼠 250 血/35% 移速")
+
+	# 设计约束：远程血 ≤ 近战 60%、飞行血 ≤ 近战 40%
+	_check(archer.get("hp") <= zombie.get("hp") * 0.6, "远程血 ≤ 近战 60%")
+	var bat = MDB.get_monster("bat_stonewing")
+	_check(bat.get("hp") <= zombie.get("hp") * 0.4, "飞行血 ≤ 近战 40%")
+	# 攻击频率约束：间隔 ≥ 2.5s
+	var all_ok := true
+	for m in all:
+		if float(m.get("attack_interval")) < 2.5:
+			all_ok = false
+	_check(all_ok, "全部攻击间隔 ≥ 2.5s")
+
+	# Boss：鼠王（血 ×2.4=600，攻 ×1.3）
+	var boss = MDB.boss_monster()
+	_check(boss.get("hp") == 600, "鼠王血量 600", [str(boss.get("hp"))])
+	_check(boss.get("atk") == 39, "鼠王攻击 39（30×1.3）", [str(boss.get("atk"))])
+	_check(bool(boss.get("is_boss")), "Boss 标记")
+
+	# EnemyBase 应用配置（场景树外纯属性应用）
+	var enemy: CharacterBody3D = EB.new()
+	enemy.apply_monster_config(MDB.get_monster("hound_jailer"))
+	_check(enemy.behavior == EB.AIBehavior.RUSHER, "猎犬 AI = 突进")
+	_check(enemy.max_hp == 90.0, "猎犬血量 90")
+	_check(absf(enemy.move_speed - 4.8) < 0.01, "猎犬移速 120%×4.0=4.8", [str(enemy.move_speed)])
+	var enemy2: CharacterBody3D = EB.new()
+	enemy2.apply_monster_config(MDB.get_monster("zombie_miasma"))
+	_check(enemy2.death_poison, "毒瘴僵尸死亡毒雾标记")
+	var enemy3: CharacterBody3D = EB.new()
+	enemy3.apply_monster_config(MDB.get_monster("tomb_sentinel"))
+	_check(enemy3.behavior == EB.AIBehavior.SENTRY and enemy3.attack_range == 15.0, "哨兵 15 米射程")
+
+	# 随机池
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 42
+	var picked: Dictionary = MDB.random_monster(rng)
+	_check(not picked.is_empty(), "加权随机返回有效怪物")
+	var elite: Dictionary = MDB.random_elite(rng)
+	_check(elite.get("id") in ["berserk_prisoner", "hound_jailer", "rat_mutant", "zombie_prison"],
+		"精英池四选一", [str(elite.get("id"))])
 
 
 ## Boss 房闭环测试：boss 房 JSON 可解析 → 刷 Boss → 杀 Boss → 传送门出现

@@ -109,46 +109,65 @@ func deactivate() -> void:
 		bus.room_exited.emit(_room_id())
 
 
-## 生成敌人（70% 概率/点，难度缩放取 GameManager 配置）
+## 生成敌人（70% 概率/点；怪物从 MonsterDB 第一层池按房间类型选）
 func _spawn_enemies() -> void:
 	if _spawn_points.is_empty():
 		return
 
 	var difficulty_mult := _difficulty_mult()
+	var gm = _game_manager()
+	var rng := RandomNumberGenerator.new()
+	if gm and gm.rng:
+		rng.seed = gm.rng.randi()
+	MonsterDB.init_layer1()
 
 	for point in _spawn_points:
 		if randf() < 0.7:
-			var enemy := _spawn_enemy_at(point, difficulty_mult)
+			var m: Dictionary
+			# 生成点带 monster_id meta 时用指定怪，否则按房间类型加权随机
+			var custom_id := str(point.get_meta("monster_id", ""))
+			if not custom_id.is_empty():
+				m = MonsterDB.get_monster(custom_id)
+			elif _room_type() == "elite":
+				m = MonsterDB.random_elite(rng)
+			else:
+				m = MonsterDB.random_monster(rng)
+			var enemy := _spawn_enemy_at(point, difficulty_mult, m)
 			if enemy:
 				enemies_alive += 1
 				_living_enemies.append(enemy)
 
 
-## 在生成点创建敌人
-func _spawn_enemy_at(point: Marker3D, difficulty_mult: float) -> EnemyBase:
+## 在生成点创建敌人（应用 MonsterDB 配置 + 难度缩放）
+func _spawn_enemy_at(point: Marker3D, difficulty_mult: float, m: Dictionary = {}) -> EnemyBase:
 	var enemy := EnemyBase.new()
 	enemy.position = point.global_position
-	enemy.max_hp = 100.0 * difficulty_mult
-	enemy.atk = 10.0 * difficulty_mult
-	enemy.move_speed = 2.0
+	if not m.is_empty():
+		enemy.apply_monster_config(m)
+		# 难度缩放（在怪物基准数值之上）
+		enemy.max_hp *= difficulty_mult
+		enemy.atk *= difficulty_mult
+	else:
+		enemy.max_hp = 100.0 * difficulty_mult
+		enemy.atk = 10.0 * difficulty_mult
+		enemy.move_speed = 2.0
 	enemy.died.connect(on_enemy_died)
 	add_child(enemy)
 	return enemy
 
 
-## 生成 Boss（难度缩放 + Boss 必掉装备）
+## 生成 Boss（鼠王·巨型变异老鼠精英版，难度缩放 + 必掉装备）
 func _spawn_boss() -> void:
 	if _boss_spawn == null:
 		return
 	var mult := _difficulty_mult()
+	MonsterDB.init_layer1()
 	_boss = EnemyBase.new()
 	_boss.position = _boss_spawn.global_position
-	_boss.max_hp = 600.0 * mult
-	_boss.atk = 18.0 * mult
-	_boss.defense = 15.0
-	_boss.move_speed = 2.6
+	_boss.apply_monster_config(MonsterDB.boss_monster())
+	_boss.max_hp *= mult
+	_boss.atk *= mult
 	_boss.attack_range = 2.6
-	_boss.attack_interval = 1.4
 	_boss.gold_min = 50
 	_boss.gold_max = 120
 	# Boss 必掉装备：掉落表指向随机白装由 LootSystem 处理，这里用必掉标记
