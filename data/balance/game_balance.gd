@@ -36,6 +36,18 @@ const JUMP_ATTACK := [0.7, 1.70, 1.5, 4.0, 3.0, 6.0]
 const JUMP_ATTACK_PHASES := [0.15, 0.2, 0.15]
 ## 攻击动作期间移动减速比例（0.5 = 减半）
 const ATTACK_MOVE_SLOWDOWN := 0.5
+# --- 连段动作系统 ---
+## 攻击后摇取消窗口：攻击后半段（冷却剩余 < 此比例×总冷却）可翻滚/冲刺取消
+const CANCEL_WINDOW_RATIO := 0.45
+## 连段中可派生特殊攻击：普攻 2/3 段后摇可接奔跑攻击/跳跃攻击
+const COMBO_DERIVATION := true
+## 终结技（第 4 段）霸体：施放瞬间不受击退/硬直
+const FINISHER_SUPERARMOR := true
+## 连击数伤害加成（每击 +x%，上限 y%）
+const COMBO_DAMAGE_PER_HIT := 0.02
+const COMBO_DAMAGE_CAP := 0.30
+## 连段中攻击朝向锁定（攻击后摇期间不改面向）
+const COMBO_FACE_LOCK := true
 
 # ============================================================
 # 技能预设（内联数据，后续可迁移到 Resource）

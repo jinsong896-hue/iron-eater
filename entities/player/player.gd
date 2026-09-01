@@ -37,9 +37,14 @@ var _jump_phase: JumpPhase = JumpPhase.NONE
 var _jump_phase_timer := 0.0
 var _jump_attack_dir := Vector3.ZERO
 
-# 连击计数（HUD 显示）
+# 连击计数（HUD 显示 + 连击伤害加成）
 var _hit_combo_count := 0
 var _hit_combo_time := 0.0
+
+# 连段动作状态
+var _current_combo_stage := 0        # 正在执行的段位（霸体/朝向锁判定用）
+var _current_attack_cooldown := 0.0  # 本次攻击的总冷却（取消窗口比例计算）
+var _finisher_armor_timer := 0.0     # 终结技霸体剩余时间
 
 const ATTACK_REACH := 2.0
 
@@ -53,6 +58,7 @@ func _physics_process(delta: float) -> void:
 	_attack_timer = maxf(_attack_timer - delta, 0.0)
 	_dodge_cooldown_timer = maxf(_dodge_cooldown_timer - delta, 0.0)
 	_sprint_attack_timer = maxf(_sprint_attack_timer - delta, 0.0)
+	_finisher_armor_timer = maxf(_finisher_armor_timer - delta, 0.0)
 
 	# 连击窗口推进 + 连击数计时
 	if _combo:
@@ -137,6 +143,14 @@ func _check_dodge() -> void:
 	# 奔跑攻击冲撞中不可翻滚
 	if _sprint_attack_timer > 0.0:
 		return
+	# 跳跃攻击阶段中不可翻滚
+	if _jump_phase != JumpPhase.NONE:
+		return
+	# 攻击冷却前半段不可翻滚；后摇取消窗口内可翻滚取消（清冷却）
+	if _attack_timer > 0.0:
+		if not _in_cancel_window():
+			return
+		_cancel_current_attack()
 
 	# 翻滚方向：面朝方向或移动方向
 	var dodge_dir := _facing
@@ -156,6 +170,7 @@ func _check_dodge() -> void:
 # ============================================================
 
 ## 攻击入口：判定攻击类型（跳跃组合/奔跑/普攻）并派发
+## 支持连段派生：普攻 2/3 段后摇中可派生奔跑/跳跃攻击
 func _attack() -> void:
 	# 新按下或缓存的攻击输入
 	var dir_2d := InputManager.attack_direction
@@ -166,25 +181,53 @@ func _attack() -> void:
 		if dir_2d == Vector2.ZERO:
 			return
 
-	if _attack_timer > 0.0 or (_combo and _combo.attack_in_progress):
+	var in_recovery := _attack_timer > 0.0 and _in_cancel_window()
+	var blocked := _attack_timer > 0.0 and not in_recovery
+	if blocked or (_combo and _combo.attack_in_progress):
+		return
+	# 跳跃攻击阶段中不接受新攻击
+	if _jump_phase != JumpPhase.NONE:
+		return
+	# 冲撞位移中不接受
+	if _sprint_attack_timer > 0.0:
 		return
 
 	_facing = InputManager.direction_2d_to_3d(dir_2d.normalized())
 	if _facing.length_squared() < 0.001:
 		_facing = Vector3.FORWARD
 
-	# 1) 跳跃攻击：空格+方向键组合
+	# 1) 跳跃攻击：空格+方向键组合（连段派生：清冷却直接起手）
 	if InputManager.attack_is_jump_combo():
+		if in_recovery:
+			_cancel_current_attack()
 		_start_jump_attack()
 		return
 
-	# 2) 奔跑攻击：奔跑状态中攻击
+	# 2) 奔跑攻击：奔跑状态中攻击（连段派生）
 	if _is_sprinting:
+		if in_recovery:
+			_cancel_current_attack()
 		_start_sprint_attack()
 		return
 
-	# 3) 普攻连段
+	# 3) 普攻连段（后摇取消窗口内允许下一击——连段提速）
+	if in_recovery:
+		_cancel_current_attack()
 	_start_normal_attack()
+
+
+## 是否处于攻击后摇取消窗口（冷却后半段）
+func _in_cancel_window() -> bool:
+	if _current_attack_cooldown <= 0.0:
+		return false
+	var elapsed := _current_attack_cooldown - _attack_timer
+	return elapsed >= _current_attack_cooldown * GameBalance.CANCEL_WINDOW_RATIO
+
+
+## 取消当前攻击后摇（清冷却；连段保持——下一击按段位推进）
+func _cancel_current_attack() -> void:
+	_attack_timer = 0.0
+	_current_attack_cooldown = 0.0
 
 
 ## 普攻：取段位参数 → 判定 → 冷却
@@ -198,13 +241,47 @@ func _start_normal_attack() -> void:
 	_combo.begin_attack()
 	var aspd := GameManager.stat_value("aspd")
 	_attack_timer = params[0] / maxf(aspd, 0.1)
+	_current_attack_cooldown = _attack_timer
+	_current_combo_stage = stage
+	# 终结技（第 4 段）霸体
+	if stage == combo_stages_size() and GameBalance.FINISHER_SUPERARMOR:
+		_finisher_armor_timer = _attack_timer
+		_spawn_armor_visual()
 	_perform_melee_attack(params[1], params[2], deg_to_rad(params[3]), params[4])
 	# 挥砍视觉：终结技（第 4 段）金色大扇形，其余白
-	if stage == 4:
+	if stage == combo_stages_size():
 		_spawn_slash_visual(params[2], deg_to_rad(params[3]), Color(1.0, 0.8, 0.2, 0.55))
 	else:
 		_spawn_slash_visual(params[2], deg_to_rad(params[3]))
 	_combo.end_attack()
+
+
+## 连段总段数（从 GameBalance 取，终结技判定用）
+func combo_stages_size() -> int:
+	return GameBalance.COMBO_STAGES.size()
+
+
+## 霸体视觉：玩家金色描边光（终结技期间）
+func _spawn_armor_visual() -> void:
+	var aura := MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.7
+	mesh.height = 1.4
+	aura.mesh = mesh
+	aura.position = Vector3(0, 0.9, 0)
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(1.0, 0.8, 0.3, 0.25)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.75, 0.2)
+	mat.emission_energy_multiplier = 1.2
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	aura.material_override = mat
+	add_child(aura)
+	# 随霸体计时消失
+	var tween := create_tween()
+	tween.tween_interval(_finisher_armor_timer)
+	tween.tween_callback(aura.queue_free)
 
 
 ## 奔跑攻击：突进冲撞（矩形判定），攻击后退出奔跑
@@ -351,8 +428,13 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	var crt := GameManager.stat_value("crt")
 	var crd := GameManager.stat_value("crd")
 	var fusion_bonus := GameManager.fusion_attack_bonus()
+	# 连击数伤害加成（每击 +2%，上限 +30%）
+	var combo_bonus: float = minf(
+		_hit_combo_count * GameBalance.COMBO_DAMAGE_PER_HIT,
+		GameBalance.COMBO_DAMAGE_CAP
+	)
 	var target_def: float = enemy.get("defense") if enemy.get("defense") != null else 0.0
-	var result := DamagePipeline.physical(atk, multiplier, fusion_bonus, target_def)
+	var result := DamagePipeline.physical(atk, multiplier, fusion_bonus + combo_bonus, target_def)
 	var crit := GameManager.rng.randf() < crt
 	var total := DamagePipeline.with_crit(result.damage, crit, crd)
 
@@ -484,9 +566,13 @@ func take_damage(amount: float) -> void:
 	# 翻滚/俯冲无敌帧
 	if _is_dodging or _jump_phase == JumpPhase.DIVE:
 		return
+	# 终结技霸体：减伤 30%，不掉连段节奏（无硬直状态，攻击照常续接）
+	var armor := _finisher_armor_timer > 0.0
+	if armor:
+		amount *= 0.7
 	GameManager.attributes.take_damage(amount)
 	EventBus.player_hit.emit(amount, global_position)
-	EventBus.damage_popup.emit(global_position, amount, "player")
+	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")
 	AudioManager.play("hit")
 
 	if GameManager.attributes.is_dead():

@@ -34,7 +34,48 @@ func _ready() -> void:
 	await _test_normal_combo_damage()
 	await _test_jump_attack_phases()
 	await _test_sprint_attack_charge()
+	await _test_combo_action_system()
 	_finish()
+
+
+## 连段动作系统：取消窗口/派生/霸体/连击加成
+func _test_combo_action_system() -> void:
+	# --- 取消窗口判定 ---
+	player._attack_timer = 0.0
+	player._current_attack_cooldown = 0.28
+	# 冷却前半段：elapsed=0.05 < 0.28*0.45=0.126 → 不可取消
+	player._attack_timer = 0.23
+	_check(not player._in_cancel_window(), "冷却前半段不可取消")
+	# 冷却后半段：elapsed=0.20 > 0.126 → 可取消
+	player._attack_timer = 0.08
+	_check(player._in_cancel_window(), "冷却后半段进入取消窗口")
+
+	# --- 取消清冷却 ---
+	player._cancel_current_attack()
+	_check(player._attack_timer == 0.0, "取消清空攻击冷却")
+
+	# --- 终结技霸体 ---
+	player._finisher_armor_timer = 0.5
+	var hp_before: float = GameManager.attributes.hp
+	player.take_damage(100.0)
+	_check(GameManager.attributes.hp > hp_before - 100.0, "霸体期受击减伤 30%")
+	_check(GameManager.attributes.hp == hp_before - 70.0, "霸体减伤精确 70%")
+	player._finisher_armor_timer = 0.0
+
+	# --- 连击伤害加成 ---
+	player._hit_combo_count = 0
+	var combo_bonus_0: float = minf(0 * GameBalance.COMBO_DAMAGE_PER_HIT, GameBalance.COMBO_DAMAGE_CAP)
+	_check(combo_bonus_0 == 0.0, "0 连击无加成")
+	player._hit_combo_count = 20
+	var combo_bonus_20: float = minf(20 * GameBalance.COMBO_DAMAGE_PER_HIT, GameBalance.COMBO_DAMAGE_CAP)
+	_check(combo_bonus_20 == 0.30, "20 连击加成触顶 30%", str(combo_bonus_20))
+	player._hit_combo_count = 0
+
+	# --- 连击数计数与衰减 ---
+	player._register_hit_combo()
+	_check(player.get_hit_combo() == 1, "命中计数 +1")
+	player._hit_combo_time = 0.0
+	_check(GameBalance.COMBO_DAMAGE_CAP == 0.30, "连击加成上限配置 30%")
 
 
 ## 连段参数：四段伤害与范围递增
