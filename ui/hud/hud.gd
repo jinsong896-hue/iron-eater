@@ -12,7 +12,7 @@ extends CanvasLayer
 @onready var combo_label: Label = $TopLeft/ComboLabel
 @onready var message_label: Label = $TopLeft/MessageLabel
 @onready var buff_bar: HBoxContainer = $BuffBar
-@onready var minimap: Control = $Minimap
+@onready var minimap: MinimapView = $Minimap
 
 var skill_buttons: Array[Button] = []
 var item_buttons: Array[Button] = []
@@ -67,10 +67,21 @@ func _connect_signals() -> void:
 		eb.player_hit.connect(_on_player_hit)
 	if eb.has_signal("floor_changed"):
 		eb.floor_changed.connect(_on_floor_changed)
+	if eb.has_signal("room_entered"):
+		eb.room_entered.connect(_on_room_entered)
 	# 初始层数显示
 	var gm0 := get_node_or_null("/root/GameManager")
 	if gm0 and floor_label:
 		floor_label.text = "第 %d 层" % int(gm0.run_info.get("floor", 1))
+	# 小地图初始刷新
+	if minimap:
+		minimap.notify_room_changed()
+
+
+## 进入新房间：刷新小地图
+func _on_room_entered(_room_id: String) -> void:
+	if minimap:
+		minimap.notify_room_changed()
 
 
 func _update_display() -> void:

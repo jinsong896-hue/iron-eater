@@ -43,13 +43,14 @@ static func _create_door(parent: Node3D, door_data: Dictionary, data) -> void:
 	door.rotation = _get_door_rotation(direction)
 	door.name = "Door_%s" % door_id
 
-	# 设置门属性：触发器写入方向（door_opened 信号用其定位目标房间）
+	# 设置门属性：触发器写入方向，body_entered 连接 door_trigger 自身的处理
 	for child in door.get_children():
 		if child is Area3D:
 			child.add_to_group("door_trigger")
 			child.set("direction", direction)
+			# 连接 Area3D 信号到 door_trigger.gd 的 _on_body_entered（真实穿门传送）
 			if child.has_method("_on_body_entered"):
-				child.body_entered.connect(_on_door_trigger.bind(child))
+				child.body_entered.connect(child._on_body_entered)
 
 	parent.add_child(door)
 
@@ -103,10 +104,6 @@ static func _create_door_node() -> Node3D:
 
 	root.add_child(area)
 	return root
-
-
-static func _on_door_trigger(body: Node3D, area: Area3D) -> void:
-	pass  # 信号由 area 自身的脚本处理
 
 
 ## 计算门在房间边界的位置

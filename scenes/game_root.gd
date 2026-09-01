@@ -23,6 +23,8 @@ var room_state: Dictionary = {}
 
 
 func _ready() -> void:
+	# 小地图数据源（HUD MinimapView 自动拉取）
+	add_to_group("game_root")
 	# 直跑场景兜底：未经主菜单 start_new_run 时初始化局内数据
 	if GameManager.attributes == null:
 		GameManager.start_new_run(GameManager.run_info.duplicate())

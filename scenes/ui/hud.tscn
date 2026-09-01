@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://ui/hud/hud.gd" id="1_hud"]
+[ext_resource type="Script" path="res://ui/hud/minimap_view.gd" id="3_minimap"]
 
 [node name="HUD" type="CanvasLayer"]
 script = ExtResource("1_hud")
@@ -194,4 +195,5 @@ offset_left = -170.0
 offset_top = 20.0
 offset_right = -20.0
 offset_bottom = 170.0
+script = ExtResource("3_minimap")
 grow_horizontal = 0
