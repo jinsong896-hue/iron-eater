@@ -15,10 +15,10 @@
 ## Godot 引擎位置
 
 ```text
-F:\Godot_v4.7.1-stable_mono_win64\Godot_v4.7.1-stable_mono_win64.exe
+F:\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe
 ```
 
-- 无图形界面的验证用 `--headless`；本项目是 mono 版，命令行与普通版一致。
+- 无图形界面的验证用 `--headless`；项目为纯 GDScript，非 mono 构建亦可运行。
 - 运行项目：`"<上面的exe>" --headless --path .` （或去掉 `--headless` 打开窗口）。
 
 ## 项目架构：四层分离
@@ -87,12 +87,15 @@ addons/               插件（gdUnit4, godot_ai, iron_studio, phantom_camera, t
 ## 测试（自研框架）
 
 ```bash
-GODOT="F:/Godot_v4.7.1-stable_mono_win64/Godot_v4.7.1-stable_mono_win64.exe"
+GODOT="F:/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe"
 
 # 修改脚本后必须先重建全局类缓存（.godot/ 被 gitignore，新克隆/清理后不存在）
 "$GODOT" --headless --path . --import
 
-# 核心逻辑测试
+# 【推荐】全量门禁：框架 + 8 套场景/脚本套件，任一失败非 0 退出
+bash tests/run_all.sh
+
+# 或单独跑核心逻辑测试
 "$GODOT" --headless --path . --script res://tests/test_framework.gd
 ```
 

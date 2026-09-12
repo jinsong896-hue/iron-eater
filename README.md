@@ -2,7 +2,7 @@
 
 引擎：Godot 4.7 mono（GDScript，Forward+ 渲染器，HD-2D 风格）
 
-## 当前状态（2026-08-31：HD-2D 重构中期）
+## 当前状态（2026-09-13）
 
 > 项目正处于旧 2D 版本向 HD-2D（3D 场景 + 像素表现）重构的中途。
 > 下述条目为**重构后当前实际状态**，与旧 2D 版本能力有差异。
@@ -11,22 +11,26 @@
 
 - 四层分离架构：`core/`（Autoload）→ `data/`（纯数据）→ `gameplay/`（规则）→ `world/entities/rendering/ui/`（表现）
 - HD-2D 渲染：WorldEnvironment（SSAO/Glow/Fog/色调映射）+ CameraRig + 像素渲染管线 + 伤害飘字
-- 玩家 3D 控制：WASD 移动、双击/Shift 奔跑、空格翻滚（无敌帧）、方向键扇形攻击
+- 玩家 3D 控制：WASD 移动、双击/Shift 奔跑、空格翻滚（无敌帧）、方向键 8 方向扇形攻击
+- 战斗系统：四段普攻连段 + 奔跑冲撞 / 跳跃落地斩 + 取消窗口 / 派生 / 终结霸体 / 连击加成 / 击退硬直 / Hitstop
 - 属性系统：11 项基础属性 + Modifier 叠加（来源无关）
 - 伤害管线：`ATK × 倍率 × (1+增伤) × (1 - 护甲减伤)` + 暴击
-- 装备系统数据层（**7 件白装最小版**，36 件全量待补）：模板/实例分离、
-  穿戴/吞噬/融合核心逻辑（融合上限 25 次、攻击加成分段至 +100%）
-- 地下城：DungeonGenerator（种子随机）+ GameRoot 房间加载/切换 + RoomController 生命周期
-- 房间构建：Floor/Wall/Door/Decoration Builder + 13 个 JSON 房间蓝图
-- UI 骨架：主菜单 / 暂停菜单 / 设置 / 存档卡 / 结算 / HUD / 背包（背包待重接新数据层）
+- 装备系统：**36 件白装全量**（12 武器 + 18 护甲 + 6 饰品，表驱动）+ 穿戴/吞噬/融合
+  （上限 25 次）/强化（+5%/级、上限 10 级）核心逻辑
+- 地下城：DungeonGenerator（种子随机 + 房间类型分配）+ GameRoot 房间加载/切换 + RoomController 生命周期
+- 房间闭环：进房锁门 → 刷怪 → 全灭开门 → 穿门切房；Boss 房 → 杀 Boss → 传送门 → 下一层
+- **特殊房**：商店 / 泉水 / 事件房（占位交互物 + 按 E 交互结算 + 门锁闭环）
+- 第一层 **10 种怪物**落地（表驱动 MonsterDB，含飞行/远程风筝/炮台/突进/闪避/死亡毒雾）
+- 资源闭环：宝箱实体、击杀回血、层间满状态传送、金币档位经济
+- UI：主菜单 / 暂停 / 设置 / 存档卡 / 结算 / HUD / 背包四页签 / 右上角拓扑小地图
 - 三存档 SaveManager（.bak 备份 + .tmp 原子写入）+ SettingsManager
 
 ### 进行中 / 待完成（见 docs/progress/ 任务清单）
 
-- 装备管理界面重接新数据层（四页：装备/背包/强化+融合/吞噬）
-- 36 件白装补全、强化系统 UI 入口、掉落链路（LootSystem ↔ 地牢互连）
-- 房间刷怪闭环（EnemySpawner ↔ RoomController）、特殊房与 Boss 房
-- 绿装及以上稀有度、12 件红武、六元素词条
+- 特殊房正式 UI（商店购买面板 / 事件分支选择）与事件房池内容（策划 9 种）
+- 第 2~9 层主题模板（当前全层复用第一层模板池）、Boss 保底掉落与钥匙碎片
+- 绿装及以上稀有度、六元素词条、12 件红武、融合词条品质递进
+- 职业形态切换（5 职业 × 5 形态）、局外养成（天赋树/形态解锁/锻造）
 
 ## 操作
 
@@ -59,19 +63,19 @@ addons/                 gdUnit4, godot_ai, iron_studio, phantom_camera, terrain_
 
 ## 打开方式
 
-用 Godot 4.7 mono 打开 `E:\unity`，运行主场景（`scenes/ui/main_menu.tscn`）。
+用 Godot 4.7 打开 `E:\unity`，运行主场景（`scenes/ui/main_menu.tscn`）。
 
 命令行验证（注意：新克隆/清理后必须先跑 `--import` 重建类缓存，见 CLAUDE.md）：
 
 ```bash
-GODOT="F:/Godot_v4.7.1-stable_mono_win64/Godot_v4.7.1-stable_mono_win64.exe"
+GODOT="F:/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe"
 "$GODOT" --headless --path . --import   # 重建 .godot/global_script_class_cache.cfg
-"$GODOT" --headless --path . --script res://tests/test_framework.gd
+bash tests/run_all.sh                   # 全量门禁：框架 160 项 + 8 套场景/脚本套件
 ```
 
 ## 下一步建议
 
-1. 装备管理界面重接新数据层（P1 起点）
-2. 36 件白装补全 + 掉落链路打通
-3. 房间刷怪闭环 + 特殊房交互 + Boss 房逻辑
-4. 职业形态切换 + 绿装及以上稀有度、从 CSV 导入数值表
+1. 特殊房正式 UI（商店购买面板 / 事件分支选择）+ 事件房池内容落地
+2. 第 2~9 层主题模板（每层主题/房间数/耗时见策划关卡分册）+ Boss 保底掉落
+3. 绿装及以上稀有度 + 六元素词条 + 融合词条品质递进
+4. 职业形态切换 + 局外养成（天赋树/形态解锁/锻造）
