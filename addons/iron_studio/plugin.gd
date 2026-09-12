@@ -177,6 +177,14 @@ func _forward_3d_gui_input(viewport_camera: Camera3D, event: InputEvent) -> int:
 		return result
 	var cell := RoomEditorCore.world_to_cell(world_pos)
 
+	# 钳制到房间范围：视口里房间外也能点，不钳制会画出越界格子，
+	# 保存后运行时不做钳制 → 地板渲染到房间外面
+	var editor_root := _get_editor_root()
+	if editor_root and "room_width" in editor_root:
+		cell = RoomEditorCore.clamp_cell(
+			cell, int(editor_root.room_width), int(editor_root.room_height)
+		)
+
 	# 更新悬停状态（预览光标用）
 	_hover_cell = cell
 	_hover_world_pos = world_pos

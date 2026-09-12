@@ -98,26 +98,44 @@ static func clear_tree(root: Node3D) -> void:
 # ============================================================
 
 ## 遍历节点树生成 JSON Dictionary
+## 越界格子被丢弃：节点可能在房间尺寸调整前放置，或来自旧的中心原点坐标数据，
+## 直接落盘会让运行时把地板渲染到房间外面（运行时不做钳制）
 static func serialize_tree(root: Node3D, meta: Dictionary) -> Dictionary:
 	var floor_tiles: Array = []
 	var walls: Array = []
 	var doors: Array = []
 	var entities: Array = []
+	var width: int = meta.get("width", 20)
+	var height: int = meta.get("height", 15)
+
+	# 已写入的坐标去重（同一格不得出现两条记录）
+	var seen_floor := {}
+	var seen_wall := {}
+	var seen_door := {}
+	var seen_spawn := {}
 
 	var floor_root := root.get_node_or_null("Floor")
 	if floor_root:
 		for child in floor_root.get_children():
 			var cell: Dictionary = child.get_meta("cell", {})
-			if cell.is_empty():
+			if cell.is_empty() or not _in_bounds(cell.x, cell.y, width, height):
 				continue
+			var fkey := "%d_%d" % [cell.x, cell.y]
+			if seen_floor.has(fkey):
+				continue
+			seen_floor[fkey] = true
 			floor_tiles.append({"x": cell.x, "y": cell.y, "type": cell.get("type", "stone")})
 
 	var wall_root := root.get_node_or_null("Walls")
 	if wall_root:
 		for child in wall_root.get_children():
 			var cell: Dictionary = child.get_meta("cell", {})
-			if cell.is_empty():
+			if cell.is_empty() or not _in_bounds(cell.x, cell.y, width, height):
 				continue
+			var wkey := "%d_%d_%s" % [cell.x, cell.y, cell.get("direction", "north")]
+			if seen_wall.has(wkey):
+				continue
+			seen_wall[wkey] = true
 			walls.append({
 				"x": cell.x,
 				"y": cell.y,
@@ -129,9 +147,13 @@ static func serialize_tree(root: Node3D, meta: Dictionary) -> Dictionary:
 	if door_root:
 		for child in door_root.get_children():
 			var cell: Dictionary = child.get_meta("cell", {})
-			if cell.is_empty():
+			if cell.is_empty() or not _in_bounds(cell.x, cell.y, width, height):
 				continue
 			var dir := str(cell.get("direction", "north"))
+			var dkey := "%d_%d_%s" % [cell.x, cell.y, dir]
+			if seen_door.has(dkey):
+				continue
+			seen_door[dkey] = true
 			# id 加坐标后缀保证唯一（同方向多扇门不再重名）
 			doors.append({
 				"direction": dir,
@@ -144,8 +166,12 @@ static func serialize_tree(root: Node3D, meta: Dictionary) -> Dictionary:
 	if spawn_root:
 		for child in spawn_root.get_children():
 			var cell: Dictionary = child.get_meta("cell", {})
-			if cell.is_empty():
+			if cell.is_empty() or not _in_bounds(cell.x, cell.y, width, height):
 				continue
+			var skey := "%d_%d_%s" % [cell.x, cell.y, cell.get("type", "enemy_spawn")]
+			if seen_spawn.has(skey):
+				continue
+			seen_spawn[skey] = true
 			var entity := {
 				"type": cell.get("type", "enemy_spawn"),
 				"x": cell.x,
@@ -160,8 +186,8 @@ static func serialize_tree(root: Node3D, meta: Dictionary) -> Dictionary:
 		"version": 2,
 		"id": meta.get("id", "room_new"),
 		"room_type": meta.get("room_type", "normal"),
-		"width": meta.get("width", 20),
-		"height": meta.get("height", 15),
+		"width": width,
+		"height": height,
 		"cell_size": 1.0,
 		"theme": meta.get("theme", "crypt"),
 		"tags": meta.get("tags", [meta.get("room_type", "normal")]),
@@ -170,6 +196,11 @@ static func serialize_tree(root: Node3D, meta: Dictionary) -> Dictionary:
 		"walls": walls,
 		"entities": entities,
 	}
+
+
+## 坐标是否在房间范围内
+static func _in_bounds(x: int, y: int, width: int, height: int) -> bool:
+	return x >= 0 and y >= 0 and x < width and y < height
 
 
 # ============================================================

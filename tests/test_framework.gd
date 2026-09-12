@@ -274,6 +274,77 @@ func test_room_data() -> void:
 	var player: Dictionary = room.get_player_spawn()
 	_check(not player.is_empty(), "有玩家出生点")
 
+	# 全部房间 JSON 数据完整性：坐标不得越界、不得重复
+	# （room_start.json 曾因编辑器保存不过滤而含 89 项越界 + 55 项重复）
+	_validate_all_room_json()
+
+
+## 扫描 data/rooms/*.json，校验所有格子坐标在房间范围内且不重复
+func _validate_all_room_json() -> void:
+	var dir := DirAccess.open("res://data/rooms/")
+	if dir == null:
+		_check(false, "房间目录可访问")
+		return
+	var files: Array[String] = []
+	dir.list_dir_begin()
+	var fn := dir.get_next()
+	while not fn.is_empty():
+		if fn.ends_with(".json"):
+			files.append(fn)
+		fn = dir.get_next()
+	dir.list_dir_end()
+	_check(not files.is_empty(), "发现房间 JSON（%d 个）" % files.size())
+
+	for f in files:
+		var path := "res://data/rooms/%s" % f
+		var fh := FileAccess.open(path, FileAccess.READ)
+		if fh == null:
+			_check(false, "%s 可读" % f)
+			continue
+		var parser := JSON.new()
+		var parsed := parser.parse(fh.get_as_text())
+		fh.close()
+		if parsed != OK:
+			_check(false, "%s JSON 可解析" % f)
+			continue
+		var data: Dictionary = parser.data
+		var w := int(data.get("width", 0))
+		var h := int(data.get("height", 0))
+		if w <= 0 or h <= 0:
+			_check(false, "%s 尺寸有效（%dx%d）" % [f, w, h])
+			continue
+
+		# 地板：去重后格数不得超范围，且每格坐标都在界内
+		var cells := {}
+		var bad := 0
+		for t in data.get("floor", []):
+			var tx := int(t.get("x", 0))
+			var ty := int(t.get("y", 0))
+			if tx < 0 or ty < 0 or tx >= w or ty >= h:
+				bad += 1
+			cells[Vector2i(tx, ty)] = true
+		_check(bad == 0, "%s 地板无越界（%d 项）" % [f, bad])
+		_check(cells.size() == int(data.get("floor", []).size()),
+			"%s 地板无重复（%d 项 / 去重 %d）" % [f, data.get("floor", []).size(), cells.size()])
+
+		# 墙 / 门 / 实体坐标也须在界内
+		var bad_wall := 0
+		for t in data.get("walls", []):
+			var tx := int(t.get("x", 0))
+			var ty := int(t.get("y", 0))
+			if tx < 0 or ty < 0 or tx >= w or ty >= h:
+				bad_wall += 1
+		_check(bad_wall == 0, "%s 墙无越界（%d 项）" % [f, bad_wall])
+
+		var bad_ent := 0
+		for t in data.get("entities", []):
+			var tx := int(t.get("x", 0))
+			var ty := int(t.get("y", 0))
+			if tx < 0 or ty < 0 or tx >= w or ty >= h:
+				bad_ent += 1
+		_check(bad_ent == 0, "%s 实体无越界（%d 项）" % [f, bad_ent])
+
+
 
 ## 房间刷怪闭环集成测试：建房间 → 激活 → 刷怪 → 全灭 → 清空
 func test_room_combat_loop() -> void:
@@ -471,6 +542,45 @@ func test_room_editor_core() -> void:
 	_check(rt_door.get("x") == 5 and rt_door.get("y") == 7, "门坐标往返一致")
 	var rt_spawn: Dictionary = round.get("entities", [])[0]
 	_check(rt_spawn.get("monster_id") == "slime", "刷怪点怪物绑定往返一致")
+
+	# --- 越界与重复数据落盘前必须过滤 ---
+	# 背景：编辑器保存不做过滤时，越界格子会落盘，运行时 FloorBuilder 不钳制，
+	# 地板被渲染到房间外面（room_start.json 曾因此含 89 项越界 + 55 项重复）
+	RE.clear_tree(root)
+	var dirty: Dictionary = {
+		"width": 10, "height": 8,
+		"floor": [
+			{"x": 1, "y": 1, "type": "stone"},
+			{"x": 1, "y": 1, "type": "stone"},      # 重复
+			{"x": -2, "y": -1, "type": "stone"},    # 越界（负）
+			{"x": 20, "y": 3, "type": "stone"},     # 越界（超宽）
+			{"x": 3, "y": 30, "type": "stone"},     # 越界（超高）
+			{"x": 9, "y": 7, "type": "wood"},       # 边界内（角落）
+		],
+		"walls": [
+			{"x": 0, "y": 0, "direction": "north", "type": "normal_wall"},
+			{"x": 0, "y": 0, "direction": "north", "type": "normal_wall"},  # 重复
+			{"x": 0, "y": 99, "direction": "south", "type": "normal_wall"}, # 越界
+		],
+		"entities": [
+			{"type": "enemy_spawn", "x": 4, "y": 4},
+			{"type": "enemy_spawn", "x": 4, "y": 4},                          # 重复
+			{"type": "enemy_spawn", "x": -5, "y": 4},                         # 越界
+		],
+	}
+	RE.build_editor_tree(root, dirty)
+	var cleaned: Dictionary = RE.serialize_tree(root, {"id": "clean", "width": 10, "height": 8})
+	_check(cleaned.get("floor", []).size() == 2, "保存时丢弃越界/重复地板（6→2）",
+		[str(cleaned.get("floor", []).size())])
+	var f_cells := []
+	for t in cleaned.get("floor", []):
+		f_cells.append(Vector2i(t.x, t.y))
+	_check(f_cells.has(Vector2i(1, 1)) and f_cells.has(Vector2i(9, 7)),
+		"保留范围内的地板（含边界角落）")
+	_check(cleaned.get("walls", []).size() == 1, "保存时丢弃越界/重复墙（3→1）",
+		[str(cleaned.get("walls", []).size())])
+	_check(cleaned.get("entities", []).size() == 1, "保存时丢弃越界/重复实体（3→1）",
+		[str(cleaned.get("entities", []).size())])
 
 	# --- 门位置：编辑器与游戏 DoorBuilder 同口径 ---
 	var DB = _require_script("res://world/rooms/door_builder.gd")
