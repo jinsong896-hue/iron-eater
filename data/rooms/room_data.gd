@@ -6,7 +6,7 @@ extends RefCounted
 
 # 基础信息
 var room_id := ""
-var room_type := "normal"   # normal / elite / boss / treasure / start
+var room_type := "normal"   # normal / elite / boss / treasure / shop / heal / event / start
 var width := 16
 var height := 12
 var cell_size := 1.0
@@ -23,6 +23,7 @@ var floor_tiles: Array = []
 var walls: Array = []
 # 实体数据
 var entities: Array = []
+var interaction: Dictionary = {}
 
 
 ## 从 JSON Dictionary 加载
@@ -38,6 +39,7 @@ func load_from_dict(data: Dictionary) -> void:
 	floor_tiles = data.get("floor", [])
 	walls = data.get("walls", [])
 	entities = data.get("entities", [])
+	interaction = data.get("interaction", {})
 
 
 ## 导出为 Dictionary
@@ -55,6 +57,7 @@ func to_dict() -> Dictionary:
 		"floor": floor_tiles,
 		"walls": walls,
 		"entities": entities,
+		"interaction": interaction,
 	}
 
 

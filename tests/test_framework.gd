@@ -54,6 +54,9 @@ func _init() -> void:
 	# 资源系统测试（宝箱/回血/层间恢复/金币产出）
 	test_resource_system()
 
+	# 特殊房交互测试（商店/泉水/事件）
+	test_special_room_interactions()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -700,6 +703,59 @@ func test_resource_system() -> void:
 	boss.apply_monster_config(MDB.boss_monster())
 	_check(boss.gold_min == 50 and boss.gold_max == 120, "Boss 金币 50~120")
 
+
+## 特殊房交互测试：商店购买、泉水治疗、事件一次性奖励
+func test_special_room_interactions() -> void:
+	_current_test = "SpecialRoomInteractions"
+	print("\n--- %s ---" % _current_test)
+
+	var SR = _require_script("res://gameplay/dungeon/special_room_service.gd")
+	var AS = _require_script("res://data/attributes/attribute_system.gd")
+	if SR == null or AS == null:
+		return
+
+	var service = SR.new()
+	var attrs = AS.new()
+	attrs.take_damage(100.0)
+	var heal_result: Dictionary = service.use_healing_spring(attrs)
+	_check(heal_result.get("ok", false), "泉水交互成功")
+	_check(attrs.hp == attrs.max_hp, "泉水恢复至满血", [attrs.hp])
+
+	var state := {"gold": 100}
+	var shop_result: Dictionary = service.buy_shop_item(state, 35)
+	_check(shop_result.get("ok", false), "商店购买成功")
+	_check(state.gold == 65, "商店扣除正确金币", [state.gold])
+	var repeat_shop: Dictionary = service.buy_shop_item(state, 35)
+	_check(not repeat_shop.get("ok", false), "商店商品不可重复购买")
+
+	# 使用药水前先扣血，否则满血状态下治疗量为 0 会直接失败
+	attrs.take_damage(100.0)
+	var potion_state := {"gold": 100, "potions": 0, "capacity": 3}
+	var potion_result: Dictionary = service.buy_health_potion(potion_state, 25, 80.0)
+	_check(potion_result.get("ok", false), "生命药水购买成功")
+	_check(potion_state.gold == 75 and potion_state.potions == 1, "生命药水扣金并入背包")
+	var use_result: Dictionary = service.use_health_potion(potion_state, attrs)
+	_check(use_result.get("ok", false), "生命药水使用成功")
+	_check(potion_state.potions == 0, "使用后药水数量减少")
+	var full_state := {"gold": 100, "potions": 3, "capacity": 3}
+	var full_result: Dictionary = service.buy_health_potion(full_state, 25, 80.0)
+	_check(not full_result.get("ok", false), "药水背包满时无法购买")
+
+	var event_state := {}
+	var event_result: Dictionary = service.claim_event_reward(event_state, 12)
+	_check(event_result.get("ok", false), "事件首次交互成功")
+	_check(event_state.get("claimed", false), "事件记录已领取")
+	var repeat_result: Dictionary = service.claim_event_reward(event_state, 12)
+	_check(not repeat_result.get("ok", false), "事件不可重复领取")
+
+	var RD = _require_script("res://data/rooms/room_data.gd")
+	if RD:
+		for room_type in ["shop", "heal", "event"]:
+			var special_room = RD.load_from_file("res://data/rooms/room_%s.json" % room_type)
+			_check(special_room != null, "%s 房模板可加载" % room_type)
+			if special_room:
+				_check(special_room.room_type == room_type, "%s 房类型正确" % room_type)
+				_check(not special_room.interaction.is_empty(), "%s 房交互配置存在" % room_type)
 
 ## Boss 房闭环测试：boss 房 JSON 可解析 → 刷 Boss → 杀 Boss → 传送门出现
 func test_boss_room_loop() -> void:

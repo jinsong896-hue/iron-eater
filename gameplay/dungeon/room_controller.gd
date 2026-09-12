@@ -18,9 +18,12 @@ var _doors: Array[Node3D] = []
 var _living_enemies: Array[EnemyBase] = []
 var _boss: EnemyBase = null
 var _portal: Area3D = null
+var _special_service
+var _special_used := false
 
 
 func _ready() -> void:
+	_special_service = load("res://gameplay/dungeon/special_room_service.gd").new()
 	_collect_nodes()
 
 
@@ -56,6 +59,7 @@ func activate() -> void:
 		return
 
 	is_active = true
+	add_to_group("current_room_controller")
 	var bus = _event_bus()
 	if bus:
 		bus.room_entered.emit(_room_id())
@@ -64,6 +68,10 @@ func activate() -> void:
 		_open_doors()
 		if is_boss_room:
 			_show_portal()
+		return
+
+	if _is_special_room():
+		_lock_doors()
 		return
 
 	if is_boss_room:
@@ -85,7 +93,7 @@ func on_enemy_died(_world_position: Vector3) -> void:
 		_on_cleared()
 
 
-## 房间清空
+## 执行特殊房交互并完成房间。
 func _on_cleared() -> void:
 	if is_cleared:
 		return
@@ -104,6 +112,7 @@ func _on_cleared() -> void:
 ## 离开房间
 func deactivate() -> void:
 	is_active = false
+	remove_from_group("current_room_controller")
 	var bus = _event_bus()
 	if bus:
 		bus.room_exited.emit(_room_id())
@@ -277,7 +286,44 @@ func _room_type() -> String:
 	return str(room_data.room_type)
 
 
-## 锁定所有门（设置阻挡体）
+## 判断是否为商店、泉水或事件特殊房。
+func _is_special_room() -> bool:
+	return _room_type() in ["shop", "heal", "event"]
+
+## 执行特殊房交互并完成房间。
+func interact_special() -> Dictionary:
+	if not _is_special_room() or _special_used:
+		return {"ok": false, "reason": "特殊房已完成或类型无效"}
+	var result: Dictionary
+	match _room_type():
+		"heal":
+			var gm = _game_manager()
+			result = _special_service.use_healing_spring(gm.attributes if gm else null)
+		"shop":
+			var gm_shop = _game_manager()
+			var config: Dictionary = _room_interaction()
+			var state := {"gold": gm_shop.gold if gm_shop else 0}
+			result = _special_service.buy_health_potion(state, int(config.get("price", 25)), float(config.get("heal", 80.0)))
+			if result.get("ok", false) and gm_shop:
+				gm_shop.gold = result.gold
+				if gm_shop.consumable_inventory:
+					gm_shop.consumable_inventory.add_health_potion(1)
+		"event":
+			var config_event: Dictionary = _room_interaction()
+			result = _special_service.claim_event_reward(config_event, int(config_event.get("reward", 12)))
+	if result.get("ok", false):
+		_special_used = true
+		_on_cleared()
+	return result
+
+## 获取特殊房配置。
+func _room_interaction() -> Dictionary:
+	if room_data is Dictionary:
+		return room_data.get("interaction", {})
+	return room_data.interaction
+
+
+## 房间清空（设置阻挡体）
 func _lock_doors() -> void:
 	for door in _doors:
 		_look_for_trigger(door, "lock")

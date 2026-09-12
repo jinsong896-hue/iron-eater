@@ -18,6 +18,7 @@ var previous_state: GamePhase = GamePhase.MENU
 # 局内运行时数据（untyped 避免编译期依赖）
 var attributes   # AttributeSystem
 var equipment_manager   # EquipmentManager
+var consumable_inventory   # ConsumableInventory
 var rng := RandomNumberGenerator.new()
 var gold := 0
 var kills := 0
@@ -74,6 +75,7 @@ func _reset_run() -> void:
 	attributes = load("res://data/attributes/attribute_system.gd").new()
 	equipment_manager = load("res://gameplay/inventory/equipment_manager.gd").new()
 	equipment_manager.rng = rng
+	consumable_inventory = load("res://data/consumables/consumable_inventory.gd").new()
 	gold = 0
 	kills = 0
 	total_damage = 0.0

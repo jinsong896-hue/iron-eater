@@ -76,7 +76,7 @@ func next_floor() -> void:
 # ============================================================
 
 func _register_templates() -> void:
-	room_templates = {"start": [], "normal": [], "elite": [], "treasure": [], "boss": []}
+	room_templates = {"start": [], "normal": [], "elite": [], "treasure": [], "boss": [], "shop": [], "heal": [], "event": []}
 	var dir := DirAccess.open(ROOM_DATA_DIR)
 	if dir == null:
 		return
@@ -221,6 +221,9 @@ func _build_spawn_markers(parent: Node3D, data) -> void:
 			"elite_spawn":  gn = "elite_spawn"
 			"boss_spawn":   gn = "boss_spawn"
 			"chest_spawn":  gn = "chest_spawn"
+			"shop_npc":     gn = "shop_npc"
+			"heal_shrine":  gn = "heal_shrine"
+			"event_shrine": gn = "event_shrine"
 		if gn.is_empty():
 			continue
 		var marker := Marker3D.new()
@@ -230,6 +233,26 @@ func _build_spawn_markers(parent: Node3D, data) -> void:
 		# 宝箱：chest_spawn 处实例化宝箱实体（可交互掉落）
 		if etype == "chest_spawn":
 			_spawn_chest(marker.position, parent)
+		# 特殊房交互物：商店 NPC / 治疗泉水 / 事件祭坛
+		elif etype in ["shop_npc", "heal_shrine", "event_shrine"]:
+			_spawn_special_prop(marker.position, etype, parent)
+
+
+## 在标记位置生成特殊房交互物（按实体类型决定外观）
+func _spawn_special_prop(pos: Vector3, entity_type: String, parent: Node3D) -> void:
+	var kinds := {"shop_npc": "shop", "heal_shrine": "heal", "event_shrine": "event"}
+	var kind: String = kinds.get(entity_type, "")
+	if kind.is_empty():
+		return
+	var script_res := load("res://world/props/special_prop.gd")
+	if script_res == null:
+		return
+	var prop := Node3D.new()
+	prop.name = "SpecialProp_%s" % kind
+	prop.set_script(script_res)
+	prop.set("prop_kind", kind)
+	prop.position = pos
+	parent.add_child(prop)
 
 
 ## 在标记位置生成宝箱实体

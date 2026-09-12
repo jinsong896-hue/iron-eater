@@ -109,6 +109,24 @@ func _assign_room_types() -> void:
 			rooms[idx]["type"] = "elite"
 			assigned += 1
 
+	# 特殊房：商店 / 泉水 / 事件各一间（越多房间配得越全）
+	_assign_special_rooms()
+
+
+## 分配特殊房（商店 / 泉水 / 事件），数量随房间总数缩放且不超过可用普通房
+func _assign_special_rooms() -> void:
+	var quota := clampi(rooms.size() / 4, 1, 3)
+	var pool := ["shop", "heal", "event"]
+	for i in quota:
+		var candidates: Array[int] = []
+		for idx in rooms.size():
+			if rooms[idx]["type"] == "normal":
+				candidates.append(idx)
+		if candidates.is_empty():
+			return
+		var pick: int = candidates[rng.randi() % candidates.size()]
+		rooms[pick]["type"] = pool[i]
+
 
 ## 获取房间世界坐标
 func get_room_world_position(room_index: int) -> Vector3:

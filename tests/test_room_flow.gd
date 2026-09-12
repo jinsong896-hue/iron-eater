@@ -64,7 +64,69 @@ func _ready() -> void:
 	# 门触发切房验证
 	await _test_door_transition(gr)
 
+	# 特殊房闭环验证
+	await _test_special_room(gr)
+
 	_finish()
+
+## 特殊房闭环：切到特殊房 → 有门有墙有实体 → 交互结算 → 开门
+func _test_special_room(gr) -> void:
+	var special_idx := -1
+	var special_type := ""
+	for i in gr.dungeon_graph.size():
+		var t := str(gr.dungeon_graph[i].get("type", ""))
+		if t in ["shop", "heal", "event"]:
+			special_idx = i
+			special_type = t
+			break
+	_check(special_idx >= 0, "地牢分配到特殊房（%s）" % special_type)
+	if special_idx < 0:
+		return
+
+	gr._transition_to_room(special_idx)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
+	_check(ctrl != null, "特殊房控制器就绪")
+	if ctrl == null:
+		return
+
+	_check(ctrl._is_special_room(), "识别为特殊房（%s）" % special_type)
+	_check(ctrl._doors.size() > 0, "特殊房有门（%d 个）" % ctrl._doors.size())
+
+	# 交互物实体已生成（商店 NPC / 泉水 / 祭坛）
+	var props_node = gr.current_room_node.get_node_or_null("SpawnPoints")
+	var prop_count := 0
+	if props_node:
+		for child in props_node.get_children():
+			if str(child.name).begins_with("SpecialProp_"):
+				prop_count += 1
+	_check(prop_count > 0, "特殊房交互物已生成（%d 个）" % prop_count)
+
+	# 交互前门是锁的
+	var locked_before := false
+	for door in ctrl._doors:
+		var trig = door.get_node_or_null("DoorTrigger")
+		if trig and trig.is_locked:
+			locked_before = true
+	_check(locked_before, "特殊房交互前门已锁")
+
+	# 执行交互（服务层直接结算，不依赖玩家输入）
+	var result: Dictionary = ctrl.interact_special()
+	_check(result.get("ok", false), "特殊房交互成功（%s: %s）" % [special_type, result.get("reason", "")])
+	_check(ctrl.is_cleared, "交互后房间标记清空")
+
+	var opened := false
+	for door in ctrl._doors:
+		var trig = door.get_node_or_null("DoorTrigger")
+		if trig and not trig.is_locked:
+			opened = true
+	_check(opened, "交互后门解锁")
+
+	# 重复交互应被拒绝
+	var repeat: Dictionary = ctrl.interact_special()
+	_check(not repeat.get("ok", false), "特殊房不可重复交互")
 
 func _check(c: bool, name: String) -> void:
 	if c:

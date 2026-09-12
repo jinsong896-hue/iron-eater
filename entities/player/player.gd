@@ -610,11 +610,24 @@ func _unhandled_input(event: InputEvent) -> void:
 		EventBus.message.emit("背包")
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact"):
-		_pickup_nearby()
+		if not _interact_special_room():
+			_pickup_nearby()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("devour"):
 		_devour_nearby()
 		get_viewport().set_input_as_handled()
+
+## 交互当前房间的商店、泉水或事件服务。
+func _interact_special_room() -> bool:
+	var controller := get_tree().get_first_node_in_group("current_room_controller")
+	if controller == null or not controller.has_method("interact_special"):
+		return false
+	var result: Dictionary = controller.interact_special()
+	if result.get("ok", false):
+		EventBus.message.emit("特殊房交互完成")
+	else:
+		EventBus.message.emit(result.get("reason", "无法交互"))
+	return true
 
 
 ## 查找最近的掉落物（拾取/吞噬共用）
