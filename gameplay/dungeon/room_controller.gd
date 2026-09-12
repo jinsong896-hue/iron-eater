@@ -71,7 +71,11 @@ func activate() -> void:
 		return
 
 	if _is_special_room():
-		_lock_doors()
+		# 房间奖励已领取过（读档/回访）时不再重复锁门
+		if _special_used:
+			_on_cleared()
+		else:
+			_lock_doors()
 		return
 
 	if is_boss_room:
@@ -131,7 +135,7 @@ func _spawn_enemies() -> void:
 	MonsterDB.init_layer1()
 
 	for point in _spawn_points:
-		if randf() < 0.7:
+		if rng.randf() < 0.7:
 			var m: Dictionary
 			# 生成点带 monster_id meta 时用指定怪，否则按房间类型加权随机
 			var custom_id := str(point.get_meta("monster_id", ""))
@@ -292,8 +296,12 @@ func _is_special_room() -> bool:
 
 ## 执行特殊房交互并完成房间。
 func interact_special() -> Dictionary:
-	if not _is_special_room() or _special_used:
+	if not _is_special_room():
 		return {"ok": false, "reason": "特殊房已完成或类型无效"}
+	# 已结算过的房间（读档/回访）只做解锁，不重复发放奖励
+	if _special_used:
+		_on_cleared()
+		return {"ok": true, "already_used": true}
 	var result: Dictionary
 	match _room_type():
 		"heal":

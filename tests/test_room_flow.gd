@@ -33,6 +33,12 @@ func _ready() -> void:
 	_check(ctrl.is_active, "房间激活")
 	_check(ctrl._doors.size() > 0, "门已收集（%d 个）" % ctrl._doors.size())
 
+	# 刷怪是概率性的（每个生成点 70%），空房属正常；分别验证"有怪"与"无怪"两条路径
+	var spawn_points: int = ctrl._spawn_points.size()
+	_check(spawn_points > 0, "房间有生成点（%d 个）" % spawn_points)
+	_check(ctrl.enemies_alive > 0 or ctrl.is_cleared,
+		"空房已直接放行（生成点 %d / 敌人 %d）" % [spawn_points, ctrl.enemies_alive])
+
 	if ctrl.enemies_alive > 0:
 		_check(true, "刷出敌人（%d 只）" % ctrl.enemies_alive)
 		# 验证锁门
@@ -59,7 +65,14 @@ func _ready() -> void:
 				any_open = true
 		_check(any_open, "清怪后门解锁")
 	else:
-		_check(false, "刷出敌人（0 只——start 房无怪属正常，但此房应有）")
+		# 空房（全部生成点都未触发）应直接标记清空且门是开的
+		_check(ctrl.is_cleared, "空房直接标记清空")
+		var door_open := false
+		for door in ctrl._doors:
+			var trig = door.get_node_or_null("DoorTrigger")
+			if trig and not trig.is_locked:
+				door_open = true
+		_check(door_open, "空房门未锁")
 
 	# 门触发切房验证
 	await _test_door_transition(gr)
@@ -70,39 +83,42 @@ func _ready() -> void:
 	_finish()
 
 ## 特殊房闭环：切到特殊房 → 有门有墙有实体 → 交互结算 → 开门
+## 地牢种子随机，故遍历本层实际分配到的全部特殊房类型（shop/heal/event）
 func _test_special_room(gr) -> void:
-	var special_idx := -1
-	var special_type := ""
+	var targets: Array[int] = []
 	for i in gr.dungeon_graph.size():
-		var t := str(gr.dungeon_graph[i].get("type", ""))
-		if t in ["shop", "heal", "event"]:
-			special_idx = i
-			special_type = t
-			break
-	_check(special_idx >= 0, "地牢分配到特殊房（%s）" % special_type)
-	if special_idx < 0:
+		if str(gr.dungeon_graph[i].get("type", "")) in ["shop", "heal", "event"]:
+			targets.append(i)
+	_check(targets.size() > 0, "地牢分配到特殊房（%d 间）" % targets.size())
+	if targets.is_empty():
 		return
 
-	gr._transition_to_room(special_idx)
-	await get_tree().process_frame
-	await get_tree().process_frame
+	for idx in targets:
+		var special_type := str(gr.dungeon_graph[idx].get("type", ""))
+		gr._transition_to_room(idx)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		await _check_one_special_room(gr, special_type)
 
+
+## 单个特殊房的闭环断言
+func _check_one_special_room(gr, special_type: String) -> void:
 	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
-	_check(ctrl != null, "特殊房控制器就绪")
+	_check(ctrl != null, "[%s] 控制器就绪" % special_type)
 	if ctrl == null:
 		return
 
-	_check(ctrl._is_special_room(), "识别为特殊房（%s）" % special_type)
-	_check(ctrl._doors.size() > 0, "特殊房有门（%d 个）" % ctrl._doors.size())
+	_check(ctrl._is_special_room(), "[%s] 识别为特殊房" % special_type)
+	_check(ctrl._doors.size() > 0, "[%s] 有门（%d 个）" % [special_type, ctrl._doors.size()])
 
 	# 交互物实体已生成（商店 NPC / 泉水 / 祭坛）
-	var props_node = gr.current_room_node.get_node_or_null("SpawnPoints")
 	var prop_count := 0
+	var props_node = gr.current_room_node.get_node_or_null("SpawnPoints")
 	if props_node:
 		for child in props_node.get_children():
 			if str(child.name).begins_with("SpecialProp_"):
 				prop_count += 1
-	_check(prop_count > 0, "特殊房交互物已生成（%d 个）" % prop_count)
+	_check(prop_count > 0, "[%s] 交互物实体已生成（%d 个）" % [special_type, prop_count])
 
 	# 交互前门是锁的
 	var locked_before := false
@@ -110,23 +126,59 @@ func _test_special_room(gr) -> void:
 		var trig = door.get_node_or_null("DoorTrigger")
 		if trig and trig.is_locked:
 			locked_before = true
-	_check(locked_before, "特殊房交互前门已锁")
+	_check(locked_before, "[%s] 交互前门已锁" % special_type)
 
-	# 执行交互（服务层直接结算，不依赖玩家输入）
+	# 商店需要金币才能成交，且消耗品背包要有空位；泉水需要未满血
+	var gm = gr.get_node_or_null("/root/GameManager")
+	if gm:
+		gm.gold = 500
+		if gm.consumable_inventory:
+			gm.consumable_inventory.quantities.clear()
+		if gm.attributes:
+			gm.attributes.take_damage(100.0)
+
 	var result: Dictionary = ctrl.interact_special()
-	_check(result.get("ok", false), "特殊房交互成功（%s: %s）" % [special_type, result.get("reason", "")])
-	_check(ctrl.is_cleared, "交互后房间标记清空")
+	_check(result.get("ok", false), "[%s] 交互成功（%s）" % [special_type, result.get("reason", "")])
+	_check(ctrl.is_cleared, "[%s] 交互后房间标记清空" % special_type)
 
 	var opened := false
 	for door in ctrl._doors:
 		var trig = door.get_node_or_null("DoorTrigger")
 		if trig and not trig.is_locked:
 			opened = true
-	_check(opened, "交互后门解锁")
+	_check(opened, "[%s] 交互后门解锁" % special_type)
 
-	# 重复交互应被拒绝
+	# 重复交互不应重复发放奖励
+	var before_state = _special_state(gm, special_type)
 	var repeat: Dictionary = ctrl.interact_special()
-	_check(not repeat.get("ok", false), "特殊房不可重复交互")
+	_check(repeat.get("already_used", false), "[%s] 重复交互不重复发奖" % special_type)
+	_check(_special_state(gm, special_type) == before_state, "[%s] 重复交互后状态未变" % special_type)
+
+	# 回访已结算的特殊房：应保持可通行，不重新锁门
+	ctrl.deactivate()
+	ctrl.activate()
+	var reentry_locked := false
+	for door in ctrl._doors:
+		var trig = door.get_node_or_null("DoorTrigger")
+		if trig and trig.is_locked:
+			reentry_locked = true
+	_check(not reentry_locked, "[%s] 回访已结算特殊房不重新锁门" % special_type)
+
+## 采集特殊房奖励状态快照（金币 / 药水数 / 生命值）
+func _special_state(gm, with_type: String):
+	if gm == null:
+		return null
+	match with_type:
+		"shop":
+			var q := 0
+			if gm.consumable_inventory:
+				q = gm.consumable_inventory.count("health_potion")
+			return [gm.gold, q]
+		"heal":
+			return gm.attributes.hp if gm.attributes else 0.0
+		"event":
+			return true
+	return null
 
 func _check(c: bool, name: String) -> void:
 	if c:
