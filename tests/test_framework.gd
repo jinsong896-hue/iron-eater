@@ -407,6 +407,64 @@ func _validate_all_room_json() -> void:
 				bad_ent += 1
 		_check(bad_ent == 0, "%s 实体无越界（%d 项）" % [f, bad_ent])
 
+		# 可通行性：从 player_spawn 出发 BFS，关键点必须可达。
+		# 这条能抓到「刷怪点/宝箱落在石柱上」与「石柱围成封闭区」两类真问题
+		# （本轮生成 17 个新模板时，5 个模板的刷怪点落在石柱里，正是靠它抓出来的）。
+		var reach_issues := _check_room_reachability(data)
+		for issue in reach_issues:
+			_check(false, "%s %s" % [f, issue])
+		if reach_issues.is_empty():
+			_check(true, "%s 可通行（关键点均可达）" % f)
+
+
+## 从 player_spawn 做 4 向 BFS，返回不可达/不可站的关键点问题列表
+func _check_room_reachability(d: Dictionary) -> Array:
+	var w := int(d.get("width", 0))
+	var h := int(d.get("height", 0))
+	var issues: Array = []
+
+	var walkable := {}
+	for t in d.get("floor", []):
+		walkable["%d,%d" % [int(t.get("x", 0)), int(t.get("y", 0))]] = true
+	# 墙格不可走
+	for t in d.get("walls", []):
+		walkable.erase("%d,%d" % [int(t.get("x", 0)), int(t.get("y", 0))])
+
+	var start := ""
+	for e in d.get("entities", []):
+		if str(e.get("type", "")) == "player_spawn":
+			start = "%d,%d" % [int(e.get("x", 0)), int(e.get("y", 0))]
+	if start.is_empty():
+		return ["无 player_spawn"]
+	if not walkable.has(start):
+		return ["出生点 %s 不可站（被墙占或地板缺失）" % start]
+
+	var seen := {start: true}
+	var queue: Array = [start]
+	while not queue.is_empty():
+		var cur: String = queue.pop_front()
+		var parts := cur.split(",")
+		var cx := int(parts[0])
+		var cy := int(parts[1])
+		for off in [[1, 0], [-1, 0], [0, 1], [0, -1]]:
+			var nk := "%d,%d" % [cx + int(off[0]), cy + int(off[1])]
+			if seen.has(nk) or not walkable.has(nk):
+				continue
+			seen[nk] = true
+			queue.append(nk)
+
+	# 非玩家实体必须可达且可站
+	for e in d.get("entities", []):
+		if str(e.get("type", "")) == "player_spawn":
+			continue
+		var k := "%d,%d" % [int(e.get("x", 0)), int(e.get("y", 0))]
+		if not walkable.has(k):
+			issues.append("%s @%s 位于墙格" % [str(e.get("type", "")), k])
+		elif not seen.has(k):
+			issues.append("%s @%s 从出生点不可达" % [str(e.get("type", "")), k])
+
+	return issues
+
 
 
 ## 房间刷怪闭环集成测试：建房间 → 激活 → 刷怪 → 全灭 → 清空
