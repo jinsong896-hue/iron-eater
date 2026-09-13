@@ -31,3 +31,6 @@ dist/
 .gdd_build/p_*.json
 .gdd_build/*.log
 .gdd_build/import_log*.txt
+
+# docx 提取临时目录（策划书转文本的中间产物）
+.tmp_docx_extract/
