@@ -16,6 +16,11 @@ var dungeon_connections: Array[Array] = []
 var dungeon_start_index := 0
 var current_room_index := 0
 var _is_transitioning := false   # 切房重入保护（见 _transition_to_room）
+## 切房后的全局防抖窗口（秒）：期间忽略所有门信号，杜绝连锁切房。
+## 只覆盖「落点踩门」那一两帧——设大了会误伤正常玩法（玩家快速连续穿门
+## 会被拦掉，表现为门"没反应"）。0.15s ≈ 9 帧，足够覆盖落点抖动。
+const TRANSITION_COOLDOWN := 0.15
+var _last_transition_time := -999.0
 var dungeon_generated := false
 var current_room_node: Node3D = null
 var room_state: Dictionary = {}
@@ -335,9 +340,19 @@ func _create_fallback_room() -> Node3D:
 func _on_door_entered(direction: String, _door_id: String) -> void:
 	if not dungeon_generated:
 		return
+	# 全局防抖：刚切完房的一小段时间内忽略所有门信号。
+	# 落点靠近门、或奔跑时一帧位移大，都可能在同一帧/紧邻帧再次踩门；
+	# 旧房间的门要到帧末才销毁，也在此时仍可被触发 → 「进一格穿两房」。
+	# 单靠入口门自身的失效不够，这里再加一道与门无关的总闸。
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _last_transition_time < TRANSITION_COOLDOWN:
+		return
 	var target_idx := _find_room_in_direction(direction)
 	if target_idx < 0:
 		return
+	# 只在「门触发的切房」时启动防抖；程序性切房（下一层、测试直调）不启动，
+	# 否则会误伤正常玩法与测试里的连续切房
+	_last_transition_time = now
 	_transition_to_room(target_idx, direction)
 
 

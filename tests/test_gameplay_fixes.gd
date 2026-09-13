@@ -62,9 +62,12 @@ func _ready() -> void:
 	if doors and doors.get_child_count() > 0:
 		var trig = doors.get_child(0).get_node_or_null("DoorTrigger")
 		if trig:
-			# 新房间刷怪时门是锁的，触发会被正确忽略；先解锁以专测重入保护
+			# 新房间刷怪时门是锁的，触发会被正确忽略；先解锁以专测重入保护。
+			# 另需清掉切房时设置的失效状态——否则本门处于 disarm 中，触发被正常忽略。
 			trig.is_locked = false
 			trig.is_open = true
+			trig.set("_disarmed", false)
+			trig.set("_disarm_timer", 0.0)
 			_c(not trig._triggered, "门触发器初始未触发")
 			trig._on_body_entered(p)
 			_c(trig._triggered, "门触发后置位")

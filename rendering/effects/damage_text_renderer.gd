@@ -8,6 +8,9 @@ const MAX_INSTANCES := 64
 const MAX_STRING_LEN := 8  # 伤害数字最多 8 位（含小数点/感叹号）
 const FLOAT_SPEED := 80.0  # 屏幕像素/秒
 const LIFETIME := 1.0
+## 单字四边形基准边长（像素）。实例缩放按 size/32 计算，
+## 故字高 = QUAD_BASE_SIZE × size/32；36 对应字号 32 时约 36px 高。
+const QUAD_BASE_SIZE := 36.0
 
 # 颜色配置（按 kind）
 const KIND_COLORS := {
@@ -100,7 +103,12 @@ func _init_async() -> void:
 	_mm.transform_format = MultiMesh.TRANSFORM_2D
 	_mm.use_custom_data = true
 	_mm.use_colors = true
-	_mm.mesh = QuadMesh.new()
+	# 四边形必须显式给出尺寸：QuadMesh 默认仅 1×1 像素，
+	# 而实例缩放的基准是 size/32（normal 时正好 1.0），
+	# 于是每个数字只有 1 像素、肉眼不可见（本 bug 从最初版本即存在）。
+	var quad := QuadMesh.new()
+	quad.size = Vector2(QUAD_BASE_SIZE, QUAD_BASE_SIZE)
+	_mm.mesh = quad
 	_mm.instance_count = MAX_INSTANCES
 	_mmi.multimesh = _mm
 

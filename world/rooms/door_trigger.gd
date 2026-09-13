@@ -13,26 +13,38 @@ var _blocker: StaticBody3D = null
 ## 来回蹭），会连续触发切房 → 房间被反复销毁重建 → 卡死。
 var _triggered := false
 ## 短暂失效：玩家刚穿过本门进入房间，落点就在门旁；若门立刻可用会被再次
-## 触发（表现：进一格却穿两房）。等玩家离开触发区后自动恢复。
+## 触发（表现：进一格却穿两房）。
+## 必须「时间窗口 + 离开检测」双条件：只靠离开检测不够——落点在门外侧、
+## 不与触发区重叠时，第一帧 _process 就会恢复，奔跑时一帧位移大，
+## 玩家能冲过这个窗口再次踩门。
 var _disarmed := false
+var _disarm_timer := 0.0
+## 失效最短时长（秒）。奔跑 8m/s、帧 1/60s 时单帧位移约 0.13m，
+## 0.25s 内有充足帧数让玩家走离门口。
+const DISARM_MIN_TIME := 0.25
 
 
 func _ready() -> void:
 	set_process(false)
 
 
-## 让本门失效，直到玩家离开触发区（切房后由 GameRoot 调用）
+## 让本门失效，直到「过了最短时间」且「玩家已离开触发区」
 func disarm_until_clear() -> void:
 	_disarmed = true
+	_disarm_timer = DISARM_MIN_TIME
 	_triggered = false   # 允许以后正常使用
 	set_process(true)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not _disarmed:
 		set_process(false)
 		return
-	# 玩家已离开触发区 → 恢复可用
+	# 条件 1：最短时间未到 → 继续失效
+	if _disarm_timer > 0.0:
+		_disarm_timer -= delta
+		return
+	# 条件 2：玩家仍在触发区内 → 继续失效
 	for body in get_overlapping_bodies():
 		if body.is_in_group("player"):
 			return

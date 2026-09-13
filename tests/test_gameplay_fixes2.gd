@@ -108,6 +108,56 @@ func _test_no_chain_transition(gr) -> void:
 
 			bus2.door_opened.disconnect(cb)
 
+	# 全局防抖：窗口内的门信号必须被忽略。
+	# 注意先手动把时间戳设为"刚刚切过房"，否则前面等待的物理帧已让窗口过期。
+	var room_now: int = gr.current_room_index
+	gr.set("_last_transition_time", Time.get_ticks_msec() / 1000.0)
+	gr._on_door_entered("north", "x")
+	await get_tree().process_frame
+	_check(gr.current_room_index == room_now,
+		"防抖窗口内门信号被忽略（仍为 %d）" % gr.current_room_index)
+
+	# 窗口过期后应恢复正常切换
+	gr.set("_last_transition_time", -999.0)
+	var target_dir := ""
+	var ctrl_t = gr.current_room_node.get_node_or_null("RoomController")
+	if ctrl_t:
+		for d in ctrl_t._doors:
+			var t = d.get_node_or_null("DoorTrigger")
+			if t and not t.is_locked and gr._find_room_in_direction(str(t.direction)) >= 0:
+				target_dir = str(t.direction)
+				break
+	if target_dir != "":
+		gr._on_door_entered(target_dir, "y")
+		await get_tree().process_frame
+		_check(gr.current_room_index != room_now, "窗口过期后门恢复正常切换")
+
+	# 用奔跑速度穿门，验证不会连锁（回归用户报告的场景）
+	var ctrl2 = gr.current_room_node.get_node_or_null("RoomController")
+	if ctrl2:
+		var d_dir := ""
+		var d_pos := Vector3.ZERO
+		for d in ctrl2._doors:
+			var t = d.get_node_or_null("DoorTrigger")
+			if t and not t.is_locked and gr._find_room_in_direction(str(t.direction)) >= 0:
+				d_dir = str(t.direction)
+				d_pos = (d as Node3D).global_position
+				break
+		if d_dir != "":
+			# 等过防抖窗口
+			await get_tree().create_timer(0.35).timeout
+			var r_before: int = gr.current_room_index
+			player.global_position = d_pos - gr._dir_vector(d_dir) * 0.4
+			# 奔跑速度持续推向门（模拟按住冲刺）
+			for i in 12:
+				player.velocity = gr._dir_vector(d_dir) * 8.0
+				await get_tree().physics_frame
+			var r_after: int = gr.current_room_index
+			for i in 20:
+				await get_tree().physics_frame
+			_check(gr.current_room_index == r_after,
+				"奔跑穿门后不再连锁（%d→%d，稳定于 %d）" % [r_before, r_after, gr.current_room_index])
+
 
 ## ② 伤害数字：敌人受击应产生飘字
 func _test_damage_numbers(gr) -> void:
@@ -127,6 +177,32 @@ func _test_damage_numbers(gr) -> void:
 
 	var renderers := get_tree().get_nodes_in_group("damage_renderer")
 	_check(renderers.size() > 0, "场景中存在伤害渲染器（%d 个）" % renderers.size())
+	if renderers.is_empty():
+		return
+
+	# 回归：四边形必须有真实尺寸。
+	# QuadMesh 默认仅 1×1 像素，而实例缩放基准是 size/32（normal 时=1.0），
+	# 于是每个数字只有 1 像素、肉眼不可见——这正是「伤害数字不显示」的根因。
+	var r = renderers[0]
+	var mm: MultiMesh = r.get("_mm")
+	_check(mm != null, "MultiMesh 已建立")
+	if mm == null or mm.mesh == null:
+		_check(false, "MultiMesh 有 mesh")
+		return
+	var qsize: Vector2 = mm.mesh.size
+	_check(qsize.x > 8.0 and qsize.y > 8.0,
+		"伤害字四边形尺寸可读（%s，不是默认 1×1）" % str(qsize))
+
+	# 端到端：发信号后应真的产生一条飘字记录
+	var act: Array = r.get("_active")
+	var before_n: int = act.size()
+	EventBus.damage_popup.emit(Vector3(5, 0, 5), 77.0, "normal")
+	await get_tree().process_frame
+	_check(act.size() > before_n, "发信号后产生飘字记录（%d→%d）" % [before_n, act.size()])
+	if act.size() > before_n:
+		var entry: Dictionary = act[act.size() - 1]
+		_check(str(entry.get("str", "")) == "77", "飘字文本正确（'%s'）" % entry.get("str"))
+		_check(float(entry.get("lifetime", 0.0)) > 0.0, "飘字有存活时间")
 
 
 ## ③ 伤害数字开关：关掉后不应产生飘字
