@@ -90,7 +90,7 @@ func _test_enhance_flow() -> void:
 func _test_fusion_flow() -> void:
 	var em = GameManager.equipment_manager
 	var helm2 = _make_item("A03")
-	var robe = _make_item("A04")
+	var robe = _make_item("A05")
 	em.add_item(helm2)
 	em.add_item(robe)
 	await get_tree().process_frame
@@ -116,7 +116,7 @@ func _test_fusion_flow() -> void:
 func _test_devour_flow() -> void:
 	var em = GameManager.equipment_manager
 	var atk_before: float = GameManager.stat_value("atk")
-	var dagger = _make_item("W02")
+	var dagger = _make_item("W06")
 	em.add_item(dagger)
 	await get_tree().process_frame
 	var result: Dictionary = GameManager.devour_item(dagger)
@@ -142,6 +142,10 @@ func _test_equip_page() -> void:
 ## 从白装池创建实例
 func _make_item(template_id: String) -> EquipmentInstance:
 	var template = EquipmentDB.get_template(StringName(template_id))
+	# 模板缺失时立即报错：否则 EquipmentInstance.create(null) 会产出一个
+	# "看起来能用"的空物品，让后续断言以误导性的原因失败
+	# （2026-09 白装缩减为基础款时就踩到：W02/A04 已被移除）
+	assert(template != null, "测试引用了不存在的装备模板：%s" % template_id)
 	return EquipmentInstance.create(template)
 
 

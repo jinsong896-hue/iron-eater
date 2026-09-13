@@ -1,11 +1,21 @@
 class_name EquipmentDB
 extends RefCounted
 ## 装备模板数据库
-## 白装 V1 基准池：36 件（12 武器 + 18 护甲 + 6 饰品），依据 ai/基础装备相关.md V0.9
+## 白装为**基础款**（每槽位 1 件，共 13 件）；绿～橙为完整目录（36 件）按稀有度系数缩放。
+## 系数依据《噬铁者》总册 3.5：白 1.0 / 绿 1.6 / 蓝 2.5 / 紫 4.0 / 橙 6.5。
 ## 每件三词条：基础（穿戴）/ 吞噬（本局永久）/ 融合（作为材料贡献）
 
 static var _templates: Dictionary = {}  ## id -> EquipmentTemplate
 static var _initialized: bool = false
+
+## 各稀有度数值系数；索引对应 EquipmentDefs.Rarity（白/绿/蓝/紫/橙/红）
+const RARITY_SCALES := [1.0, 1.6, 2.5, 4.0, 6.5, 10.0]
+
+## 各稀有度显示名后缀（白装无后缀）。策划未给具名表，暂用后缀占位
+const RARITY_SUFFIX := ["", "·绿", "·蓝", "·紫", "·橙", "·红"]
+
+## 各稀有度 id 后缀
+const RARITY_ID_SUFFIX := ["", "_G", "_B", "_P", "_O", "_R"]
 
 
 ## 注册模板
@@ -60,16 +70,48 @@ static func all_templates() -> Array:
 	return _templates.values()
 
 
-## 单行定义表：[id, 名称, 槽位, 武器类型/护甲类, 标签数组, 基础词条, 吞噬词条, 融合词条]
+## 某稀有度的数值系数（越界时回退 1.0）
+static func rarity_scale(rarity: int) -> float:
+	if rarity < 0 or rarity >= RARITY_SCALES.size():
+		return 1.0
+	return RARITY_SCALES[rarity]
+
+
+## 单行定义表：[id, 名称, 武器类型, 标签数组, 基础词条, 吞噬词条, 融合词条]
 ## 词条格式: [Stat 枚举值, 数值, 是否百分比]
+## **白装只保留基础款**（每类 1 件做基准），完整武器目录见高稀有度生成
 const WEAPON_TABLE := [
-	# --- 单手（5 种：剑/匕首/弩/斧/盾） ---
+	["W01", "铁制单手剑", "sword", ["近战", "物理"], [Stat.ATK, 35.0, false], [Stat.ATK, 0.5, false], [Stat.ATK, 0.03, true]],
+	["W06", "铁制巨剑", "greatsword", ["近战", "物理"], [Stat.ATK, 56.0, false], [Stat.ATK, 0.7, false], [Stat.ATK, 0.04, true]],
+	["W09", "猎人长弓", "bow", ["远程", "物理"], [Stat.ATK, 44.0, false], [Stat.RNG, 0.002, true], [Stat.RNG, 0.05, true]],
+	["W11", "学徒长杖", "staff", ["远程", "长杆", "法术"], [Stat.AP, 45.0, false], [Stat.AP, 0.5, false], [Stat.AP, 0.04, true]],
+]
+
+## 护甲表：[id, 名称, 部位槽位, 护甲类, 基础, 吞噬, 融合] —— 6 部位各 1 件基础款
+const ARMOR_TABLE := [
+	["A03", "铁制头盔", EquipmentDefs.Slot.HEAD, EquipmentDefs.ArmorClass.HEAVY, [Stat.DEF, 6.0, false], [Stat.DEF, 0.3, false], [Stat.DEF, 0.03, true]],
+	["A05", "皮革胸甲", EquipmentDefs.Slot.CHEST, EquipmentDefs.ArmorClass.MEDIUM, [Stat.HP, 28.0, false], [Stat.HP, 1.5, false], [Stat.HP, 0.03, true]],
+	["A08", "皮革护肩", EquipmentDefs.Slot.SHOULDERS, EquipmentDefs.ArmorClass.MEDIUM, [Stat.ATK, 3.0, false], [Stat.ATK, 0.2, false], [Stat.ATK, 0.02, true]],
+	["A11", "皮革手套", EquipmentDefs.Slot.HANDS, EquipmentDefs.ArmorClass.MEDIUM, [Stat.CRT, 0.01, true], [Stat.CRT, 0.001, true], [Stat.CRT, 0.02, true]],
+	["A14", "皮革腿甲", EquipmentDefs.Slot.LEGS, EquipmentDefs.ArmorClass.MEDIUM, [Stat.HP, 24.0, false], [Stat.HP, 1.0, false], [Stat.HP, 0.03, true]],
+	["A16", "布质软靴", EquipmentDefs.Slot.FEET, EquipmentDefs.ArmorClass.LIGHT, [Stat.SPD, 0.04, true], [Stat.SPD, 0.002, true], [Stat.SPD, 0.03, true]],
+]
+
+## 饰品表：[id, 名称, 基础, 吞噬, 融合]
+const ACCESSORY_TABLE := [
+	["J01", "铁戒指", [Stat.ATK, 4.0, false], [Stat.ATK, 0.3, false], [Stat.ATK, 0.03, true]],
+	["J02", "蓝晶戒指", [Stat.AP, 4.0, false], [Stat.AP, 0.3, false], [Stat.AP, 0.03, true]],
+	["J03", "骨牙吊坠", [Stat.HP, 25.0, false], [Stat.HP, 1.0, false], [Stat.HP, 0.03, true]],
+]
+
+## 高稀有度克隆用的**完整目录**（12 武器 + 18 护甲 + 6 饰品）
+## 白装只取上表的子集，绿及以上保留全部类型——稀有度带来的是种类扩张
+const FULL_WEAPON_TABLE := [
 	["W01", "铁制单手剑", "sword", ["近战", "物理"], [Stat.ATK, 35.0, false], [Stat.ATK, 0.5, false], [Stat.ATK, 0.03, true]],
 	["W02", "短匕首", "dagger", ["近战", "物理"], [Stat.ATK, 26.0, false], [Stat.ASPD, 0.002, true], [Stat.ASPD, 0.03, true]],
 	["W03", "轻型手弩", "crossbow", ["远程", "物理"], [Stat.ATK, 30.0, false], [Stat.CRT, 0.001, true], [Stat.CRT, 0.02, true]],
 	["W04", "铁制手斧", "axe", ["近战", "物理"], [Stat.ATK, 38.0, false], [Stat.ATK, 0.5, false], [Stat.CRD, 0.03, true]],
 	["W05", "铁制圆盾", "shield", ["其他"], [Stat.DEF, 12.0, false], [Stat.DEF, 0.5, false], [Stat.DEF, 0.04, true]],
-	# --- 双手（7 种） ---
 	["W06", "铁制巨剑", "greatsword", ["近战", "物理"], [Stat.ATK, 56.0, false], [Stat.ATK, 0.7, false], [Stat.ATK, 0.04, true]],
 	["W07", "双手巨斧", "greataxe", ["近战", "物理"], [Stat.ATK, 60.0, false], [Stat.CRD, 0.003, true], [Stat.CRD, 0.05, true]],
 	["W08", "铁制长枪", "spear", ["近战", "长杆", "物理"], [Stat.ATK, 48.0, false], [Stat.ATK, 0.5, false], [Stat.RNG, 0.04, true]],
@@ -79,36 +121,28 @@ const WEAPON_TABLE := [
 	["W12", "铁制战镰", "scythe", ["近战", "长杆", "物理"], [Stat.ATK, 50.0, false], [Stat.ATK, 0.5, false], [Stat.ASPD, 0.03, true]],
 ]
 
-## 护甲表：[id, 名称, 部位槽位, 护甲类, 基础, 吞噬, 融合] —— 6 部位 × 轻/中/重
-const ARMOR_TABLE := [
-	# 头盔
+const FULL_ARMOR_TABLE := [
 	["A01", "布质兜帽", EquipmentDefs.Slot.HEAD, EquipmentDefs.ArmorClass.LIGHT, [Stat.AP, 4.0, false], [Stat.AP, 0.3, false], [Stat.AP, 0.03, true]],
 	["A02", "皮革头罩", EquipmentDefs.Slot.HEAD, EquipmentDefs.ArmorClass.MEDIUM, [Stat.CRT, 0.01, true], [Stat.CRT, 0.001, true], [Stat.CRT, 0.02, true]],
 	["A03", "铁制头盔", EquipmentDefs.Slot.HEAD, EquipmentDefs.ArmorClass.HEAVY, [Stat.DEF, 6.0, false], [Stat.DEF, 0.3, false], [Stat.DEF, 0.03, true]],
-	# 胸甲
 	["A04", "布质长袍", EquipmentDefs.Slot.CHEST, EquipmentDefs.ArmorClass.LIGHT, [Stat.MP, 12.0, false], [Stat.MP, 1.0, false], [Stat.MP, 0.04, true]],
 	["A05", "皮革胸甲", EquipmentDefs.Slot.CHEST, EquipmentDefs.ArmorClass.MEDIUM, [Stat.HP, 28.0, false], [Stat.HP, 1.5, false], [Stat.HP, 0.03, true]],
 	["A06", "铁制胸甲", EquipmentDefs.Slot.CHEST, EquipmentDefs.ArmorClass.HEAVY, [Stat.HP, 40.0, false], [Stat.HP, 2.0, false], [Stat.HP, 0.04, true]],
-	# 肩甲
 	["A07", "布质披肩", EquipmentDefs.Slot.SHOULDERS, EquipmentDefs.ArmorClass.LIGHT, [Stat.CDR, 0.01, true], [Stat.CDR, 0.001, true], [Stat.CDR, 0.02, true]],
 	["A08", "皮革护肩", EquipmentDefs.Slot.SHOULDERS, EquipmentDefs.ArmorClass.MEDIUM, [Stat.ATK, 3.0, false], [Stat.ATK, 0.2, false], [Stat.ATK, 0.02, true]],
 	["A09", "铁制肩甲", EquipmentDefs.Slot.SHOULDERS, EquipmentDefs.ArmorClass.HEAVY, [Stat.DEF, 7.0, false], [Stat.DEF, 0.3, false], [Stat.DEF, 0.03, true]],
-	# 护手
 	["A10", "布质手套", EquipmentDefs.Slot.HANDS, EquipmentDefs.ArmorClass.LIGHT, [Stat.ASPD, 0.02, true], [Stat.ASPD, 0.001, true], [Stat.ASPD, 0.02, true]],
 	["A11", "皮革手套", EquipmentDefs.Slot.HANDS, EquipmentDefs.ArmorClass.MEDIUM, [Stat.CRT, 0.01, true], [Stat.CRT, 0.001, true], [Stat.CRT, 0.02, true]],
 	["A12", "铁制护手", EquipmentDefs.Slot.HANDS, EquipmentDefs.ArmorClass.HEAVY, [Stat.DEF, 5.0, false], [Stat.DEF, 0.2, false], [Stat.DEF, 0.02, true]],
-	# 腿甲
 	["A13", "布质长裤", EquipmentDefs.Slot.LEGS, EquipmentDefs.ArmorClass.LIGHT, [Stat.MP, 10.0, false], [Stat.MP, 1.0, false], [Stat.MP, 0.03, true]],
 	["A14", "皮革腿甲", EquipmentDefs.Slot.LEGS, EquipmentDefs.ArmorClass.MEDIUM, [Stat.HP, 24.0, false], [Stat.HP, 1.0, false], [Stat.HP, 0.03, true]],
 	["A15", "铁制腿甲", EquipmentDefs.Slot.LEGS, EquipmentDefs.ArmorClass.HEAVY, [Stat.DEF, 8.0, false], [Stat.DEF, 0.4, false], [Stat.DEF, 0.03, true]],
-	# 鞋子
 	["A16", "布质软靴", EquipmentDefs.Slot.FEET, EquipmentDefs.ArmorClass.LIGHT, [Stat.SPD, 0.04, true], [Stat.SPD, 0.002, true], [Stat.SPD, 0.03, true]],
 	["A17", "皮革战靴", EquipmentDefs.Slot.FEET, EquipmentDefs.ArmorClass.MEDIUM, [Stat.SPD, 0.02, true], [Stat.SPD, 0.001, true], [Stat.SPD, 0.02, true]],
 	["A18", "铁制战靴", EquipmentDefs.Slot.FEET, EquipmentDefs.ArmorClass.HEAVY, [Stat.DEF, 5.0, false], [Stat.DEF, 0.2, false], [Stat.DEF, 0.02, true]],
 ]
 
-## 饰品表：[id, 名称, 基础, 吞噬, 融合] —— 无护甲类/武器类型标签
-const ACCESSORY_TABLE := [
+const FULL_ACCESSORY_TABLE := [
 	["J01", "铁戒指", [Stat.ATK, 4.0, false], [Stat.ATK, 0.3, false], [Stat.ATK, 0.03, true]],
 	["J02", "蓝晶戒指", [Stat.AP, 4.0, false], [Stat.AP, 0.3, false], [Stat.AP, 0.03, true]],
 	["J03", "骨牙吊坠", [Stat.HP, 25.0, false], [Stat.HP, 1.0, false], [Stat.HP, 0.03, true]],
@@ -120,13 +154,18 @@ const ACCESSORY_TABLE := [
 ## Stat 枚举引用（与 AttributeSystem.Stat 一致，写表用）
 enum Stat { HP, ATK, DEF, SPD, ASPD, RNG, AP, MP, CDR, CRT, CRD }
 
+## 白装件数（基础款），供测试与文档引用
+const WHITE_COUNT := 13
 
-## 初始化白装数据（36 件 V1 基准池）
-static func init_white_equipment() -> void:
+
+## 初始化装备数据：13 件白装基础款 + 绿～橙的完整目录克隆
+## （红装按策划是逐件设计的独立机制，不在此按系数生成）
+static func init_equipment_db() -> void:
 	if _initialized:
 		return
 	_initialized = true
 
+	# 白装：基础款
 	for row in WEAPON_TABLE:
 		var t := create_template(
 			StringName(row[0]), row[1],
@@ -155,8 +194,51 @@ static func init_white_equipment() -> void:
 		)
 		_apply_affixes(t, row[2], row[3], row[4])
 
+	# 绿～橙：完整目录按系数缩放
+	# （红装需逐件机制设计，见策划武器分册第 5 章，不在此生成）
+	for rarity in range(EquipmentDefs.Rarity.GREEN, EquipmentDefs.Rarity.RED):
+		_generate_rarity(rarity)
 
-## 应用三词条到模板（affix 格式: [stat, value, is_percent]）
+
+## 按稀有度生成完整目录（数值按系数缩放，名称加后缀）
+static func _generate_rarity(rarity: int) -> void:
+	var scale := rarity_scale(rarity)
+	var suffix: String = RARITY_SUFFIX[rarity]
+	var id_suffix: String = RARITY_ID_SUFFIX[rarity]
+
+	for row in FULL_WEAPON_TABLE:
+		var t := create_template(
+			StringName(str(row[0]) + id_suffix), str(row[1]) + suffix,
+			rarity, EquipmentDefs.Category.WEAPON, EquipmentDefs.Slot.WEAPON_1
+		)
+		t.weapon_type = row[2]
+		for tag in row[3]:
+			t.tags.append(str(tag))
+		_apply_affixes(t, _scale_affix(row[4], scale), _scale_affix(row[5], scale), _scale_affix(row[6], scale))
+
+	for row in FULL_ARMOR_TABLE:
+		var t := create_template(
+			StringName(str(row[0]) + id_suffix), str(row[1]) + suffix,
+			rarity, EquipmentDefs.Category.ARMOR, row[2]
+		)
+		t.armor_class = row[3]
+		_apply_affixes(t, _scale_affix(row[4], scale), _scale_affix(row[5], scale), _scale_affix(row[6], scale))
+
+	for row in FULL_ACCESSORY_TABLE:
+		var t := create_template(
+			StringName(str(row[0]) + id_suffix), str(row[1]) + suffix,
+			rarity, EquipmentDefs.Category.ACCESSORY, EquipmentDefs.Slot.ACCESSORY_1
+		)
+		_apply_affixes(t, _scale_affix(row[2], scale), _scale_affix(row[3], scale), _scale_affix(row[4], scale))
+
+
+## 按系数缩放词条数值（百分比词条同步缩放，否则高稀有度只有面板涨）
+## affix 格式: [stat, value, is_percent]
+static func _scale_affix(affix: Array, scale: float) -> Array:
+	return [affix[0], affix[1] * scale, affix[2]]
+
+
+## 应用三词条到模板
 static func _apply_affixes(t: EquipmentTemplate, base: Array, devour: Array, fusion: Array) -> void:
 	t.base_affix = _make_affix(base)
 	t.devour_affix = _make_affix(devour)

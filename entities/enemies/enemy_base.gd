@@ -42,6 +42,7 @@ enum EnemyState {
 signal died(world_position: Vector3)
 
 @export var loot_table: String = ""  ## 掉落表 ID（空 = 默认白装池）
+@export var is_elite := false        ## 精英标记：掉落概率走 ELITE_DROP_CHANCE
 @export var gold_min := 3
 @export var gold_max := 12
 

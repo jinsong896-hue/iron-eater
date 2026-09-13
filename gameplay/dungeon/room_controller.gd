@@ -257,6 +257,9 @@ func _spawn_enemies() -> void:
 func _spawn_enemy_at(point: Marker3D, difficulty_mult: float, m: Dictionary = {}) -> EnemyBase:
 	var enemy := EnemyBase.new()
 	enemy.position = point.global_position
+	# 精英房刷出的怪标记为精英，掉落走 ELITE_DROP_CHANCE
+	if _room_type() == "elite" or str(point.get_meta("elite", "")) == "true":
+		enemy.is_elite = true
 	if not m.is_empty():
 		enemy.apply_monster_config(m)
 		# 难度缩放（在怪物基准数值之上）

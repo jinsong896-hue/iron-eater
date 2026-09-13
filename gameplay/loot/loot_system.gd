@@ -27,13 +27,14 @@ func generate_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 	_spawn_pickup(item, position, parent)
 
 
-## 宝箱掉落：必掉 count 件白装（无金币——金币由 Chest 自身入账）
+## 宝箱掉落：必掉 count 件，稀有度按层加权抽取（无金币——金币由 Chest 自身入账）
+## 宝箱是策划指定的高稀有度补充渠道之一（总册 3.4）
 func generate_chest_loot(position: Vector3, parent: Node3D, count: int = 1) -> void:
-	var pool := EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.WHITE)
-	if pool.is_empty():
-		return
+	var floor := _current_floor()
 	for i in range(count):
-		var template = pool[rng.randi_range(0, pool.size() - 1)]
+		var template := _random_template_of_rarity(_roll_rarity(floor))
+		if template == null:
+			continue
 		var item := EquipmentInstance.create(template)
 		_spawn_pickup(item, position + Vector3(float(i) * 0.6 - 0.3, 0.0, 0.0), parent)
 
@@ -67,27 +68,111 @@ func _roll_gold(enemy_data) -> int:
 	return rng.randi_range(base_lo, base_hi)
 
 
-## 掉落装备模板：显式 loot_table 优先；Boss 必掉；否则按 BASE_DROP_CHANCE 从白装池随机
+## 掉落装备模板：显式掉落表优先；Boss 必掉（按层保底）；精英高概率；否则按基础概率
+## 稀有度由 _roll_rarity 加权抽取（权重随层数向高稀有度倾斜）
 func _roll_template(enemy_data) -> EquipmentTemplate:
 	# 显式掉落表
 	var loot_id := _explicit_loot_id(enemy_data)
 	if not loot_id.is_empty():
 		return EquipmentDB.get_template(StringName(loot_id))
 
-	# Boss 必掉
-	var is_boss := false
-	if enemy_data is Dictionary:
-		is_boss = enemy_data.get("boss", false)
-	elif enemy_data is Object and enemy_data.has_meta("boss_loot"):
-		is_boss = enemy_data.get_meta("boss_loot")
+	var floor := _current_floor()
 
-	# 白装池随机掉落
-	if not is_boss and rng.randf() > GameBalance.BASE_DROP_CHANCE:
+	# Boss：必掉，按层保底稀有度（1~5 层橙、6 层起红），不吃概率判定
+	if _is_boss(enemy_data):
+		return _random_template_of_rarity(_boss_pity_rarity(floor))
+
+	# 精英：走 ELITE_DROP_CHANCE（此前该常量定义但无人使用）
+	var chance := GameBalance.ELITE_DROP_CHANCE if _is_elite(enemy_data) else GameBalance.BASE_DROP_CHANCE
+	if rng.randf() > chance:
 		return null
-	var pool := EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.WHITE)
+	return _random_template_of_rarity(_roll_rarity(floor))
+
+
+## Boss 保底稀有度：1~5 层橙装，6 层起红装（总册 3.4）
+func _boss_pity_rarity(floor_num: int) -> int:
+	if floor_num <= GameBalance.BOSS_PITY_ORANGE_MAX_FLOOR:
+		return EquipmentDefs.Rarity.ORANGE
+	return EquipmentDefs.Rarity.RED
+
+
+## 按层数加权的稀有度抽取
+## 权重 = 基础权重 × (1 + 层级加成 × (层数-1))，白色不随层数增长
+## 红色权重为 0（不参与随机掉落，仅 Boss 保底产出）
+func _roll_rarity(floor_num: int) -> int:
+	var weights := rarity_weights_for_floor(floor_num)
+	var total := 0.0
+	for w in weights:
+		total += float(w)
+	if total <= 0.0:
+		return EquipmentDefs.Rarity.WHITE
+
+	# 加权抽取
+	var roll := rng.randf() * total
+	var acc := 0.0
+	for r in weights.size():
+		acc += float(weights[r])
+		if roll < acc:
+			return r
+	return EquipmentDefs.Rarity.WHITE
+
+
+## 按层数缩放后的稀有度权重（纯函数，供测试直接验证）
+## 返回长度与 RARITY_WEIGHTS 一致的浮点数组
+static func rarity_weights_for_floor(floor_num: int) -> Array:
+	var weights: Array = []
+	for r in GameBalance.RARITY_WEIGHTS.size():
+		var w: float = float(GameBalance.RARITY_WEIGHTS[r])
+		var gain: float = float(GameBalance.RARITY_FLOOR_GAIN[r])
+		if gain > 0.0:
+			w *= 1.0 + gain * float(maxi(floor_num - 1, 0))
+		weights.append(w)
+	return weights
+
+
+## 从指定稀有度池随机取一件模板；该池为空时回退到白装池
+func _random_template_of_rarity(rarity: int) -> EquipmentTemplate:
+	var pool := EquipmentDB.get_templates_by_rarity(rarity)
+	if pool.is_empty():
+		pool = EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.WHITE)
 	if pool.is_empty():
 		return null
 	return pool[rng.randi_range(0, pool.size() - 1)]
+
+
+## 当前层数（无 GameManager 时按第 1 层）
+func _current_floor() -> int:
+	var gm = _game_manager()
+	if gm == null:
+		return 1
+	var info = gm.get("run_info")
+	if info is Dictionary:
+		return int(info.get("floor", 1))
+	return 1
+
+
+## 是否 Boss（Dictionary 的 boss 字段 / Object 的 boss_loot meta）
+func _is_boss(enemy_data) -> bool:
+	if enemy_data == null:
+		return false
+	if enemy_data is Dictionary:
+		return bool(enemy_data.get("boss", false))
+	if enemy_data is Object and enemy_data.has_meta("boss_loot"):
+		return bool(enemy_data.get_meta("boss_loot"))
+	return false
+
+
+## 是否精英（Dictionary 的 elite 字段 / Object 的 is_elite 属性）
+func _is_elite(enemy_data) -> bool:
+	if enemy_data == null:
+		return false
+	if enemy_data is Dictionary:
+		return bool(enemy_data.get("elite", false))
+	if enemy_data is Object and enemy_data.has_meta("elite_loot"):
+		return true
+	if "is_elite" in enemy_data:
+		return bool(enemy_data.is_elite)
+	return false
 
 
 ## 显式掉落 ID（loot_table 字段）

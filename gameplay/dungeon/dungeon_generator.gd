@@ -87,45 +87,97 @@ func _generate_connections() -> void:
 				connections.append([i, j])
 
 
-## 分配房间类型
+## 分配房间类型（Boss 用图距离；特殊房按策划距离门控）
 func _assign_room_types() -> void:
-	# Boss 房：最远节点
-	var max_dist := 0
+	# Boss 房：图距离最远的房间
+	# （原实现用曼哈顿距离 abs(x)+abs(y) 代理，绕墙 5 步可能输给直线 4 步）
+	var dist_from_start := _bfs_distances(start_room_index)
+	var max_dist := -1
 	for i in rooms.size():
-		var pos: Vector2i = rooms[i]["position"]
-		var dist: float = abs(pos.x) + abs(pos.y)
-		if dist > max_dist:
-			max_dist = dist
+		var d: int = int(dist_from_start.get(i, 0))
+		if d > max_dist:
+			max_dist = d
 			boss_room_index = i
-
 	rooms[boss_room_index]["type"] = "boss"
 
-	# 中间随机分配精英房
-	var elite_count := maxi(rooms.size() / 5, 1)
+	# 顺序要紧：先放特殊房（它们从普通房里挑），再定精英
+	# 否则精英先占了普通房，特殊房可选项变少
+	_assign_special_rooms(dist_from_start)
+
+	# 精英房：占**怪物房** 20~30%（策划 3.1）
+	# 分母是剩余的普通房，不是总房间数——特殊房不算怪物房
+	var normal_count := 0
+	for r in rooms:
+		if r["type"] == "normal":
+			normal_count += 1
+	var elite_count := maxi(int(round(float(normal_count) * 0.25)), 1)
+	elite_count = mini(elite_count, normal_count)
+	var guard := 0
 	var assigned := 0
-	while assigned < elite_count:
+	while assigned < elite_count and guard < rooms.size() * 10:
+		guard += 1
 		var idx := rng.randi() % rooms.size()
 		if rooms[idx]["type"] == "normal":
 			rooms[idx]["type"] = "elite"
 			assigned += 1
 
-	# 特殊房：商店 / 泉水 / 事件各一间（越多房间配得越全）
-	_assign_special_rooms()
+
+## 分配特殊房（商店/宝箱/泉水），按策划的距离规则而非纯随机
+## 商店距初始 3~5、宝箱距初始 4~7、泉水距 Boss 2~4（关卡分册 3.1）
+##
+## ⚠ 放置顺序按「约束最强优先」：策划的距离区间是为 14×14 大地图设计的，
+## 而本层固定 13 房（BFS 直径仅 3~6）。宝箱的 4~7 在直径 4 的图上几乎无处可放，
+## 若让商店（3~5）先挑就会把仅有的远房占走。故宝箱先放，其次泉水、商店、事件。
+func _assign_special_rooms(dist_from_start: Dictionary) -> void:
+	var dist_from_boss := _bfs_distances(boss_room_index)
+	# 最受限的先挑
+	_place_by_distance("treasure", dist_from_start, 4, 7)
+	_place_by_distance("heal", dist_from_boss, 2, 4)
+	_place_by_distance("shop", dist_from_start, 3, 5)
+	# 事件房：策划要求每层至少 2 间
+	_place_by_distance("event", dist_from_start, 2, 99)
+	_place_by_distance("event", dist_from_start, 2, 99)
 
 
-## 分配特殊房（商店 / 泉水 / 事件），数量随房间总数缩放且不超过可用普通房
-func _assign_special_rooms() -> void:
-	var quota := clampi(rooms.size() / 4, 1, 3)
-	var pool := ["shop", "heal", "event"]
-	for i in quota:
-		var candidates: Array[int] = []
-		for idx in rooms.size():
-			if rooms[idx]["type"] == "normal":
-				candidates.append(idx)
-		if candidates.is_empty():
-			return
-		var pick: int = candidates[rng.randi() % candidates.size()]
-		rooms[pick]["type"] = pool[i]
+## 在满足距离区间的普通房里挑一间改为指定类型
+## 无候选时放宽为"距目标区间最近的普通房"，保证 13 房小图上也能配上
+func _place_by_distance(room_type: String, dist: Dictionary, lo: int, hi: int) -> bool:
+	var best := -1
+	var best_penalty := 0x7FFFFFFF
+	for idx in rooms.size():
+		if rooms[idx]["type"] != "normal":
+			continue
+		var d: int = int(dist.get(idx, 0))
+		var penalty := 0
+		if d < lo:
+			penalty = lo - d
+		elif d > hi:
+			penalty = d - hi
+		if penalty < best_penalty:
+			best_penalty = penalty
+			best = idx
+		if penalty == 0:
+			break  # 落在区间内，直接采用
+	if best < 0:
+		return false
+	rooms[best]["type"] = room_type
+	return true
+
+
+## 从起点做 BFS，返回 {房间索引: 步数}
+func _bfs_distances(from_index: int) -> Dictionary:
+	var dist := {}
+	if from_index < 0 or from_index >= rooms.size():
+		return dist
+	dist[from_index] = 0
+	var queue: Array[int] = [from_index]
+	while not queue.is_empty():
+		var cur: int = queue.pop_front()
+		for nb in get_adjacent_rooms(cur):
+			if not dist.has(nb):
+				dist[nb] = int(dist[cur]) + 1
+				queue.append(nb)
+	return dist
 
 
 ## 获取房间世界坐标
