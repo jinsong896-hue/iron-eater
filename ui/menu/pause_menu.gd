@@ -13,6 +13,9 @@ extends CanvasLayer
 func _ready() -> void:
 	# 关键：暂停时仍然处理输入
 	process_mode = PROCESS_MODE_ALWAYS
+	# 供设置面板关闭后交还控制（settings_panel.gd 按组查找）
+	if not is_in_group("pause_menu"):
+		add_to_group("pause_menu")
 
 	if btn_resume:
 		btn_resume.pressed.connect(_on_resume)
@@ -55,7 +58,12 @@ func _on_resume() -> void:
 
 
 func _on_settings() -> void:
-	EventBus.message.emit("设置面板")
+	# 打开真实设置面板（游戏内模式：接管暂停与模态），暂停菜单暂时让位
+	var sp := get_tree().get_first_node_in_group("settings_panel")
+	if sp == null or not sp.has_method("open"):
+		return
+	visible = false
+	sp.call("open", true)
 
 
 func _on_main_menu() -> void:

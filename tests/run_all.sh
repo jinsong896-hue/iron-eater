@@ -66,6 +66,7 @@ echo
 run_script_suite "framework    (核心逻辑)" "res://tests/test_framework.gd"
 run_script_suite "iron_studio  (编辑器数据类)" "res://tests/test_iron_studio.gd"
 run_scene_suite  "menu         (主菜单交互)" "res://tests/test_menu_interaction_scene.tscn"
+run_scene_suite  "settings     (设置面板)" "res://tests/test_settings_panel.tscn"
 run_scene_suite  "backpack     (背包 UI)" "res://tests/test_backpack_ui.tscn"
 run_scene_suite  "combat       (战斗系统)" "res://tests/test_combat_system.tscn"
 run_scene_suite  "room_flow    (房间流程+特殊房)" "res://tests/test_room_flow.tscn"
@@ -74,6 +75,7 @@ run_scene_suite  "door_physics (穿门物理信号)" "res://tests/test_door_phys
 run_scene_suite  "floor_flow   (楼层递进)" "res://tests/test_floor_flow.tscn"
 run_scene_suite  "death_flow   (死亡结算)" "res://tests/test_death_flow.tscn"
 run_scene_suite  "gameplay     (运行时行为回归)" "res://tests/test_gameplay_fixes.tscn"
+run_scene_suite  "fixes2       (连锁切房/伤害数字)" "res://tests/test_gameplay_fixes2.tscn"
 
 echo
 echo "=============================================="

@@ -1,6 +1,7 @@
 [gd_scene load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://ui/menu/main_menu.gd" id="1_menu"]
+[ext_resource type="PackedScene" path="res://scenes/ui/settings_panel.tscn" id="2_settings"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -304,108 +305,8 @@ vertical_alignment = 1
 theme_override_font_sizes/font_size = 22
 theme_override_colors/font_color = Color(0.5, 0.48, 0.45, 1)
 
-[node name="SettingsPanel" type="Control" parent="."]
+[node name="SettingsPanel" parent="." instance=ExtResource("2_settings")]
 visible = false
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-
-[node name="VBox" type="VBoxContainer" parent="SettingsPanel"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-offset_left = 60.0
-offset_top = 60.0
-offset_right = -60.0
-offset_bottom = -60.0
-theme_override_constants/separation = 15
-
-[node name="Title" type="Label" parent="SettingsPanel/VBox"]
-layout_mode = 2
-text = "设置"
-theme_override_font_sizes/font_size = 32
-theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
-
-[node name="Tabs" type="HBoxContainer" parent="SettingsPanel/VBox"]
-layout_mode = 2
-theme_override_constants/separation = 20
-
-[node name="BtnDisplay" type="Button" parent="SettingsPanel/VBox/Tabs"]
-layout_mode = 2
-text = "显示"
-flat = true
-
-[node name="BtnAudio" type="Button" parent="SettingsPanel/VBox/Tabs"]
-layout_mode = 2
-text = "音频"
-flat = true
-
-[node name="BtnControl" type="Button" parent="SettingsPanel/VBox/Tabs"]
-layout_mode = 2
-text = "控制"
-flat = true
-
-[node name="BtnGame" type="Button" parent="SettingsPanel/VBox/Tabs"]
-layout_mode = 2
-text = "游戏"
-flat = true
-
-[node name="Content" type="Control" parent="SettingsPanel/VBox"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="DisplayPage" type="VBoxContainer" parent="SettingsPanel/VBox/Content"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="Lbl1" type="Label" parent="SettingsPanel/VBox/Content/DisplayPage"]
-layout_mode = 2
-text = "显示模式：无边框窗口"
-
-[node name="Lbl2" type="Label" parent="SettingsPanel/VBox/Content/DisplayPage"]
-layout_mode = 2
-text = "分辨率：1920x1080"
-
-[node name="Lbl3" type="Label" parent="SettingsPanel/VBox/Content/DisplayPage"]
-layout_mode = 2
-text = "垂直同步：开"
-
-[node name="AudioPage" type="VBoxContainer" parent="SettingsPanel/VBox/Content"]
-visible = false
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="Lbl1" type="Label" parent="SettingsPanel/VBox/Content/AudioPage"]
-layout_mode = 2
-text = "主音量：75%"
-
-[node name="Lbl2" type="Label" parent="SettingsPanel/VBox/Content/AudioPage"]
-layout_mode = 2
-text = "音乐音量：60%"
-
-[node name="ControlPage" type="VBoxContainer" parent="SettingsPanel/VBox/Content"]
-visible = false
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="Lbl1" type="Label" parent="SettingsPanel/VBox/Content/ControlPage"]
-layout_mode = 2
-text = "键位：WASD移动 / 方向键攻击"
-
-[node name="GamePage" type="VBoxContainer" parent="SettingsPanel/VBox/Content"]
-visible = false
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="Lbl1" type="Label" parent="SettingsPanel/VBox/Content/GamePage"]
-layout_mode = 2
-text = "语言：中文"
-
-[node name="Lbl2" type="Label" parent="SettingsPanel/VBox/Content/GamePage"]
-layout_mode = 2
-text = "显示伤害数字：开"
 
 [node name="ConfirmDialog" type="AcceptDialog" parent="."]
 title = "确认"

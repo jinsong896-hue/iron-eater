@@ -43,8 +43,30 @@ func _ready() -> void:
 	add_to_group("damage_renderer")
 	# 默认字体（CanvasLayer 不是 Control，不能调用 get_theme_default_font）
 	_font = ThemeDB.fallback_font
+	# 订阅伤害事件：此前全链路无人监听 damage_popup，数字永远不显示
+	var bus := get_node_or_null("/root/EventBus")
+	if bus and bus.has_signal("damage_popup"):
+		bus.damage_popup.connect(_on_damage_popup)
 	# 相机从父节点或场景找
 	await _init_async()
+
+
+## EventBus.damage_popup → 飘字。
+## 受设置开关控制（设置面板可关）；"dodge" 是闪避提示，不算伤害数字，不显示。
+func _on_damage_popup(world_position: Vector3, amount: float, kind: String) -> void:
+	if kind == "dodge":
+		return
+	if not _damage_numbers_enabled():
+		return
+	spawn(world_position, amount, kind)
+
+
+## 伤害数字是否开启（设置缺失时默认开）
+func _damage_numbers_enabled() -> bool:
+	var sm := get_node_or_null("/root/SettingsManager")
+	if sm == null:
+		return true
+	return bool(sm.get_setting("show_damage_numbers"))
 
 
 ## 异步初始化：烘焙图集 + 配 shader + 建 MultiMesh

@@ -52,14 +52,6 @@ var current_save_slot := 0
 
 # 设置页
 @onready var settings_panel: Control = $SettingsPanel
-@onready var tab_display: Button = $SettingsPanel/VBox/Tabs/BtnDisplay
-@onready var tab_audio: Button = $SettingsPanel/VBox/Tabs/BtnAudio
-@onready var tab_control: Button = $SettingsPanel/VBox/Tabs/BtnControl
-@onready var tab_game: Button = $SettingsPanel/VBox/Tabs/BtnGame
-@onready var page_display: Control = $SettingsPanel/VBox/Content/DisplayPage
-@onready var page_audio: Control = $SettingsPanel/VBox/Content/AudioPage
-@onready var page_control: Control = $SettingsPanel/VBox/Content/ControlPage
-@onready var page_game: Control = $SettingsPanel/VBox/Content/GamePage
 
 # 确认弹窗
 @onready var confirm_dialog: AcceptDialog = $ConfirmDialog
@@ -444,25 +436,9 @@ func _setup_upgrade() -> void:
 
 
 func _setup_settings() -> void:
-	if tab_display:
-		tab_display.pressed.connect(func(): _switch_settings_tab(0))
-	if tab_audio:
-		tab_audio.pressed.connect(func(): _switch_settings_tab(1))
-	if tab_control:
-		tab_control.pressed.connect(func(): _switch_settings_tab(2))
-	if tab_game:
-		tab_game.pressed.connect(func(): _switch_settings_tab(3))
-
-
-func _switch_settings_tab(tab: int) -> void:
-	if page_display:
-		page_display.visible = tab == 0
-	if page_audio:
-		page_audio.visible = tab == 1
-	if page_control:
-		page_control.visible = tab == 2
-	if page_game:
-		page_game.visible = tab == 3
+	# 页签与设置项现在由 settings_panel.gd 自己管理（面板作为独立场景实例化），
+	# 主菜单不再重复接线——此前这里连的是内联假壳面板的写死 Label，无实际功能。
+	pass
 
 
 # ============================================================

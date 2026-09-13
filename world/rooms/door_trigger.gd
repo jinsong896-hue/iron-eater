@@ -12,6 +12,32 @@ var _blocker: StaticBody3D = null
 ## 原实现每次 body_entered 都发信号，若玩家正好被放在门触发器上（或站在门上
 ## 来回蹭），会连续触发切房 → 房间被反复销毁重建 → 卡死。
 var _triggered := false
+## 短暂失效：玩家刚穿过本门进入房间，落点就在门旁；若门立刻可用会被再次
+## 触发（表现：进一格却穿两房）。等玩家离开触发区后自动恢复。
+var _disarmed := false
+
+
+func _ready() -> void:
+	set_process(false)
+
+
+## 让本门失效，直到玩家离开触发区（切房后由 GameRoot 调用）
+func disarm_until_clear() -> void:
+	_disarmed = true
+	_triggered = false   # 允许以后正常使用
+	set_process(true)
+
+
+func _process(_delta: float) -> void:
+	if not _disarmed:
+		set_process(false)
+		return
+	# 玩家已离开触发区 → 恢复可用
+	for body in get_overlapping_bodies():
+		if body.is_in_group("player"):
+			return
+	_disarmed = false
+	set_process(false)
 
 
 ## 锁门：禁用触发 + 生成物理阻挡
@@ -40,6 +66,8 @@ func unlock() -> void:
 
 func _on_body_entered(body: Node3D) -> void:
 	if _triggered:
+		return
+	if _disarmed:
 		return
 	if is_locked or not is_open:
 		return

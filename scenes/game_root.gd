@@ -15,6 +15,7 @@ var dungeon_graph: Array[Dictionary] = []
 var dungeon_connections: Array[Array] = []
 var dungeon_start_index := 0
 var current_room_index := 0
+var _is_transitioning := false   # 切房重入保护（见 _transition_to_room）
 var dungeon_generated := false
 var current_room_node: Node3D = null
 var room_state: Dictionary = {}
@@ -362,6 +363,12 @@ func _find_room_in_direction(direction: String) -> int:
 func _transition_to_room(target_idx: int, enter_direction: String = "") -> void:
 	if target_idx == current_room_index:
 		return
+	# 重入保护：一次触发只切一次房。
+	# 旧房间的门在本帧内仍然活着（queue_free 要到帧末），落点又靠近门，
+	# 没有这道闸门时同一帧可能被第二扇门再触发一次 → 「进一格却穿两房」。
+	if _is_transitioning:
+		return
+	_is_transitioning = true
 
 	# 离开当前房间
 	if current_room_node:
@@ -381,6 +388,31 @@ func _transition_to_room(target_idx: int, enter_direction: String = "") -> void:
 	load_current_room()
 	_activate_current_room()
 	_place_player(enter_direction)
+	# 刚进来的那扇门暂时失效：玩家落点就在它旁边，立刻踩上会再触发一次
+	# → 「进一格却穿两房」。短暂失效后恢复，保留回头路。
+	_disarm_entry_door(enter_direction)
+
+	_is_transitioning = false
+
+
+## 让玩家刚穿过的那扇门短暂失效，避免落点踩门导致连锁切房
+## 门方向 = 行进方向的反向（往东走 → 从本房西门进来）
+func _disarm_entry_door(enter_direction: String) -> void:
+	if enter_direction.is_empty() or current_room_node == null:
+		return
+	var doors_node := current_room_node.get_node_or_null("Doors")
+	if doors_node == null:
+		return
+	var entry_dir := _opposite_dir(enter_direction)
+	for door in doors_node.get_children():
+		if not str(door.name).begins_with("Door_"):
+			continue
+		var trig = door.get_node_or_null("DoorTrigger")
+		if trig == null or str(trig.get("direction")) != entry_dir:
+			continue
+		if trig.has_method("disarm_until_clear"):
+			trig.call("disarm_until_clear")
+		return
 
 
 func _activate_current_room() -> void:
