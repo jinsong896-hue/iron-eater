@@ -295,9 +295,61 @@ func _test_room_build_is_merged(gr) -> void:
 	_check(wall_kids <= 2, "墙已合并（容器下 %d 个节点：网格 + 碰撞体）" % wall_kids)
 	_check(walls_node.get_node_or_null("WallCollision") != null, "墙碰撞体存在（碰撞行为保留）")
 
+	# === 三角形朝向回归 ===
+	# Godot 以**顺时针为正面**（与右手叉积相反）。绕序写反会导致：
+	#   地板正面朝下 → 从上方看被剔除（地板消失）
+	#   墙顶面朝下   → 侧面看到内壁（墙看起来全黑）
+	# 这个坑本项目踩过两次，故用引擎自身的 generate_normals 作判据固化为测试。
+	# 注意必须按**索引缓冲**取三角形——翻转绕序后顶点 0/1/2 已不在同一三角形里。
+	if merged != null:
+		var fmesh: Mesh = (merged as MeshInstance3D).mesh
+		var farr: Array = fmesh.surface_get_arrays(0)
+		var fverts: PackedVector3Array = farr[Mesh.ARRAY_VERTEX]
+		var fidx: PackedInt32Array = farr[Mesh.ARRAY_INDEX]
+		var floor_bad := 0
+		for t in mini(fidx.size() / 3, 8):
+			var gn := _godot_face_normal(
+				fverts[fidx[t * 3]], fverts[fidx[t * 3 + 1]], fverts[fidx[t * 3 + 2]])
+			if gn.dot(Vector3.UP) <= 0.5:
+				floor_bad += 1
+		_check(floor_bad == 0, "地板正面朝上（抽查 8 个三角形，%d 个朝向错误）" % floor_bad)
+
+	var wall_mesh_node: Node = walls_node.get_node_or_null("WallMesh")
+	if wall_mesh_node != null:
+		var wmesh: Mesh = (wall_mesh_node as MeshInstance3D).mesh
+		var warr: Array = wmesh.surface_get_arrays(0)
+		var wverts: PackedVector3Array = warr[Mesh.ARRAY_VERTEX]
+		var wnorms: PackedVector3Array = warr[Mesh.ARRAY_NORMAL]
+		var top_up := false
+		var mismatch := 0
+		var face_count := wverts.size() / 4
+		for f in mini(face_count, 24):
+			var i0 := f * 4
+			var gn := _godot_face_normal(wverts[i0], wverts[i0 + 1], wverts[i0 + 2])
+			if gn.dot(wnorms[i0].normalized()) <= 0.5:
+				mismatch += 1
+			if wnorms[i0].normalized().dot(Vector3.UP) > 0.9 and gn.dot(Vector3.UP) > 0.5:
+				top_up = true
+		_check(mismatch == 0, "墙各面正面与法线一致（抽查 %d 面，%d 个不符）" % [mini(face_count, 24), mismatch])
+		_check(top_up, "墙顶面正面朝上（不会从上方看到背面的内壁）")
+
 	# 整体节点数：旧实现数百，合并后应远低于此
 	var total: int = _count_descendants(room)
 	_check(total < 400, "整间房节点数已大幅下降（%d，旧实现约 950+）" % total)
+
+
+## 用引擎自身从绕序推出正面法线（Godot 以顺时针为正面）
+func _godot_face_normal(a: Vector3, b: Vector3, c: Vector3) -> Vector3:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.add_vertex(a)
+	st.add_vertex(b)
+	st.add_vertex(c)
+	st.generate_normals()
+	var m: ArrayMesh = st.commit()
+	var arr: Array = m.surface_get_arrays(0)
+	var ns: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+	return ns[0].normalized()
 
 
 ## 攻击性能回归：挥砍视觉必须复用材质与节点，不能每次新建。

@@ -74,7 +74,10 @@ static func _build_merged_mesh(parent: Node3D, tile_type: String, cells: Array) 
 		var x1 := cx + half
 		var z0 := cz - half
 		var z1 := cz + half
-		# 四个角，法线朝上；逆时针（俯视）保证正面朝上
+		# 四个角（俯视，法线朝上）
+		# 绕序注意：**Godot 以顺时针为正面**（与右手叉积相反，已实证：
+		# 用 SurfaceTool.generate_normals 测定，逆时针绕序会得到朝下的法线）。
+		# 故这里必须按顺时针发射，否则从上方看地板是背面、会被整体剔除（地板消失）。
 		var base := verts.size()
 		verts.push_back(Vector3(x0, FLOOR_Y, z0))
 		verts.push_back(Vector3(x0, FLOOR_Y, z1))
@@ -87,11 +90,11 @@ static func _build_merged_mesh(parent: Node3D, tile_type: String, cells: Array) 
 		uvs.push_back(Vector2(1, 1))
 		uvs.push_back(Vector2(1, 0))
 		indices.push_back(base + 0)
+		indices.push_back(base + 2)
 		indices.push_back(base + 1)
-		indices.push_back(base + 2)
 		indices.push_back(base + 0)
-		indices.push_back(base + 2)
 		indices.push_back(base + 3)
+		indices.push_back(base + 2)
 
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
