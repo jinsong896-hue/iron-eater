@@ -11,6 +11,7 @@ var room_templates: Dictionary = {}
 # 地下城数据
 var dungeon_graph: Array[Dictionary] = []
 var dungeon_connections: Array[Array] = []
+var dungeon_start_index := 0
 var current_room_index := 0
 var dungeon_generated := false
 var current_room_node: Node3D = null
@@ -120,6 +121,7 @@ func generate_dungeon(seed_value: int, count: int = 13) -> void:
 
 	dungeon_graph = gen.rooms
 	dungeon_connections = gen.connections
+	dungeon_start_index = gen.start_room_index
 	dungeon_generated = true
 	current_room_index = 0
 	room_state.clear()
@@ -165,6 +167,8 @@ func load_current_room() -> Node3D:
 	var RoomDataClass = load("res://data/rooms/room_data.gd")
 	var jd := _read_json_dict(template_path)
 	if RoomDataClass and not jd.is_empty():
+		# 门按地牢拓扑重算，覆盖模板里写死的门（消除哑门与死胡同）
+		_apply_topology_doors(jd)
 		var rd = RoomDataClass.new()
 		rd.load_from_dict(jd)
 		FloorBuilder.build(containers["Floor"], jd)
@@ -197,6 +201,46 @@ func _read_json_dict(path: String) -> Dictionary:
 	if j.parse(t) != OK:
 		return {}
 	return j.data
+
+
+## 按地牢拓扑重算本房的门，写回 jd["doors"]，并让边界墙在门格留洞
+## 模板里的门方位是固定的，与随机拓扑对不上就会产生哑门（走上去不切房）
+func _apply_topology_doors(jd: Dictionary) -> void:
+	if dungeon_graph.is_empty() or dungeon_connections.is_empty():
+		return
+	if current_room_index < 0 or current_room_index >= dungeon_graph.size():
+		return
+
+	var start_idx: int = clampi(dungeon_start_index, 0, dungeon_graph.size() - 1)
+	var parents: Array = DoorsByTopology.bfs_parents(dungeon_graph, dungeon_connections, start_idx)
+	var back_idx: int = start_idx
+	if current_room_index < parents.size() and int(parents[current_room_index]) >= 0:
+		back_idx = int(parents[current_room_index])
+
+	var w: int = int(jd.get("width", 20))
+	var h: int = int(jd.get("height", 15))
+	var doors: Array = DoorsByTopology.build_doors(
+		dungeon_graph, dungeon_connections, current_room_index,
+		start_idx, back_idx, w, h
+	)
+	if doors.is_empty():
+		return
+	jd["doors"] = doors
+
+	# 墙在门格留洞：门替换的是「同名方位」的墙段
+	# （门与墙同方位时位置重合；角落格的反向墙要保留）
+	var door_keys := {}
+	for d in doors:
+		door_keys["%d_%d_%s" % [int(d["x"]), int(d["y"]), str(d["direction"])]] = true
+	var walls: Array = []
+	for wall in jd.get("walls", []):
+		var wdk := "%d_%d_%s" % [
+			int(wall.get("x", 0)), int(wall.get("y", 0)), str(wall.get("direction", ""))
+		]
+		if door_keys.has(wdk):
+			continue
+		walls.append(wall)
+	jd["walls"] = walls
 
 
 func _pick_template(room_type: String) -> String:

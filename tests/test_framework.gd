@@ -57,6 +57,9 @@ func _init() -> void:
 	# 特殊房交互测试（商店/泉水/事件）
 	test_special_room_interactions()
 
+	# 门拓扑测试（按地牢连通关系算门，消除哑门）
+	test_doors_by_topology()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -925,3 +928,106 @@ func test_boss_room_loop() -> void:
 		_check(portal != null and is_instance_valid(portal), "生成下一层传送门")
 
 	room_root.queue_free()
+
+## 门拓扑测试：门必须只出现在有邻接房间的方位上（消除哑门）
+func test_doors_by_topology() -> void:
+	_current_test = "DoorsByTopology"
+	print("\n--- %s ---" % _current_test)
+
+	var DT = _require_script("res://gameplay/dungeon/doors_by_topology.gd")
+	if DT == null:
+		return
+
+	# 手工拓扑：3 房一字排开 + 一条支线
+	#   [0 start(0,0)] — [1 normal(1,0)] — [2 boss(2,0)]
+	#                          |
+	#                    [3 shop(1,1)]
+	var rooms: Array = [
+		{"position": Vector2i(0, 0), "type": "start"},
+		{"position": Vector2i(1, 0), "type": "normal"},
+		{"position": Vector2i(2, 0), "type": "boss"},
+		{"position": Vector2i(1, 1), "type": "shop"},
+	]
+	var conns: Array = [[0, 1], [1, 2], [1, 3]]
+
+	var parents: Array = DT.bfs_parents(rooms, conns, 0)
+	_check(parents[0] == -1, "起始房无父节点")
+	_check(int(parents[1]) == 0, "房1 父节点=房0")
+	_check(int(parents[2]) == 1, "房2 父节点=房1")
+	_check(int(parents[3]) == 1, "房3 父节点=房1")
+
+	# --- 核心不变量：每扇门都通向真实邻接房间 ---
+	for i in rooms.size():
+		var dirs: Array = DT.directions_for(rooms, conns, i, 0, int(parents[i]))
+		for d in dirs:
+			_check(_has_neighbor_in_dir(rooms, conns, i, str(d)),
+				"房%d 的 %s 门通向邻接房间" % [i, d])
+
+	# --- 起始房：仅邻接方向，不补回退门 ---
+	var d0: Array = DT.directions_for(rooms, conns, 0, 0, int(parents[0]))
+	_check(d0.size() == 1 and d0.has("east"), "起始房仅东门（唯一邻接）", [str(d0)])
+
+	# --- 中间房：三个邻接方位齐全 ---
+	var d1: Array = DT.directions_for(rooms, conns, 1, 0, int(parents[1]))
+	_check(d1.size() == 3, "房1 有 3 扇门", [str(d1)])
+	_check(d1.has("west") and d1.has("east") and d1.has("south"), "房1 方位正确", [str(d1)])
+
+	# --- Boss 房：单邻接则只有一扇门（不补哑门） ---
+	var d2: Array = DT.directions_for(rooms, conns, 2, 0, int(parents[2]))
+	_check(d2.size() == 1 and d2.has("west"), "房2 仅西门（邻接房1，不补哑门）", [str(d2)])
+
+	# --- 死胡同救急：本房无任何邻接时补一扇回退门 ---
+	var lonely: Array = [
+		{"position": Vector2i(0, 0), "type": "start"},
+		{"position": Vector2i(0, 5), "type": "normal"},   # 与起点同列、隔 5 格，无 connection
+	]
+	var d_lonely: Array = DT.directions_for(lonely, [], 1, 0, 0)
+	_check(d_lonely.size() == 1 and d_lonely.has("north"),
+		"孤立房补回退门（北向起点）", [str(d_lonely)])
+
+	# --- 门格坐标在边界上 ---
+	_check(DT.cell_for("north", 20, 15).y == 0, "北门在 y=0 边界")
+	_check(DT.cell_for("south", 20, 15).y == 14, "南门在 y=height-1 边界")
+	_check(DT.cell_for("west", 20, 15).x == 0, "西门在 x=0 边界")
+	_check(DT.cell_for("east", 20, 15).x == 19, "东门在 x=width-1 边界")
+	var cn: Vector2i = DT.cell_for("north", 20, 15)
+	_check(cn.x >= 0 and cn.x < 20, "北门 x 在范围内")
+
+	# --- build_doors 产出可直接喂给 DoorBuilder 的结构 ---
+	var doors: Array = DT.build_doors(rooms, conns, 1, 0, int(parents[1]), 20, 15)
+	_check(doors.size() == 3, "房1 生成 3 扇门数据", [str(doors.size())])
+	var ids := {}
+	for d in doors:
+		_check(d.has("x") and d.has("y") and d.has("direction") and d.has("id"), "门字段完整")
+		ids[d["id"]] = true
+	_check(ids.size() == doors.size(), "门 id 互不重复")
+
+	# --- 边界情形：孤立单房间 ---
+	var single: Array = [{"position": Vector2i(0, 0), "type": "start"}]
+	var d_single: Array = DT.directions_for(single, [], 0, 0, 0)
+	_check(d_single.is_empty(), "孤立起始房无门", [str(d_single)])
+
+
+## 房 i 在 dir 方向是否有邻接房间（测试辅助）
+func _has_neighbor_in_dir(rooms: Array, conns: Array, i: int, dir: String) -> bool:
+	for conn in conns:
+		var other := -1
+		if int(conn[0]) == i:
+			other = int(conn[1])
+		elif int(conn[1]) == i:
+			other = int(conn[0])
+		if other < 0:
+			continue
+		var diff: Vector2i = rooms[other]["position"] - rooms[i]["position"]
+		var d := ""
+		if diff.x > 0:
+			d = "east"
+		elif diff.x < 0:
+			d = "west"
+		elif diff.y > 0:
+			d = "south"
+		elif diff.y < 0:
+			d = "north"
+		if d == dir:
+			return true
+	return false

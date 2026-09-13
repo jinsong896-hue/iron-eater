@@ -83,7 +83,38 @@ func _ready() -> void:
 	# 特殊房闭环验证
 	await _test_special_room(gr)
 
+	# 全地牢哑门排查（本次修复的核心不变量）
+	await _test_no_dead_doors(gr)
+
 	_finish()
+
+## 全地牢哑门排查：逐间房构建，断言每扇门都通向真实邻接房间
+## 哑门 = 门朝向没有邻接房间，玩家走上去 DoorTrigger 发信号但
+## GameRoot 按方向找不到房间，静默不切房（看起来像卡住）
+func _test_no_dead_doors(gr) -> void:
+	var total_doors := 0
+	var dead_doors := 0
+	var detail: Array[String] = []
+
+	for i in gr.dungeon_graph.size():
+		gr._transition_to_room(i)
+		await get_tree().process_frame
+		await get_tree().process_frame
+
+		var ctrl = gr.current_room_node.get_node_or_null("RoomController")
+		if ctrl == null:
+			continue
+		for door in ctrl._doors:
+			var trig = door.get_node_or_null("DoorTrigger")
+			if trig == null or str(trig.direction).is_empty():
+				continue
+			total_doors += 1
+			if gr._find_room_in_direction(str(trig.direction)) < 0:
+				dead_doors += 1
+				detail.append("房%d %s" % [i, trig.direction])
+
+	_check(total_doors > 0, "地牢共构建出 %d 扇门" % total_doors)
+	_check(dead_doors == 0, "无哑门（%d 扇全部通向邻接房间）%s" % [dead_doors, detail])
 
 ## 清空状态落盘验证：房间节点每次进入都重建，控制器实例是新的，
 ## 不落盘的话回访已清房间会重新刷怪/锁门，Boss 房还会重现传送门

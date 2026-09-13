@@ -17,13 +17,36 @@ static func build(parent: Node3D, data) -> void:
 		_generate_boundary_walls(parent, data)
 		return
 
+	# 门格留洞：门与同格墙（含角落双面墙）互斥。
+	# 房间模板的墙圈是连着门格的，门改为按拓扑重算后必须在这里放行，
+	# 否则门会封在一段实心墙里。
+	var door_cells := _door_cell_set(data)
+
 	var w: int = data.get("width", 16)
 	var h: int = data.get("height", 12)
 	for wall in walls:
+		var wx := int(wall.get("x", 0))
+		var wy := int(wall.get("y", 0))
+		var wdir := str(wall.get("direction", ""))
+		if door_cells.has("%d_%d_%s" % [wx, wy, wdir]):
+			continue
 		# 旧数据无 direction 时，按墙在房间的位置推断朝向
 		if not wall.has("direction"):
-			wall["direction"] = _infer_direction(int(wall.get("x", 0)), int(wall.get("y", 0)), w, h)
+			wall["direction"] = _infer_direction(wx, wy, w, h)
 		_create_wall_segment(parent, wall)
+
+
+## 门所占的「格+方向」集合（运行时防线，与 GameRoot._apply_topology_doors 同口径）
+## 只按方向精确匹配：门替换的是同名方位的墙段，角落格的反向墙要保留
+static func _door_cell_set(data) -> Dictionary:
+	var set := {}
+	for d in data.get("doors", []):
+		var dx := int(d.get("x", -1))
+		var dy := int(d.get("y", -1))
+		if dx < 0 or dy < 0:
+			continue
+		set["%d_%d_%s" % [dx, dy, str(d.get("direction", ""))]] = true
+	return set
 
 
 ## 自动生成房间边界墙
