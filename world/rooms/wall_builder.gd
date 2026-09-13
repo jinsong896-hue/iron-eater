@@ -3,27 +3,30 @@ extends RefCounted
 ## 墙壁生成器 —— HD-2D 重构版
 ## 根据数据生成 3D 墙壁（带碰撞）
 
-const WALL_SEGMENT_PATH := "res://scenes/world/wall_segment.tscn"
-
 const WALL_HEIGHT := 3.0
 const WALL_THICKNESS := 0.2
 const CELL_SIZE := 1.0
 
 
 ## 生成墙壁到指定父节点
+## 合并策略：所有墙段并成「1 个 MeshInstance3D + 1 个 StaticBody3D」。
+## 每段墙原先是独立的 Node3D（MeshInstance3D + StaticBody3D + CollisionShape3D），
+## 84 段即 84 个节点树；实测单次建房 45ms。位置/旋转直接烘焙进顶点，
+## 碰撞体仍按段保留（StaticBody3D 下挂多个 CollisionShape3D），行为不变。
 static func build(parent: Node3D, data) -> void:
 	var walls: Array = data.get("walls", [])
 	if walls.is_empty():
-		_generate_boundary_walls(parent, data)
-		return
+		walls = _boundary_walls(data)
 
 	# 门格留洞：门与同格墙（含角落双面墙）互斥。
 	# 房间模板的墙圈是连着门格的，门改为按拓扑重算后必须在这里放行，
 	# 否则门会封在一段实心墙里。
 	var door_cells := _door_cell_set(data)
-
 	var w: int = data.get("width", 16)
 	var h: int = data.get("height", 12)
+
+	# 收集通过校验的墙段
+	var kept: Array = []
 	for wall in walls:
 		var wx := int(wall.get("x", 0))
 		var wy := int(wall.get("y", 0))
@@ -33,7 +36,118 @@ static func build(parent: Node3D, data) -> void:
 		# 旧数据无 direction 时，按墙在房间的位置推断朝向
 		if not wall.has("direction"):
 			wall["direction"] = _infer_direction(wx, wy, w, h)
-		_create_wall_segment(parent, wall)
+		kept.append(wall)
+
+	if kept.is_empty():
+		return
+
+	var mesh_node := MeshInstance3D.new()
+	mesh_node.name = "WallMesh"
+	mesh_node.mesh = _build_merged_wall_mesh(kept)
+	mesh_node.material_override = _wall_material()
+	parent.add_child(mesh_node)
+
+	var body := StaticBody3D.new()
+	body.name = "WallCollision"
+	parent.add_child(body)
+	for wall in kept:
+		var col := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		shape.size = Vector3(CELL_SIZE, WALL_HEIGHT, WALL_THICKNESS)
+		col.shape = shape
+		col.position = _get_edge_position(
+			int(wall.get("x", 0)), int(wall.get("y", 0)), str(wall.get("direction", "north"))
+		)
+		col.rotation = _get_edge_rotation(str(wall.get("direction", "north")))
+		body.add_child(col)
+
+
+## 兼容数据缺 walls 时的边界墙生成（返回数组，不再直接建节点）
+static func _boundary_walls(data) -> Array:
+	var w: int = data.get("width", 16)
+	var h: int = data.get("height", 12)
+	var out: Array = []
+	for x in range(w):
+		if not _has_door(data, "north"):
+			out.append({"x": x, "y": 0, "direction": "north", "type": "normal_wall"})
+		if not _has_door(data, "south"):
+			out.append({"x": x, "y": h - 1, "direction": "south", "type": "normal_wall"})
+	for y in range(h):
+		if not _has_door(data, "west"):
+			out.append({"x": 0, "y": y, "direction": "west", "type": "normal_wall"})
+		if not _has_door(data, "east"):
+			out.append({"x": w - 1, "y": y, "direction": "east", "type": "normal_wall"})
+	return out
+
+
+## 所有墙段合并为一个网格（位置与旋转烘焙进顶点）
+static func _build_merged_wall_mesh(walls: Array) -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var indices := PackedInt32Array()
+	var hw := CELL_SIZE * 0.5
+	var hh := WALL_HEIGHT * 0.5
+	var ht := WALL_THICKNESS * 0.5
+
+	# 轴对齐盒子的 8 个角（局部坐标，中心在原点）
+	var corners := [
+		Vector3(-hw, -hh, -ht), Vector3(hw, -hh, -ht), Vector3(hw, hh, -ht), Vector3(-hw, hh, -ht),
+		Vector3(-hw, -hh, ht), Vector3(hw, -hh, ht), Vector3(hw, hh, ht), Vector3(-hw, hh, ht),
+	]
+	# 6 个面（每面两个三角形），法线按面给出
+	var faces := [
+		[0, 4, 5, 1, Vector3(0, 0, -1)],   # -Z
+		[2, 6, 7, 3, Vector3(0, 0, 1)],    # +Z
+		[3, 7, 5, 1, Vector3(0, 1, 0)],    # +Y
+		[0, 4, 6, 2, Vector3(0, -1, 0)],   # -Y
+		[0, 3, 2, 1, Vector3(-1, 0, 0)],   # -X
+		[4, 5, 6, 7, Vector3(1, 0, 0)],    # +X
+	]
+
+	for wall in walls:
+		var pos := _get_edge_position(
+			int(wall.get("x", 0)), int(wall.get("y", 0)), str(wall.get("direction", "north"))
+		)
+		var dir := str(wall.get("direction", "north"))
+		# 东西向墙绕 Y 轴旋转 90°：直接交换 x/z 分量即可（轴对齐旋转）
+		var rotate := dir == "east" or dir == "west"
+
+		for face in faces:
+			var n: Vector3 = face[4]
+			var base := verts.size()
+			for k in 4:
+				var local: Vector3 = corners[face[k]]
+				if rotate:
+					local = Vector3(local.z, local.y, local.x)
+				verts.push_back(pos + local)
+				var nn := Vector3(n.z, n.y, n.x) if rotate else n
+				normals.push_back(nn)
+			indices.push_back(base + 0)
+			indices.push_back(base + 1)
+			indices.push_back(base + 2)
+			indices.push_back(base + 0)
+			indices.push_back(base + 2)
+			indices.push_back(base + 3)
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+## 墙材质（缓存复用）
+static var _wall_mat: StandardMaterial3D = null
+
+static func _wall_material() -> StandardMaterial3D:
+	if _wall_mat == null:
+		_wall_mat = StandardMaterial3D.new()
+		_wall_mat.albedo_color = Color(0.3, 0.3, 0.35)
+		_wall_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	return _wall_mat
 
 
 ## 门所占的「格+方向」集合（运行时防线，与 GameRoot._apply_topology_doors 同口径）
@@ -49,84 +163,12 @@ static func _door_cell_set(data) -> Dictionary:
 	return set
 
 
-## 自动生成房间边界墙
-static func _generate_boundary_walls(parent: Node3D, data) -> void:
-	var w: int = data.get("width", 16)
-	var h: int = data.get("height", 12)
-
-	for x in range(w):
-		if not _has_door(data, "north"):
-			_create_wall_segment(parent, {"x": x, "y": 0, "direction": "north", "type": "normal_wall"})
-		if not _has_door(data, "south"):
-			_create_wall_segment(parent, {"x": x, "y": h - 1, "direction": "south", "type": "normal_wall"})
-
-	for y in range(h):
-		if not _has_door(data, "west"):
-			_create_wall_segment(parent, {"x": 0, "y": y, "direction": "west", "type": "normal_wall"})
-		if not _has_door(data, "east"):
-			_create_wall_segment(parent, {"x": w - 1, "y": y, "direction": "east", "type": "normal_wall"})
-
-
 static func _has_door(data, direction: String) -> bool:
 	var doors: Array = data.get("doors", [])
 	for d in doors:
 		if d.get("direction", "") == direction:
 			return true
 	return false
-
-
-## 创建单段墙壁
-static func _create_wall_segment(parent: Node3D, wall: Dictionary) -> void:
-	var wall_type := str(wall.get("type", "normal_wall"))
-	var x := int(wall.get("x", 0))
-	var y := int(wall.get("y", 0))
-	var direction := str(wall.get("direction", "north"))
-
-	var segment: Node3D
-	if ResourceLoader.exists(WALL_SEGMENT_PATH):
-		var scene := ResourceLoader.load(WALL_SEGMENT_PATH, "PackedScene", ResourceLoader.CACHE_MODE_REUSE) as PackedScene
-		if scene:
-			segment = scene.instantiate()
-		else:
-			segment = _create_wall_node()
-	else:
-		segment = _create_wall_node()
-
-	segment.position = _get_edge_position(x, y, direction)
-	segment.rotation = _get_edge_rotation(direction)
-	segment.name = "Wall_%d_%d_%s" % [x, y, direction]
-
-	parent.add_child(segment)
-
-
-## 创建基础墙壁节点（带碰撞）
-static func _create_wall_node() -> Node3D:
-	var root := Node3D.new()
-
-	var mesh := MeshInstance3D.new()
-	mesh.name = "MeshInstance3D"
-	var box := BoxMesh.new()
-	box.size = Vector3(CELL_SIZE, WALL_HEIGHT, WALL_THICKNESS)
-	mesh.mesh = box
-
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.3, 0.3, 0.35)
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	mesh.material_override = mat
-
-	var body := StaticBody3D.new()
-	body.name = "StaticBody3D"
-	var collision := CollisionShape3D.new()
-	collision.name = "CollisionShape3D"
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(CELL_SIZE, WALL_HEIGHT, WALL_THICKNESS)
-	collision.shape = shape
-	body.add_child(collision)
-
-	root.add_child(mesh)
-	root.add_child(body)
-
-	return root
 
 
 ## 获取墙壁在格子边缘的位置

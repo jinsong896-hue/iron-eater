@@ -29,6 +29,7 @@ func _ready() -> void:
 	await _test_no_chain_transition(gr)
 	await _test_damage_numbers(gr)
 	await _test_damage_setting_toggle(gr)
+	await _test_room_build_is_merged(gr)
 
 	if failed == 0:
 		print("ALL GAMEPLAY FIXES2 TESTS PASSED")
@@ -242,6 +243,69 @@ func _test_damage_setting_toggle(gr) -> void:
 	_check(true, "关闭状态下发信号未崩溃")
 
 	sm.set_setting("show_damage_numbers", true)  # 还原
+
+
+## 切房性能回归：地板/墙必须是合并网格，不能退回「每格一个节点」。
+## 背景：原实现每格 instantiate 一个场景，280 格地板耗时 201ms、84 段墙 45ms，
+## 整次切房 131ms（明显卡顿）。改为按材质合并网格后：地板 0.75ms、墙 2ms、
+## 整次切房 10.5ms，节点数 967 → 109。
+## 这里断言「节点数」，因为它是合并是否生效的直接证据，且不依赖机器性能。
+func _test_room_build_is_merged(gr) -> void:
+	# 切到一个较大的房间
+	var target := -1
+	var best := 0
+	for i in gr.dungeon_graph.size():
+		if i == gr.current_room_index:
+			continue
+		target = i
+		break
+	if target < 0:
+		_check(false, "有可切换的房间")
+		return
+	gr._transition_to_room(target)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	var room: Node = gr.current_room_node
+	if room == null:
+		_check(false, "房间已加载")
+		return
+
+	var floor_node: Node = room.get_node_or_null("Floor")
+	var walls_node: Node = room.get_node_or_null("Walls")
+	_check(floor_node != null and walls_node != null, "Floor/Walls 容器存在")
+	if floor_node == null or walls_node == null:
+		return
+
+	# 地板：按材质合并 → 节点数为「不同材质种类数」（当前全 stone，应为 1）
+	var floor_kids: int = floor_node.get_children().size()
+	_check(floor_kids <= 5, "地板已合并（容器下 %d 个节点，旧实现是数百个）" % floor_kids)
+	var merged: Node = floor_node.get_node_or_null("Floor_stone")
+	_check(merged != null, "存在合并后的 Floor_stone 节点")
+	if merged != null:
+		var mesh: Mesh = (merged as MeshInstance3D).mesh
+		_check(mesh != null and mesh.get_surface_count() > 0, "合并网格有有效表面")
+		if mesh != null:
+			var vcount: int = (mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+			_check(vcount >= 4 * 100, "合并网格含大量顶点（%d，说明多处地板已并进来）" % vcount)
+
+	# 墙：1 个 MeshInstance3D + 1 个 StaticBody3D
+	var wall_kids: int = walls_node.get_children().size()
+	_check(wall_kids <= 2, "墙已合并（容器下 %d 个节点：网格 + 碰撞体）" % wall_kids)
+	_check(walls_node.get_node_or_null("WallCollision") != null, "墙碰撞体存在（碰撞行为保留）")
+
+	# 整体节点数：旧实现数百，合并后应远低于此
+	var total: int = _count_descendants(room)
+	_check(total < 400, "整间房节点数已大幅下降（%d，旧实现约 950+）" % total)
+
+
+func _count_descendants(n: Node) -> int:
+	if n == null:
+		return 0
+	var c := 1
+	for ch in n.get_children():
+		c += _count_descendants(ch)
+	return c
 
 
 func _check(c: bool, name: String) -> void:
