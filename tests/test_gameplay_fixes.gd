@@ -161,8 +161,115 @@ func _ready() -> void:
 		sm.set_setting("auto_pickup", false)
 		_c(not bool(sm.get_setting("auto_pickup")), "可切换为关")
 
+	# --- 奔跑触发 + 普攻宽限（防退化）---
+	if p:
+		await _test_sprint_triggering(p)
+		await _test_attack_grace(p)
+
 	if failed == 0:
 		print("ALL GAMEPLAY FIXES TESTS PASSED")
 	else:
 		print("GAMEPLAY FIXES TESTS FAILED: %d" % failed)
 	get_tree().quit(1 if failed > 0 else 0)
+
+
+## 奔跑触发：持续按住方向不应自动奔跑；快速双击才奔跑。
+## 回归的是「_last_input_time 每帧刷新 → 双击窗口退化成两帧方向一致」这个 bug，
+## 它会让玩家一按方向键就是冲刺态、一按攻击就误出冲撞。
+func _test_sprint_triggering(p) -> void:
+	_sprint_reset(p)
+	# 持续按住 30 帧（不按 Shift、不双击）
+	var false_trigger := -1
+	for f in 30:
+		Input.action_press("move_right")
+		await get_tree().physics_frame
+		if p._is_sprinting and false_trigger < 0:
+			false_trigger = f + 1
+	Input.action_release("move_right")
+	_c(false_trigger < 0, "持续按住方向不误触发奔跑",
+		"第 %d 帧触发" % false_trigger if false_trigger > 0 else "")
+
+	# 快速双击同方向 → 应奔跑
+	_sprint_reset(p)
+	Input.action_press("move_right")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	Input.action_release("move_right")
+	await get_tree().physics_frame
+	Input.action_press("move_right")
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_c(p._is_sprinting, "快速双击同方向触发奔跑")
+	Input.action_release("move_right")
+	await get_tree().physics_frame
+
+
+## 普攻宽限：奔跑不足阈值时攻击走普攻，超过才走冲撞。
+## 这让玩家能一边跑动一边普攻，不会误触冲撞消耗掉冲刺惯性。
+func _test_attack_grace(p) -> void:
+	var threshold: float = GameBalance.SPRINT_ATTACK_MIN_HOLD
+
+	# 奔跑不足阈值（约 0.1s）→ 应仍处于 MoveState（普攻）
+	_sprint_reset(p)
+	Input.action_press("sprint")
+	Input.action_press("move_right")
+	var frames := 0
+	while p._sprint_hold < 0.10 and frames < 60:
+		await get_tree().physics_frame
+		frames += 1
+	_c(p._sprint_hold < threshold, "短奔跑未达冲撞阈值",
+		"hold=%.3f 阈值=%.2f" % [p._sprint_hold, threshold])
+	await _fire_attack(p)
+	_c(p._state_machine.current_state_name() == "MoveState",
+		"短奔跑时攻击走普攻（不误触冲撞）",
+		"实际状态=%s" % p._state_machine.current_state_name())
+	_release_all()
+
+	# 奔跑超过阈值 → 应进 SprintAttackState（冲撞）
+	_sprint_reset(p)
+	Input.action_press("sprint")
+	Input.action_press("move_right")
+	frames = 0
+	while p._sprint_hold < threshold + 0.15 and frames < 120:
+		await get_tree().physics_frame
+		frames += 1
+	await _fire_attack(p)
+	_c(p._state_machine.current_state_name() == "SprintAttackState",
+		"持续奔跑后攻击走冲撞",
+		"hold=%.3f 状态=%s" % [p._sprint_hold, p._state_machine.current_state_name()])
+	_release_all()
+
+
+## 触发一次攻击输入（写 InputManager 缓存，跳过按键时序）
+func _fire_attack(p) -> void:
+	var im = get_node_or_null("/root/InputManager")
+	if im:
+		im.set("attack_direction", Vector2(1, 0))
+		im.set("_buffered_attack", Vector2(1, 0))
+		im.set("_buffered_attack_time", Time.get_ticks_msec() / 1000.0)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	if im:
+		im.set("attack_direction", Vector2.ZERO)
+
+
+func _release_all() -> void:
+	for a in ["move_right", "move_left", "move_up", "move_down", "sprint",
+			"attack_right", "attack_left", "attack_up", "attack_down"]:
+		Input.action_release(a)
+
+
+func _sprint_reset(p) -> void:
+	_release_all()
+	var im = get_node_or_null("/root/InputManager")
+	if im:
+		im.set("attack_direction", Vector2.ZERO)
+		im.set("_buffered_attack", Vector2.ZERO)
+		im.set("_buffered_attack_time", -999.0)
+	p._is_sprinting = false
+	p._sprint_hold = 0.0
+	p._prev_raw_input = Vector3.ZERO
+	p._since_dir_press = 99.0
+	p._attack_timer = 0.0
+	p._current_attack_cooldown = 0.0
+	p.velocity = Vector3.ZERO

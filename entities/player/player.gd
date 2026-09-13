@@ -21,8 +21,13 @@ var _is_dodging := false
 var _dodge_timer := 0.0
 var _dodge_cooldown_timer := 0.0
 var _last_input_dir := Vector3.ZERO
-var _last_input_time := 0.0
-var _double_tap_window := 0.3
+## 方向键「按下沿」的检测用：记录上一次见到的方向，方向变化时才算新按下沿。
+## 不能靠每帧刷新的时间戳判定双击——那会让窗口退化成「任意两帧方向一致」。
+var _prev_raw_input := Vector3.ZERO
+## 距离上一次「方向按下沿」的时长（秒），用于双击判定
+var _since_dir_press := 99.0
+## 已持续奔跑的时长（秒）。冲撞需要它超过 SPRINT_ATTACK_MIN_HOLD。
+var _sprint_hold := 0.0
 
 # 连段状态机
 var _combo: AttackCombo = null
