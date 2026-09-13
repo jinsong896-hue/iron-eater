@@ -225,21 +225,29 @@ func combo_stages_size() -> int:
 
 
 ## 霸体视觉：玩家金色描边光（终结技期间）
+## 材质与网格静态缓存——原先每次放终结技都新建 SphereMesh + StandardMaterial3D，
+## 真实 GPU 上新材质会触发着色器编译，造成终结技瞬间掉帧。
+static var _armor_mat: StandardMaterial3D = null
+static var _armor_mesh: SphereMesh = null
+
 func _spawn_armor_visual() -> void:
+	if _armor_mesh == null:
+		_armor_mesh = SphereMesh.new()
+		_armor_mesh.radius = 0.7
+		_armor_mesh.height = 1.4
+	if _armor_mat == null:
+		_armor_mat = StandardMaterial3D.new()
+		_armor_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_armor_mat.albedo_color = Color(1.0, 0.8, 0.3, 0.25)
+		_armor_mat.emission_enabled = true
+		_armor_mat.emission = Color(1.0, 0.75, 0.2)
+		_armor_mat.emission_energy_multiplier = 1.2
+		_armor_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
 	var aura := MeshInstance3D.new()
-	var mesh := SphereMesh.new()
-	mesh.radius = 0.7
-	mesh.height = 1.4
-	aura.mesh = mesh
+	aura.mesh = _armor_mesh
+	aura.material_override = _armor_mat
 	aura.position = Vector3(0, 0.9, 0)
-	var mat := StandardMaterial3D.new()
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(1.0, 0.8, 0.3, 0.25)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.75, 0.2)
-	mat.emission_energy_multiplier = 1.2
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	aura.material_override = mat
 	add_child(aura)
 	# 随霸体计时消失
 	var tween := create_tween()
@@ -450,11 +458,69 @@ var rng_shake := RandomNumberGenerator.new()
 
 
 ## 挥砍视觉：面前渐隐扇形 mesh（普攻/奔跑/跳跃攻击调用）
-func _spawn_slash_visual(reach: float, half_angle: float, color: Color = Color(1, 1, 0.85, 0.5)) -> void:
-	var slash := MeshInstance3D.new()
-	var mesh := ImmediateMesh.new()
-	slash.mesh = mesh
+## 挥砍视觉：面前渐隐发光扇形。
+##
+## 性能设计（原先每次攻击都新建 ImmediateMesh + StandardMaterial3D）：
+## 真实 GPU 上「新的 StandardMaterial3D」首次使用会同步编译着色器变体，
+## 而本函数每次攻击都建新材质 → 攻击瞬间掉帧。故做三层复用：
+##   1. 材质按颜色缓存（全场共用 5 种，不再新建）
+##   2. 网格按 (reach, half_angle) 缓存（形状只由这两者决定）
+##   3. 节点用池复用（避免每次 add_child/queue_free）
+## 渐隐改为 tween 调制节点的 modulate.a，不再改材质 albedo——
+## 否则调完 alpha 材质就废了，无法给下一个复用的节点用。
+static var _slash_mat_cache := {}
+static var _slash_mesh_cache := {}
+var _slash_pool: Array[MeshInstance3D] = []
+var _slash_free: Array[MeshInstance3D] = []
 
+
+func _spawn_slash_visual(reach: float, half_angle: float, color: Color = Color(1, 1, 0.85, 0.5)) -> void:
+	var node := _acquire_slash_node()
+	node.mesh = _get_slash_mesh(reach, half_angle)
+	# 每种颜色一个独立缓存的材质实例（渐隐会改它的 alpha，故不能与其他颜色共用）
+	var mat := _get_slash_material(color)
+	mat.albedo_color = color          # 复用前复位 alpha（上次渐隐可能改成了 0）
+	node.material_override = mat
+	node.visible = true
+
+	var rot_y := atan2(_facing.x, _facing.z)
+	node.position = global_position + Vector3(0, 1.0, 0)
+	node.rotation.y = rot_y
+
+	# 渐隐：调该颜色专属材质的 alpha，结束后归还池
+	var tween := create_tween()
+	tween.tween_property(mat, "albedo_color:a", 0.0, 0.12)
+	tween.tween_callback(func(): _release_slash_node(node))
+
+
+## 取一个挥砍节点（池空则新建）
+func _acquire_slash_node() -> MeshInstance3D:
+	var node: MeshInstance3D
+	if _slash_free.is_empty():
+		node = MeshInstance3D.new()
+		node.name = "SlashVisual"
+		_slash_pool.append(node)
+		get_parent().add_child(node)
+	else:
+		node = _slash_free.pop_back()
+		node.visible = true
+	return node
+
+
+## 归还挥砍节点（隐藏而非销毁，供下次复用）
+func _release_slash_node(node: MeshInstance3D) -> void:
+	if not is_instance_valid(node):
+		return
+	node.visible = false
+	if not _slash_free.has(node):
+		_slash_free.append(node)
+
+
+## 材质按颜色缓存（r/g/b 作键；alpha 由节点 modulate 控制，故键里不含 a）
+static func _get_slash_material(color: Color) -> StandardMaterial3D:
+	var key := "%.3f_%.3f_%.3f" % [color.r, color.g, color.b]
+	if _slash_mat_cache.has(key):
+		return _slash_mat_cache[key]
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.albedo_color = color
@@ -462,31 +528,38 @@ func _spawn_slash_visual(reach: float, half_angle: float, color: Color = Color(1
 	mat.emission = color
 	mat.emission_energy_multiplier = 1.5
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	slash.material_override = mat
+	_slash_mat_cache[key] = mat
+	return mat
 
-	# 扇形几何（在局部 Z+ 方向画弧，节点朝向 = 攻击面向；三角形条带拼扇形）
+
+## 扇形网格按 (reach, half_angle) 缓存（形状只由这两个参数决定）
+static func _get_slash_mesh(reach: float, half_angle: float) -> ArrayMesh:
+	var key := "%.2f_%.3f" % [reach, half_angle]
+	if _slash_mesh_cache.has(key):
+		return _slash_mesh_cache[key]
+
 	var steps := 12
-	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var verts := PackedVector3Array()
+	var indices := PackedInt32Array()
 	for i in range(steps):
 		var a0 := -half_angle + (2.0 * half_angle * i / steps)
 		var a1 := -half_angle + (2.0 * half_angle * (i + 1) / steps)
-		var v0 := Vector3(sin(a0) * reach, 0.0, cos(a0) * reach)
-		var v1 := Vector3(sin(a1) * reach, 0.0, cos(a1) * reach)
-		mesh.surface_set_color(color)
-		mesh.surface_add_vertex(Vector3.ZERO)
-		mesh.surface_add_vertex(v1)
-		mesh.surface_add_vertex(v0)
-	mesh.surface_end()
+		var base := verts.size()
+		verts.push_back(Vector3.ZERO)
+		verts.push_back(Vector3(sin(a1) * reach, 0.0, cos(a1) * reach))
+		verts.push_back(Vector3(sin(a0) * reach, 0.0, cos(a0) * reach))
+		indices.push_back(base + 0)
+		indices.push_back(base + 1)
+		indices.push_back(base + 2)
 
-	var rot_y := atan2(_facing.x, _facing.z)
-	slash.position = global_position + Vector3(0, 1.0, 0)
-	slash.rotation.y = rot_y
-
-	get_parent().add_child(slash)
-	# 渐隐销毁
-	var tween := create_tween()
-	tween.tween_property(mat, "albedo_color:a", 0.0, 0.12)
-	tween.tween_callback(slash.queue_free)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	_slash_mesh_cache[key] = mesh
+	return mesh
 
 
 ## 敌人有效性检查

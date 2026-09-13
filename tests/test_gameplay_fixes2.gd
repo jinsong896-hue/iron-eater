@@ -30,6 +30,7 @@ func _ready() -> void:
 	await _test_damage_numbers(gr)
 	await _test_damage_setting_toggle(gr)
 	await _test_room_build_is_merged(gr)
+	await _test_slash_reuses_resources(gr)
 
 	if failed == 0:
 		print("ALL GAMEPLAY FIXES2 TESTS PASSED")
@@ -297,6 +298,58 @@ func _test_room_build_is_merged(gr) -> void:
 	# 整体节点数：旧实现数百，合并后应远低于此
 	var total: int = _count_descendants(room)
 	_check(total < 400, "整间房节点数已大幅下降（%d，旧实现约 950+）" % total)
+
+
+## 攻击性能回归：挥砍视觉必须复用材质与节点，不能每次新建。
+## 背景：原实现每次攻击都 new StandardMaterial3D + ImmediateMesh + MeshInstance3D，
+## 真实 GPU 上新材质首次使用会同步编译着色器变体 → 攻击瞬间掉帧。
+## 这里断言「材质种类数」有上界（缓存生效的直接证据，且不依赖机器性能）。
+func _test_slash_reuses_resources(gr) -> void:
+	var player = gr.get_node_or_null("Player")
+	if player == null:
+		_check(false, "玩家存在")
+		return
+
+	# 打多种招式：普攻 4 段（含金色终结技）+ 奔跑冲撞 + 跳跃落地斩
+	for i in 12:
+		player._attack_timer = 0.0
+		player._current_attack_cooldown = 0.0
+		player._start_normal_attack()
+		await get_tree().process_frame
+	player._attack_timer = 0.0
+	player._current_attack_cooldown = 0.0
+	player._spawn_slash_visual(2.0, deg_to_rad(60.0), Color(1.0, 0.45, 0.15, 0.5))
+	player._spawn_slash_visual(3.0, PI, Color(0.4, 0.9, 1.0, 0.5))
+	player._spawn_slash_visual(2.5, deg_to_rad(55.0), Color(1.0, 0.8, 0.2, 0.55))
+	await get_tree().process_frame
+
+	# 统计场上挥砍节点的材质去重数
+	var seen := {}
+	var slash_count := 0
+	for ch in player.get_parent().get_children():
+		if ch is MeshInstance3D and str(ch.name) == "SlashVisual":
+			slash_count += 1
+			var mi := ch as MeshInstance3D
+			if mi.material_override != null:
+				seen[mi.material_override.get_instance_id()] = true
+
+	_check(slash_count > 0, "产生了挥砍节点（%d 个）" % slash_count)
+	# 5 种颜色 → 缓存后至多 5 个材质实例；无缓存时每次攻击都是新实例
+	_check(seen.size() <= 6, "挥砍材质已缓存复用（去重后 %d 个实例）" % seen.size())
+
+	# 连打 40 次后，材质实例数不应随之增长（验证确实是复用而非每次新建）
+	for i in 40:
+		player._attack_timer = 0.0
+		player._current_attack_cooldown = 0.0
+		player._start_normal_attack()
+		await get_tree().process_frame
+	var seen2 := {}
+	for ch in player.get_parent().get_children():
+		if ch is MeshInstance3D and str(ch.name) == "SlashVisual":
+			var mi2 := ch as MeshInstance3D
+			if mi2.material_override != null:
+				seen2[mi2.material_override.get_instance_id()] = true
+	_check(seen2.size() <= 6, "连打 40 次后材质实例数不增长（%d 个）" % seen2.size())
 
 
 func _count_descendants(n: Node) -> int:
