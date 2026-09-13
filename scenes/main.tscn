@@ -8,6 +8,7 @@
 [ext_resource type="Script" uid="uid://dgp2h8t0yv5tn" path="res://rendering/camera/camera_rig.gd" id="6_camera"]
 [ext_resource type="Script" uid="uid://cjw46n5bibk00" path="res://rendering/effects/pixel_renderer.gd" id="7_pixel"]
 [ext_resource type="PackedScene" path="res://ui/inventory/backpack_ui.tscn" id="8_backpack"]
+[ext_resource type="PackedScene" path="res://ui/special_room/special_room_ui.tscn" id="10_special"]
 [ext_resource type="Script" uid="uid://328gmmesnpmx" path="res://rendering/effects/damage_text_renderer.gd" id="9_dmg_text"]
 
 [sub_resource type="Environment" id="Environment_hd2d"]
@@ -73,6 +74,8 @@ script = ExtResource("7_pixel")
 [node name="SettlementPanel" parent="UI" unique_id=267886264 instance=ExtResource("4_settle")]
 
 [node name="BackpackUI" parent="UI" unique_id=694499027 instance=ExtResource("8_backpack")]
+
+[node name="SpecialRoomUI" parent="UI" unique_id=1102358891 instance=ExtResource("10_special")]
 
 [node name="DamageTextRenderer" type="CanvasLayer" parent="UI" unique_id=1894212492]
 script = ExtResource("9_dmg_text")

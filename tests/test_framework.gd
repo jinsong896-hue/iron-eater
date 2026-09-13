@@ -863,12 +863,29 @@ func test_special_room_interactions() -> void:
 
 	var RD = _require_script("res://data/rooms/room_data.gd")
 	if RD:
-		for room_type in ["shop", "heal", "event"]:
-			var special_room = RD.load_from_file("res://data/rooms/room_%s.json" % room_type)
-			_check(special_room != null, "%s 房模板可加载" % room_type)
-			if special_room:
-				_check(special_room.room_type == room_type, "%s 房类型正确" % room_type)
-				_check(not special_room.interaction.is_empty(), "%s 房交互配置存在" % room_type)
+		# 事件房已按事件类型拆成多个文件（记忆碎片 / 赌徒），其余特殊房仍是单文件
+		var special_templates := {
+			"shop": ["res://data/rooms/room_shop.json"],
+			"heal": ["res://data/rooms/room_heal.json"],
+			"event": [
+				"res://data/rooms/room_event_memory.json",
+				"res://data/rooms/room_event_gambler.json",
+			],
+		}
+		for room_type in special_templates:
+			for path in special_templates[room_type]:
+				var special_room = RD.load_from_file(path)
+				_check(special_room != null, "%s 房模板可加载（%s）" % [room_type, path.get_file()])
+				if special_room:
+					_check(special_room.room_type == room_type, "%s 房类型正确" % room_type)
+					_check(not special_room.interaction.is_empty(), "%s 房交互配置存在" % room_type)
+
+		# 事件房必须带 event_type，UI 靠它分支
+		for path in special_templates["event"]:
+			var er = RD.load_from_file(path)
+			if er:
+				_check(not str(er.interaction.get("event_type", "")).is_empty(),
+					"事件房带 event_type（%s）" % path.get_file())
 
 ## Boss 房闭环测试：boss 房 JSON 可解析 → 刷 Boss → 杀 Boss → 传送门出现
 func test_boss_room_loop() -> void:

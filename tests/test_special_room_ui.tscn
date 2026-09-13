@@ -1,0 +1,13 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://tests/test_special_room_ui.gd" id="1_test"]
+[ext_resource type="PackedScene" path="res://ui/special_room/special_room_ui.tscn" id="2_ui"]
+[ext_resource type="Script" path="res://tests/fake_game_root.gd" id="3_fake"]
+
+[node name="TestSpecialRoomUI" type="Node"]
+script = ExtResource("1_test")
+
+[node name="SpecialRoomUI" parent="." instance=ExtResource("2_ui")]
+
+[node name="FakeGameRoot" type="Node" parent="."]
+script = ExtResource("3_fake")

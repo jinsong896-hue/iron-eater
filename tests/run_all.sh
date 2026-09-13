@@ -69,6 +69,7 @@ run_scene_suite  "menu         (主菜单交互)" "res://tests/test_menu_interac
 run_scene_suite  "backpack     (背包 UI)" "res://tests/test_backpack_ui.tscn"
 run_scene_suite  "combat       (战斗系统)" "res://tests/test_combat_system.tscn"
 run_scene_suite  "room_flow    (房间流程+特殊房)" "res://tests/test_room_flow.tscn"
+run_scene_suite  "special_room (特殊房交互 UI)" "res://tests/test_special_room_ui.tscn"
 run_scene_suite  "door_physics (穿门物理信号)" "res://tests/test_door_physics.tscn"
 run_scene_suite  "floor_flow   (楼层递进)" "res://tests/test_floor_flow.tscn"
 run_scene_suite  "death_flow   (死亡结算)" "res://tests/test_death_flow.tscn"

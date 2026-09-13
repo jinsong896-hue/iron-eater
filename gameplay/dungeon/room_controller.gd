@@ -20,6 +20,7 @@ var _boss: EnemyBase = null
 var _portal: Area3D = null
 var _special_service
 var _special_used := false
+var _gambler_boxes: Array = []   # 赌徒挑战：已洗牌的 3 个箱子（开箱后填）
 
 
 func _ready() -> void:
@@ -67,6 +68,10 @@ func activate() -> void:
 	# 回访已清空的房间：读回清空状态（房间节点每次进入都重建，控制器实例是新的）
 	if not is_cleared and _room_was_cleared():
 		is_cleared = true
+
+	# 同理读回特殊房结算状态，否则回访会重复发奖
+	if not _special_used and _special_was_used():
+		_special_used = true
 
 	if is_cleared:
 		_open_doors()
@@ -141,6 +146,45 @@ func _room_was_cleared() -> bool:
 	if not states.has(idx):
 		return false
 	return bool(states[idx].get("cleared", false))
+
+
+## 把特殊房结算状态写回 GameRoot.room_state
+## 与 _mark_room_cleared 同理：控制器实例随房间重建而新建，
+## 不落盘的话回访特殊房会重复发奖（记忆碎片可无限刷金币）
+func _mark_special_used() -> void:
+	_set_room_state_flag("special_used", true)
+
+
+## 从 GameRoot.room_state 读回本房特殊房结算状态
+func _special_was_used() -> bool:
+	return _get_room_state_flag("special_used")
+
+
+## 写一个房间状态标记到位（读不到 GameRoot 时静默跳过）
+func _set_room_state_flag(key: String, value: bool) -> void:
+	var gr = _game_root()
+	if gr == null:
+		return
+	var states = gr.get("room_state")
+	if states == null or not (states is Dictionary):
+		return
+	var idx: int = int(gr.get("current_room_index"))
+	if states.has(idx):
+		states[idx][key] = value
+
+
+## 读一个房间状态标记（缺省 false）
+func _get_room_state_flag(key: String) -> bool:
+	var gr = _game_root()
+	if gr == null:
+		return false
+	var states = gr.get("room_state")
+	if states == null or not (states is Dictionary):
+		return false
+	var idx: int = int(gr.get("current_room_index"))
+	if not states.has(idx):
+		return false
+	return bool(states[idx].get(key, false))
 
 
 ## GameRoot 引用（运行时获取，--script 测试模式兼容）
@@ -378,6 +422,7 @@ func interact_special() -> Dictionary:
 			result = _special_service.claim_event_reward(config_event, int(config_event.get("reward", 12)))
 	if result.get("ok", false):
 		_special_used = true
+		_mark_special_used()
 	return result
 
 ## 获取特殊房配置。
@@ -385,6 +430,179 @@ func _room_interaction() -> Dictionary:
 	if room_data is Dictionary:
 		return room_data.get("interaction", {})
 	return room_data.interaction
+
+
+# ============================================================
+# 特殊房 UI 接口（面板只展示与选择，业务校验全在这里）
+# ============================================================
+
+## 公开访问器：跨对象不要调下划线方法（player 需要据此决定是否让位给拾取）
+func is_special_room() -> bool:
+	return _is_special_room()
+
+
+## 供 UI 读取的只读上下文
+## {ok, kind, config, gold, potions, capacity, used, event_type}
+func get_special_context() -> Dictionary:
+	if not _is_special_room():
+		return {"ok": false, "reason": "该房间不可交互"}
+	var gm = _game_manager()
+	var inv = gm.consumable_inventory if gm else null
+	var config: Dictionary = _room_interaction()
+	return {
+		"ok": true,
+		"kind": _room_type(),
+		"config": config,
+		"gold": int(gm.gold) if gm else 0,
+		"potions": inv.count(inv.HEALTH_POTION_ID) if inv else 0,
+		"capacity": inv.capacity if inv else 0,
+		"used": _special_used,
+		"event_type": str(config.get("event_type", "memory_shard")),
+	}
+
+
+## 商店：购买一瓶生命药水（UI 专用，可重复购买；不置 _special_used）
+## 返回服务层原样结果 {ok, gold?, quantity?, reason?}
+func purchase_health_potion() -> Dictionary:
+	if _room_type() != "shop":
+		return {"ok": false, "reason": "此处不出售"}
+	var gm = _game_manager()
+	if gm == null:
+		return {"ok": false, "reason": "状态不可用"}
+	var inv = gm.consumable_inventory
+	if inv == null:
+		return {"ok": false, "reason": "消耗品背包不可用"}
+	var config: Dictionary = _room_interaction()
+	var price := int(config.get("price", 25))
+	var heal := float(config.get("heal", 80.0))
+
+	# state 必须从真实背包播种，否则容量检查永远看不到已装数量
+	var state := {
+		"gold": int(gm.gold),
+		"potions": inv.count(inv.HEALTH_POTION_ID),
+		"capacity": inv.capacity,
+	}
+	var result: Dictionary = _special_service.buy_health_potion(state, price, heal)
+	if not result.get("ok", false):
+		return result
+
+	# 服务层已扣费，这里入包；入包失败必须回滚，绝不吞钱
+	var added: Dictionary = inv.add_health_potion(1)
+	if not added.get("ok", false):
+		return {"ok": false, "reason": added.get("reason", "消耗品背包已满")}
+
+	gm.gold = int(result.get("gold", gm.gold))
+	_emit_gold_changed()
+	return result
+
+
+## 事件：记忆碎片——直接发放（无选择）
+## 返回 {ok, reward?, reason?}
+func claim_memory_shard() -> Dictionary:
+	var gm = _game_manager()
+	if gm == null:
+		return {"ok": false, "reason": "状态不可用"}
+	var config: Dictionary = _room_interaction()
+	var reward := int(config.get("reward", 100))
+	var claimed := {"value": _special_used}
+	var result: Dictionary = _special_service.claim_event_reward({}, reward, claimed)
+	if not result.get("ok", false):
+		return result
+	gm.gold += int(result.get("reward", reward))
+	_special_used = true
+	_mark_special_used()
+	_emit_gold_changed()
+	var bus = _event_bus()
+	if bus:
+		bus.stats_changed.emit()
+	return result
+
+
+## 事件：赌徒的挑战——第一阶段，付费开箱
+## 扣费并洗出 3 个箱子；返回值**不含奖励内容**（防 UI 提前泄漏答案）
+## 返回 {ok, phase, cost, boxes: int, gold} / {ok:false, reason}
+func start_gambler_challenge() -> Dictionary:
+	var gm = _game_manager()
+	if gm == null:
+		return {"ok": false, "reason": "状态不可用"}
+	if _special_used:
+		return {"ok": false, "reason": "已结算"}
+	var config: Dictionary = _room_interaction()
+	var cost := int(config.get("cost", 100))
+	if int(gm.gold) < cost:
+		return {"ok": false, "reason": "金币不足", "gold": int(gm.gold)}
+	gm.gold -= cost
+	_gambler_boxes = _special_service.shuffle_gambler_boxes(
+		config.get("boxes", []), gm.rng if gm else null
+	)
+	_emit_gold_changed()
+	return {
+		"ok": true, "phase": "choose", "cost": cost,
+		"boxes": _gambler_boxes.size(), "gold": int(gm.gold),
+	}
+
+
+## 事件：赌徒的挑战——第二阶段，结算所选箱子
+## 返回 {ok, outcome: "empty"|"gold"|"equipment", amount?, item_name?, reason?}
+func resolve_gambler_choice(index: int) -> Dictionary:
+	if _gambler_boxes.is_empty():
+		return {"ok": false, "reason": "尚未开始挑战"}
+	var gm = _game_manager()
+	if gm == null:
+		return {"ok": false, "reason": "状态不可用"}
+	var claimed := {"value": _special_used}
+	var result: Dictionary = _special_service.resolve_gambler_box(_gambler_boxes, index, claimed)
+	if not result.get("ok", false):
+		return result
+
+	_special_used = true
+	_mark_special_used()
+	var bus = _event_bus()
+
+	match str(result.get("outcome", "empty")):
+		"gold":
+			gm.gold += int(result.get("amount", 0))
+			_emit_gold_changed()
+			if bus:
+				bus.stats_changed.emit()
+		"equipment":
+			var granted := _grant_random_equipment()
+			if not granted.get("ok", false):
+				# 背包装不下：退还开箱费，不让玩家白花钱
+				var cost := int(_room_interaction().get("cost", 100))
+				gm.gold += cost
+				_emit_gold_changed()
+				return {"ok": false, "reason": granted.get("reason", "装备背包已满")}
+			result["item_name"] = granted.get("item_name", "")
+	return result
+
+
+## 随机发一件白装进装备背包（赌徒奖励用）
+## 不走 LootSystem——它只生成地面掉落物，而这里是直接入包
+func _grant_random_equipment() -> Dictionary:
+	var gm = _game_manager()
+	if gm == null or gm.equipment_manager == null:
+		return {"ok": false, "reason": "装备背包不可用"}
+	var pool: Array = EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.WHITE)
+	if pool.is_empty():
+		return {"ok": false, "reason": "无可用装备"}
+	var tpl = pool[gm.rng.randi_range(0, pool.size() - 1)]
+	var item = EquipmentInstance.create(tpl)
+	if not gm.equipment_manager.add_item(item):
+		return {"ok": false, "reason": "装备背包已满"}
+	var bus = _event_bus()
+	if bus:
+		bus.inventory_changed.emit()
+		bus.item_picked_up.emit(str(item.instance_id), item.display_name())
+	return {"ok": true, "item_name": item.display_name()}
+
+
+## 发金币变更信号（商店/事件结算后刷新 HUD）
+func _emit_gold_changed() -> void:
+	var gm = _game_manager()
+	var bus = _event_bus()
+	if bus and gm:
+		bus.gold_changed.emit(int(gm.gold))
 
 
 ## 房间清空（设置阻挡体）

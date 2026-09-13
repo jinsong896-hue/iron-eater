@@ -28,12 +28,25 @@ func _ready() -> void:
 
 func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("pause"):
+		# 有更高优先级模态面板（特殊房交互等）时让位——策划要求
+		# 「底层菜单不能继续接收输入」，否则 Esc 会把暂停菜单叠在面板上。
+		# 本菜单用 _input（早于 _unhandled_input），靠事件顺序抢不过，必须显式判断。
+		if _modal_ui_active():
+			return
 		if visible:
 			_on_resume()
 		else:
 			visible = true
 			get_tree().paused = true
 		get_viewport().set_input_as_handled()
+
+
+## 是否有模态面板正在打开（面板通过加入 "modal_ui" 组声明）
+func _modal_ui_active() -> bool:
+	var tree := get_tree()
+	if tree == null:
+		return false
+	return not tree.get_nodes_in_group("modal_ui").is_empty()
 
 
 func _on_resume() -> void:

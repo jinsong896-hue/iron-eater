@@ -1,6 +1,6 @@
 {
 	"version": 2,
-	"id": "room_event",
+	"id": "room_event_gambler",
 	"room_type": "event",
 	"width": 16,
 	"height": 12,
@@ -11,7 +11,21 @@
 		"event"
 	],
 	"interaction": {
-		"reward": 12
+		"event_type": "gambler",
+		"cost": 100,
+		"text": "一个戴兜帽的赌徒推来三只箱子：「付一百金币，选一只。愿赌服输。」",
+		"boxes": [
+			{
+				"kind": "empty"
+			},
+			{
+				"kind": "gold",
+				"amount": 200
+			},
+			{
+				"kind": "equipment"
+			}
+		]
 	},
 	"doors": [
 		{

@@ -618,10 +618,26 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 ## 交互当前房间的商店、泉水或事件服务。
+## 返回 false 表示"本房不是特殊房"，让位给 _pickup_nearby()——
+## 注意每个房间都有控制器（activate 对所有房型都加组），
+## 若无条件返回 true，拾取逻辑将永不执行。
 func _interact_special_room() -> bool:
 	var controller := get_tree().get_first_node_in_group("current_room_controller")
-	if controller == null or not controller.has_method("interact_special"):
+	if controller == null or not controller.has_method("is_special_room"):
 		return false
+	if not bool(controller.call("is_special_room")):
+		return false
+
+	# 打开交互面板；面板缺失时回退到旧的"按 E 直接结算"
+	var ui := get_tree().get_first_node_in_group("special_room_ui")
+	if ui != null and ui.has_method("open"):
+		var ctx: Dictionary = controller.call("get_special_context")
+		if ctx.get("ok", false):
+			ui.call("open", ctx, controller)
+			return true
+		EventBus.message.emit(ctx.get("reason", "无法交互"))
+		return true
+
 	var result: Dictionary = controller.interact_special()
 	if result.get("ok", false):
 		EventBus.message.emit("特殊房交互完成")
