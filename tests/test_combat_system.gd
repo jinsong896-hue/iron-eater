@@ -35,7 +35,52 @@ func _ready() -> void:
 	await _test_jump_attack_phases()
 	await _test_sprint_attack_charge()
 	await _test_combo_action_system()
+	await _test_state_transitions()
 	_finish()
+
+
+## 状态机转移：默认态 → 翻滚 → 自动回到默认态；死亡态无每帧行为
+## 只验证状态名与标志位，不触发 die()（那会结束本局并暂停）
+func _test_state_transitions() -> void:
+	# 前置 1：等 hitstop 的全局 time_scale 恢复。
+	# 前面的冲刺测试命中重击会触发 _hitstop（time_scale=0.05），
+	# 在恢复前跑本测试，帧推进会被拖慢 20 倍导致翻滚走不完。
+	var guard := 0
+	while Engine.time_scale < 0.99 and guard < 180:
+		await get_tree().physics_frame
+		guard += 1
+	_check(Engine.time_scale > 0.99, "time_scale 已恢复正常", str(Engine.time_scale))
+
+	# 前置 2：前面的冲刺测试可能刚结束，显式回到默认态作为起点
+	player.enter_state("MoveState")
+	_check(player.current_state_name() == "MoveState",
+		"初始处于 MoveState", player.current_state_name())
+
+	# 进入翻滚：enter() 同步置 _is_dodging
+	player.enter_state("DodgeState")
+	_check(player.current_state_name() == "DodgeState",
+		"已切到 DodgeState", player.current_state_name())
+	_check(player._is_dodging, "翻滚 enter 同步置 _is_dodging")
+
+	# 翻滚时长 0.2s，跑 20 物理帧（约 0.33s）后应自动回到 MoveState
+	for i in range(20):
+		await get_tree().physics_frame
+	_check(player.current_state_name() == "MoveState",
+		"翻滚结束自动回到 MoveState", player.current_state_name())
+	_check(not player._is_dodging, "翻滚结束后 _is_dodging 清除")
+
+	# 死亡态：无每帧行为（比对前后位置不变）
+	player.enter_state("DeadState")
+	_check(player.current_state_name() == "DeadState",
+		"已切到 DeadState", player.current_state_name())
+	var pos_before: Vector3 = player.global_position
+	for i in range(5):
+		await get_tree().physics_frame
+	_check(player.global_position.distance_to(pos_before) < 0.001,
+		"死亡态不产生位移", str(player.global_position.distance_to(pos_before)))
+
+	# 复位到默认态，避免影响后续（本测试在最后，仅为整洁）
+	player.enter_state("MoveState")
 
 
 ## 连段动作系统：取消窗口/派生/霸体/连击加成
@@ -142,7 +187,8 @@ func _test_jump_attack_phases() -> void:
 		(col as CollisionShape3D).disabled = true
 
 	player._facing = Vector3(0, 0, -1)
-	player._start_jump_attack()
+	# 经状态机进入跳跃攻击：enter() 会调用 _start_jump_attack() 同步置位
+	player.enter_state("JumpAttackState")
 	_check(player._jump_phase == player.JumpPhase.BACKHOP, "跳跃攻击进入后跳阶段")
 
 	# 推进阶段（每帧 16ms 左右，跑完三阶段约 0.5s）
@@ -166,7 +212,8 @@ func _test_sprint_attack_charge() -> void:
 
 	player._facing = Vector3(0, 0, -1)
 	player._is_sprinting = true
-	player._start_sprint_attack()
+	# 经状态机进入冲撞：enter() 会调用 _start_sprint_attack() 同步置位
+	player.enter_state("SprintAttackState")
 	_check(player._sprint_attack_timer > 0.0, "奔跑攻击进入冲撞状态")
 	_check(not player._is_sprinting, "奔跑攻击消耗冲刺状态")
 

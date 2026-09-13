@@ -46,16 +46,56 @@ var _current_combo_stage := 0        # 正在执行的段位（霸体/朝向锁�
 var _current_attack_cooldown := 0.0  # 本次攻击的总冷却（取消窗口比例计算）
 var _finisher_armor_timer := 0.0     # 终结技霸体剩余时间
 
+# 状态机：把 _physics_process 里手搓的四个模式（移动/翻滚/冲撞/跳跃）拆成状态类
+# 每个状态 = 原分支的逐行搬移；数据与共享动作仍留在 Player 上
+var _state_machine: StateMachine = null
+
 const ATTACK_REACH := 2.0
 
 
 func _ready() -> void:
 	add_to_group("player")
 	_combo = AttackCombo.new()
+	_setup_state_machine()
 	# 击杀回血（监听全局敌死信号）
 	var bus := get_node_or_null("/root/EventBus")
 	if bus and bus.has_signal("enemy_died"):
 		bus.enemy_died.connect(_on_enemy_killed)
+
+
+## 装配状态机：注册五个状态并进入默认的 MoveState
+## 用 load() 而非 preload()：状态类引用 Player（PlayerState.player 的类型），
+## preload 会让 player.gd ↔ 状态类在解析期形成循环依赖，缓存失效时无法解析
+func _setup_state_machine() -> void:
+	_state_machine = StateMachine.new()
+	var move_state = load("res://entities/player/states/move_state.gd").new()
+	var dodge_state = load("res://entities/player/states/dodge_state.gd").new()
+	var sprint_state = load("res://entities/player/states/sprint_attack_state.gd").new()
+	var jump_state = load("res://entities/player/states/jump_attack_state.gd").new()
+	var dead_state = load("res://entities/player/states/dead_state.gd").new()
+
+	for s in [move_state, dodge_state, sprint_state, jump_state, dead_state]:
+		s.setup(self)
+
+	_state_machine.add_state("MoveState", move_state)
+	_state_machine.add_state("DodgeState", dodge_state)
+	_state_machine.add_state("SprintAttackState", sprint_state)
+	_state_machine.add_state("JumpAttackState", jump_state)
+	_state_machine.add_state("DeadState", dead_state)
+	_state_machine.set_initial("MoveState")
+
+
+## 当前状态名（供调试/测试观察）
+func current_state_name() -> String:
+	return _state_machine.current_state_name() if _state_machine else ""
+
+
+## 切换到指定状态（供测试与外部强制切换）
+## 注意：正常游玩由 MoveState 在检测到输入时自行转移；
+## 这里直接切状态会走 enter()，即同步执行该状态的一次性初始化。
+func enter_state(state_name: String) -> void:
+	if _state_machine:
+		_state_machine.transition_to(state_name)
 
 
 ## 击杀回血回调
@@ -71,6 +111,7 @@ func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	# 定时器无条件递减（在任何状态里都要走，移入状态会改变语义）
 	_attack_timer = maxf(_attack_timer - delta, 0.0)
 	_dodge_cooldown_timer = maxf(_dodge_cooldown_timer - delta, 0.0)
 	_sprint_attack_timer = maxf(_sprint_attack_timer - delta, 0.0)
@@ -84,152 +125,18 @@ func _physics_process(delta: float) -> void:
 		if _hit_combo_time == 0.0:
 			_hit_combo_count = 0
 
-	# 跳跃攻击阶段推进（独立于普通移动）
-	if _jump_phase != JumpPhase.NONE:
-		_update_jump_attack(delta)
-		return
-
-	# 奔跑攻击冲撞位移
-	if _sprint_attack_timer > 0.0:
-		velocity = _sprint_attack_dir * sprint_speed
-		move_and_slide()
-		_check_dodge()
-		return
-
-	if _is_dodging:
-		_dodge_timer -= delta
-		if _dodge_timer <= 0.0:
-			_is_dodging = false
-		else:
-			move_and_slide()
-			return
-
-	# 移动
-	_move(delta)
-	# 攻击
-	_attack()
-	# 翻滚
-	_check_dodge()
+	# 具体行为交给当前状态（移动/翻滚/冲撞/跳跃/死亡）
+	_state_machine.physics_update(delta)
 
 
 func _move(delta: float) -> void:
-	var input_dir := InputManager.get_move_direction_3d()
-
-	# 双击检测：同一方向快速按两次触发奔跑
-	if input_dir != Vector3.ZERO:
-		var now := Time.get_ticks_msec() / 1000.0
-		if input_dir.dot(_last_input_dir) > 0.8 and (now - _last_input_time) < _double_tap_window:
-			_is_sprinting = true
-		elif input_dir.dot(_last_input_dir) < 0.5:
-			_is_sprinting = false
-		_last_input_dir = input_dir
-		_last_input_time = now
-
-	# Shift 键奔跑
-	if Input.is_action_pressed("sprint"):
-		_is_sprinting = true
-	if Input.is_action_just_released("sprint"):
-		_is_sprinting = false
-
-	var speed := sprint_speed if _is_sprinting else move_speed
-
-	# 攻击动作期间减速
-	if _attack_timer > 0.0:
-		speed *= GameBalance.ATTACK_MOVE_SLOWDOWN
-
-	if input_dir != Vector3.ZERO:
-		velocity.x = move_toward(velocity.x, input_dir.x * speed, acceleration * delta)
-		velocity.z = move_toward(velocity.z, input_dir.z * speed, acceleration * delta)
-	else:
-		velocity.x = move_toward(velocity.x, 0.0, deceleration * delta)
-		velocity.z = move_toward(velocity.z, 0.0, deceleration * delta)
-		_is_sprinting = false
-
-	move_and_slide()
-
-	if velocity.length() > 0.1:
-		EventBus.player_moved.emit(global_position, velocity.normalized())
-
-
-func _check_dodge() -> void:
-	if not Input.is_action_just_pressed("dodge"):
-		return
-	if _dodge_cooldown_timer > 0.0:
-		return
-	# 奔跑攻击冲撞中不可翻滚
-	if _sprint_attack_timer > 0.0:
-		return
-	# 跳跃攻击阶段中不可翻滚
-	if _jump_phase != JumpPhase.NONE:
-		return
-	# 攻击冷却前半段不可翻滚；后摇取消窗口内可翻滚取消（清冷却）
-	if _attack_timer > 0.0:
-		if not _in_cancel_window():
-			return
-		_cancel_current_attack()
-
-	# 翻滚方向：面朝方向或移动方向
-	var dodge_dir := _facing
-	var input_dir := InputManager.get_move_direction_3d()
-	if input_dir != Vector3.ZERO:
-		dodge_dir = input_dir
-
-	velocity = dodge_dir * dodge_speed
-	_is_dodging = true
-	_dodge_timer = dodge_duration
-	_dodge_cooldown_timer = dodge_cooldown
-	EventBus.player_moved.emit(global_position, dodge_dir)
+	# 已搬移至 states/move_state.gd（_core_movement）；保留空实现避免外部误调用
+	pass
 
 
 # ============================================================
 # 攻击系统：四段普攻 + 奔跑攻击 + 跳跃攻击
 # ============================================================
-
-## 攻击入口：判定攻击类型（跳跃组合/奔跑/普攻）并派发
-## 支持连段派生：普攻 2/3 段后摇中可派生奔跑/跳跃攻击
-func _attack() -> void:
-	# 新按下或缓存的攻击输入
-	var dir_2d := InputManager.attack_direction
-	if dir_2d == Vector2.ZERO:
-		if _attack_timer > 0.0 and _combo and not _combo.attack_in_progress:
-			# 冷却中尝试取缓存输入
-			dir_2d = InputManager.take_buffered_attack(GameBalance.ATTACK_INPUT_BUFFER)
-		if dir_2d == Vector2.ZERO:
-			return
-
-	var in_recovery := _attack_timer > 0.0 and _in_cancel_window()
-	var blocked := _attack_timer > 0.0 and not in_recovery
-	if blocked or (_combo and _combo.attack_in_progress):
-		return
-	# 跳跃攻击阶段中不接受新攻击
-	if _jump_phase != JumpPhase.NONE:
-		return
-	# 冲撞位移中不接受
-	if _sprint_attack_timer > 0.0:
-		return
-
-	_facing = InputManager.direction_2d_to_3d(dir_2d.normalized())
-	if _facing.length_squared() < 0.001:
-		_facing = Vector3.FORWARD
-
-	# 1) 跳跃攻击：空格+方向键组合（连段派生：清冷却直接起手）
-	if InputManager.attack_is_jump_combo():
-		if in_recovery:
-			_cancel_current_attack()
-		_start_jump_attack()
-		return
-
-	# 2) 奔跑攻击：奔跑状态中攻击（连段派生）
-	if _is_sprinting:
-		if in_recovery:
-			_cancel_current_attack()
-		_start_sprint_attack()
-		return
-
-	# 3) 普攻连段（后摇取消窗口内允许下一击——连段提速）
-	if in_recovery:
-		_cancel_current_attack()
-	_start_normal_attack()
 
 
 ## 是否处于攻击后摇取消窗口（冷却后半段）
@@ -336,30 +243,7 @@ func _start_jump_attack() -> void:
 
 
 ## 跳跃攻击阶段推进
-func _update_jump_attack(delta: float) -> void:
-	_jump_phase_timer -= delta
-	match _jump_phase:
-		JumpPhase.BACKHOP:
-			# 后跳：向面向反方向
-			velocity = -_jump_attack_dir * (GameBalance.JUMP_ATTACK[2] / GameBalance.JUMP_ATTACK_PHASES[0])
-			move_and_slide()
-			if _jump_phase_timer <= 0.0:
-				_jump_phase = JumpPhase.DIVE
-				_jump_phase_timer = GameBalance.JUMP_ATTACK_PHASES[1]
-		JumpPhase.DIVE:
-			# 俯冲：向前高速位移（无敌帧）
-			velocity = _jump_attack_dir * (GameBalance.JUMP_ATTACK[3] / GameBalance.JUMP_ATTACK_PHASES[1])
-			move_and_slide()
-			if _jump_phase_timer <= 0.0:
-				_jump_phase = JumpPhase.LAND
-				_jump_phase_timer = GameBalance.JUMP_ATTACK_PHASES[2]
-				_perform_jump_landing()
-		JumpPhase.LAND:
-			velocity = Vector3.ZERO
-			if _jump_phase_timer <= 0.0:
-				_jump_phase = JumpPhase.NONE
-				if _combo:
-					_combo.end_attack()
+## 已搬移至 states/jump_attack_state.gd；_jump_phase 的推进在那里进行
 
 
 ## 跳跃攻击落地：圆形 AOE 判定
@@ -599,6 +483,9 @@ func die() -> void:
 	if not is_inside_tree():
 		return
 	AudioManager.play("death")
+	# 切到死亡状态：即便物理帧因故仍在跑，也不再有每帧行为
+	if _state_machine:
+		_state_machine.transition_to("DeadState")
 	# finish_run 内部已发 run_finished（结算面板监听显示）
 	GameManager.finish_run("defeated")
 	set_physics_process(false)

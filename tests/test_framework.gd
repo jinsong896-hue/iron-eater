@@ -42,6 +42,9 @@ func _init() -> void:
 	# 连段状态机测试
 	test_attack_combo()
 
+	# 状态机基类测试（注册/转移/转发/数据传递）
+	test_state_machine()
+
 	# 房间编辑器核心测试（JSON 往返 + 矩形填充/围墙/校验）
 	test_room_editor_core()
 
@@ -502,6 +505,95 @@ func test_attack_combo() -> void:
 	_check(combo.is_combo_active(), "窗口内连击保持")
 	combo.tick(0.3)
 	_check(not combo.is_combo_active(), "累计超窗连击断")
+
+
+## 状态机基类测试：注册 / 初始状态 / 转移 / 转发 / 数据传递
+## 纯逻辑，不进场景树（状态 new() 出来直接驱动）
+func test_state_machine() -> void:
+	_current_test = "StateMachine"
+	print("\n--- %s ---" % _current_test)
+
+	var ST = _require_script("res://gameplay/state_machine/state.gd")
+	var SM = _require_script("res://gameplay/state_machine/state_machine.gd")
+	if ST == null or SM == null:
+		return
+
+	# 探针状态：记录 enter/exit/physics_update 调用，便于断言转发是否正确
+	var probe = _StateProbe.new()
+	probe.state_name = "A"
+	var probe_b = _StateProbe.new()
+	probe_b.state_name = "B"
+
+	var sm = SM.new()
+	sm.add_state("A", probe)
+	sm.add_state("B", probe_b)
+
+	_check(sm.current_state_name() == "", "未初始化时状态名为空")
+
+	sm.set_initial("A")
+	_check(sm.current_state_name() == "A", "初始状态已进入", [sm.current_state_name()])
+	_check(probe.entered, "初始状态收到 enter")
+	_check(probe.last_previous == "", "初始 enter 的 previous 为空")
+
+	# 物理帧转发
+	probe.ticks = 0
+	sm.physics_update(0.1)
+	sm.physics_update(0.1)
+	_check(probe.ticks == 2, "physics_update 转发到当前状态", [str(probe.ticks)])
+	_check(probe.total_delta > 0.19 and probe.total_delta < 0.21,
+		"delta 原样透传", [str(probe.total_delta)])
+
+	# 输入转发
+	sm.handle_input(null)
+	_check(probe.inputs == 1, "handle_input 转发到当前状态")
+
+	# 状态主动结束 → 转移（finished 信号驱动）
+	probe.finished.emit("B", {"reason": "done"})
+	_check(sm.current_state_name() == "B", "finished 触发转移", [sm.current_state_name()])
+	_check(probe.exited, "离开旧状态调用 exit")
+	_check(probe_b.entered, "进入新状态调用 enter")
+	_check(probe_b.last_previous == "A", "enter 收到上一状态名", [probe_b.last_previous])
+	_check(probe_b.last_data.get("reason", "") == "done", "转移数据传递到 enter")
+
+	# 转移到不存在的状态不应崩溃、也不改变当前状态
+	sm.transition_to("NO_SUCH_STATE")
+	_check(sm.current_state_name() == "B", "转移到未注册状态被拒绝且不改变现状")
+
+	# 空数据转移（GDScript 信号不支持默认参数，状态必须显式传 {}）
+	probe_b.finished.emit("A", {})
+	_check(sm.current_state_name() == "A", "空数据转移可用", [sm.current_state_name()])
+
+	_check(sm.is_in("B") == false, "转移后旧状态不再是当前状态")
+	_check(sm.is_in("A"), "is_in 判定当前状态")
+
+
+## 测试探针：State 的最小实现，记录被调用的痕迹
+class _StateProbe:
+	extends "res://gameplay/state_machine/state.gd"
+
+	var state_name := ""
+	var entered := false
+	var exited := false
+	var ticks := 0
+	var inputs := 0
+	var total_delta := 0.0
+	var last_previous := ""
+	var last_data: Dictionary = {}
+
+	func enter(previous: String, data: Dictionary = {}) -> void:
+		entered = true
+		last_previous = previous
+		last_data = data
+
+	func exit() -> void:
+		exited = true
+
+	func physics_update(delta: float) -> void:
+		ticks += 1
+		total_delta += delta
+
+	func handle_input(_event: InputEvent) -> void:
+		inputs += 1
 
 
 ## 房间编辑器核心测试：JSON 往返一致性 + 矩形填充/自动围墙/校验
