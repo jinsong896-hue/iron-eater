@@ -588,9 +588,6 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_inventory"):
 		EventBus.message.emit("背包")
 		get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("toggle_auto_pickup"):
-		_toggle_auto_pickup()
-		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact"):
 		if not _interact_special_room():
 			_pickup_nearby()
@@ -600,7 +597,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-## 切换拾取方式（按 E 手动 ↔ 自动拾取），并在 HUD 提示当前模式
+## 切换拾取方式（按 E 手动 ↔ 自动拾取）。
+## 仅由设置面板调用——不再绑定按键，避免与游戏内操作抢键。
 func _toggle_auto_pickup() -> void:
 	var sm := get_node_or_null("/root/SettingsManager")
 	if sm == null:
