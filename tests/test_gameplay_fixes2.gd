@@ -180,20 +180,12 @@ func _test_damage_numbers(gr) -> void:
 	if renderers.is_empty():
 		return
 
-	# 回归：四边形必须有真实尺寸。
-	# QuadMesh 默认仅 1×1 像素，而实例缩放基准是 size/32（normal 时=1.0），
-	# 于是每个数字只有 1 像素、肉眼不可见——这正是「伤害数字不显示」的根因。
+	# 渲染实现已从 MultiMesh+图集着色器 换为 Label（见 damage_text_renderer.gd 头部注释）。
+	# 不再断言 MultiMesh 相关字段——改断言「真的存在可见 Label」，见下方端到端检查。
 	var r = renderers[0]
-	var mm: MultiMesh = r.get("_mm")
-	_check(mm != null, "MultiMesh 已建立")
-	if mm == null or mm.mesh == null:
-		_check(false, "MultiMesh 有 mesh")
-		return
-	var qsize: Vector2 = mm.mesh.size
-	_check(qsize.x > 8.0 and qsize.y > 8.0,
-		"伤害字四边形尺寸可读（%s，不是默认 1×1）" % str(qsize))
 
-	# 端到端：发信号后应真的产生一条飘字记录
+	# 端到端：发信号后应真的产生一条飘字记录，**且对应 Label 真的可见且有文本**
+	# （旧版只断言内部记录，是假绿灯：记录有了但实机看不到字）
 	var act: Array = r.get("_active")
 	var before_n: int = act.size()
 	EventBus.damage_popup.emit(Vector3(5, 0, 5), 77.0, "normal")
@@ -203,6 +195,26 @@ func _test_damage_numbers(gr) -> void:
 		var entry: Dictionary = act[act.size() - 1]
 		_check(str(entry.get("str", "")) == "77", "飘字文本正确（'%s'）" % entry.get("str"))
 		_check(float(entry.get("lifetime", 0.0)) > 0.0, "飘字有存活时间")
+
+	# 关键：真实渲染——找到可见的 Label，确认文本与颜色都落到了节点上
+	var visible_labels: Array = []
+	for child in r.get_children():
+		if child is Label and (child as Label).visible and (child as Label).text != "":
+			visible_labels.append(child)
+	_check(visible_labels.size() > 0, "存在可见的伤害数字 Label（%d 个）" % visible_labels.size())
+	if visible_labels.size() > 0:
+		# 前面还发过一次 42，故按文本找 77 而非取第一个
+		var target: Label = null
+		for lb in visible_labels:
+			if (lb as Label).text == "77":
+				target = lb
+				break
+		_check(target != null, "其中包含文本 77 的 Label")
+		if target == null:
+			target = visible_labels[0]
+		_check(target.get_theme_font_size("font_size") > 0,
+			"Label 字号有效（%d）" % target.get_theme_font_size("font_size"))
+		_check(target.modulate.a > 0.5, "Label 不透明（alpha=%.2f）" % target.modulate.a)
 
 
 ## ③ 伤害数字开关：关掉后不应产生飘字

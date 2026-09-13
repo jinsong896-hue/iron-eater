@@ -449,6 +449,14 @@ func _place_player(enter_direction: String = "") -> void:
 	if player == null:
 		return
 
+	# 关键：落点前清零速度。
+	# 奔跑穿门时玩家带着 7m/s 的惯性被搬到新房间门内侧，若不清零，
+	# 一帧就能再次踩上门触发器；门失效保护只有 0.25s，
+	# 足够跑出 1.75m —— 小房间里足以冲过整个房间踩到对面门，
+	# 表现为「进右边的门却到了右边两格」。
+	if "velocity" in player:
+		player.set("velocity", Vector3.ZERO)
+
 	# 1) 有进入方向（穿门切房）：放在入口门内侧
 	if enter_direction != "" and _place_player_at_door(enter_direction):
 		return

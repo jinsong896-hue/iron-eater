@@ -1,16 +1,23 @@
-class_name DamageTextRenderer
 extends CanvasLayer
-## 伤害飘字渲染器 —— MassiveText 方案（单 draw call 海量文本）
-## 纯 2D 屏幕空间：spawn 时 3D 世界坐标投影到屏幕一次，之后纯 2D 飘动+淡出
-## 用 MultiMeshInstance2D + TextAtlas shader 渲染所有飘字
+class_name DamageTextRenderer
+## 伤害飘字渲染器 —— Label 实现
+##
+## 历史：本节点曾用 MultiMeshInstance2D + 字形图集着色器（MassiveText 方案）
+## 渲染飘字，但那条链路在实机上始终不出字。逐环节静态检查过：
+## 信号订阅、图集烘焙（数字 0-9 已采样）、着色器参数绑定、uniform 名字、
+## 实例缓冲写入、着色器 len/instance_color 解码、纹理布局与索引公式、
+## QuadMesh 尺寸 —— 全部正确，而 headless（dummy 渲染器）无法验证渲染结果，
+## 因此无法定位到具体是哪一步在实机上失效。
+##
+## 伤害数字每秒只有个位数，根本不需要「单 draw call 渲染海量文本」这套优化。
+## 改用最朴素的 Label：一定能渲染，性能代价可忽略。
+##
+## 注意：本节点删除了 MultiMesh/图集相关字段（_mm/_mmi/_shader_mat/
+## _bake_result/_pack_result/_initialized）。依赖这些字段的测试已同步更新。
 
-const MAX_INSTANCES := 64
-const MAX_STRING_LEN := 8  # 伤害数字最多 8 位（含小数点/感叹号）
-const FLOAT_SPEED := 80.0  # 屏幕像素/秒
-const LIFETIME := 1.0
-## 单字四边形基准边长（像素）。实例缩放按 size/32 计算，
-## 故字高 = QUAD_BASE_SIZE × size/32；36 对应字号 32 时约 36px 高。
-const QUAD_BASE_SIZE := 36.0
+const FLOAT_SPEED := 60.0   # 屏幕上浮速度（像素/秒）
+const LIFETIME := 1.0       # 存活时长（秒）
+const MAX_LABELS := 64      # 同时存在的飘字上限
 
 # 颜色配置（按 kind）
 const KIND_COLORS := {
@@ -19,6 +26,7 @@ const KIND_COLORS := {
 	"player": Color(1.0, 0.2, 0.2, 1.0),
 	"aoe": Color(0.7, 0.3, 1.0, 1.0),
 	"heal": Color(0.3, 1.0, 0.4, 1.0),
+	"armor": Color(1.0, 0.85, 0.3, 1.0),   # 霸体减伤
 }
 const KIND_SIZES := {
 	"normal": 32,
@@ -26,32 +34,23 @@ const KIND_SIZES := {
 	"player": 32,
 	"aoe": 32,
 	"heal": 32,
+	"armor": 28,
 }
 
-var _mmi: MultiMeshInstance2D
-var _mm: MultiMesh
-var _shader_mat: ShaderMaterial
-var _bake_result: Dictionary
-var _pack_result: Dictionary
-# 活跃飘字条目，每项含 pos/vel/elapsed/lifetime/str/kind/size
-var _active: Array = []
-var _strings_dirty := true  # 需要重新打包 string_tex
-var _camera: Camera3D
-var _font: Font
-var _initialized := false
+var _camera: Camera3D = null
+var _active: Array[Dictionary] = []   # 活跃飘字记录（测试读取）
+var _pool: Array[Label] = []          # Label 池（与 _active 同序复用）
+var _count := 0                       # 累计产生次数（测试读取）
 
 
 func _ready() -> void:
 	layer = 10
 	add_to_group("damage_renderer")
-	# 默认字体（CanvasLayer 不是 Control，不能调用 get_theme_default_font）
-	_font = ThemeDB.fallback_font
-	# 订阅伤害事件：此前全链路无人监听 damage_popup，数字永远不显示
+	_camera = _find_camera()
+	# 订阅伤害事件
 	var bus := get_node_or_null("/root/EventBus")
 	if bus and bus.has_signal("damage_popup"):
 		bus.damage_popup.connect(_on_damage_popup)
-	# 相机从父节点或场景找
-	await _init_async()
 
 
 ## EventBus.damage_popup → 飘字。
@@ -72,64 +71,12 @@ func _damage_numbers_enabled() -> bool:
 	return bool(sm.get_setting("show_damage_numbers"))
 
 
-## 异步初始化：烘焙图集 + 配 shader + 建 MultiMesh
-func _init_async() -> void:
-	# 找场景里的 Camera3D
-	_camera = _find_camera()
-	if _camera == null:
-		push_warning("[DamageTextRenderer] 未找到 Camera3D，spawn 时无法投影")
-		return
-
-	# 烘焙图集（所有可能用到的字符）
-	var samples := _generate_samples()
-	var baker := GlyphAtlasBaker.new()
-	add_child(baker)
-	_bake_result = await baker.bake(samples, _font, 32)
-	baker.queue_free()
-
-	if _bake_result.is_empty():
-		push_error("[DamageTextRenderer] 烘焙失败")
-		return
-
-	# 打包空字符串纹理（spawn 时再按需重新打包）
-	_repack_strings([])
-
-	# 建 MultiMesh + shader 材质
-	_mmi = MultiMeshInstance2D.new()
-	_mmi.name = "DamageTextMMI"
-	add_child(_mmi)
-
-	_mm = MultiMesh.new()
-	_mm.transform_format = MultiMesh.TRANSFORM_2D
-	_mm.use_custom_data = true
-	_mm.use_colors = true
-	# 四边形必须显式给出尺寸：QuadMesh 默认仅 1×1 像素，
-	# 而实例缩放的基准是 size/32（normal 时正好 1.0），
-	# 于是每个数字只有 1 像素、肉眼不可见（本 bug 从最初版本即存在）。
-	var quad := QuadMesh.new()
-	quad.size = Vector2(QUAD_BASE_SIZE, QUAD_BASE_SIZE)
-	_mm.mesh = quad
-	_mm.instance_count = MAX_INSTANCES
-	_mmi.multimesh = _mm
-
-	_shader_mat = ShaderMaterial.new()
-	_shader_mat.shader = load("res://rendering/shaders/TextAtlas.gdshader")
-	_mmi.material = _shader_mat
-	_apply_shader_params()
-	_initialized = true
-
-
-## spawn：在 3D 世界位置产生伤害数字
-func spawn(world_pos: Vector3, amount: float, kind: String = "normal") -> void:
-	if not _initialized:
-		return
+## spawn：在 3D 世界位置产生伤害数字（投影到屏幕一次，之后纯 2D 飘动）
+func spawn(world_pos: Vector3, amount: float, kind: String) -> void:
 	var screen_pos := _world_to_screen(world_pos)
-	if screen_pos == Vector2.ZERO and _camera:
-		# 投影失败（相机看不到）仍用屏幕中心兜底
-		screen_pos = get_viewport().get_visible_rect().size / 2.0
-
 	var text := _format_text(amount, kind)
-	var size := int(KIND_SIZES.get(kind, 32))
+	var size_px := int(KIND_SIZES.get(kind, 32))
+
 	_active.append({
 		"pos": screen_pos,
 		"vel": Vector2(randf_range(-20.0, 20.0), -FLOAT_SPEED),
@@ -137,16 +84,20 @@ func spawn(world_pos: Vector3, amount: float, kind: String = "normal") -> void:
 		"lifetime": LIFETIME,
 		"str": text,
 		"kind": kind,
-		"size": size,
+		"size": size_px,
 	})
-	# 标记需要重新打包字符串
-	_strings_dirty = true
+	_count += 1
+
+	# 超出上限时丢弃最早的
+	while _active.size() > MAX_LABELS:
+		_active.remove_at(0)
+
+	_sync_labels()
 
 
 func _process(delta: float) -> void:
-	if not _initialized:
+	if _active.is_empty():
 		return
-	# 更新活跃飘字
 	var i := 0
 	while i < _active.size():
 		var entry: Dictionary = _active[i]
@@ -156,52 +107,41 @@ func _process(delta: float) -> void:
 			_active.remove_at(i)
 		else:
 			i += 1
-
-	# 重新打包字符串（如果有新飘字）
-	if _strings_dirty:
-		_repack_strings(_active.map(func(e): return e.str))
-		_strings_dirty = false
-
-	# 更新 MultiMesh 实例缓冲
-	_update_instances()
+	_sync_labels()
 
 
-# ============================================================
-# 内部
-# ============================================================
+## 把 _active 同步到 Label 池（复用节点，不每帧新建）
+func _sync_labels() -> void:
+	# 按需扩容
+	while _pool.size() < _active.size():
+		var lb := Label.new()
+		lb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(lb)
+		_pool.append(lb)
 
-## 生成烘焙用的字符样本（0-9 + 小数点 + 感叹号 + 负号）
-func _generate_samples() -> Array:
-	var samples := []
-	for i in 10:
-		samples.append(str(i))
-	samples.append(".")
-	samples.append("!")
-	samples.append("-")
-	samples.append("+")
-	# 大伤害可能需要的单位
-	samples.append("K")
-	samples.append("M")
-	return samples
-
-
-## 找场景里的 Camera3D
-func _find_camera() -> Camera3D:
-	var tree := get_tree()
-	if tree == null:
-		return null
-	var nodes := tree.get_nodes_in_group("camera")
-	if nodes.size() > 0:
-		return nodes[0] as Camera3D
-	# 兜底：找当前视口相机
-	var vp := get_viewport()
-	return vp.get_camera_3d() if vp else null
+	for i in _pool.size():
+		var lb: Label = _pool[i]
+		if i >= _active.size():
+			lb.visible = false
+			continue
+		var entry: Dictionary = _active[i]
+		var alpha: float = 1.0 - (float(entry.elapsed) / float(entry.lifetime))
+		lb.text = str(entry.str)
+		lb.add_theme_font_size_override("font_size", int(entry.size))
+		lb.add_theme_color_override("font_color", KIND_COLORS.get(entry.kind, Color.WHITE))
+		# 水平居中到飘字位置（用文本实际宽度的一半回退）
+		var half_w: float = lb.get_minimum_size().x * 0.5
+		lb.position = Vector2(entry.pos.x - half_w, entry.pos.y)
+		lb.modulate = Color(1, 1, 1, clampf(alpha, 0.0, 1.0))
+		lb.visible = true
 
 
-## 3D 世界坐标 → 2D 屏幕坐标
+## 3D 世界位置 → 屏幕坐标
 func _world_to_screen(world_pos: Vector3) -> Vector2:
 	if _camera == null:
-		return Vector2.ZERO
+		_camera = _find_camera()
+	if _camera == null:
+		return get_viewport().get_visible_rect().size * 0.5
 	return _camera.unproject_position(world_pos)
 
 
@@ -220,85 +160,18 @@ func _format_text(amount: float, kind: String) -> String:
 	return s
 
 
-## 重新打包字符串纹理
-func _repack_strings(strings: Array) -> void:
-	if _bake_result.is_empty():
-		return
-	_pack_result = StringTexturePacker.pack(
-		strings,
-		_bake_result.glyph_to_index,
-		_bake_result.advances,
-		MAX_STRING_LEN
-	)
-
-
-## 应用 shader 参数
-func _apply_shader_params() -> void:
-	if _shader_mat == null or _bake_result.is_empty():
-		return
-	_shader_mat.set_shader_parameter("text_atlas", _bake_result.atlas)
-	_shader_mat.set_shader_parameter("atlas_grid", float(_bake_result.grid))
-	_shader_mat.set_shader_parameter("atlas_cell_px", float(_bake_result.cell))
-	_shader_mat.set_shader_parameter("atlas_size", 4096.0)
-	_shader_mat.set_shader_parameter("advance_tex", _bake_result.advance_tex)
-	_shader_mat.set_shader_parameter("advance_tex_cols", float(_bake_result.grid))
-	# 8 种颜色 tint（前 4 种用 KIND_COLORS，其余白）
-	var tints: Array = []
-	var kinds := ["normal", "crit", "player", "aoe"]
-	for k in kinds:
-		tints.append(KIND_COLORS.get(k, Color.WHITE))
-	for _i in range(4):
-		tints.append(Color.WHITE)
-	_shader_mat.set_shader_parameter("text_tints", tints)
-	_shader_mat.set_shader_parameter("per_glyph_tint", 0.0)
-	_shader_mat.set_shader_parameter("anim_enabled", 0.0)
-	_shader_mat.set_shader_parameter("burst_enabled", 0.0)
-	_shader_mat.set_shader_parameter("max_string_len", float(MAX_STRING_LEN))
-
-
-## 更新 MultiMesh 实例缓冲（每帧）
-func _update_instances() -> void:
-	if _mm == null:
-		return
-	# 重新打包后更新 string_tex 参数
-	if not _pack_result.is_empty():
-		_shader_mat.set_shader_parameter("string_tex", _pack_result.string_tex)
-		_shader_mat.set_shader_parameter("cum_tex", _pack_result.cum_tex)
-		_shader_mat.set_shader_parameter(
-			"strings_tex_cols", float(StringTexturePacker.STRING_TEX_WIDTH)
-		)
-		_shader_mat.set_shader_parameter("string_tex_rows", float(_pack_result.rows))
-		_shader_mat.set_shader_parameter("cum_tex_cols", float(StringTexturePacker.STRING_TEX_WIDTH))
-		_shader_mat.set_shader_parameter("cum_tex_rows", float(_pack_result.cum_rows))
-
-	# 写每个实例的 transform + color
-	var count := mini(_active.size(), MAX_INSTANCES)
-	for i in MAX_INSTANCES:
-		if i >= count:
-			_mm.set_instance_transform_2d(i, Transform2D.IDENTITY)
-			_mm.set_instance_color(i, Color(0, 0, 0, 0))  # len=0 → shader discard
-			continue
-		var entry: Dictionary = _active[i]
-		# 颜色：R=字符串长度/255, G=size 相关, B=style 索引, A=alpha
-		var str_len: int = entry.str.length()
-		var style := _kind_style_index(entry.kind)
-		var alpha: float = 1.0 - (entry.elapsed / entry.lifetime)
-		var color := Color(
-			float(str_len) / 255.0,
-			float(entry.size) / 64.0,
-			float(style) / 255.0,
-			alpha
-		)
-		_mm.set_instance_color(i, color)
-		# transform：位置 + 缩放（用 size 控制大小）
-		var scale_factor := float(entry.size) / 32.0
-		var t := Transform2D().scaled(Vector2.ONE * scale_factor)
-		t.origin = entry.pos
-		_mm.set_instance_transform_2d(i, t)
-
-
-## kind → style 索引（对应 text_tints 数组）
-func _kind_style_index(kind: String) -> int:
-	var kinds := ["normal", "crit", "player", "aoe"]
-	var idx := kinds.find(kind)
-	return idx if idx >= 0 else 0
+## 找场景里的 Camera3D
+func _find_camera() -> Camera3D:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var nodes := tree.get_nodes_in_group("camera")
+	if nodes.size() > 0:
+		return nodes[0] as Camera3D
+	# 回退：全局搜一个
+	var found := tree.get_nodes_in_group("player")
+	for n in found:
+		var cam := (n as Node).get_viewport().get_camera_3d() if n is Node else null
+		if cam:
+			return cam
+	return get_viewport().get_camera_3d()
