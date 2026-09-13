@@ -28,7 +28,12 @@ run_script_suite() {
 	local out
 	out=$(timeout 300 "$GODOT" --headless --path . --script "$path" 2>&1)
 	echo "$out" | grep -E "ALL .*PASSED|FAILED:|\.\.\. FAIL|ALL [0-9]+ TESTS" || true
-	if echo "$out" | grep -qE "FAILED:|\.\.\. FAIL"; then
+	# 必须出现明确的通过标记才算通过：脚本解析失败/超时挂起时输出里
+	# 既无 PASSED 也无 FAILED，只查 FAILED 会把它误判为通过（假绿灯）
+	if ! echo "$out" | grep -qE "PASSED"; then
+		echo "  (未出现 PASSED 标记——脚本可能加载失败或挂起)"
+		FAILED_SUITES+=("$name")
+	elif echo "$out" | grep -qE "FAILED:|\.\.\. FAIL"; then
 		FAILED_SUITES+=("$name")
 	else
 		PASSED_SUITES+=("$name")
@@ -42,7 +47,10 @@ run_scene_suite() {
 	local out
 	out=$(timeout 300 "$GODOT" --headless --path . "$path" 2>&1)
 	echo "$out" | grep -E "ALL .*PASSED|FAILED:|\[FAIL\]" || true
-	if echo "$out" | grep -qE "FAILED:|\[FAIL\]"; then
+	if ! echo "$out" | grep -qE "PASSED"; then
+		echo "  (未出现 PASSED 标记——脚本可能加载失败或挂起)"
+		FAILED_SUITES+=("$name")
+	elif echo "$out" | grep -qE "FAILED:|\[FAIL\]"; then
 		FAILED_SUITES+=("$name")
 	else
 		PASSED_SUITES+=("$name")

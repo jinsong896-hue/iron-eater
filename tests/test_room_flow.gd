@@ -77,10 +77,47 @@ func _ready() -> void:
 	# 门触发切房验证
 	await _test_door_transition(gr)
 
+	# 清空状态跨房间重建保持（战斗房回访不得重新刷怪锁门）
+	await _test_cleared_state_persists(gr, target_idx)
+
 	# 特殊房闭环验证
 	await _test_special_room(gr)
 
 	_finish()
+
+## 清空状态落盘验证：房间节点每次进入都重建，控制器实例是新的，
+## 不落盘的话回访已清房间会重新刷怪/锁门，Boss 房还会重现传送门
+func _test_cleared_state_persists(gr, cleared_idx: int) -> void:
+	# 先切走再切回，强制走一次完整的"销毁 → 重建"路径
+	var other := 0
+	for i in gr.dungeon_graph.size():
+		if i != cleared_idx:
+			other = i
+			break
+	gr._transition_to_room(other)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	_check(bool(gr.room_state.get(cleared_idx, {}).get("cleared", false)),
+		"房间清空状态已落盘 room_state")
+
+	gr._transition_to_room(cleared_idx)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
+	_check(ctrl != null, "[回访] 控制器就绪")
+	if ctrl == null:
+		return
+	_check(ctrl.is_cleared, "[回访] 已清房间保持清空（不重新刷怪）")
+	_check(ctrl.enemies_alive == 0, "[回访] 不重新刷怪（敌人 %d）" % ctrl.enemies_alive)
+
+	var any_locked := false
+	for door in ctrl._doors:
+		var trig = door.get_node_or_null("DoorTrigger")
+		if trig and trig.is_locked:
+			any_locked = true
+	_check(not any_locked, "[回访] 不重新锁门")
 
 ## 特殊房闭环：切到特殊房 → 有门有墙有实体 → 交互结算 → 开门
 ## 地牢种子随机，故遍历本层实际分配到的全部特殊房类型（shop/heal/event）
@@ -120,13 +157,17 @@ func _check_one_special_room(gr, special_type: String) -> void:
 				prop_count += 1
 	_check(prop_count > 0, "[%s] 交互物实体已生成（%d 个）" % [special_type, prop_count])
 
-	# 交互前门是锁的
+	# 交互前门不应锁——特殊房允许自由进出，不做战斗式封锁。
+	# 这是本流程的关键约定：旧设计锁门后靠"已结算回访只解锁"兜底，
+	# 商店因金币不足而交互失败时会把玩家永久关在房里
 	var locked_before := false
+	var locked_dirs: Array[String] = []
 	for door in ctrl._doors:
 		var trig = door.get_node_or_null("DoorTrigger")
 		if trig and trig.is_locked:
 			locked_before = true
-	_check(locked_before, "[%s] 交互前门已锁" % special_type)
+			locked_dirs.append(str(trig.direction))
+	_check(not locked_before, "[%s] 未交互时门不锁（可自由进出）%s" % [special_type, locked_dirs])
 
 	# 商店需要金币才能成交，且消耗品背包要有空位；泉水需要未满血
 	var gm = gr.get_node_or_null("/root/GameManager")
@@ -139,20 +180,23 @@ func _check_one_special_room(gr, special_type: String) -> void:
 
 	var result: Dictionary = ctrl.interact_special()
 	_check(result.get("ok", false), "[%s] 交互成功（%s）" % [special_type, result.get("reason", "")])
-	_check(ctrl.is_cleared, "[%s] 交互后房间标记清空" % special_type)
-
-	var opened := false
-	for door in ctrl._doors:
-		var trig = door.get_node_or_null("DoorTrigger")
-		if trig and not trig.is_locked:
-			opened = true
-	_check(opened, "[%s] 交互后门解锁" % special_type)
 
 	# 重复交互不应重复发放奖励
 	var before_state = _special_state(gm, special_type)
 	var repeat: Dictionary = ctrl.interact_special()
 	_check(repeat.get("already_used", false), "[%s] 重复交互不重复发奖" % special_type)
 	_check(_special_state(gm, special_type) == before_state, "[%s] 重复交互后状态未变" % special_type)
+
+	# 交互失败不应影响通行：把房间还原成未交互，再验证门仍然通行
+	ctrl._special_used = false
+	ctrl._on_cleared()
+	_check(ctrl.is_cleared, "[%s] 房间标记清空" % special_type)
+	var opened := false
+	for door in ctrl._doors:
+		var trig = door.get_node_or_null("DoorTrigger")
+		if trig and not trig.is_locked:
+			opened = true
+	_check(opened, "[%s] 清空后门解锁" % special_type)
 
 	# 回访已结算的特殊房：应保持可通行，不重新锁门
 	ctrl.deactivate()
@@ -195,13 +239,34 @@ func _finish() -> void:
 	get_tree().quit(1 if failed > 0 else 0)
 
 ## 追加：门触发切房验证（_check2 系列由主流程结束后调用）
+## 门触发切房验证
+## 房间模板的门是固定的（南北），地牢拓扑随机 —— 存在"门朝向无邻接房间"的哑门。
+## 故在多间房里找一扇真正连通的门再验证切换机制。
 func _test_door_transition(gr) -> void:
-	# 回到已清空的房间，站到门触发器上模拟 body_entered
-	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
-	var door = ctrl._doors[0]
-	var trig = door.get_node_or_null("DoorTrigger")
+	var ctrl = null
+	var trig = null
+	for attempt in 8:
+		ctrl = gr.current_room_node.get_node_or_null("RoomController")
+		if ctrl:
+			for d in ctrl._doors:
+				var t = d.get_node_or_null("DoorTrigger")
+				if t == null or str(t.direction).is_empty():
+					continue
+				if gr._find_room_in_direction(str(t.direction)) >= 0:
+					trig = t
+					break
+		if trig != null:
+			break
+		# 本房无连通门，换一间再找
+		var nxt: int = (gr.current_room_index + 1) % gr.dungeon_graph.size()
+		if nxt == gr.current_room_index:
+			break
+		gr._transition_to_room(nxt)
+		await get_tree().process_frame
+		await get_tree().process_frame
+
 	if trig == null:
-		_check(false, "门触发器存在")
+		_check(false, "找到连通的门（遍历多间房）")
 		return
 	_check(true, "门触发器存在")
 	_check(trig.direction != "", "门方向有效（%s）" % trig.direction)

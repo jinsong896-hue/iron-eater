@@ -64,18 +64,18 @@ func activate() -> void:
 	if bus:
 		bus.room_entered.emit(_room_id())
 
+	# 回访已清空的房间：读回清空状态（房间节点每次进入都重建，控制器实例是新的）
+	if not is_cleared and _room_was_cleared():
+		is_cleared = true
+
 	if is_cleared:
 		_open_doors()
 		if is_boss_room:
 			_show_portal()
 		return
 
+	# 特殊房不锁门：玩家可自由进出，奖励在玩家主动交互时结算
 	if _is_special_room():
-		# 房间奖励已领取过（读档/回访）时不再重复锁门
-		if _special_used:
-			_on_cleared()
-		else:
-			_lock_doors()
 		return
 
 	if is_boss_room:
@@ -97,11 +97,12 @@ func on_enemy_died(_world_position: Vector3) -> void:
 		_on_cleared()
 
 
-## 执行特殊房交互并完成房间。
+## 房间清空（标记状态并落盘到 GameRoot.room_state，供回访时恢复）
 func _on_cleared() -> void:
 	if is_cleared:
 		return
 	is_cleared = true
+	_mark_room_cleared()
 	_open_doors()
 	if is_boss_room and _boss != null:
 		var gm = _game_manager()
@@ -111,6 +112,63 @@ func _on_cleared() -> void:
 	var bus = _event_bus()
 	if bus:
 		bus.room_cleared.emit(_room_id())
+
+
+## 把清空状态写回 GameRoot.room_state
+## 房间节点每次进入都会重建（GameRoot._transition_to_room 销毁旧节点），
+## 不落盘的话回访已清房间会重新刷怪/锁门，Boss 房甚至会重现传送门
+func _mark_room_cleared() -> void:
+	var gr = _game_root()
+	if gr == null:
+		return
+	var states = gr.get("room_state")
+	if states == null or not (states is Dictionary):
+		return
+	var idx: int = int(gr.get("current_room_index"))
+	if states.has(idx):
+		states[idx]["cleared"] = true
+
+
+## 从 GameRoot.room_state 读回本房历史清空状态
+func _room_was_cleared() -> bool:
+	var gr = _game_root()
+	if gr == null:
+		return false
+	var states = gr.get("room_state")
+	if states == null or not (states is Dictionary):
+		return false
+	var idx: int = int(gr.get("current_room_index"))
+	if not states.has(idx):
+		return false
+	return bool(states[idx].get("cleared", false))
+
+
+## GameRoot 引用（运行时获取，--script 测试模式兼容）
+## 优先按节点名找；测试场景把 main.tscn 嵌在别的父节点下，故回退到脚本属性探测
+func _game_root():
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return null
+	var by_name := tree.root.get_node_or_null("GameRoot")
+	if by_name != null:
+		return by_name
+	var scene := tree.current_scene
+	if scene != null:
+		var found: Node = _find_game_root(scene)
+		if found != null:
+			return found
+	return null
+
+
+## 递归查找带 room_state 属性的节点（GameRoot 特征）
+func _find_game_root(node: Node) -> Node:
+	if node.get("room_state") != null:
+		return node
+	for child in node.get_children():
+		var hit: Node = _find_game_root(child)
+		if hit != null:
+			return hit
+	return null
 
 
 ## 离开房间
@@ -294,14 +352,13 @@ func _room_type() -> String:
 func _is_special_room() -> bool:
 	return _room_type() in ["shop", "heal", "event"]
 
-## 执行特殊房交互并完成房间。
+## 执行特殊房交互（不锁门，可重复进入；奖励只结算一次）
+## 返回 {ok, reason?, already_used?}，UI / 输入层据 ok 决定是否提示
 func interact_special() -> Dictionary:
 	if not _is_special_room():
-		return {"ok": false, "reason": "特殊房已完成或类型无效"}
-	# 已结算过的房间（读档/回访）只做解锁，不重复发放奖励
+		return {"ok": false, "reason": "该房间不可交互"}
 	if _special_used:
-		_on_cleared()
-		return {"ok": true, "already_used": true}
+		return {"ok": false, "already_used": true, "reason": "这里已经探索过了"}
 	var result: Dictionary
 	match _room_type():
 		"heal":
@@ -321,7 +378,6 @@ func interact_special() -> Dictionary:
 			result = _special_service.claim_event_reward(config_event, int(config_event.get("reward", 12)))
 	if result.get("ok", false):
 		_special_used = true
-		_on_cleared()
 	return result
 
 ## 获取特殊房配置。
