@@ -83,6 +83,23 @@ func take_buffered_attack(buffer_time: float = 0.2) -> Vector2:
 	return Vector2.ZERO
 
 
+## 是否有未被消费的攻击输入（含缓存）。
+## 与 has_attack_request() 的区别：后者只看当前帧且与 _process 同频，
+## 跨节点调用必然漏帧；本方法以时间戳判定，任何调用时机都可靠。
+func has_pending_attack(buffer_time: float = 0.2) -> bool:
+	return take_buffered_attack(buffer_time) != Vector2.ZERO
+
+
+## 消费攻击输入（清除缓存与当前帧标记）。
+## 修复「按五次才出一次」：原先 attack_direction 在 _process 开头清零、
+## 由 _physics_process 读取，两者不同频时按键被静默丢弃，且缓存只在
+## 冷却中才被查询。改为「读时间戳 → 消费时清除」，不再依赖帧对齐。
+func consume_attack() -> void:
+	_buffered_attack = Vector2.ZERO
+	_buffered_attack_time = -999.0
+	attack_direction = Vector2.ZERO
+
+
 ## 攻击是否属于跳跃攻击组合（本次攻击按键落在空格后 DODGE_COMBO_WINDOW 内）
 func attack_is_jump_combo() -> bool:
 	if attack_direction == Vector2.ZERO:

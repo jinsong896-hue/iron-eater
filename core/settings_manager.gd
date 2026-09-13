@@ -16,6 +16,8 @@ var _settings := {
 	"language": "zh",
 	"show_damage_numbers": true,
 	"camera_shake": true,
+	# 拾取方式：false = 按 E 手动拾取；true = 走到掉落物上自动拾取
+	"auto_pickup": false,
 }
 
 

@@ -86,21 +86,24 @@ func _check_dodge() -> void:
 
 ## 攻击派发：搬移自 _attack()
 ## 命中特殊攻击时转发到对应状态；普攻仍同步结算（单帧，不进状态机）
+##
+## 输入读取修复：原先直接读 InputManager.attack_direction，而该值在
+## InputManager._process 开头清零、由本状态机在 _physics_process 读取，
+## 两者不同频时按键被静默丢弃（表现为「按好几次才出一次攻击」）。
+## 改为走时间戳缓存 has_pending_attack()，任何调用时机都可靠。
 func _attack() -> void:
 	var p := player
-	# 新按下或缓存的攻击输入
-	var dir_2d := InputManager.attack_direction
+	# 攻击缓存窗口 = GameBalance.ATTACK_INPUT_BUFFER（与连段窗口一致）
+	var buffer: float = GameBalance.ATTACK_INPUT_BUFFER
+	var dir_2d := InputManager.take_buffered_attack(buffer)
 	if dir_2d == Vector2.ZERO:
-		if p._attack_timer > 0.0 and p._combo and not p._combo.attack_in_progress:
-			# 冷却中尝试取缓存输入
-			dir_2d = InputManager.take_buffered_attack(GameBalance.ATTACK_INPUT_BUFFER)
-		if dir_2d == Vector2.ZERO:
-			return
+		return
 
+	# 冷却前半段锁定，后摇取消窗口内可接下一击
 	var in_recovery := p._attack_timer > 0.0 and p._in_cancel_window()
 	var blocked := p._attack_timer > 0.0 and not in_recovery
 	if blocked or (p._combo and p._combo.attack_in_progress):
-		return
+		return  # 不消费输入：等冷却结束后缓存仍可生效
 	# 跳跃攻击阶段中不接受新攻击
 	if p._jump_phase != Player.JumpPhase.NONE:
 		return
@@ -108,12 +111,17 @@ func _attack() -> void:
 	if p._sprint_attack_timer > 0.0:
 		return
 
+	# 到这里确定要出招。注意：attack_is_jump_combo 依赖 attack_direction 非零，
+	# 故必须在消费输入之前判定。
+	var is_jump_combo := InputManager.attack_is_jump_combo()
+	InputManager.consume_attack()
+
 	p._facing = InputManager.direction_2d_to_3d(dir_2d.normalized())
 	if p._facing.length_squared() < 0.001:
 		p._facing = Vector3.FORWARD
 
 	# 1) 跳跃攻击：空格+方向键组合（连段派生：清冷却直接起手）
-	if InputManager.attack_is_jump_combo():
+	if is_jump_combo:
 		if in_recovery:
 			p._cancel_current_attack()
 		finished.emit("JumpAttackState", {})

@@ -102,6 +102,62 @@ func _ready() -> void:
 	for i in range(30): await get_tree().physics_frame
 	_c(absf(Engine.time_scale - 1.0) < 0.01, "hitstop 后 time_scale 还原", "=%.3f" % Engine.time_scale)
 
+	# --- #2 玩家受击闪红 ---
+	# 玩家此前完全没有受击视觉：扣了血却看不出来
+	GameManager.attributes.hp = GameManager.attributes.max_hp
+	p.take_damage(50.0)
+	await get_tree().process_frame
+	_c(p._flash_timer > 0.0, "玩家受击进入闪红状态")
+	var pmat = p._model.material_override if p._model else null
+	_c(pmat != null, "玩家模型有独立材质（闪红可控）")
+	if pmat:
+		_c(pmat.albedo_color.r > pmat.albedo_color.g, "闪红时偏红",
+			"color=%s" % str(pmat.albedo_color))
+
+	# --- #1 攻击输入不再丢帧（按五次才出一次的老问题）---
+	# 根因：attack_direction 在 _process 开头清零、由 _physics_process 读取，
+	# 两者不同频时输入被静默丢弃，且缓存只在冷却中才被查询。
+	# 现改为时间戳缓存 + 消费。这里验证「写入后任意时刻可读、消费后可再写」。
+	InputManager.consume_attack()
+	_c(not InputManager.has_pending_attack(), "消费后无待处理攻击")
+	# 模拟一次攻击按下（走 InputManager 内部路径）
+	InputManager._buffered_attack = Vector2.DOWN
+	InputManager._buffered_attack_time = Time.get_ticks_msec() / 1000.0
+	_c(InputManager.has_pending_attack(), "写入后立即可见（不依赖帧对齐）")
+	_c(InputManager.take_buffered_attack(0.2) == Vector2.DOWN, "可取到攻击方向")
+	InputManager.consume_attack()
+	_c(not InputManager.has_pending_attack(), "消费后清空（不会重复触发）")
+	# 过期输入不应生效
+	InputManager._buffered_attack = Vector2.UP
+	InputManager._buffered_attack_time = Time.get_ticks_msec() / 1000.0 - 5.0
+	_c(not InputManager.has_pending_attack(0.2), "过期输入不生效")
+
+	# --- 起始房不刷怪（刷怪点白名单）---
+	# 根因：_collect_nodes 把「非 boss 标记」全当刷怪点，
+	# 起始房的 player_spawn 于是被当成刷怪点，直接刷在玩家脚下。
+	var start_ctrl = null
+	for i in gr.dungeon_graph.size():
+		if str(gr.dungeon_graph[i].get("type", "")) == "start":
+			gr._transition_to_room(i)
+			await get_tree().process_frame
+			await get_tree().process_frame
+			start_ctrl = gr.current_room_node.get_node_or_null("RoomController")
+			break
+	if start_ctrl:
+		_c(start_ctrl._spawn_points.size() == 0, "起始房无刷怪点（player_spawn 不再被误收）",
+			"点数=%d" % start_ctrl._spawn_points.size())
+		_c(start_ctrl.enemies_alive == 0, "起始房不刷怪", "敌人=%d" % start_ctrl.enemies_alive)
+
+	# --- 自动拾取开关 ---
+	var sm = get_node_or_null("/root/SettingsManager")
+	if sm:
+		var before = sm.get_setting("auto_pickup")
+		_c(before != null, "auto_pickup 设置项存在")
+		sm.set_setting("auto_pickup", true)
+		_c(bool(sm.get_setting("auto_pickup")), "可切换为开")
+		sm.set_setting("auto_pickup", false)
+		_c(not bool(sm.get_setting("auto_pickup")), "可切换为关")
+
 	if failed == 0:
 		print("ALL GAMEPLAY FIXES TESTS PASSED")
 	else:

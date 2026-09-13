@@ -29,6 +29,13 @@ func _ready() -> void:
 
 
 ## 收集生成点（房间根下的 SpawnPoints 容器）与门节点（Doors 容器）
+## 只有真正的敌人标记才算刷怪点。
+## 修复：原先「非 boss_spawn 就当作刷怪点」会把 player_spawn / chest_spawn /
+## shop_npc / heal_shrine 一并收进来 —— 起始房于是刷出一只怪（刷在玩家脚下），
+## 宝箱房/特殊房也会多刷怪。白名单收口，其余标记一律忽略。
+const ENEMY_SPAWN_GROUPS := ["enemy_spawn", "elite_spawn"]
+
+
 func _collect_nodes() -> void:
 	var room_root := get_parent()
 	if room_root == null:
@@ -37,12 +44,13 @@ func _collect_nodes() -> void:
 	var spawns_node := room_root.get_node_or_null("SpawnPoints")
 	if spawns_node:
 		for child in spawns_node.get_children():
-			if child is Marker3D:
-				var m := child as Marker3D
-				if m.is_in_group("boss_spawn"):
-					_boss_spawn = m
-				else:
-					_spawn_points.append(m)
+			if not (child is Marker3D):
+				continue
+			var m := child as Marker3D
+			if m.is_in_group("boss_spawn"):
+				_boss_spawn = m
+			elif _is_enemy_spawn(m):
+				_spawn_points.append(m)
 
 	# 门在房间根下的 Doors 容器内（Door_* 命名）
 	var doors_node := room_root.get_node_or_null("Doors")
@@ -52,6 +60,14 @@ func _collect_nodes() -> void:
 				_doors.append(child)
 
 	is_boss_room = _boss_spawn != null or _room_type() == "boss"
+
+
+## 该标记是否为敌人刷怪点（白名单，避免把出生点/宝箱/交互物当成怪）
+func _is_enemy_spawn(marker: Marker3D) -> bool:
+	for g in ENEMY_SPAWN_GROUPS:
+		if marker.is_in_group(g):
+			return true
+	return false
 
 
 ## 激活房间（玩家进入）

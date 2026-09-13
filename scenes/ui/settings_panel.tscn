@@ -122,6 +122,10 @@ text = "显示伤害数字：开"
 layout_mode = 2
 text = "屏幕震动：开"
 
+[node name="ChkAutoPickup" type="CheckButton" parent="VBox/Pages/GamePage"]
+layout_mode = 2
+text = "自动拾取（开启后走到掉落物上即拾取，无需按 E；游戏内 Q 键也可切换）"
+
 [node name="Lbl4" type="Label" parent="VBox/Pages/GamePage"]
 layout_mode = 2
 text = "减少界面动态：关"

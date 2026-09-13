@@ -50,6 +50,13 @@ var _finisher_armor_timer := 0.0     # 终结技霸体剩余时间
 # 每个状态 = 原分支的逐行搬移；数据与共享动作仍留在 Player 上
 var _state_machine: StateMachine = null
 
+# 受击闪红（与敌人同款反馈；玩家此前完全没有任何受击视觉）
+var _model: MeshInstance3D = null       # 模型节点（player.tscn 的 Model）
+var _flash_timer := 0.0                 # 闪红剩余时间
+var _base_color := Color.WHITE          # 模型本色（闪红退回用）
+## 受击闪红时长（秒）
+const HIT_FLASH_DURATION := 0.18
+
 const ATTACK_REACH := 2.0
 
 ## 顿帧时的时间缩放（配合 _hitstop，必须保证还原）
@@ -63,10 +70,26 @@ func _ready() -> void:
 	add_to_group("player")
 	_combo = AttackCombo.new()
 	_setup_state_machine()
+	_setup_hit_model()
 	# 击杀回血（监听全局敌死信号）
 	var bus := get_node_or_null("/root/EventBus")
 	if bus and bus.has_signal("enemy_died"):
 		bus.enemy_died.connect(_on_enemy_killed)
+
+
+## 装配受击闪红用的模型引用。
+## 复制一份材质再挂到模型上——直接改 scene 里的共享材质会让
+## 同场景的多个玩家实例（或复用的资源）互相影响。
+func _setup_hit_model() -> void:
+	_model = get_node_or_null("Model") as MeshInstance3D
+	if _model == null:
+		return
+	var src := _model.get_active_material(0) as StandardMaterial3D
+	var mat := StandardMaterial3D.new()
+	if src != null:
+		mat = src.duplicate() as StandardMaterial3D
+	_base_color = mat.albedo_color
+	_model.material_override = mat
 
 
 ## 装配状态机：注册五个状态并进入默认的 MoveState
@@ -122,6 +145,12 @@ func _physics_process(delta: float) -> void:
 	_dodge_cooldown_timer = maxf(_dodge_cooldown_timer - delta, 0.0)
 	_sprint_attack_timer = maxf(_sprint_attack_timer - delta, 0.0)
 	_finisher_armor_timer = maxf(_finisher_armor_timer - delta, 0.0)
+	# 受击闪红衰减
+	if _flash_timer > 0.0:
+		_flash_timer = maxf(_flash_timer - delta, 0.0)
+		_update_flash()
+	# 自动拾取（设置开启时生效）
+	_update_auto_pickup(delta)
 
 	# 连击窗口推进 + 连击数计时
 	if _combo:
@@ -484,6 +513,21 @@ func cast_skill(skill_id: String) -> Dictionary:
 	return {"ok": true, "skill": skill_id, "direction": direction}
 
 
+## 受击闪红：前 40% 全红，剩余时间线性退回本色（与敌人同款节奏）
+func _update_flash() -> void:
+	if _model == null or _model.material_override == null:
+		return
+	var mat := _model.material_override as StandardMaterial3D
+	if mat == null:
+		return
+	if _flash_timer <= 0.0:
+		mat.albedo_color = _base_color
+		return
+	var t := _flash_timer / HIT_FLASH_DURATION
+	var blend := clampf(t / 0.4, 0.0, 1.0)
+	mat.albedo_color = Color(1.0, 0.15, 0.15).lerp(_base_color, 1.0 - blend)
+
+
 func take_damage(amount: float) -> void:
 	# 翻滚/俯冲无敌帧
 	if _is_dodging or _jump_phase == JumpPhase.DIVE:
@@ -496,6 +540,11 @@ func take_damage(amount: float) -> void:
 	EventBus.player_hit.emit(amount, global_position)
 	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")
 	AudioManager.play("hit")
+	# 受击闪红：玩家此前没有任何受击视觉，扣血了却看不出来
+	_flash_timer = HIT_FLASH_DURATION
+	_update_flash()
+	# HUD 血量刷新：玩家受伤不发 stats_changed，HUD 数值不会变
+	EventBus.stats_changed.emit()
 
 	if GameManager.attributes.is_dead():
 		die()
@@ -514,9 +563,33 @@ func die() -> void:
 	hide()
 
 
+## 自动拾取：开启后走到掉落物上即自动捡起，无需按 E
+## 由 _physics_process 每帧调用；关闭时立即返回（开销可忽略）
+const AUTO_PICKUP_INTERVAL := 0.25   # 检测间隔（秒），避免每帧遍历
+var _auto_pickup_timer := 0.0
+
+
+func _update_auto_pickup(delta: float) -> void:
+	var sm := get_node_or_null("/root/SettingsManager")
+	if sm == null or not bool(sm.get_setting("auto_pickup")):
+		return
+	_auto_pickup_timer -= delta
+	if _auto_pickup_timer > 0.0:
+		return
+	_auto_pickup_timer = AUTO_PICKUP_INTERVAL
+	var nearest := _nearest_pickup()
+	if nearest == null:
+		return
+	if nearest.has_method("pick_up"):
+		nearest.call("pick_up")   # 失败（背包满等）静默，等玩家腾出位置再来
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_inventory"):
 		EventBus.message.emit("背包")
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("toggle_auto_pickup"):
+		_toggle_auto_pickup()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact"):
 		if not _interact_special_room():
@@ -525,6 +598,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("devour"):
 		_devour_nearby()
 		get_viewport().set_input_as_handled()
+
+
+## 切换拾取方式（按 E 手动 ↔ 自动拾取），并在 HUD 提示当前模式
+func _toggle_auto_pickup() -> void:
+	var sm := get_node_or_null("/root/SettingsManager")
+	if sm == null:
+		return
+	var now: bool = not bool(sm.get_setting("auto_pickup"))
+	sm.set_setting("auto_pickup", now)
+	EventBus.message.emit("自动拾取：%s" % ("开" if now else "关"))
 
 ## 交互当前房间的商店、泉水或事件服务。
 ## 返回 false 表示"本房不是特殊房"，让位给 _pickup_nearby()——

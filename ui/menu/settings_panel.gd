@@ -16,10 +16,28 @@ extends Control
 enum Tab { DISPLAY, AUDIO, CONTROL, GAME }
 var current_tab: Tab = Tab.DISPLAY
 
+@onready var chk_auto_pickup: CheckButton = get_node_or_null("VBox/Pages/GamePage/ChkAutoPickup")
+
 
 func _ready() -> void:
 	_setup_tabs()
+	_setup_game_toggles()
 	_switch_tab(Tab.DISPLAY)
+
+
+## 游戏页的可交互开关（此前该页全是静态标签，改不了任何东西）
+func _setup_game_toggles() -> void:
+	var sm := get_node_or_null("/root/SettingsManager")
+	if chk_auto_pickup:
+		if sm:
+			chk_auto_pickup.button_pressed = bool(sm.get_setting("auto_pickup"))
+		chk_auto_pickup.toggled.connect(_on_auto_pickup_toggled)
+
+
+func _on_auto_pickup_toggled(pressed: bool) -> void:
+	var sm := get_node_or_null("/root/SettingsManager")
+	if sm:
+		sm.set_setting("auto_pickup", pressed)
 
 
 func _setup_tabs() -> void:
