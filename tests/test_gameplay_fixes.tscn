@@ -1,0 +1,6 @@
+[gd_scene load_steps=3 format=3]
+[ext_resource type="Script" path="res://tests/test_gameplay_fixes.gd" id="1_e"]
+[ext_resource type="PackedScene" path="res://scenes/main.tscn" id="2_m"]
+[node name="E2E" type="Node"]
+script = ExtResource("1_e")
+[node name="MainScene" parent="." instance=ExtResource("2_m")]

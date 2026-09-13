@@ -73,6 +73,7 @@ run_scene_suite  "special_room (特殊房交互 UI)" "res://tests/test_special_r
 run_scene_suite  "door_physics (穿门物理信号)" "res://tests/test_door_physics.tscn"
 run_scene_suite  "floor_flow   (楼层递进)" "res://tests/test_floor_flow.tscn"
 run_scene_suite  "death_flow   (死亡结算)" "res://tests/test_death_flow.tscn"
+run_scene_suite  "gameplay     (运行时行为回归)" "res://tests/test_gameplay_fixes.tscn"
 
 echo
 echo "=============================================="

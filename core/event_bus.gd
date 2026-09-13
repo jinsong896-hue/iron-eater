@@ -79,5 +79,9 @@ signal game_started
 signal run_finished(result: Dictionary)
 @warning_ignore("unused_signal")
 signal boss_state_changed(cleared: bool)
+
+## Boss 血条：玩家进入 Boss 房时发 name/max_hp，HUD 据此显示顶部血条栏
+@warning_ignore("unused_signal")
+signal boss_engaged(boss_name: String, max_hp: float)
 @warning_ignore("unused_signal")
 signal floor_changed(floor_number: int)

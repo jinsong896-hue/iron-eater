@@ -64,6 +64,19 @@ var _hp: float
 var _attack_timer := 0.0
 var _player  # Player（动态类型：避免 --script 测试模式下 class_name 编译依赖）
 var _visual_color := Color(0.8, 0.2, 0.2)
+var _model: MeshInstance3D = null          # 模型引用（受击闪红/血条用）
+var _flash_timer := 0.0                    # 受击闪红剩余时间
+
+# 头顶血条（受伤后显示）
+var _hp_bar: Node3D = null
+var _hp_bar_fill: MeshInstance3D = null
+var _hp_bar_bg: MeshInstance3D = null
+
+## 受击闪红时长（秒）
+const HIT_FLASH_DURATION := 0.18
+## 血条尺寸（米）与挂高（乘体型缩放）
+const BAR_WIDTH := 1.1
+const BAR_HEIGHT := 0.14
 
 # 前摇与硬直
 var _windup_timer := 0.0        # 前摇剩余
@@ -162,10 +175,67 @@ func _create_visual() -> void:
 		mat.emission_energy_multiplier = 0.4
 	model.material_override = mat
 	add_child(model)
+	_model = model
+	_visual_color = mat.albedo_color  # 记录本色，闪红后还原用
+	_create_health_bar()
+
+
+## 敌人头顶血条（billboard 四边形，纯脚本图元，无贴图依赖）
+## 受伤后才显示；满血时隐藏，避免满屏血条
+func _create_health_bar() -> void:
+	_hp_bar = Node3D.new()
+	_hp_bar.name = "HealthBar"
+	_hp_bar.position = Vector3(0, 2.15 * body_scale, 0)
+
+	# 底：深色背景 + 细黑边
+	_hp_bar_bg = _make_bar_quad(Vector3(BAR_WIDTH, BAR_HEIGHT, 0), Color(0.05, 0.05, 0.07, 0.9))
+	# 填充：红色（受击反馈里也用这个色系）
+	_hp_bar_fill = _make_bar_quad(Vector3(BAR_WIDTH, BAR_HEIGHT, 0), Color(0.85, 0.2, 0.2, 1.0))
+	# 填充略微前移，避免与底 z-fighting
+	_hp_bar_fill.position.z = 0.01
+
+	_hp_bar.add_child(_hp_bar_bg)
+	_hp_bar.add_child(_hp_bar_fill)
+	add_child(_hp_bar)
+	_hp_bar.visible = false
+	_update_health_bar()
+
+
+## 生成一个 billboard 四边形（始终面向相机）
+func _make_bar_quad(quad_size: Vector3, col: Color) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(quad_size.x, quad_size.y)
+	mi.mesh = q
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = col
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.no_depth_test = true  # 不被墙体遮挡
+	mi.material_override = mat
+	return mi
+
+
+## 按当前血量刷新血条长度（从左向右收缩）与可见性
+func _update_health_bar() -> void:
+	if _hp_bar == null or _hp_bar_fill == null:
+		return
+	var maxv: float = maxf(max_hp, 0.001)
+	var ratio := clampf(_hp / maxv, 0.0, 1.0)
+	_hp_bar.visible = _hp < max_hp - 0.001 and _hp > 0.0
+	_hp_bar_fill.scale.x = maxf(ratio, 0.001)
+	# 左对齐：中心左移半个被"吃掉"的长度
+	_hp_bar_fill.position.x = -BAR_WIDTH * (1.0 - ratio) * 0.5
 
 
 func _physics_process(delta: float) -> void:
 	_attack_timer = maxf(_attack_timer - delta, 0.0)
+
+	# 受击闪红衰减（每帧都要走，包括硬直/死亡前）
+	if _flash_timer > 0.0:
+		_flash_timer = maxf(_flash_timer - delta, 0.0)
+		_update_flash()
 
 	# 突进推进
 	if _current_state == EnemyState.DASH:
@@ -455,6 +525,42 @@ func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vec
 		_set_windup_visual(false)
 		_attack_timer = maxf(_attack_timer, 0.4)  # 打断后惩罚：短冷却
 	_current_state = EnemyState.STAGGERED
+	_flash_hit()
+	_update_health_bar()
+
+
+## 当前血量比例（0~1）；HUD 的 Boss 血条栏靠它刷新，无需触碰私有字段
+func hp_ratio() -> float:
+	return clampf(_hp / maxf(max_hp, 0.001), 0.0, 1.0)
+
+
+## 是否存活
+func is_alive() -> bool:
+	return _hp > 0.0 and _current_state != EnemyState.DEAD
+
+
+## 受击闪红：模型短暂染红再还原（给出明确的打击反馈）
+func _flash_hit() -> void:
+	if _model == null:
+		return
+	_flash_timer = HIT_FLASH_DURATION
+	_update_flash()
+
+
+## 按剩余时间推进闪红（前段全红，后段渐隐）
+func _update_flash() -> void:
+	if _model == null or _model.material_override == null:
+		return
+	var mat := _model.material_override as StandardMaterial3D
+	if mat == null:
+		return
+	if _flash_timer <= 0.0:
+		mat.albedo_color = _visual_color
+		return
+	# 前 40% 全红，剩余时间线性退回本色
+	var t := _flash_timer / HIT_FLASH_DURATION
+	var blend := clampf(t / 0.4, 0.0, 1.0)
+	mat.albedo_color = Color(1.0, 0.15, 0.15).lerp(_visual_color, 1.0 - blend)
 
 
 func die() -> void:

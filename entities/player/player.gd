@@ -52,6 +52,12 @@ var _state_machine: StateMachine = null
 
 const ATTACK_REACH := 2.0
 
+## 顿帧时的时间缩放（配合 _hitstop，必须保证还原）
+const HITSTOP_TIME_SCALE := 0.05
+
+## 拾取/吞噬的可达距离（米）
+const PICKUP_RANGE := 2.5
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -363,14 +369,30 @@ func _finish_attack_feedback(hit_any: bool) -> void:
 
 
 ## Hitstop：短暂全局减速制造顿帧感
+## 关键：必须保证 time_scale 一定被还原。原先用 await 等待定时器，
+## 若玩家在顿帧期间死亡/场景切换（节点被 free），await 永不恢复 →
+## time_scale 永久卡在 0.05，整个游戏变成慢动作（表现为"严重延迟/死机"）。
+## 故改为：回调式还原 + 退出场景树时兜底还原。
 func _hitstop(duration: float) -> void:
 	if _hitstop_active:
 		return
 	_hitstop_active = true
-	Engine.time_scale = 0.05
-	await get_tree().create_timer(duration, true, false, true).timeout
-	Engine.time_scale = 1.0
+	Engine.time_scale = HITSTOP_TIME_SCALE
+	var t := get_tree().create_timer(duration, true, false, true)
+	t.timeout.connect(_end_hitstop)
+
+
+## 还原全局时间缩放（幂等）
+func _end_hitstop() -> void:
+	if not _hitstop_active:
+		return
 	_hitstop_active = false
+	Engine.time_scale = 1.0
+
+
+## 离开场景树时兜底还原，避免顿帧中途换场景导致时间缩放泄漏
+func _exit_tree() -> void:
+	_end_hitstop()
 
 var _hitstop_active := false
 
@@ -534,9 +556,10 @@ func _interact_special_room() -> bool:
 
 
 ## 查找最近的掉落物（拾取/吞噬共用）
+## 有距离上限：超过则视为够不着（原先返回全场景最近的，隔着半张地图也能捡）
 func _nearest_pickup() -> Node3D:
 	var nearest: Node3D = null
-	var nearest_d := INF
+	var nearest_d := PICKUP_RANGE
 	for node in get_tree().get_nodes_in_group("pickups"):
 		if not is_instance_valid(node):
 			continue

@@ -197,3 +197,48 @@ offset_right = -20.0
 offset_bottom = 170.0
 script = ExtResource("3_minimap")
 grow_horizontal = 0
+[node name="BossBar" type="Control" parent="."]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -320.0
+offset_top = 28.0
+offset_right = 320.0
+offset_bottom = 92.0
+grow_horizontal = 2
+visible = false
+
+[node name="BossName" type="Label" parent="BossBar"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 26.0
+grow_horizontal = 2
+text = "BOSS"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.914, 0.898, 0.863, 1)
+theme_override_font_sizes/font_size = 22
+
+[node name="BossBarBg" type="ColorRect" parent="BossBar"]
+layout_mode = 1
+anchors_preset = 10
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -22.0
+grow_horizontal = 2
+grow_vertical = 0
+color = Color(0.05, 0.05, 0.07, 0.85)
+
+[node name="BossBarFill" type="ColorRect" parent="BossBar"]
+layout_mode = 1
+anchors_preset = 10
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -20.0
+offset_left = 2.0
+offset_bottom = -2.0
+grow_horizontal = 2
+grow_vertical = 0
+color = Color(0.75, 0.15, 0.15, 1)

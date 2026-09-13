@@ -8,6 +8,10 @@ var is_locked := false
 var is_open := true
 
 var _blocker: StaticBody3D = null
+## 重入保护：一次触发只切一次房。
+## 原实现每次 body_entered 都发信号，若玩家正好被放在门触发器上（或站在门上
+## 来回蹭），会连续触发切房 → 房间被反复销毁重建 → 卡死。
+var _triggered := false
 
 
 ## 锁门：禁用触发 + 生成物理阻挡
@@ -35,11 +39,19 @@ func unlock() -> void:
 
 
 func _on_body_entered(body: Node3D) -> void:
+	if _triggered:
+		return
 	if is_locked or not is_open:
 		return
 	if body.is_in_group("player"):
+		_triggered = true
 		# EventBus 运行时获取（--script 测试模式下不存在）
 		var tree := Engine.get_main_loop() as SceneTree
 		var bus = tree.root.get_node_or_null("EventBus") if tree and tree.root else null
 		if bus:
 			bus.door_opened.emit(direction, direction)
+
+
+## 重置触发标记（房间重新激活时用；本房门被再次使用）
+func reset_trigger() -> void:
+	_triggered = false

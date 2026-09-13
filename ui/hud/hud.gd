@@ -13,9 +13,17 @@ extends CanvasLayer
 @onready var message_label: Label = $TopLeft/MessageLabel
 @onready var buff_bar: HBoxContainer = $BuffBar
 @onready var minimap: MinimapView = $Minimap
+@onready var boss_bar: Control = $BossBar
+@onready var boss_name_label: Label = $BossBar/BossName
+@onready var boss_bar_bg: ColorRect = $BossBar/BossBarBg
+@onready var boss_bar_fill: ColorRect = $BossBar/BossBarFill
 
 var skill_buttons: Array[Button] = []
 var item_buttons: Array[Button] = []
+
+# Boss 血条栏状态
+var _boss_entity: Node = null
+var _boss_max_hp := 1.0
 
 
 func _ready() -> void:
@@ -28,6 +36,7 @@ func _ready() -> void:
 
 ## 每帧刷新连击数（轮询玩家，简单可靠）
 func _process(_delta: float) -> void:
+	_update_boss_bar()
 	if combo_label == null:
 		return
 	var players := get_tree().get_nodes_in_group("player")
@@ -69,6 +78,12 @@ func _connect_signals() -> void:
 		eb.floor_changed.connect(_on_floor_changed)
 	if eb.has_signal("room_entered"):
 		eb.room_entered.connect(_on_room_entered)
+	if eb.has_signal("boss_engaged"):
+		eb.boss_engaged.connect(_on_boss_engaged)
+	if eb.has_signal("boss_state_changed"):
+		eb.boss_state_changed.connect(_on_boss_state_changed)
+	if boss_bar:
+		boss_bar.visible = false
 	# 初始层数显示
 	var gm0 := get_node_or_null("/root/GameManager")
 	if gm0 and floor_label:
@@ -78,7 +93,44 @@ func _connect_signals() -> void:
 		minimap.notify_room_changed()
 
 
-## 进入新房间：刷新小地图
+## Boss 出现：显示顶部血条栏
+func _on_boss_engaged(boss_name: String, max_hp: float) -> void:
+	if boss_bar == null:
+		return
+	_boss_entity = _find_boss_entity()
+	_boss_max_hp = maxf(max_hp, 1.0)
+	if boss_name_label:
+		boss_name_label.text = boss_name
+	boss_bar.visible = true
+	_update_boss_bar()
+
+
+## Boss 结束（死亡/房间清空）：隐藏血条栏
+func _on_boss_state_changed(_cleared: bool) -> void:
+	_boss_entity = null
+	if boss_bar:
+		boss_bar.visible = false
+
+
+## 每帧刷新 Boss 血量（Boss 是场上唯一带 boss_loot 标记的敌人）
+func _update_boss_bar() -> void:
+	if boss_bar == null or not boss_bar.visible:
+		return
+	if _boss_entity == null or not is_instance_valid(_boss_entity):
+		_boss_entity = _find_boss_entity()
+		if _boss_entity == null:
+			return
+	var ratio: float = float(_boss_entity.call("hp_ratio")) if _boss_entity.has_method("hp_ratio") else 1.0
+	if boss_bar_fill:
+		boss_bar_fill.size.x = boss_bar_bg.size.x * clampf(ratio, 0.0, 1.0)
+
+
+## 找当前 Boss 实体（带 boss_loot meta 的敌人）
+func _find_boss_entity() -> Node:
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if e.has_meta("boss_loot"):
+			return e
+	return null
 func _on_room_entered(_room_id: String) -> void:
 	if minimap:
 		minimap.notify_room_changed()
@@ -144,6 +196,9 @@ func _on_message(text: String) -> void:
 
 
 func _on_player_hit(_damage: float, _pos: Vector3) -> void:
+	# 刷新血量：玩家受伤**不发** stats_changed，原先只闪血球不更新数值，
+	# 导致血量看起来"没变化"，玩家以为没受伤
+	_update_display()
 	if health_orb:
 		var tween := create_tween()
 		tween.tween_property(health_orb, "modulate", Color.RED, 0.1)

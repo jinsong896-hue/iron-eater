@@ -229,7 +229,10 @@ static func pickup_anim_script() -> GDScript:
 extends Node3D
 ## 掉落物 —— 旋转动画 + 拾取（pick_up）/ 吞噬（devour）
 
-var item: Resource
+## 注意：不能声明为 `var item: Resource`。
+## EquipmentInstance 继承 RefCounted 而非 Resource，类型不符会让
+## set("item", ...) 静默失败，item 恒为 null，拾取永远报"无效物品"。
+var item
 
 func _process(delta: float) -> void:
 	rotate_y(delta * 2.0)

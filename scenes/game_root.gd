@@ -5,6 +5,8 @@ extends Node3D
 
 const ROOM_DATA_DIR := "res://data/rooms/"
 const ROOM_SIZE := 30.0
+## 穿门进房后，玩家落在入口门内侧多远处（避开触发器的体积，防止立刻回触发）
+const DOOR_ENTRY_OFFSET := 2.0
 
 # 房间模板
 var room_templates: Dictionary = {}
@@ -389,28 +391,68 @@ func _activate_current_room() -> void:
 		(ctrl as RoomController).activate()
 
 
-## 放置玩家：优先 player_spawn 标记；无标记时按进入方向放在入口门内侧
+## 放置玩家。
+## 顺序很重要：穿门切房时**必须**按入口门内侧落点，否则玩家会掉在房间中央
+## （甚至落在别的门触发器上）导致反复切房 / 走进不该进的房间。
+##
+## 原实现先查全局 player_spawn 组，而每个模板都有该标记且旧房间是延迟销毁，
+## 于是 spawns[0] 可能取到**上一个房间的残留标记** —— 这就是"随机跳到其他房间
+## /传送到地图外"的根因。现改为：按门优先，本房标记只在无方向时用。
 func _place_player(enter_direction: String = "") -> void:
 	if player == null:
 		return
-	var spawns := get_tree().get_nodes_in_group("player_spawn")
-	if spawns.size() > 0:
-		player.global_position = (spawns[0] as Node3D).global_position
+
+	# 1) 有进入方向（穿门切房）：放在入口门内侧
+	if enter_direction != "" and _place_player_at_door(enter_direction):
 		return
 
-	if enter_direction != "" and current_room_node:
-		var placed := _place_player_at_door(enter_direction)
-		if placed:
-			return
+	# 2) 无方向（开局 / 传送门进新层）：用**本房**的 player_spawn 标记
+	var spawn := _current_room_player_spawn()
+	if spawn != null:
+		player.global_position = spawn.global_position
+		return
 
-	# 兜底：房间中心
-	if current_room_node:
-		player.global_position = Vector3.ZERO
-	else:
-		player.global_position = Vector3(15, 0, 15)
+	# 3) 兜底：房间中心（原先用 Vector3.ZERO，那是房间角落的墙里）
+	player.global_position = _room_center_world()
 
 
-## 按进入方向把玩家放在入口门内侧 1.5m（相对门触发器位置）
+## 取当前房间自己的 player_spawn 标记（限定在本房间节点内，不跨房间）
+func _current_room_player_spawn() -> Node3D:
+	if current_room_node == null:
+		return null
+	for child in current_room_node.get_children():
+		if child.is_in_group("player_spawn"):
+			return child as Node3D
+	# 标记可能挂在下级容器里
+	for node in current_room_node.find_children("*", "Marker3D", true, false):
+		if (node as Node).is_in_group("player_spawn"):
+			return node as Node3D
+	return null
+
+
+## 当前房间的世界中心（按模板宽高算，不是硬编码的角落/固定值）
+func _room_center_world() -> Vector3:
+	var ctrl = current_room_node.get_node_or_null("RoomController") if current_room_node else null
+	if ctrl != null:
+		var d = ctrl.get("room_data")
+		if d is Dictionary:
+			return Vector3(float(d.get("width", 20)) * 0.5, 0.0, float(d.get("height", 15)) * 0.5)
+	if current_room_node != null:
+		# 退化：取所有生成点标记的包围盒中心
+		var marks := current_room_node.find_children("*", "Marker3D", true, false)
+		if not marks.is_empty():
+			var sum := Vector3.ZERO
+			for m in marks:
+				sum += (m as Node3D).global_position
+			return sum / float(marks.size())
+	return Vector3.ZERO
+
+
+## 按进入方向把玩家放在入口门内侧 1.5m
+##
+## 方向语义易错：从 A 往北走，进入的是 B 的**南门**（B 在 A 北侧），
+## 且要在 B 内继续向**北**推进。原实现找的是「同向门」并往反向放，
+## 结果玩家被放到房间另一侧（正好落在对面门触发器上 → 再次切房）。
 func _place_player_at_door(enter_direction: String) -> bool:
 	if current_room_node == null:
 		return false
@@ -418,20 +460,37 @@ func _place_player_at_door(enter_direction: String) -> bool:
 	if doors_node == null:
 		return false
 
-	# 玩家从 enter_direction 的门进入（例如从北门进，即当前房的 north 门）
+	# 进入本房所穿的门，方向与行进方向相反
+	var entry_door_dir := _opposite_dir(enter_direction)
+	# 进门后继续深入的方向就是行进方向
+	var inward := _dir_vector(enter_direction)
+
 	for door in doors_node.get_children():
 		if not door.name.begins_with("Door_"):
 			continue
 		var trig = door.get_node_or_null("DoorTrigger")
-		if trig == null or str(trig.get("direction")) != enter_direction:
+		if trig == null or str(trig.get("direction")) != entry_door_dir:
 			continue
-		# 门内侧方向：与进入方向相反
-		var inward := Vector3.ZERO
-		match enter_direction:
-			"north": inward = Vector3(0, 0, 1)
-			"south": inward = Vector3(0, 0, -1)
-			"west":  inward = Vector3(1, 0, 0)
-			"east":  inward = Vector3(-1, 0, 0)
-		player.global_position = door.global_position + inward * 1.5
+		player.global_position = (door as Node3D).global_position + inward * DOOR_ENTRY_OFFSET
 		return true
 	return false
+
+
+## 行进方向 → 该方向上的单位向量（3D，x 东 / z 南）
+func _dir_vector(dir: String) -> Vector3:
+	match dir:
+		"north": return Vector3(0, 0, -1)
+		"south": return Vector3(0, 0, 1)
+		"west":  return Vector3(-1, 0, 0)
+		"east":  return Vector3(1, 0, 0)
+	return Vector3.ZERO
+
+
+## 相反方向
+func _opposite_dir(dir: String) -> String:
+	match dir:
+		"north": return "south"
+		"south": return "north"
+		"west":  return "east"
+		"east":  return "west"
+	return ""

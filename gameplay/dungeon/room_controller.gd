@@ -292,6 +292,13 @@ func _spawn_boss() -> void:
 	_boss.set_meta("boss_loot", true)
 	_boss.died.connect(_on_boss_died)
 	add_child(_boss)
+	# 通知 HUD 显示顶部 Boss 血条栏
+	var bus_boss = _event_bus()
+	if bus_boss:
+		var bname: String = str(_boss.get("monster_name"))
+		if bname.is_empty():
+			bname = "BOSS"
+		bus_boss.boss_engaged.emit(bname, _boss.max_hp)
 	enemies_alive += 1
 	_living_enemies.append(_boss)
 
@@ -299,6 +306,10 @@ func _spawn_boss() -> void:
 ## Boss 死亡：必掉两件装备 + 房间清空
 func _on_boss_died(world_position: Vector3) -> void:
 	enemies_alive = maxf(enemies_alive - 1, 0)
+	# 通知 HUD 隐藏顶部 Boss 血条栏
+	var bus_b = _event_bus()
+	if bus_b:
+		bus_b.boss_state_changed.emit(true)
 	if enemies_alive <= 0:
 		_on_cleared()
 

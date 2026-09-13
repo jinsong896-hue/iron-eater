@@ -8,6 +8,8 @@ extends CanvasLayer
 const ITEM_SCENE := preload("res://ui/inventory/backpack_item.tscn")
 const CAPACITY := 40  # 背包容量（8列 × 5行）
 const COLUMNS := 8
+## 模态面板组：打开时入组，暂停菜单据此让位（避免 Esc 叠加）
+const MODAL_GROUP := "modal_ui"
 
 enum Page { EQUIP, BAG, ENHANCE, DEVOUR }
 
@@ -375,10 +377,14 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 ## 打开背包（默认背包页）
+## 加入 modal_ui 组：暂停菜单用 _input（早于 _unhandled_input），只认这个组。
+## 不入组的话，在背包里按 Esc 会被暂停菜单抢先打开（叠在背包上面）。
 func _open() -> void:
 	get_tree().paused = true
 	visible = true
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if not is_in_group(MODAL_GROUP):
+		add_to_group(MODAL_GROUP)
 	_switch_page(Page.BAG)
 
 
@@ -386,6 +392,7 @@ func _open() -> void:
 func _close() -> void:
 	_menu.hide()
 	visible = false
+	remove_from_group(MODAL_GROUP)
 	get_tree().paused = false
 
 
