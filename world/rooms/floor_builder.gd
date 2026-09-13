@@ -107,6 +107,10 @@ static func _build_merged_mesh(parent: Node3D, tile_type: String, cells: Array) 
 	node.name = "Floor_%s" % tile_type
 	node.mesh = mesh
 	node.material_override = _get_material_for_type(tile_type)
+	# 地板不投射阴影：它是场景最底层平面，投射只会自己遮自己。
+	# （合并成单网格后，整片地板同时作为投影面与接收面，
+	#   开着投影会让每个格子向邻居投影 → 地面全黑。）
+	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(node)
 
 
@@ -130,6 +134,5 @@ static func _get_material_for_type(type: String) -> Material:
 			mat.albedo_color = Color(0.4, 0.4, 0.4)
 
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # 俯视视角，双面渲染避免朝向问题
 	_material_cache[type] = mat
 	return mat

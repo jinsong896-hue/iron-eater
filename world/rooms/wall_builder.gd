@@ -94,14 +94,16 @@ static func _build_merged_wall_mesh(walls: Array) -> ArrayMesh:
 		Vector3(-hw, -hh, -ht), Vector3(hw, -hh, -ht), Vector3(hw, hh, -ht), Vector3(-hw, hh, -ht),
 		Vector3(-hw, -hh, ht), Vector3(hw, -hh, ht), Vector3(hw, hh, ht), Vector3(-hw, hh, ht),
 	]
-	# 6 个面（每面两个三角形），法线按面给出
+	# 6 个面，每个面 4 个角索引 + 该面法线。
+	# 绕序必须与法线成右手系（相邻两边叉积 = 法线），否则背面剔除与阴影都会出错。
+	# 下面每组都按「从面外侧看逆时针」排序，已逐一用叉积核对。
 	var faces := [
-		[0, 4, 5, 1, Vector3(0, 0, -1)],   # -Z
-		[2, 6, 7, 3, Vector3(0, 0, 1)],    # +Z
-		[3, 7, 5, 1, Vector3(0, 1, 0)],    # +Y
-		[0, 4, 6, 2, Vector3(0, -1, 0)],   # -Y
-		[0, 3, 2, 1, Vector3(-1, 0, 0)],   # -X
-		[4, 5, 6, 7, Vector3(1, 0, 0)],    # +X
+		[0, 3, 2, 1, Vector3(0, 0, -1)],   # -Z
+		[4, 5, 6, 7, Vector3(0, 0, 1)],    # +Z
+		[3, 7, 6, 2, Vector3(0, 1, 0)],    # +Y
+		[0, 1, 5, 4, Vector3(0, -1, 0)],   # -Y
+		[0, 4, 7, 3, Vector3(-1, 0, 0)],   # -X
+		[1, 2, 6, 5, Vector3(1, 0, 0)],    # +X
 	]
 
 	for wall in walls:
@@ -109,7 +111,9 @@ static func _build_merged_wall_mesh(walls: Array) -> ArrayMesh:
 			int(wall.get("x", 0)), int(wall.get("y", 0)), str(wall.get("direction", "north"))
 		)
 		var dir := str(wall.get("direction", "north"))
-		# 东西向墙绕 Y 轴旋转 90°：直接交换 x/z 分量即可（轴对齐旋转）
+		# 东西向墙需要绕 Y 轴转 90°。**不能用「交换 x/z 分量」实现**——
+		# 那是镜像变换（行列式 -1），会翻转手性，导致绕序与法线矛盾、法线朝内。
+		# 正确的 Y 轴旋转 90°：(x,y,z) → (z, y, -x)，行列式 +1。
 		var rotate := dir == "east" or dir == "west"
 
 		for face in faces:
@@ -118,9 +122,9 @@ static func _build_merged_wall_mesh(walls: Array) -> ArrayMesh:
 			for k in 4:
 				var local: Vector3 = corners[face[k]]
 				if rotate:
-					local = Vector3(local.z, local.y, local.x)
+					local = Vector3(local.z, local.y, -local.x)
 				verts.push_back(pos + local)
-				var nn := Vector3(n.z, n.y, n.x) if rotate else n
+				var nn := Vector3(n.z, n.y, -n.x) if rotate else n
 				normals.push_back(nn)
 			indices.push_back(base + 0)
 			indices.push_back(base + 1)
