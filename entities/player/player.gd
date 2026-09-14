@@ -468,6 +468,8 @@ func _apply_element_to(enemy: Node3D) -> void:
 ## 词条挂在 EquipmentTemplate.element_affinity（0.15 = +15%），只取已装备的。
 func _element_affinity_bonus() -> float:
 	var total := 0.0
+	if GameManager.equipment_manager == null:
+		return total
 	for inst in GameManager.equipment_manager.get_equipped().values():
 		if inst == null:
 			continue
@@ -481,6 +483,10 @@ func _element_affinity_bonus() -> float:
 ## 武器才赋予攻击元素——护甲/饰品的元素只作为词条加成（元素亲和）。
 func _refresh_attack_element() -> void:
 	attack_element = -1
+	# equipment_manager 在 start_new_run 里才创建；Player._ready 可能早于它
+	# （直跑场景、测试实例化）——必须判空，否则这里会抛 Nil 错误
+	if GameManager.equipment_manager == null:
+		return
 	var equipped: Dictionary = GameManager.equipment_manager.get_equipped()
 	for slot in [EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Slot.WEAPON_2]:
 		var inst = equipped.get(slot)
