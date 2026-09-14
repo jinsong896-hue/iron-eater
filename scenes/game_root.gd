@@ -410,24 +410,52 @@ func _transition_to_room(target_idx: int, enter_direction: String = "") -> void:
 	_is_transitioning = false
 
 
-## 让玩家刚穿过的那扇门短暂失效，避免落点踩门导致连锁切房
-## 门方向 = 行进方向的反向（往东走 → 从本房西门进来）
+## 让门短暂失效，避免玩家落点踩门导致连锁切房。
+##
+## 两种落点都会踩门，必须都覆盖：
+##  ① 穿门切房：落点在本房入口门内侧（DOOR_ENTRY_OFFSET=2.0，不重叠），
+##     但为稳妥仍把入口那扇禁用。
+##  ② **无方向切房**（开局 / 传送门 / 直接调用）：走 player_spawn 分支，
+##     而绝大多数模板的 player_spawn 距南门只有 1 格——门在**格边缘**
+##     （world z = 格子 +0.5），触发器 Z 跨度 ±0.75，于是出生点实际**落在
+##     触发器内**（重叠约 0.25m）。若本房恰有南邻，门立刻触发 → 连传两格。
+##     （只有有南邻时才会连，故表现为偶发）
+##
+## 判定用**几何**而非 get_overlapping_bodies()：刚设置完 player 位置的
+## 那一帧，Area3D 的重叠列表还没更新（要等物理帧），用重叠检测会漏判。
 func _disarm_entry_door(enter_direction: String) -> void:
-	if enter_direction.is_empty() or current_room_node == null:
+	if current_room_node == null:
 		return
 	var doors_node := current_room_node.get_node_or_null("Doors")
 	if doors_node == null:
 		return
-	var entry_dir := _opposite_dir(enter_direction)
+
+	var entry_dir := "" if enter_direction.is_empty() else _opposite_dir(enter_direction)
 	for door in doors_node.get_children():
 		if not str(door.name).begins_with("Door_"):
 			continue
 		var trig = door.get_node_or_null("DoorTrigger")
-		if trig == null or str(trig.get("direction")) != entry_dir:
+		if trig == null or not trig.has_method("disarm_until_clear"):
 			continue
-		if trig.has_method("disarm_until_clear"):
-			trig.call("disarm_until_clear")
-		return
+		# 禁用条件：玩家正压在门上（任何情况都要），或有方向时的入口那扇。
+		# 注意**不要**在无方向时无差别禁用全部门——那会挡掉紧随其后的合法切房。
+		var touching: bool = _player_touches_door(trig)
+		var is_entry: bool = entry_dir != "" and str(trig.get("direction")) == entry_dir
+		if not touching and not is_entry:
+			continue
+		trig.call("disarm_until_clear")
+
+
+## 玩家是否压在某个门触发器上（在触发器局部空间做盒判定，自动兼容门朝向）
+## 触发器尺寸 2×3×1.5（半长 1.0 / 1.5 / 0.75），放宽容差。
+func _player_touches_door(trig: Node) -> bool:
+	if player == null or not is_instance_valid(player):
+		return false
+	if not (trig is Node3D):
+		return false
+	var t := trig as Node3D
+	var local: Vector3 = t.global_transform.affine_inverse() * player.global_position
+	return absf(local.x) <= 1.3 and absf(local.z) <= 1.05
 
 
 func _activate_current_room() -> void:
