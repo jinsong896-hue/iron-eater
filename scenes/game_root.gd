@@ -554,7 +554,13 @@ func _place_player_at_door(enter_direction: String) -> bool:
 		var trig = door.get_node_or_null("DoorTrigger")
 		if trig == null or str(trig.get("direction")) != entry_door_dir:
 			continue
-		player.global_position = (door as Node3D).global_position + inward * DOOR_ENTRY_OFFSET
+		# **y 必须归零**：门是竖立的物体，节点中心在 DOOR_HEIGHT/2（半空），
+		# 而 inward 的水平向量 y=0，直接相加会把「门的高度」当成落点高度。
+		# 后果：玩家被放到离地 1.5m 的空中 → 下落期间乱飘/踩到别的门 →
+		# 切房连锁（实测：同一次运行里 y=0 的切房正常，y=2.0 的那次跑到了别的房）。
+		var pos: Vector3 = (door as Node3D).global_position + inward * DOOR_ENTRY_OFFSET
+		pos.y = 0.0
+		player.global_position = pos
 		return true
 	return false
 
