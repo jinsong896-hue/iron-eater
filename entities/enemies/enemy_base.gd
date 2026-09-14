@@ -55,6 +55,17 @@ var kite_range := 5.0         ## 风筝后退触发距离
 var dash_range := 0.0         ## 突进触发距离（0=不突进）
 var death_poison := false     ## 死亡释放毒雾
 var body_scale := 1.0         ## 体型缩放
+
+# —— 怪物机制（分册第 4/5 章；本轮实现「自爆/分裂/召唤」三种）——
+var death_explode := false    ## 死亡自爆（带前摇，期间被打死则提前引爆）
+var explode_damage := 40.0    ## 自爆伤害
+var explode_radius := 3.0     ## 自爆范围（米）
+var death_split := false      ## 死亡分裂为小型同类
+var split_count := 2          ## 分裂数量
+var summon_spec: Dictionary = {}   ## 召唤配置 {id,count,chance}
+var affixes: Array = []       ## 词缀 id 列表（数值型已作用到属性，其余待后续系统）
+var _explode_timer := 0.0     ## 自爆前摇倒计时（>0 表示正在蓄爆）
+var _exploding := false
 var _dash_timer := 0.0        ## 突进持续时间
 var _dash_dir := Vector3.ZERO
 var rng := RandomNumberGenerator.new()
@@ -124,6 +135,17 @@ func apply_monster_config(m: Dictionary) -> void:
 	death_poison = special.get("death_poison", false)
 	kite_range = special.get("kite_range", 5.0)
 	dash_range = special.get("dash_range", 0.0)
+	# 死亡自爆（矿道自爆者）：范围伤害 + 前摇（前摇期间被打死则提前引爆）
+	death_explode = special.get("death_explode", false)
+	explode_damage = float(special.get("explode_damage", 40.0))
+	explode_radius = float(special.get("explode_radius", 3.0))
+	# 死亡分裂（水孢行者 / 混沌幼蛛）：分裂成 N 只小型同类
+	death_split = special.get("death_split", false)
+	split_count = int(special.get("split_count", 2))
+	# 召唤小怪（僵尸各阶段）
+	summon_spec = special.get("summon", {})
+	# 词缀（分册第 7 章）：非数值型词缀已登记在 affixes，此处只记录供后续系统消费
+	affixes = m.get("affixes", [])
 
 	# AI 类型映射
 	match str(m.get("ai", "melee")):
@@ -242,6 +264,16 @@ func _physics_process(delta: float) -> void:
 		_update_dash(delta)
 		return
 
+	# 自爆前摇倒计时（蓄爆完成后引爆）
+	if _exploding:
+		_explode_timer -= delta
+		if _explode_timer <= 0.0:
+			_do_explode()
+			if is_instance_valid(self):
+				die()
+			return
+		return
+
 	# 受击硬直：AI 暂停，走击退摩擦位移
 	if _current_state == EnemyState.STAGGERED:
 		_update_stagger(delta)
@@ -327,6 +359,12 @@ func _state_attack() -> void:
 		return
 
 	if _attack_timer > 0.0:
+		return
+
+	# 自爆怪：进入前摇不普攻，蓄爆后自爆（分册 5.1，1.5 秒可被打断）
+	if death_explode:
+		_attack_timer = attack_interval
+		_start_explode_windup()
 		return
 
 	# 进入攻击前摇（高伤害怪前摇更长，可被打断）
@@ -524,6 +562,10 @@ func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vec
 	if _current_state == EnemyState.WINDUP:
 		_set_windup_visual(false)
 		_attack_timer = maxf(_attack_timer, 0.4)  # 打断后惩罚：短冷却
+	# 自爆前摇可被打断：受击即提前引爆（分册 5.1「可被攻击提前引爆」）
+	if _exploding and _explode_timer > 0.0:
+		_do_explode()
+		return
 	_current_state = EnemyState.STAGGERED
 	_flash_hit()
 	_update_health_bar()
@@ -577,6 +619,18 @@ func die() -> void:
 	if death_poison:
 		_spawn_death_poison()
 
+	# 死亡自爆（矿道自爆者 / 熔炉小鬼）
+	if death_explode:
+		_do_explode()
+
+	# 死亡分裂（水孢行者 / 混沌幼蛛）
+	if death_split:
+		_spawn_splits()
+
+	# 召唤小怪（僵尸各阶段）：死亡时按概率召唤
+	if not summon_spec.is_empty():
+		_try_summon()
+
 	# 掉落（挂在房间节点下，随房间销毁）
 	if gm:
 		var loot := LootSystem.new()
@@ -589,6 +643,109 @@ func die() -> void:
 	# 延迟销毁
 	await get_tree().create_timer(0.5).timeout
 	queue_free()
+
+
+# ============================================================
+# 怪物机制（分册第 4/5 章，本轮实现自爆/分裂/召唤三种）
+# ============================================================
+
+## 死亡自爆：对范围内玩家结算伤害 + 视觉爆发
+func _do_explode() -> void:
+	if _explode_timer < 0.0:
+		return
+	_explode_timer = -1.0   # 标记已引爆，避免重复
+	_exploding = false
+	var players := get_tree().get_nodes_in_group("player")
+	for p in players:
+		if not (p is Node3D):
+			continue
+		if (p as Node3D).global_position.distance_to(global_position) <= explode_radius:
+			if p.has_method("take_damage"):
+				p.call("take_damage", explode_damage)
+	# 视觉：橙色扩张球
+	var vis := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = explode_radius * 0.5
+	sphere.height = explode_radius
+	vis.mesh = sphere
+	vis.position = Vector3(0, 0.5, 0)
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color = Color(1.0, 0.5, 0.1, 0.5)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.4, 0.0)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	vis.material_override = mat
+	add_child(vis)
+
+
+## 进入自爆前摇（分册：前摇 1.5 秒，期间被打死或受击则提前引爆）
+func _start_explode_windup() -> void:
+	_exploding = true
+	_explode_timer = 1.5
+
+
+## 死亡分裂：生成 N 只小型同类（血量/攻击减半）
+func _spawn_splits() -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	for _i in split_count:
+		var child := EnemyBase.new()
+		# 沿圆周散开，避免叠在同一点
+		var ang := TAU * float(_i) / float(maxi(split_count, 1))
+		child.position = position + Vector3(cos(ang), 0.0, sin(ang)) * 1.2
+		var cfg := {
+			"id": monster_id,
+			"name": monster_name,
+			"hp": maxf(max_hp * 0.5, 1.0),
+			"atk": atk * 0.5,
+			"defense": defense,
+			"speed_pct": 60.0,
+			"attack_interval": attack_interval,
+			"attack_range": attack_range,
+			"dodge_pct": dodge_pct,
+			"scale": body_scale * 0.6,
+			"special": {},          # 子体不再分裂，避免无限增殖
+			"ai": "melee" if behavior == AIBehavior.MELEE_CHASE else "kite",
+		}
+		child.apply_monster_config(cfg)
+		child.is_elite = false
+		parent.add_child(child)
+
+
+## 召唤小怪（僵尸各阶段：按概率召唤 1~N 只）
+func _try_summon() -> void:
+	if summon_spec.is_empty():
+		return
+	var chance := float(summon_spec.get("chance", 1.0))
+	if randf() > chance:
+		return
+	var parent := get_parent()
+	if parent == null:
+		return
+	var count := int(summon_spec.get("count", 1))
+	for _i in count:
+		var m := MonsterDB.get_monster(str(summon_spec.get("id", "")))
+		if m.is_empty():
+			continue
+		var minion := EnemyBase.new()
+		var ang := randf() * TAU
+		minion.position = position + Vector3(cos(ang), 0.0, sin(ang)) * 1.5
+		minion.apply_monster_config(m)
+		minion.is_elite = false
+		parent.add_child(minion)
+		# 先挂到房间树再登记，保证控制器能找到
+		_register_summon(minion)
+
+
+## 找到房间控制器登记召唤物（保持 enemies_alive 正确）
+func _register_summon(minion: Node) -> void:
+	var room := get_parent()
+	while room != null and not room.has_method("register_summoned_enemy"):
+		room = room.get_parent()
+	if room != null:
+		room.call("register_summoned_enemy", minion)
 
 
 ## 死亡毒雾（2 米，每秒 10 伤，持续 3 秒）

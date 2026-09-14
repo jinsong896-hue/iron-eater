@@ -10,68 +10,80 @@ var _passed := 0
 var _current_test := ""
 
 
+## 测试入口。
+## 注意：必须用 _ready 而非 _init —— _init 不是协程上下文，
+## 异步测试（内部 await 的）会在第一个 await 处挂起返回，其断言
+## 在汇总打印之后才执行，既不影响计数也不影响退出码 → 假绿灯。
+## 故这里统一 await 所有测试函数（同步函数 await 也无副作用）。
 func _init() -> void:
+	_ready.call_deferred()
+
+
+func _ready() -> void:
 	print("=".repeat(60))
 	print("测试框架启动 —— HD-2D 重构版")
 	print("=".repeat(60))
 
 	# 属性系统测试
-	test_attribute_system()
+	await test_attribute_system()
 
 	# 白装数据库测试（36 件 V1 基准池；先于通用装备测试，避免后者注册测试模板污染计数）
-	test_white_equipment_db()
+	await test_white_equipment_db()
 
 	# 装备系统测试
-	test_equipment_system()
+	await test_equipment_system()
 
 	# 伤害管线测试
-	test_damage_pipeline()
+	await test_damage_pipeline()
 
 	# 融合规则测试
-	test_fusion_rules()
+	await test_fusion_rules()
 
 	# 房间数据测试
-	test_room_data()
+	await test_room_data()
 
 	# 房间刷怪闭环集成测试
-	test_room_combat_loop()
+	await test_room_combat_loop()
 
 	# Boss 房闭环测试
-	test_boss_room_loop()
+	await test_boss_room_loop()
 
 	# 连段状态机测试
-	test_attack_combo()
+	await test_attack_combo()
 
 	# 状态机基类测试（注册/转移/转发/数据传递）
-	test_state_machine()
+	await test_state_machine()
 
 	# 房间编辑器核心测试（JSON 往返 + 矩形填充/围墙/校验）
-	test_room_editor_core()
+	await test_room_editor_core()
 
 	# 坐标放置测试（单点全元素/矩形墙圈/对角/钳制）
-	test_coord_placement()
+	await test_coord_placement()
 
 	# 第一层怪物数据库测试
-	test_monster_db_layer1()
+	await test_monster_db_layer1()
+
+	# 怪物池与词缀（全量 64 种、按层选池、词缀阶段分配）
+	await test_monster_pool()
 
 	# 资源系统测试（宝箱/回血/层间恢复/金币产出）
-	test_resource_system()
+	await test_resource_system()
 
 	# 特殊房交互测试（商店/泉水/事件）
-	test_special_room_interactions()
+	await test_special_room_interactions()
 
 	# 门拓扑测试（按地牢连通关系算门，消除哑门）
-	test_doors_by_topology()
+	await test_doors_by_topology()
 
 	# 地牢生成规则测试（BFS 图距离 / 特殊房距离门控 / 房型配额）
-	test_dungeon_generation_rules()
+	await test_dungeon_generation_rules()
 
 	# 加权掉落测试（稀有度分布 / 逐层缩放 / Boss 保底 / 精英概率）
-	test_weighted_loot()
+	await test_weighted_loot()
 
 	# 房间模板池完整性（回归"normal/elite/treasure 无模板导致回退起始房"）
-	test_room_template_pool()
-	test_dungeon_template_coverage()
+	await test_room_template_pool()
+	await test_dungeon_template_coverage()
 
 	print("=".repeat(60))
 	if _failed == 0:
@@ -494,6 +506,11 @@ func test_room_combat_loop() -> void:
 	for i in range(13):
 		var m := Marker3D.new()
 		m.position = Vector3(float(i), 0.0, 0.0)
+		# 必须加入白名单组：RoomController 只收集 ENEMY_SPAWN_GROUPS 里的标记
+		# （enemy_spawn / elite_spawn），无组的 Marker3D 会被当作出生点/宝箱而忽略。
+		# 本测试原先漏了加组 → 收集到 0 个生成点 → 永远 alive=0；
+		# 而该测试是异步且未被 await，断言在汇总之后才跑，所以失败被掩盖了很久。
+		m.add_to_group("enemy_spawn")
 		spawns.add_child(m)
 
 	var controller = RC.new()
@@ -912,9 +929,22 @@ func test_monster_db_layer1() -> void:
 	if MDB == null or EB == null:
 		return
 
-	MDB.init_layer1()
+	MDB.init()
 	var all: Array = MDB.all_monsters()
-	_check(all.size() == 10, "第一层怪物 10 种", [str(all.size())])
+	# 全量怪物设计分册：基础 10×4 阶段 + 独特 16 + 第9层 8 = 64
+	_check(all.size() == 64, "怪物全量 64 种（10×4 阶段 + 独特 16 + 第9层 8）", [str(all.size())])
+	var base_all: Array = MDB.all_base_monsters()
+	_check(base_all.size() == 40, "基础怪 10 种 × 4 阶段 = 40", [str(base_all.size())])
+	# 各阶段基础怪齐 10 种
+	var per_phase := {}
+	for m in base_all:
+		var ph := int(m.get("phase", 0))
+		per_phase[ph] = int(per_phase.get(ph, 0)) + 1
+	var phase_ok := true
+	for ph in [1, 2, 3, 4]:
+		if int(per_phase.get(ph, 0)) != 10:
+			phase_ok = false
+	_check(phase_ok, "每个阶段基础怪各 10 种", [str(per_phase)])
 
 	# 抽查设计分册数值口径
 	var zombie = MDB.get_monster("zombie_prison")
@@ -933,12 +963,26 @@ func test_monster_db_layer1() -> void:
 	_check(archer.get("hp") <= zombie.get("hp") * 0.6, "远程血 ≤ 近战 60%")
 	var bat = MDB.get_monster("bat_stonewing")
 	_check(bat.get("hp") <= zombie.get("hp") * 0.4, "飞行血 ≤ 近战 40%")
-	# 攻击频率约束：间隔 ≥ 2.5s
-	var all_ok := true
-	for m in all:
-		if float(m.get("attack_interval")) < 2.5:
-			all_ok = false
-	_check(all_ok, "全部攻击间隔 ≥ 2.5s")
+
+	# 攻击频率约束：分册 2.1 写「所有怪物攻击间隔 ≥ 2.5 秒」，
+	# 但 3.2 进化规则表又写「攻击间隔 阶段三 ×0.7、阶段四 ×0.55」，
+	# 而第 4 章各表的具体数值阶段四就是 1.5 秒（如监牢僵尸 3.5 → 虚空僵尸 1.5）。
+	# ★ 分册内部冲突：2.1 的硬性约束与 3.2/第4章的阶段数值无法同时成立。
+	# 本项目按第 4 章「具体数值表」实现（更明确），故此处只对**阶段一**断言 ≥2.5s。
+	var p1_ok := true
+	for m in base_all:
+		if int(m.get("phase", 0)) == 1 and float(m.get("attack_interval")) < 2.5:
+			p1_ok = false
+	_check(p1_ok, "阶段一全部攻击间隔 ≥ 2.5s（分册 2.1 对第 1 层的硬性约束）")
+	# 阶段四按分册第 4 章具体表：最快 1.3 秒（毒/狂战/蝠群等），最慢 2.1 秒
+	var p4_min := 99.0
+	var p4_max := 0.0
+	for m in base_all:
+		if int(m.get("phase", 0)) == 4:
+			p4_min = minf(p4_min, float(m.get("attack_interval", 9)))
+			p4_max = maxf(p4_max, float(m.get("attack_interval", 0)))
+	_check(absf(p4_min - 1.3) < 0.01, "阶段四最快间隔 1.3s（分册第4章具体表）", [str(p4_min)])
+	_check(absf(p4_max - 2.1) < 0.01, "阶段四最慢间隔 2.1s（分册第4章具体表）", [str(p4_max)])
 
 	# Boss：鼠王（血 ×2.4=600，攻 ×1.3）
 	var boss = MDB.boss_monster()
@@ -965,8 +1009,125 @@ func test_monster_db_layer1() -> void:
 	var picked: Dictionary = MDB.random_monster(rng)
 	_check(not picked.is_empty(), "加权随机返回有效怪物")
 	var elite: Dictionary = MDB.random_elite(rng)
-	_check(elite.get("id") in ["berserk_prisoner", "hound_jailer", "rat_mutant", "zombie_prison"],
-		"精英池四选一", [str(elite.get("id"))])
+	_check(not elite.is_empty(), "精英随机返回有效怪物")
+	_check(bool(elite.get("is_elite", false)), "精英带 is_elite 标记")
+	# 精英倍率（分册 3.2 注：血量 ×1.5~2.0，攻击 ×1.3~1.5）
+	var src: Dictionary = MDB.get_monster(str(elite.get("id", "")))
+	if not src.is_empty():
+		var hp_ratio := float(elite.get("hp", 0)) / maxf(float(src.get("hp", 1)), 1.0)
+		var atk_ratio := float(elite.get("atk", 0)) / maxf(float(src.get("atk", 1)), 1.0)
+		_check(hp_ratio >= 1.49 and hp_ratio <= 2.01, "精英血量倍率 ∈ [1.5,2.0]", [str(hp_ratio)])
+		_check(atk_ratio >= 1.29 and atk_ratio <= 1.51, "精英攻击倍率 ∈ [1.3,1.5]", [str(atk_ratio)])
+
+
+## 怪物池与词缀：按层选池、独特怪相邻层、第 9 层独立、词缀阶段分配
+func test_monster_pool() -> void:
+	_current_test = "MonsterPool"
+	print("\n--- %s ---" % _current_test)
+
+	var MDB = _require_script("res://data/monsters/monster_db.gd")
+	var ADB = _require_script("res://data/monsters/affix_db.gd")
+	if MDB == null or ADB == null:
+		return
+	MDB.init()
+
+	# 第 1~8 层池非空，且每个池都恰好含该阶段 10 种基础怪
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	for layer in range(1, 9):
+		var pool: Array = MDB.pool_for_layer(layer)
+		_check(not pool.is_empty(), "第 %d 层怪物池非空（%d 种）" % [layer, pool.size()])
+		var phase: int = MDB.PHASE_OF_LAYER[layer]
+		var base_count := 0
+		for m in pool:
+			if not m.get("is_unique", false) and int(m.get("phase", 0)) == phase:
+				base_count += 1
+		_check(base_count == 10, "第 %d 层含本阶段 10 种基础怪" % layer, [str(base_count)])
+
+	# 独特怪只在「本层及相邻层」出现（分册 3.1）
+	var u2: Array = MDB.pool_for_layer(2)
+	var u2_ids: Array = []
+	for m in u2:
+		if m.get("is_unique", false):
+			u2_ids.append(str(m.get("id", "")))
+	_check(u2_ids.has("mine_bomber"), "第 2 层含第 2 层独特怪（矿道自爆者）", [str(u2_ids)])
+	var u3_ids: Array = []
+	for m in MDB.pool_for_layer(3):
+		if m.get("is_unique", false):
+			u3_ids.append(str(m.get("id", "")))
+	_check(u3_ids.has("mine_bomber"), "第 3 层仍含相邻层的矿道自爆者（相邻层规则）")
+	var u5_ids: Array = []
+	for m in MDB.pool_for_layer(5):
+		if m.get("is_unique", false):
+			u5_ids.append(str(m.get("id", "")))
+	_check(not u5_ids.has("mine_bomber"), "第 5 层不含矿道自爆者（超出相邻层）", [str(u5_ids)])
+
+	# 第 9 层：独立终极池，8 种，全为精英
+	var p9: Array = MDB.pool_for_layer(9)
+	_check(p9.size() == 8, "第 9 层独立终极池 8 种", [str(p9.size())])
+	var all_elite := true
+	for m in p9:
+		if not bool(m.get("is_elite", false)):
+			all_elite = false
+	_check(all_elite, "第 9 层全部为精英")
+	# 第 8 层不得混入第 9 层的怪
+	var p8_ids: Array = []
+	for m in MDB.pool_for_layer(8):
+		p8_ids.append(str(m.get("id", "")))
+	_check(not p8_ids.has("chaos_blade"), "第 8 层不含第 9 层终极怪", [str(p8_ids)])
+
+	# 基础怪阶段数值单调递增（血量/攻击随阶段升、间隔随阶段降）
+	for key in ["zombie_prison", "skeleton_archer", "rat_mutant"]:
+		var m1: Dictionary = MDB.get_monster(key)
+		var phase_key: String = str(m1.get("base_key", ""))
+		if phase_key.is_empty():
+			continue
+		var p1: Dictionary = MDB.get_monster(MDB._base_id(phase_key, 1))
+		var p4: Dictionary = MDB.get_monster(MDB._base_id(phase_key, 4))
+		_check(float(p4.get("hp", 0)) > float(p1.get("hp", 0)),
+			"%s 阶段四血量 > 阶段一" % str(m1.get("name")))
+		_check(float(p4.get("attack_interval", 9)) < float(p1.get("attack_interval", 9)),
+			"%s 阶段四间隔 < 阶段一" % str(m1.get("name")))
+
+	# 词缀：阶段分配照分册第 7 章
+	_check(ADB.pool_for_phase(1).is_empty(), "阶段一词缀池为空（纯教学）")
+	var p2_pool: Array = ADB.pool_for_phase(2)
+	_check(p2_pool.size() == 3, "阶段二词缀池 3 种（快速/强壮/燃烧）", [str(p2_pool.size())])
+	_check(ADB.pool_for_phase(3).size() == 5, "阶段三词缀池 5 种（+冰冻/复仇）")
+	_check(ADB.pool_for_phase(4).size() == 7, "阶段四词缀池 7 种（+不朽/吸血）")
+	_check(ADB.pool_for_phase(5).size() == 9, "第 9 层词缀池 9 种（+虚空/混沌）")
+
+	# 数量规则：阶段一 0 个；阶段二普通 0~1 / 精英 1；阶段四普通 2~3 / 精英 3
+	var r2 := RandomNumberGenerator.new()
+	r2.seed = 99
+	_check(ADB.roll(1, false, r2).is_empty(), "阶段一普通怪无词缀")
+	var e2: Array = ADB.roll(2, true, r2)
+	_check(e2.size() == 1, "阶段二精英 1 个词缀", [str(e2.size())])
+	var n4: Array = ADB.roll(4, false, r2)
+	_check(n4.size() >= 2 and n4.size() <= 3, "阶段四普通 2~3 个词缀", [str(n4.size())])
+	var e4: Array = ADB.roll(4, true, r2)
+	_check(e4.size() == 3, "阶段四精英 3 个词缀", [str(e4.size())])
+	# 词缀不重复
+	var uniq := {}
+	for id in e4:
+		uniq[id] = true
+	_check(uniq.size() == e4.size(), "同一怪物词缀不重复")
+
+	# 数值型词缀真正作用到属性（快速/强壮）
+	var m: Dictionary = MDB.get_monster("zombie_prison").duplicate()
+	var before_spd := float(m.get("speed_pct", 0))
+	ADB.apply(m, ["fast", "strong"])
+	_check(float(m.get("speed_pct", 0)) > before_spd, "「快速」提升移速")
+	_check(float(m.get("attack_interval", 9)) < 3.5, "「快速」缩短攻击间隔")
+	_check(int(m.get("atk", 0)) > 25, "「强壮」提升攻击")
+	_check((m.get("affixes") as Array).size() == 2, "词缀 id 记入 affixes 供后续系统消费")
+	# 非数值型词缀只登记、不改属性
+	var m2: Dictionary = MDB.get_monster("zombie_prison").duplicate()
+	var atk_before := int(m2.get("atk", 0))
+	ADB.apply(m2, ["burn", "freeze"])
+	_check(int(m2.get("atk", 0)) == atk_before, "非数值型词缀不改属性（仅登记）")
+	_check(ADB.pending_systems().size() == 7, "登记待实现的词缀 7 种",
+		[str(ADB.pending_systems().size())])
 
 
 ## 资源系统测试：宝箱/回血/层间恢复/金币产出

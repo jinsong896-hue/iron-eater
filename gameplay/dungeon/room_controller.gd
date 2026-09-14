@@ -118,6 +118,21 @@ func on_enemy_died(_world_position: Vector3) -> void:
 		_on_cleared()
 
 
+## 登记运行时生成的敌人（召唤物 / 死亡分裂的子体）
+## 必须登记，否则这些敌人不计入存活数：玩家清完原始怪后房间会提前判定清空，
+## 残留的召唤物/分裂体仍在攻击玩家，但门已开、房间已"通关"。
+## 注意顺序：敌人 die() 时会先触发召唤/分裂，再发 died 信号，
+## 故这里的 +1 早于父体的 -1，计数不会掉到 0 而误判清空。
+func register_summoned_enemy(enemy) -> void:
+	if enemy == null:
+		return
+	enemies_alive += 1
+	if enemy is EnemyBase:
+		_living_enemies.append(enemy)
+		enemy.died.connect(on_enemy_died)
+		is_cleared = false    # 有活敌人时取消清空标记（防止边界情况误判）
+
+
 ## 房间清空（标记状态并落盘到 GameRoot.room_state，供回访时恢复）
 func _on_cleared() -> void:
 	if is_cleared:
@@ -250,23 +265,45 @@ func _spawn_enemies() -> void:
 	var rng := RandomNumberGenerator.new()
 	if gm and gm.rng:
 		rng.seed = gm.rng.randi()
-	MonsterDB.init_layer1()
+	MonsterDB.init()
+
+	# 本层怪物池（分册 3.1：基础怪按阶段、独特怪只在本层及相邻层、第9层独立池）
+	var layer := _current_layer()
 
 	for point in _spawn_points:
 		if rng.randf() < 0.7:
 			var m: Dictionary
-			# 生成点带 monster_id meta 时用指定怪，否则按房间类型加权随机
+			# 生成点带 monster_id meta 时用指定怪，否则按本层池加权随机
 			var custom_id := str(point.get_meta("monster_id", ""))
+			var is_elite_room := _room_type() == "elite" or str(point.get_meta("elite", "")) == "true"
 			if not custom_id.is_empty():
 				m = MonsterDB.get_monster(custom_id)
-			elif _room_type() == "elite":
-				m = MonsterDB.random_elite(rng)
+			elif is_elite_room:
+				m = MonsterDB.random_elite_for_layer(layer, rng)
 			else:
-				m = MonsterDB.random_monster(rng)
+				m = MonsterDB.random_for_layer(layer, rng)
+			if m.is_empty():
+				continue
+			# 词缀按阶段与是否精英分配（分册第 7 章）
+			var phase: int = MonsterDB.PHASE_OF_LAYER.get(clampi(layer, 1, 9), 1)
+			var affix_ids := AffixDB.roll(phase, is_elite_room, rng)
+			if not affix_ids.is_empty():
+				AffixDB.apply(m, affix_ids)
 			var enemy := _spawn_enemy_at(point, difficulty_mult, m)
 			if enemy:
 				enemies_alive += 1
 				_living_enemies.append(enemy)
+
+
+## 当前层数（取不到时按第 1 层）
+func _current_layer() -> int:
+	var gm = _game_manager()
+	if gm == null:
+		return 1
+	var info = gm.get("run_info")
+	if info is Dictionary:
+		return int(info.get("floor", 1))
+	return 1
 
 
 ## 在生成点创建敌人（应用 MonsterDB 配置 + 难度缩放）
@@ -295,7 +332,7 @@ func _spawn_boss() -> void:
 	if _boss_spawn == null:
 		return
 	var mult := _difficulty_mult()
-	MonsterDB.init_layer1()
+	MonsterDB.init()
 	_boss = EnemyBase.new()
 	_boss.position = _boss_spawn.global_position
 	_boss.apply_monster_config(MonsterDB.boss_monster())
