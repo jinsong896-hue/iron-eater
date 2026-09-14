@@ -427,8 +427,12 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	# 法术部分不可暴击（分册 2.3）——火/冰/雷/毒为纯法术，永不暴击；
 	# 土/风的物理半可暴击，此处按「是否法术为主」简化：纯法术元素跳过暴击
 	var can_crit := attack_element < 0 or ElementDefs.can_crit(attack_element)
-	var crit := can_crit and GameManager.rng.randf() < crt
+	# 调试强制暴击**故意绕过 can_crit**：否则法术系元素永远看不到暴击顿帧，
+	# 而观察暴击命中判定正是调试想要的。
+	var crit := _force_crit or (can_crit and GameManager.rng.randf() < crt)
 	var total := DamagePipeline.with_crit(result.damage, crit, crd)
+	# 调试伤害倍率加在**出手侧**（面板上的"伤害倍率"惯例指"我打出去的伤害"）
+	total *= _damage_multiplier
 
 	# 击退向量（EnemyBase 硬直期间消费）
 	var push: Vector3 = Vector3.ZERO
@@ -512,21 +516,69 @@ func _finish_attack_feedback(hit_any: bool) -> void:
 ## 若玩家在顿帧期间死亡/场景切换（节点被 free），await 永不恢复 →
 ## time_scale 永久卡在 0.05，整个游戏变成慢动作（表现为"严重延迟/死机"）。
 ## 故改为：回调式还原 + 退出场景树时兜底还原。
+##
+## 与调试时间缩放共存：Engine.time_scale 有两个参与者——本处持有**瞬时值**，
+## DebugManager 持有**倍率**。故这里用**保存/还原**而不是重算
+## `HITSTOP * 倍率`：重算在「顿帧期间改倍率」或中途 _exit_tree 时会还原成过期值。
 func _hitstop(duration: float) -> void:
 	if _hitstop_active:
 		return
 	_hitstop_active = true
-	Engine.time_scale = HITSTOP_TIME_SCALE
+	_pre_hitstop_scale = Engine.time_scale          # 保存，绝不重算
+	Engine.time_scale = HITSTOP_TIME_SCALE * _debug_scale()
 	var t := get_tree().create_timer(duration, true, false, true)
 	t.timeout.connect(_end_hitstop)
 
 
-## 还原全局时间缩放（幂等）
+## 还原全局时间缩放（幂等）。下限 0.001——Engine.time_scale = 0 会让引擎冻死且脚本无法恢复。
 func _end_hitstop() -> void:
 	if not _hitstop_active:
 		return
 	_hitstop_active = false
-	Engine.time_scale = 1.0
+	Engine.time_scale = maxf(_pre_hitstop_scale, 0.001)
+
+
+## 读取调试倍率（无 DebugManager 时按 1.0，测试场景友好）
+func _debug_scale() -> float:
+	var dm := get_node_or_null("/root/DebugManager")
+	if dm != null and dm.has_method("get_debug_scale"):
+		return float(dm.call("get_debug_scale"))
+	return 1.0
+
+
+# ============================================================
+# 调试接口（实机测试模式；供 DebugManager 与测试调用）
+# ============================================================
+
+func set_god_mode(on: bool) -> void:
+	_god_mode = on
+
+
+func is_god_mode() -> bool:
+	return _god_mode
+
+
+func set_damage_multiplier(m: float) -> void:
+	_damage_multiplier = maxf(m, 0.0)
+
+
+func get_damage_multiplier() -> float:
+	return _damage_multiplier
+
+
+func set_force_crit(on: bool) -> void:
+	_force_crit = on
+
+
+## 重置全部战斗冷却（调试用，立刻可再出手）
+func reset_cooldowns() -> void:
+	_attack_timer = 0.0
+	_current_attack_cooldown = 0.0
+	_dodge_cooldown_timer = 0.0
+	_sprint_attack_timer = 0.0
+	_finisher_armor_timer = 0.0
+	if _combo != null:
+		_combo.reset()
 
 
 ## 离开场景树时兜底还原，避免顿帧中途换场景导致时间缩放泄漏
@@ -534,6 +586,12 @@ func _exit_tree() -> void:
 	_end_hitstop()
 
 var _hitstop_active := false
+var _pre_hitstop_scale := 1.0    ## hitstop 前的时间缩放（保存/还原，见 _hitstop）
+
+# —— 调试（实机测试模式；由 DebugManager 写入）——
+var _god_mode := false           ## 无敌：跳过扣血，但保留受击反馈
+var _damage_multiplier := 1.0    ## 出手伤害倍率
+var _force_crit := false         ## 强制暴击（故意绕过 can_crit，便于观察法术暴击顿帧）
 
 
 ## 屏幕震动：相机 rig 短促偏移衰减
@@ -711,6 +769,14 @@ func take_damage(amount: float) -> void:
 	var armor := _finisher_armor_timer > 0.0
 	if armor:
 		amount *= 0.7
+	# 调试无敌：在无敌帧/霸体之后、真正扣血之前拦下。
+	# 刻意保留下面的受击闪红与 player_hit 信号——「看得到打中」才是有意义的无敌，
+	# 否则没法用它观察命中判定。
+	if _god_mode:
+		EventBus.player_hit.emit(0.0, global_position)
+		_flash_timer = HIT_FLASH_DURATION
+		_update_flash()
+		return
 	GameManager.attributes.take_damage(amount)
 	EventBus.player_hit.emit(amount, global_position)
 	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")

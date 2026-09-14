@@ -24,6 +24,7 @@ AudioManager="*res://core/audio_manager.gd"
 InputManager="*res://core/input_manager.gd"
 SceneManager="*res://core/scene_manager.gd"
 SettingsManager="*res://core/settings_manager.gd"
+DebugManager="*res://core/debug_manager.gd"
 PhantomCameraManager="*uid://duq6jhf6unyis"
 _mcp_game_helper="*res://addons/godot_ai/runtime/game_helper.gd"
 
@@ -133,3 +134,15 @@ dodge={
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":32,"physical_keycode":0,"key_label":0,"unicode":32,"location":0,"echo":false,"script":null)
 ]
 }
+
+debug_console={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":96,"key_label":0,"unicode":96,"location":0,"echo":false,"script":null)
+]
+}
+debug_panel={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194332,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+

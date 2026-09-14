@@ -82,6 +82,14 @@ func end_attack(window_override: float = -1.0) -> void:
 	_window_timer = w
 
 
+## 复位到未起手状态（调试「重置冷却」用）
+func reset() -> void:
+	_stage = 0
+	_window_timer = 0.0
+	_attack_kind = AttackKind.NORMAL
+	attack_in_progress = false
+
+
 ## 当前连段位
 func current_stage() -> int:
 	return _stage

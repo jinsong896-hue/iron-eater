@@ -58,7 +58,7 @@ func next_floor() -> void:
 		current_room_node = null
 	room_state.clear()
 
-	# 层数推进由 RoomController 传送门写入 run_info；此处读取
+	# 层数由调用方写入 run_info（传送门 / 调试跳层），此处只读用于显示与事件
 	var gm := get_node_or_null("/root/GameManager")
 	var floor_num := 1
 	if gm:
@@ -464,6 +464,29 @@ func _activate_current_room() -> void:
 	var ctrl := current_room_node.get_node_or_null("RoomController")
 	if ctrl and ctrl is RoomController:
 		(ctrl as RoomController).activate()
+
+
+# ============================================================
+# 调试接口（实机测试模式）
+# ============================================================
+
+## 跳到本层指定房间（序号）。_transition_to_room 是私有的，对外开一个口子。
+func debug_goto_room(idx: int) -> void:
+	if idx < 0 or idx >= dungeon_graph.size():
+		return
+	_transition_to_room(idx, "")
+
+
+## 跳到指定层。注意 **next_floor() 自己不写层数**——层数只由
+## RoomController._on_portal_entered 写，故调用方必须先设 run_info["floor"]。
+## 上限 1..9 在 DebugManager 的命令层钳制（next_floor 里没有这个检查）。
+func debug_goto_floor(floor_num: int) -> void:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm:
+		var info = gm.get("run_info")
+		if info is Dictionary:
+			info["floor"] = floor_num
+	next_floor()
 
 
 ## 放置玩家。

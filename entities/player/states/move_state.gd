@@ -14,6 +14,17 @@ func physics_update(delta: float) -> void:
 	_check_dodge()
 
 
+## 调试控制台是否在接收文本（打字时不应翻滚/奔跑）
+func _typing() -> bool:
+	var dm := Engine.get_main_loop() as SceneTree
+	if dm == null or dm.root == null:
+		return false
+	var m := dm.root.get_node_or_null("DebugManager")
+	if m != null and m.has_method("is_text_input_active"):
+		return bool(m.call("is_text_input_active"))
+	return false
+
+
 ## 移动：搬移自 _move()
 func _core_movement(delta: float) -> void:
 	var p := player
@@ -41,7 +52,8 @@ func _core_movement(delta: float) -> void:
 		p._last_input_dir = raw
 
 	# Shift 键奔跑（主动触发，与双击并行）
-	if Input.is_action_pressed("sprint"):
+	# 控制台打字时不响应（这处绕过了 InputManager 的闸门）
+	if not _typing() and Input.is_action_pressed("sprint"):
 		p._is_sprinting = true
 	if Input.is_action_just_released("sprint"):
 		p._is_sprinting = false
@@ -77,7 +89,7 @@ func _core_movement(delta: float) -> void:
 ## 校验通过则转发到 DodgeState（方向通过 data 传递）
 func _check_dodge() -> void:
 	var p := player
-	if not Input.is_action_just_pressed("dodge"):
+	if not Input.is_action_just_pressed("dodge") or _typing():
 		return
 	if p._dodge_cooldown_timer > 0.0:
 		return

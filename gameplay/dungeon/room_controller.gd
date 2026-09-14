@@ -133,6 +133,62 @@ func register_summoned_enemy(enemy) -> void:
 		is_cleared = false    # 有活敌人时取消清空标记（防止边界情况误判）
 
 
+# ============================================================
+# 调试接口（实机测试模式用；面板/控制台调用）
+# ============================================================
+
+## 在指定位置生成 N 只指定怪。
+##
+## 不能直接调 _spawn_enemy_at：那个私有方法**缺一个关键副作用**——
+## activate() 是在 _spawn_enemies() **之后**才 _lock_doors() 的。
+## 往已清空/特殊房刷怪时不重新锁门，玩家能直接走出去，清空判定也会错。
+## 故这里 spawn → register → 锁门 一步到位。
+## 返回 {ok, name?, spawned?, error?}
+func debug_spawn(monster_id: String, count: int, at: Vector3) -> Dictionary:
+	var m: Dictionary = MonsterDB.get_monster(monster_id)
+	if m.is_empty():
+		# 拼错时给近似候选（MonsterDB 没有 all_ids，从 all_monsters 提取）
+		var ids: Array = []
+		for mm in MonsterDB.all_monsters():
+			ids.append(str(mm.get("id", "")))
+		var near := DebugParser.suggest(monster_id, ids)
+		var hint := ("  最接近：%s" % ", ".join(near)) if not near.is_empty() else ""
+		return {"ok": false, "error": "未知怪物 id：%s%s（用 list monsters 查看全部）"
+			% [monster_id, hint]}
+	var spawned := 0
+	for i in count:
+		# 复用私有方法需要一个 Marker3D；造一个临时的，绕开它的定位逻辑
+		var mk := Marker3D.new()
+		mk.position = at + Vector3(cos(TAU * i / count), 0.0, sin(TAU * i / count)) * 1.5
+		var enemy := _spawn_enemy_at(mk, 1.0, m)
+		mk.free()
+		if enemy != null:
+			register_summoned_enemy(enemy)
+			spawned += 1
+	if spawned > 0:
+		_lock_doors()          # 关键副作用：补上正常刷怪流程里的锁门
+	return {"ok": true, "name": str(m.get("name", monster_id)), "spawned": spawned}
+
+
+## 清空当前房间的所有敌人（立刻结算清空，供调试跳过战斗）
+func debug_clear_enemies() -> void:
+	for e in _living_enemies.duplicate():
+		if is_instance_valid(e):
+			e.queue_free()
+	_living_enemies.clear()
+	enemies_alive = 0
+	_on_cleared()
+
+
+## 运行时存活实体清单（读 _living_enemies，不遍历场景树）
+func debug_living_enemies() -> Array:
+	var out: Array = []
+	for e in _living_enemies:
+		if is_instance_valid(e):
+			out.append(e)
+	return out
+
+
 ## 房间清空（标记状态并落盘到 GameRoot.room_state，供回访时恢复）
 func _on_cleared() -> void:
 	if is_cleared:

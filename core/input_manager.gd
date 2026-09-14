@@ -33,6 +33,13 @@ var pause_pressed := false
 
 
 func _process(_delta: float) -> void:
+	# 调试控制台打开时：打字不能操作角色。
+	# LineEdit 只吞**事件**，而这里是**每帧轮询** Input 单例，两者互不影响——
+	# 不早退的话，输入 `spawn rat_king` 时 w/a/s/d 会边走边打字、1-4 会放技能。
+	if _debug_text_input_active():
+		_clear_all_input()
+		return
+
 	# 移动方向
 	move_direction = Input.get_vector("move_left", "move_right", "move_up", "move_down")
 
@@ -113,6 +120,28 @@ func get_attack_direction() -> Vector2:
 	if attack_direction != Vector2.ZERO:
 		return attack_direction
 	return _last_attack_direction
+
+
+## 调试控制台是否正在接收文本输入（无 DebugManager 时为 false，测试场景友好）
+func _debug_text_input_active() -> bool:
+	var dm := get_node_or_null("/root/DebugManager")
+	if dm != null and dm.has_method("is_text_input_active"):
+		return bool(dm.call("is_text_input_active"))
+	return false
+
+
+## 清空本帧的全部输入输出（控制台打字期间调用）
+func _clear_all_input() -> void:
+	move_direction = Vector2.ZERO
+	attack_direction = Vector2.ZERO
+	skill_1_pressed = false
+	skill_2_pressed = false
+	skill_3_pressed = false
+	skill_4_pressed = false
+	interact_pressed = false
+	devour_pressed = false
+	inventory_toggle_pressed = false
+	pause_pressed = false
 
 
 ## 获取移动方向，归一化

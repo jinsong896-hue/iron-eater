@@ -1,0 +1,61 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://ui/debug/debug_console.gd" id="1_console"]
+
+[sub_resource type="StyleBoxFlat" id="SB_bg"]
+bg_color = Color(0.02, 0.02, 0.03, 0.92)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.71, 0.59, 0.38, 0.8)
+
+[node name="DebugConsole" type="CanvasLayer"]
+process_mode = 3
+visible = false
+script = ExtResource("1_console")
+
+[node name="Root" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="Root"]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_top = -380.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("SB_bg")
+
+[node name="VBox" type="VBoxContainer" parent="Root/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="Root/Panel/VBox"]
+layout_mode = 2
+text = "调试控制台  （` 关闭 · Esc 关闭 · ↑↓ 翻历史）"
+theme_override_colors/font_color = Color(0.71, 0.592, 0.384, 1)
+theme_override_font_sizes/font_size = 14
+
+[node name="Output" type="RichTextLabel" parent="Root/Panel/VBox"]
+custom_minimum_size = Vector2(0, 300)
+layout_mode = 2
+size_flags_vertical = 3
+bbcode_enabled = true
+scroll_following = true
+selection_enabled = true
+theme_override_colors/default_color = Color(0.914, 0.898, 0.863, 1)
+theme_override_font_sizes/normal_font_size = 14
+
+[node name="Input" type="LineEdit" parent="Root/Panel/VBox"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+placeholder_text = "输入命令后回车（help 查看全部）"
+theme_override_font_sizes/font_size = 16

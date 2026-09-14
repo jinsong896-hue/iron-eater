@@ -1,0 +1,242 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://ui/debug/debug_panel.gd" id="1_panel"]
+
+[sub_resource type="StyleBoxFlat" id="SB_bg"]
+bg_color = Color(0.03, 0.035, 0.045, 0.95)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.71, 0.59, 0.38, 0.85)
+
+[node name="DebugPanel" type="CanvasLayer"]
+process_mode = 3
+visible = false
+script = ExtResource("1_panel")
+
+[node name="Root" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Overlay" type="ColorRect" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 0.6)
+
+[node name="Panel" type="PanelContainer" parent="Root"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 40.0
+offset_top = 40.0
+offset_right = -40.0
+offset_bottom = -40.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("SB_bg")
+
+[node name="VBox" type="VBoxContainer" parent="Root/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Root/Panel/VBox"]
+layout_mode = 2
+text = "调试面板  （F1 关闭 · Esc 关闭）"
+theme_override_colors/font_color = Color(0.71, 0.592, 0.384, 1)
+theme_override_font_sizes/font_size = 18
+
+[node name="Info" type="Label" parent="Root/Panel/VBox"]
+layout_mode = 2
+text = ""
+theme_override_colors/font_color = Color(0.6, 0.58, 0.55, 1)
+theme_override_font_sizes/font_size = 13
+
+[node name="HSep" type="HSeparator" parent="Root/Panel/VBox"]
+layout_mode = 2
+
+[node name="Cols" type="HBoxContainer" parent="Root/Panel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="Player" type="VBoxContainer" parent="Root/Panel/VBox/Cols"]
+custom_minimum_size = Vector2(180, 0)
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="H1" type="Label" parent="Root/Panel/VBox/Cols/Player"]
+layout_mode = 2
+text = "玩家"
+theme_override_colors/font_color = Color(0.71, 0.592, 0.384, 1)
+
+[node name="BtnGod" type="Button" parent="Root/Panel/VBox/Cols/Player"]
+layout_mode = 2
+text = "无敌 开/关"
+
+[node name="BtnHeal" type="Button" parent="Root/Panel/VBox/Cols/Player"]
+layout_mode = 2
+text = "回满血"
+
+[node name="BtnGold" type="Button" parent="Root/Panel/VBox/Cols/Player"]
+layout_mode = 2
+text = "+1000 金币"
+
+[node name="BtnCrit" type="Button" parent="Root/Panel/VBox/Cols/Player"]
+layout_mode = 2
+text = "强制暴击 开/关"
+
+[node name="BtnCd" type="Button" parent="Root/Panel/VBox/Cols/Player"]
+layout_mode = 2
+text = "重置冷却"
+
+[node name="Nav" type="VBoxContainer" parent="Root/Panel/VBox/Cols"]
+custom_minimum_size = Vector2(220, 0)
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="H2" type="Label" parent="Root/Panel/VBox/Cols/Nav"]
+layout_mode = 2
+text = "导航（点房间名跳转）"
+theme_override_colors/font_color = Color(0.71, 0.592, 0.384, 1)
+
+[node name="BtnClear" type="Button" parent="Root/Panel/VBox/Cols/Nav"]
+layout_mode = 2
+text = "清空当前房间"
+
+[node name="FloorRow" type="HBoxContainer" parent="Root/Panel/VBox/Cols/Nav"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="BtnF1" type="Button" parent="Root/Panel/VBox/Cols/Nav/FloorRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "1"
+
+[node name="BtnF2" type="Button" parent="Root/Panel/VBox/Cols/Nav/FloorRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "2"
+
+[node name="BtnF3" type="Button" parent="Root/Panel/VBox/Cols/Nav/FloorRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "3"
+
+[node name="BtnF4" type="Button" parent="Root/Panel/VBox/Cols/Nav/FloorRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "4"
+
+[node name="BtnF5" type="Button" parent="Root/Panel/VBox/Cols/Nav/FloorRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "5"
+
+[node name="BtnF6" type="Button" parent="Root/Panel/VBox/Cols/Nav/FloorRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "6"
+
+[node name="BtnF7" type="Button" parent="Root/Panel/VBox/Cols/Nav/FloorRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "7"
+
+[node name="BtnF8" type="Button" parent="Root/Panel/VBox/Cols/Nav/FloorRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "8"
+
+[node name="BtnF9" type="Button" parent="Root/Panel/VBox/Cols/Nav/FloorRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "9"
+
+[node name="Scroll" type="ScrollContainer" parent="Root/Panel/VBox/Cols/Nav"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="RoomList" type="VBoxContainer" parent="Root/Panel/VBox/Cols/Nav/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Spawn" type="VBoxContainer" parent="Root/Panel/VBox/Cols"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="H3" type="Label" parent="Root/Panel/VBox/Cols/Spawn"]
+layout_mode = 2
+text = "刷怪（点怪物名选中，再点生成）"
+theme_override_colors/font_color = Color(0.71, 0.592, 0.384, 1)
+
+[node name="CountRow" type="HBoxContainer" parent="Root/Panel/VBox/Cols/Spawn"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="L" type="Label" parent="Root/Panel/VBox/Cols/Spawn/CountRow"]
+layout_mode = 2
+text = "数量"
+
+[node name="SpawnCount" type="LineEdit" parent="Root/Panel/VBox/Cols/Spawn/CountRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "1"
+
+[node name="BtnSpawn" type="Button" parent="Root/Panel/VBox/Cols/Spawn"]
+layout_mode = 2
+text = "在玩家位置生成"
+
+[node name="Scroll" type="ScrollContainer" parent="Root/Panel/VBox/Cols/Spawn"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="MonsterList" type="VBoxContainer" parent="Root/Panel/VBox/Cols/Spawn/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Time" type="VBoxContainer" parent="Root/Panel/VBox/Cols"]
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="H4" type="Label" parent="Root/Panel/VBox/Cols/Time"]
+layout_mode = 2
+text = "时间 / 数值"
+theme_override_colors/font_color = Color(0.71, 0.592, 0.384, 1)
+
+[node name="TsRow" type="HBoxContainer" parent="Root/Panel/VBox/Cols/Time"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TsSlider" type="HSlider" parent="Root/Panel/VBox/Cols/Time/TsRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="TsLabel" type="Label" parent="Root/Panel/VBox/Cols/Time/TsRow"]
+layout_mode = 2
+text = "1.00x"
+
+[node name="DmgRow" type="HBoxContainer" parent="Root/Panel/VBox/Cols/Time"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="L2" type="Label" parent="Root/Panel/VBox/Cols/Time/DmgRow"]
+layout_mode = 2
+text = "伤害倍率"
+
+[node name="DmgInput" type="LineEdit" parent="Root/Panel/VBox/Cols/Time/DmgRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "1.0"
