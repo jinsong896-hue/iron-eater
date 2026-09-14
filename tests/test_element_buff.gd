@@ -29,6 +29,7 @@ func _ready() -> void:
 	_test_element_dot()
 	_test_monster_mechanics()
 	_test_projectile_mechanics()
+	await _test_damage_zones()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -798,6 +799,78 @@ func _test_projectile_mechanics() -> void:
 		"ProjectileSystem.spawn 返回统一 Projectile 实例",
 		[legacy.get_class(), str(legacy.get_script())])
 	legacy.queue_free()
+
+
+## ---------- 光环与区域机制（分册第 5/6 章）----------
+func _test_damage_zones() -> void:
+	_test = "DamageZones"
+	print("\n--- %s ---" % _test)
+
+	var DZ = load("res://gameplay/combat/damage_zone.gd")
+	var MDB = load("res://data/monsters/monster_db.gd")
+	var EB = load("res://entities/enemies/enemy_base.gd")
+	MDB.init()
+
+	var host := Node3D.new()
+	add_child(host)
+
+	# 区域生成与参数落地
+	var z: Node3D = DZ.spawn({
+		"position": Vector3.ZERO, "radius": 3.0, "duration": 5.0, "damage": 15.0,
+	}, host)
+	_check(z != null, "伤害区域生成成功")
+	_check(absf(z.radius - 3.0) < 0.01, "半径 3.0")
+	_check(absf(z.duration - 5.0) < 0.01, "持续 5 秒")
+	_check(absf(z.damage_per_tick - 15.0) < 0.01, "每跳伤害 15")
+	_check(z.is_in_group("damage_zones"), "已登记 damage_zones 组")
+	z.queue_free()
+
+	# 跟随型光环：施法者消失时一同消失（不留孤儿）
+	var caster := Node3D.new()
+	host.add_child(caster)
+	var aura: Node3D = DZ.spawn({
+		"position": Vector3.ZERO, "radius": 4.0, "duration": -1.0,
+		"damage": 40.0, "follow": caster,
+	}, host)
+	_check(aura.follow == caster, "光环绑定施法者")
+	caster.free()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(not is_instance_valid(aura) or aura.is_queued_for_deletion(),
+		"施法者消失后光环随之销毁（不留孤儿）")
+
+	# 机制装配：4 个区域机制应把参数写到敌人上
+	var cases := {
+		"venom_frog": ["zone_on_attack", 15.0],      # 4-16 毒腺蛙：毒液区每秒 15
+		"flame_spawn": ["aura_spec", 40.0],          # 6-22 炎魔幼体：火焰光环每秒 40
+		"swamp_giant": ["aura_spec", 0.0],           # 4-18 沼泽巨人：水波（减速非伤害）
+		"hound_p3": ["trail_spec", 12.0],            # 4.6 熔岩猎犬：岩浆轨迹
+	}
+	for mid in cases:
+		var m: Dictionary = MDB.get_monster(mid)
+		if m.is_empty():
+			_check(false, "%s 在库" % mid)
+			continue
+		var e = EB.new()
+		add_child(e)
+		e.apply_monster_config(m)
+		var field: String = cases[mid][0]
+		var want: float = cases[mid][1]
+		var spec = e.get(field)
+		var ok := spec is Dictionary and not (spec as Dictionary).is_empty()
+		if ok and want > 0.0:
+			ok = absf(float((spec as Dictionary).get("damage", 0.0)) - want) < 0.01
+		_check(ok, "%s 装配 %s" % [mid, field], [str(spec)])
+		e.queue_free()
+
+	# 沼泽巨人的水波是减速（slow_buff）而非伤害
+	var sg: Dictionary = MDB.get_monster("swamp_giant")
+	var g = EB.new()
+	add_child(g)
+	g.apply_monster_config(sg)
+	_check(str(g.aura_spec.get("slow_buff", "")) == "mire", "沼泽巨人水波挂减速词条")
+	_check(g.aura_interval > 0.0, "沼泽巨人光环有周期（%s 秒）" % str(g.aura_interval))
+	g.queue_free()
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:

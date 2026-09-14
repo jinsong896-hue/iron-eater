@@ -78,6 +78,14 @@ var rage_max_stacks := 0      ## 叠层上限
 var _rage_stacks := 0
 var _base_atk := 0.0          ## 激怒加成基准（避免反复自乘）
 var _ash_timer := 0.0         ## 灰烬形态剩余（结束时还原闪避与移速）
+
+# —— 分册第 5/6 章「光环与区域」机制（本轮落地 4 个）——
+var zone_on_attack: Dictionary = {}   ## 攻击后在原地留区域（毒腺蛙）
+var aura_interval := 0.0              ## 周期性光环间隔（秒）；0 = 无
+var aura_spec: Dictionary = {}        ## 光环参数
+var trail_spec: Dictionary = {}       ## 突进时沿途留轨迹（熔岩猎犬）
+var _aura_timer := 0.0
+var _trail_accum := 0.0
 var melee_knockback := 0.0    ## 石翼蝙蝠：命中击退玩家
 var hit_mark_seconds := 0.0   ## 熵能浮体：命中标记玩家（秒）
 var ash_chance_on_hit := 0.0  ## 灰烬行者：命中后进入灰烬形态的概率
@@ -237,8 +245,87 @@ func _apply_mechanic(m: String) -> void:
 		# 4.7 石翼蝙蝠：命中击退玩家
 		"knockback_on_hit":
 			melee_knockback = 4.0
+		# 4-16 毒腺蛙：攻击后留下毒液区（5 秒，每秒 15 伤），
+		# 区域内**怪物**获得回血（每秒 +10）——分册原文如此，同区敌方也受益
+		"poison_zone":
+			zone_on_attack = {"radius": 2.5, "duration": 5.0, "damage": 15.0,
+				"heal": 10.0, "friendly_group": "enemies",
+				"color": Color(0.35, 0.85, 0.25, 0.45)}
+		# 6-22 炎魔幼体：每 15 秒释放火焰光环（半径 4，每秒 40 伤，持续 4 秒）
+		"flame_aura":
+			aura_interval = 15.0
+			aura_spec = {"radius": 4.0, "duration": 4.0, "damage": 40.0,
+				"color": Color(1.0, 0.45, 0.1, 0.45)}
+		# 4-18 沼泽巨人：每 10 秒释放范围水波（减速玩家 40%，4 秒）
+		"water_pulse":
+			aura_interval = 10.0
+			aura_spec = {"radius": 5.0, "duration": 4.0, "damage": 0.0,
+				"slow_buff": "mire", "color": Color(0.3, 0.6, 1.0, 0.4)}
+		# 4.6 熔岩猎犬：突进时留下岩浆轨迹（持续伤害区域）
+		"dash_lava_trail":
+			trail_spec = {"radius": 1.2, "duration": 3.0, "damage": 12.0,
+				"color": Color(1.0, 0.3, 0.1, 0.5)}
 		_:
 			pass   # 其余机制尚未实现（见 docs/progress 待办）
+
+
+## 周期性光环（炎魔幼体的火焰光环 / 沼泽巨人的水波）
+func _tick_aura(delta: float) -> void:
+	if aura_interval <= 0.0 or aura_spec.is_empty():
+		return
+	_aura_timer -= delta
+	if _aura_timer > 0.0:
+		return
+	_aura_timer = aura_interval
+	var spec := aura_spec.duplicate()
+	spec["position"] = global_position
+	# 水波是「减速」而非伤害：给区域内玩家挂减速词条（分册 4-18，40%）
+	if str(spec.get("slow_buff", "")) != "":
+		_apply_pulse_slow(str(spec["slow_buff"]), float(spec.get("radius", 5.0)))
+	var parent := get_parent()
+	if parent != null:
+		DamageZone.spawn(spec, parent)
+
+
+## 水波：给半径内的玩家挂减速词条
+func _apply_pulse_slow(buff_id: String, radius: float) -> void:
+	if _player == null:
+		return
+	if global_position.distance_to(_player.global_position) > radius:
+		return
+	var pb = _player.get("buffs")
+	if pb != null:
+		pb.apply(buff_id, "monster")
+
+
+## 攻击后留下区域（毒腺蛙的毒液区）
+func _spawn_attack_zone() -> void:
+	if zone_on_attack.is_empty():
+		return
+	var parent := get_parent()
+	if parent == null:
+		return
+	var spec := zone_on_attack.duplicate()
+	spec["position"] = global_position
+	DamageZone.spawn(spec, parent)
+
+
+## 突进沿途留轨迹（熔岩猎犬）
+func _tick_trail(delta: float) -> void:
+	if trail_spec.is_empty():
+		return
+	_trail_accum += delta
+	if _trail_accum < 0.25:   # 每 0.25 秒留一个，避免过密
+		return
+	_trail_accum = 0.0
+	var parent := get_parent()
+	if parent == null:
+		return
+	var spec := trail_spec.duplicate()
+	spec["position"] = global_position
+	DamageZone.spawn(spec, parent)
+
+
 func _create_visual() -> void:
 	var model := MeshInstance3D.new()
 	model.name = "Model"
@@ -331,6 +418,7 @@ func _physics_process(delta: float) -> void:
 			# 还原灰烬形态加成（闪避 -50%、移速 ÷1.3），避免永久叠加
 			dodge_pct = maxf(dodge_pct - 0.5, 0.0)
 			move_speed /= 1.3
+	_tick_aura(delta)
 
 	# 受击闪红衰减（每帧都要走，包括硬直/死亡前）
 	if _flash_timer > 0.0:
@@ -583,6 +671,8 @@ func _update_dash(delta: float) -> void:
 	_dash_timer -= delta
 	velocity = _dash_dir * eff_speed() * 2.2
 	move_and_slide()
+	# 熔岩猎犬：突进沿途留岩浆轨迹
+	_tick_trail(delta)
 
 	if _dash_timer <= 0.0:
 		_current_state = EnemyState.CHASE
@@ -609,6 +699,8 @@ func _perform_attack() -> void:
 	_player.take_damage(result.damage)
 	_apply_element_to_player()
 	_apply_melee_mechanics()
+	# 毒腺蛙：攻击后在原地留下毒液区
+	_spawn_attack_zone()
 	var bus = _event_bus()
 	if bus:
 		bus.damage_dealt.emit(self, _player, result.damage, _element_key(), false)
@@ -910,49 +1002,16 @@ func _register_summon(minion: Node) -> void:
 		room.call("register_summoned_enemy", minion)
 
 
-## 死亡毒雾（2 米，每秒 10 伤，持续 3 秒）
+## 死亡毒雾（2 米，每秒 10 伤，持续 3 秒）—— 走统一 DamageZone
+## 原实现用 await 定时器逐秒结算，节点被 free 时协程会悬挂；改后无此风险
 func _spawn_death_poison() -> void:
 	var parent := get_parent()
 	if parent == null:
 		return
-	var zone := Area3D.new()
-	zone.position = global_position
-	zone.add_to_group("poison_zones")
-
-	var col := CollisionShape3D.new()
-	var shape := CylinderShape3D.new()
-	shape.radius = 2.0
-	shape.height = 2.0
-	col.shape = shape
-	zone.add_child(col)
-
-	var mesh := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 2.0
-	cyl.bottom_radius = 2.0
-	cyl.height = 2.0
-	mesh.mesh = cyl
-	mesh.position.y = 0.0
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.3, 0.9, 0.2, 0.4)
-	mat.emission_enabled = true
-	mat.emission = Color(0.2, 0.8, 0.1)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mesh.material_override = mat
-	zone.add_child(mesh)
-
-	parent.add_child(zone)
-
-	# 每秒 10 伤 × 3 秒
-	var ticks := 3
-	for i in range(ticks):
-		await get_tree().create_timer(1.0).timeout
-		if zone == null or not is_instance_valid(zone):
-			return
-		for body in zone.get_overlapping_bodies():
-			if body.is_in_group("player") and body.has_method("take_damage"):
-				body.call("take_damage", 10.0)
-	zone.queue_free()
+	DamageZone.spawn({
+		"position": global_position, "radius": 2.0, "duration": 3.0,
+		"damage": 10.0, "color": Color(0.3, 0.9, 0.2, 0.4),
+	}, parent)
 
 
 ## 获取 GameManager autoload（--script 测试模式下不存在，返回 null）
