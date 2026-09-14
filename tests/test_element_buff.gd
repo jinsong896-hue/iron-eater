@@ -30,6 +30,8 @@ func _ready() -> void:
 	_test_monster_mechanics()
 	_test_projectile_mechanics()
 	await _test_damage_zones()
+	_test_projectile_advanced()
+	_test_mechanic_buff_ids()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -871,6 +873,104 @@ func _test_damage_zones() -> void:
 	_check(str(g.aura_spec.get("slow_buff", "")) == "mire", "沼泽巨人水波挂减速词条")
 	_check(g.aura_interval > 0.0, "沼泽巨人光环有周期（%s 秒）" % str(g.aura_interval))
 	g.queue_free()
+
+
+## ---------- 投射物高级能力（分裂 / 命中留区域）----------
+func _test_projectile_advanced() -> void:
+	_test = "ProjectileAdvanced"
+	print("\n--- %s ---" % _test)
+
+	var PJ = load("res://gameplay/skills/projectile.gd")
+
+	# 分裂：命中时射出 N 枚小弹，且只分裂一次（防无限繁殖）
+	var host := Node3D.new()
+	add_child(host)
+	var p = PJ.spawn({
+		"direction": Vector3.FORWARD, "position": Vector3.ZERO,
+		"damage": 100.0, "split_on_hit": 3, "split_damage_pct": 0.5,
+	}, host, PJ.TARGET_PLAYER)
+	_check(int(p.split_on_hit) == 3, "分裂数已配置")
+	_check(absf(p.split_damage_pct - 0.5) < 0.01, "分裂伤害比例 50%")
+	_check(not p.data.is_empty(), "保留原始配置（分裂时复制用）")
+
+	var before := host.get_child_count()
+	# 直接触发命中分裂（不经物理，避免依赖真实碰撞）
+	p._spawn_split()
+	var after := host.get_child_count()
+	_check(after > before, "命中分裂出小弹（%d → %d）" % [before, after])
+
+	# 生成的小弹继承阵营与降低的伤害
+	var child = host.get_child(before)
+	_check(absf(float(child.damage) - 50.0) < 0.01, "小弹伤害 = 本体 50%",
+		[str(child.damage)])
+	_check(child._owner_faction == PJ.TARGET_PLAYER, "小弹继承阵营（仍打玩家）")
+	_check(int(child.bounces) == 0 and int(child.pierce_count) == 0,
+		"小弹不继承弹射/穿透（避免爆炸式增长）")
+
+	# 命中留区域：配置写入且能生成
+	var p2 = PJ.spawn({
+		"direction": Vector3.FORWARD, "position": Vector3.ZERO, "damage": 10.0,
+		"zone_on_land": {"radius": 2.0, "duration": 4.0, "damage": 20.0},
+	}, host, PJ.TARGET_PLAYER)
+	_check(not (p2.zone_on_land as Dictionary).is_empty(), "命中留区域已配置")
+	var zones_before := get_tree().get_nodes_in_group("damage_zones").size()
+	p2._spawn_land_zone()
+	var zones_after := get_tree().get_nodes_in_group("damage_zones").size()
+	_check(zones_after > zones_before, "命中后生成区域（%d → %d）" % [zones_before, zones_after])
+
+	host.queue_free()
+
+
+## ---------- 怪物机制引用的词条 id 必须真实存在 ----------
+## 背景：本轮实现攻击/突进附加效果时，我写的 "healcut" 在词条表里根本不存在，
+## 机制会**静默失效**（apply 不报错、什么也不发生）。这类错误肉眼很难发现，
+## 故固化为测试：把机制代码里引用的词条 id 逐一对照词条表。
+func _test_mechanic_buff_ids() -> void:
+	_test = "MechanicBuffIds"
+	print("\n--- %s ---" % _test)
+
+	var B = load("res://data/buffs/buff_defs.gd")
+	var src_path := "res://entities/enemies/enemy_base.gd"
+	var f := FileAccess.open(src_path, FileAccess.READ)
+	if f == null:
+		_check(false, "能读取 enemy_base.gd")
+		return
+	var src := f.get_as_text()
+	f.close()
+
+	# 抓出 `apply("xxx", ...)` 与 `"slow_buff": "xxx"` 两种引用形式
+	var referenced := {}
+	for m in _regex_all(src, "apply\\(\"([a-z_]+)\""):
+		referenced[m] = true
+	for m in _regex_all(src, "\"slow_buff\": \"([a-z_]+)\""):
+		referenced[m] = true
+
+	_check(referenced.size() > 0, "在机制代码中找到词条引用（%d 个）" % referenced.size())
+	var missing: Array = []
+	for id in referenced:
+		if B.get_buff(id).is_empty():
+			missing.append(id)
+	_check(missing.is_empty(), "机制引用的词条 id 全部存在", [str(missing)])
+
+	# 反向确认：减速类机制不应误用硬控词条。
+	# 「恐惧吼叫」策划要求是减速 30%，而 "fear" 在词条表里是「强制远离」硬控，
+	# 用错会让玩家被控住而非减速——这类语义错误同样肉眼难辨。
+	var fear_sec: Array = B.get_buff("fear")
+	_check(int(fear_sec[2]) == B.Kind.CONTROL, "「恐惧」在词条表里是硬控类型")
+	var mire_sec: Array = B.get_buff("mire")
+	_check(not mire_sec.is_empty() and int(mire_sec[2]) != B.Kind.CONTROL,
+		"「泥沼」是减速而非硬控（fear_roar 用的就是它）")
+
+
+## 简易正则全匹配（GDScript 无内置正则，用 RegEx 类）
+func _regex_all(text: String, pattern: String) -> Array:
+	var re := RegEx.new()
+	if re.compile(pattern) != OK:
+		return []
+	var out: Array = []
+	for m in re.search_all(text):
+		out.append(m.get_string(1))
+	return out
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:

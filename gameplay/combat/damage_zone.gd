@@ -21,6 +21,7 @@ var damage_per_tick := 10.0
 var heal_per_tick := 0.0       ## 区域内友方每跳回血（>0 时生效）
 var target_group := TARGET_PLAYER
 var friendly_group := ""       ## 回血作用的对象组（留空则不回血）
+var slow_buff := ""            ## 区域内目标持续挂的减速词条 id（陷阱型）
 var follow: Node3D = null      ## 跟随目标（光环型）；为空则固定原地
 ## 是否绑定了跟随目标。**不能用 `follow != null` 判断**——Godot 4 中
 ## 已释放的对象引用与 null 比较**相等**，那样写会让「施法者已死」的分支
@@ -42,6 +43,7 @@ static func spawn(data: Dictionary, parent: Node3D) -> DamageZone:
 	z.heal_per_tick = float(data.get("heal", 0.0))
 	z.target_group = str(data.get("target_group", TARGET_PLAYER))
 	z.friendly_group = str(data.get("friendly_group", ""))
+	z.slow_buff = str(data.get("slow_buff", ""))
 	z.follow = data.get("follow", null)
 	z._follows = z.follow != null
 	z.color = data.get("color", z.color)
@@ -123,3 +125,14 @@ func _apply_tick() -> void:
 				n.set("_hp", minf(float(n.get("_hp")) + heal_per_tick, max_hp))
 				if n.has_method("_update_health_bar"):
 					n.call("_update_health_bar")
+
+	# 减速陷阱（骸骨猎犬）：区域内目标挂减速词条
+	if slow_buff != "":
+		for n in get_tree().get_nodes_in_group(target_group):
+			if not (n is Node3D):
+				continue
+			if global_position.distance_to((n as Node3D).global_position) > radius:
+				continue
+			var tb = n.get("buffs")
+			if tb != null:
+				tb.apply(slow_buff, "zone")

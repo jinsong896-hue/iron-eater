@@ -12,6 +12,7 @@ extends CharacterBody3D
 @export var attack_range: float = 2.0
 @export var detect_range: float = 12.0
 @export var attack_interval: float = 1.0
+var _base_attack_interval := 1.0   ## 攻击间隔基准（提速类机制还原用）
 
 # AI 行为
 enum AIBehavior {
@@ -86,6 +87,29 @@ var aura_spec: Dictionary = {}        ## 光环参数
 var trail_spec: Dictionary = {}       ## 突进时沿途留轨迹（熔岩猎犬）
 var _aura_timer := 0.0
 var _trail_accum := 0.0
+
+# —— 攻击/突进附加效果（分册 4.x / 5.x）——
+var melee_haste_range := 0.0     ## 被近身触发提速的距离（骸骨弓手）
+var melee_haste_mult := 1.0      ## 提速倍数
+var melee_haste_seconds := 0.0
+var _melee_haste_used := false   ## 每场战斗仅 1 次
+var _melee_haste_timer := 0.0
+var enrage_below_pct := 0.0      ## 低血量激怒阈值（狂乱囚徒）
+var enrage_atk_pct := 0.0
+var _enrage_applied := false
+var hit_atk_pct := 0.0           ## 命中叠攻（狂怒恶魔）
+var hit_atk_max := 0
+var _hit_atk_stacks := 0
+var hit_healcut_seconds := 0.0   ## 命中使玩家受治疗降低（虚空狂战士）
+var trap_slow_buff := ""         ## 突进后减速陷阱的词条 id
+var dash_range_mult := 1.0       ## 突进距离倍数（虚空猎犬）
+var hit_root_seconds := 0.0      ## 命中定身（虚空猎犬）
+var hit_split_count := 0         ## 受击分裂数量（墓穴蝙蝠）
+var _hit_split_used := false
+var hit_dodge_bonus := 0.0       ## 受击后闪避加成（硫磺蝙蝠）
+var hit_dodge_seconds := 0.0
+var _hit_dodge_timer := 0.0
+var hit_slow_buff := ""          ## 命中减速词条（硫磺幽魂）
 var melee_knockback := 0.0    ## 石翼蝙蝠：命中击退玩家
 var hit_mark_seconds := 0.0   ## 熵能浮体：命中标记玩家（秒）
 var ash_chance_on_hit := 0.0  ## 灰烬行者：命中后进入灰烬形态的概率
@@ -158,6 +182,7 @@ func apply_monster_config(m: Dictionary) -> void:
 	# 表里用字符串键（"fire"/"poison"…），未标则为纯物理。
 	attack_element = ElementDamage.elem_from_key(str(m.get("element", "")))
 	attack_interval = float(m.get("attack_interval", 3.0))
+	_base_attack_interval = attack_interval
 	dodge_pct = float(m.get("dodge_pct", 0.0))
 	body_scale = float(m.get("scale", 1.0))
 	# 金币按血量档位（血厚值钱：飞行/闪避怪低、高血怪高）
@@ -265,6 +290,45 @@ func _apply_mechanic(m: String) -> void:
 		"dash_lava_trail":
 			trail_spec = {"radius": 1.2, "duration": 3.0, "damage": 12.0,
 				"color": Color(1.0, 0.3, 0.1, 0.5)}
+		# ——攻击/突进附加效果（分册 4.x / 5.x / 6.x）——
+		# 4.4 骸骨弓手：被近身(≤5m)时射速翻倍 3 秒，每场战斗 1 次
+		"haste_when_melee":
+			melee_haste_range = 5.0
+			melee_haste_mult = 2.0
+			melee_haste_seconds = 3.0
+		# 4.5 狂乱囚徒：低血量(≤30%)时攻击 +50%
+		"enrage_low_hp":
+			enrage_below_pct = 0.30
+			enrage_atk_pct = 0.50
+		# 4.5 狂怒恶魔：每次命中自身攻击 +5%（最多 8 层）
+		"atk_stack_on_hit":
+			hit_atk_pct = 0.05
+			hit_atk_max = 8
+		# 4.5 虚空狂战士：命中使玩家受治疗 -50%，6 秒
+		"healcut_on_hit":
+			hit_healcut_seconds = 6.0
+		# 4.6 骸骨猎犬：突进后留减速陷阱（50%，3 秒）
+		"dash_slow_trap":
+			trap_slow_buff = "thorn_slow"
+		# 4.6 虚空猎犬：突进距离翻倍，命中后定身 1.5 秒
+		"dash_root":
+			dash_range_mult = 2.0
+			hit_root_seconds = 1.5
+		# 4.7 墓穴蝙蝠：受击后分裂为 2 只小蝙蝠
+		"split_on_hit":
+			hit_split_count = 2
+		# 4.7 硫磺蝙蝠：被命中后闪避 +40%，3 秒（每次受击刷新）
+		"dodge_on_hit":
+			hit_dodge_bonus = 0.40
+			hit_dodge_seconds = 3.0
+		# 4.8 硫磺幽魂：命中后减速玩家 40%，3 秒
+		"slow_on_hit":
+			hit_slow_buff = "thorn_slow"
+		# 4.9 墓穴巨鼠：每 10 秒恐惧吼叫（玩家移速 -30%，3 秒）
+		"fear_roar":
+			aura_interval = 10.0
+			aura_spec = {"radius": 8.0, "duration": 3.0, "damage": 0.0,
+				"slow_buff": "mire", "color": Color(0.5, 0.2, 0.6, 0.35)}
 		_:
 			pass   # 其余机制尚未实现（见 docs/progress 待办）
 
@@ -419,6 +483,7 @@ func _physics_process(delta: float) -> void:
 			dodge_pct = maxf(dodge_pct - 0.5, 0.0)
 			move_speed /= 1.3
 	_tick_aura(delta)
+	_tick_mech_timers(delta)
 
 	# 受击闪红衰减（每帧都要走，包括硬直/死亡前）
 	if _flash_timer > 0.0:
@@ -621,7 +686,8 @@ func _start_dash() -> void:
 	_dash_dir.y = 0.0
 	_dash_dir = _dash_dir.normalized()
 	_current_state = EnemyState.DASH
-	_dash_timer = 0.35
+	# 虚空猎犬：突进距离翻倍（乘在基础时长上）
+	_dash_timer = 0.35 * dash_range_mult
 	_attack_timer = attack_interval  # 冲完进入攻击冷却
 
 
@@ -675,7 +741,23 @@ func _update_dash(delta: float) -> void:
 	_tick_trail(delta)
 
 	if _dash_timer <= 0.0:
+		# 骸骨猎犬：突进结束后在原地留下减速陷阱（50%，3 秒）
+		if trap_slow_buff != "":
+			_spawn_dash_trap()
 		_current_state = EnemyState.CHASE
+
+
+## 突进减速陷阱：一片地面区域，玩家进入即被减速
+func _spawn_dash_trap() -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	var spec := {
+		"position": global_position, "radius": 2.0, "duration": 3.0,
+		"damage": 0.0, "slow_buff": trap_slow_buff,
+		"color": Color(0.6, 0.5, 0.2, 0.4),
+	}
+	DamageZone.spawn(spec, parent)
 
 
 func _perform_attack() -> void:
@@ -730,6 +812,48 @@ func _apply_melee_mechanics() -> void:
 		dodge_pct = minf(dodge_pct + 0.5, 0.9)
 		move_speed *= 1.3
 		_ash_timer = ash_duration
+	# 狂怒恶魔：每次命中自身攻击 +5%（最多 8 层）
+	if hit_atk_pct > 0.0 and _hit_atk_stacks < hit_atk_max:
+		_hit_atk_stacks += 1
+		atk = _base_atk * (1.0 + hit_atk_pct * float(_hit_atk_stacks))
+	# 虚空狂战士：命中使玩家受治疗 -50%
+	if hit_healcut_seconds > 0.0 and pb != null:
+		pb.apply("weakness", "monster")
+	# 硫磺幽魂：命中减速玩家
+	if hit_slow_buff != "" and pb != null:
+		pb.apply(hit_slow_buff, "monster")
+	# 虚空猎犬：命中定身 1.5 秒
+	if hit_root_seconds > 0.0 and pb != null:
+		pb.apply("entangle", "monster")
+
+
+## 每帧推进本怪的攻击/突进附加效果计时器
+func _tick_mech_timers(delta: float) -> void:
+	if _melee_haste_timer > 0.0:
+		_melee_haste_timer = maxf(_melee_haste_timer - delta, 0.0)
+		if _melee_haste_timer == 0.0:
+			attack_interval = _base_attack_interval
+	if _hit_dodge_timer > 0.0:
+		_hit_dodge_timer = maxf(_hit_dodge_timer - delta, 0.0)
+		if _hit_dodge_timer == 0.0:
+			dodge_pct = maxf(dodge_pct - hit_dodge_bonus, 0.0)
+	# 狂乱囚徒：低血量激怒（只触发一次）
+	if enrage_below_pct > 0.0 and not _enrage_applied and max_hp > 0.0:
+		if _hp / max_hp <= enrage_below_pct:
+			_enrage_applied = true
+			atk = _base_atk * (1.0 + enrage_atk_pct)
+
+
+## 骸骨弓手：被近身时射速翻倍（每场战斗仅 1 次）
+## 在 AI 追击/风筝状态下调用
+func _check_melee_haste() -> void:
+	if melee_haste_range <= 0.0 or _melee_haste_used or _player == null:
+		return
+	if global_position.distance_to(_player.global_position) > melee_haste_range:
+		return
+	_melee_haste_used = true
+	attack_interval = _base_attack_interval / maxf(melee_haste_mult, 1.0)
+	_melee_haste_timer = melee_haste_seconds
 
 
 ## 本怪攻击元素的字符串键（无元素返回 "physical"，供信号与文案用）
@@ -786,6 +910,22 @@ func _fire_projectile() -> void:
 				d2["position"] = global_position + Vector3(0, 1.2, 0) + d2["direction"] * 0.6
 				Projectile.spawn(d2, get_parent(), Projectile.TARGET_PLAYER)
 			return
+		"arrow_explode":      # 4-16 炎骨弓手：箭矢命中后爆炸（范围 2 米，20 伤）
+			data["fuse"] = 0.05          # 命中即爆（极短引信）
+			data["explode_radius"] = 2.0
+			data["explode_damage"] = 20.0
+		"arrow_split":        # 4-16 虚空弓手：箭矢分裂为 2 支（各 50% 伤害）
+			data["split_on_hit"] = 2
+			data["split_damage_pct"] = 0.5
+			data["split_spread"] = 0.35
+		"shot_fire_zone":     # 4-4 熔炉哨兵：射击点留下火焰区域（每秒 20 伤，4 秒）
+			data["zone_on_land"] = {
+				"radius": 2.0, "duration": 4.0, "damage": 20.0,
+				"color": Color(1.0, 0.4, 0.1, 0.45),
+			}
+		"backstep_on_shot":   # 4.8 鬼火灵体：射击后后撤拉开距离
+			var back: Vector3 = -dir
+			global_position += back * 1.5
 	Projectile.spawn(data, get_parent(), Projectile.TARGET_PLAYER)
 
 
@@ -809,6 +949,16 @@ func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vec
 	if _hp <= 0.0:
 		die()
 		return
+
+	# 墓穴蝙蝠：受击后分裂为 2 只小蝙蝠（每只怪只分裂一次）
+	if hit_split_count > 0 and not _hit_split_used:
+		_hit_split_used = true
+		_spawn_splits()
+	# 硫磺蝙蝠：被命中后闪避 +40%，3 秒（每次受击刷新计时）
+	if hit_dodge_bonus > 0.0:
+		if _hit_dodge_timer <= 0.0:
+			dodge_pct = minf(dodge_pct + hit_dodge_bonus, 0.95)
+		_hit_dodge_timer = hit_dodge_seconds
 
 	# 受击硬直：打断前摇/攻击，进入 STAGGERED（击退为向量速度）
 	_knockback_velocity = knockback
