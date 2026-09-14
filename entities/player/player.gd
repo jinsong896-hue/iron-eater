@@ -14,6 +14,8 @@ extends CharacterBody3D
 @export var dodge_duration := 0.2
 @export var dodge_cooldown := 0.8
 
+var buffs = null                  # BuffHolder：词条与元素叠层容器（_ready 创建）
+var attack_element := -1          # 攻击附带元素（ElementDefs.Elem；装备赋予，-1 = 纯物理）
 var _attack_timer := 0.0          # 当前攻击冷却
 var _facing := Vector3.FORWARD
 var _is_sprinting := false
@@ -74,6 +76,9 @@ const PICKUP_RANGE := 2.5
 func _ready() -> void:
 	add_to_group("player")
 	_combo = AttackCombo.new()
+	# 词条/元素容器：敌人的元素攻击会往这里叠层，控制/易伤也从这里读
+	if buffs == null:
+		buffs = BuffHolder.new(self)
 	_setup_state_machine()
 	_setup_hit_model()
 	# 击杀回血（监听全局敌死信号）
@@ -164,6 +169,26 @@ func _physics_process(delta: float) -> void:
 		_hit_combo_time = maxf(_hit_combo_time - delta, 0.0)
 		if _hit_combo_time == 0.0:
 			_hit_combo_count = 0
+
+	# 词条/元素推进：DOT 结算 + 元素衰减 + 控制判定
+	if buffs != null:
+		var tick_out: Dictionary = buffs.tick(delta)
+		var dot: float = float(tick_out.get("dot", 0.0))
+		if dot > 0.0:
+			take_damage(dot)
+			if GameManager.attributes and GameManager.attributes.is_dead():
+				return
+		# 硬控（冰冻/麻痹/眩晕/定身）：期间不能移动也不能出招，只保留击退位移
+		if buffs.is_controlled():
+			velocity.x = move_toward(velocity.x, 0.0, deceleration * delta)
+			velocity.z = move_toward(velocity.z, 0.0, deceleration * delta)
+			move_and_slide()
+			return
+		# 减速：移速按词条比例下调（寒霜/泥沼等）
+		var slow: float = buffs.total_slow()
+		if slow > 0.0:
+			velocity.x *= (1.0 - slow)
+			velocity.z *= (1.0 - slow)
 
 	# 具体行为交给当前状态（移动/翻滚/冲撞/跳跃/死亡）
 	_state_machine.physics_update(delta)
@@ -403,10 +428,28 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 		else:
 			push = _facing * knockback
 	enemy.call("take_damage", total, crit, push)
+	# 元素攻击：给目标叠层，并把阈值事件转成控制词条（冰冻/麻痹）
+	_apply_element_to(enemy)
 	EventBus.damage_popup.emit(enemy.global_position, total, "crit" if crit else "normal")
 	# 暴击/重击 hitstop 顿帧
 	if crit or multiplier >= 1.5:
 		_hitstop(0.06)
+
+
+## 把本次攻击的元素叠到目标身上，并处理阈值触发（冰冻/雷暴）
+## 攻击元素来源：装备/形态赋予（attack_element）；未赋予则为纯物理，不叠层。
+func _apply_element_to(enemy: Node3D) -> void:
+	if attack_element < 0:
+		return
+	var tgt = enemy.get("buffs")
+	if tgt == null:
+		return
+	var out: Dictionary = ElementDamage.attack(tgt, attack_element)
+	for ev in out.get("events", []):
+		var ctrl_id: String = ElementDamage.control_for_event(str(ev))
+		if ctrl_id != "":
+			tgt.apply(ctrl_id, "element")
+			EventBus.message.emit("触发%s" % ElementDamage.event_name(str(ev)))
 
 
 ## 攻击收尾反馈

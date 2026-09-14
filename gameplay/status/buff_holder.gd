@@ -126,6 +126,11 @@ func total_slow() -> float:
 	return clampf(v, 0.0, 0.9)
 
 
+## 是否持有指定词条（冰冻判定用）
+func _has_control_buff(buff_id: String) -> bool:
+	return _buffs.has(buff_id)
+
+
 ## 是否处于硬控（定身/眩晕/冰冻/麻痹）
 func is_controlled() -> bool:
 	for id in _buffs:
@@ -185,9 +190,12 @@ func element_context(elem: int) -> Dictionary:
 	}
 
 
-## 是否处于冰冻
+## 是否处于冰冻。
+## 冰冻有两个入口，两者必须都算：① 寒霜叠满触发（_frozen_until）
+## ② 直接施加 freeze 词条（怪物技能/装备）。只认①会导致
+## 「用 freeze 词条冰冻后，冰系联动判不出来」。
 func is_frozen() -> bool:
-	return _time < _frozen_until
+	return _time < _frozen_until or _has_control_buff("freeze")
 
 
 # ============================================================

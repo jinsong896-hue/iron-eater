@@ -65,6 +65,7 @@ var split_count := 2          ## 分裂数量
 var summon_spec: Dictionary = {}   ## 召唤配置 {id,count,chance}
 var affixes: Array = []       ## 词缀 id 列表（数值型已作用到属性，其余待后续系统）
 var buffs = null              ## BuffHolder：词条与元素叠层容器（_ready 创建）
+var attack_element := -1      ## 攻击附带的元素（ElementDefs.Elem；-1 = 纯物理）
 var _explode_timer := 0.0     ## 自爆前摇倒计时（>0 表示正在蓄爆）
 var _exploding := false
 var _dash_timer := 0.0        ## 突进持续时间
@@ -124,6 +125,9 @@ func apply_monster_config(m: Dictionary) -> void:
 	defense = float(m.get("defense", 5))
 	# 移速：玩家基准 4.0 m/s × 百分比
 	move_speed = 4.0 * float(m.get("speed_pct", 50)) / 100.0
+	# 攻击元素（分册 7.x）：该怪的攻击会给目标叠对应元素层数。
+	# 表里用字符串键（"fire"/"poison"…），未标则为纯物理。
+	attack_element = ElementDamage.elem_from_key(str(m.get("element", "")))
 	attack_interval = float(m.get("attack_interval", 3.0))
 	dodge_pct = float(m.get("dodge_pct", 0.0))
 	body_scale = float(m.get("scale", 1.0))
@@ -288,6 +292,19 @@ func _physics_process(delta: float) -> void:
 		if _player == null:
 			return
 
+	# 词条/元素推进：DOT 结算 + 元素衰减 + 控制判定
+	if buffs != null:
+		var tick_out: Dictionary = buffs.tick(delta)
+		var dot: float = float(tick_out.get("dot", 0.0))
+		if dot > 0.0:
+			take_damage(dot)
+			if not is_instance_valid(self) or _current_state == EnemyState.DEAD:
+				return
+		# 硬控（冰冻/麻痹/眩晕/定身）：期间不移动不攻击，被击退则继续位移
+		if buffs.is_controlled():
+			_update_stagger(delta)
+			return
+
 	match _current_state:
 		EnemyState.IDLE:
 			_state_idle()
@@ -335,7 +352,7 @@ func _state_chase(delta: float) -> void:
 		var away: Vector3 = (global_position - _player.global_position)
 		away.y = 0.0
 		if away.length_squared() > 0.001:
-			velocity = away.normalized() * move_speed
+			velocity = away.normalized() * eff_speed()
 			move_and_slide()
 		return
 
@@ -346,7 +363,7 @@ func _state_chase(delta: float) -> void:
 	# 追踪玩家
 	var direction: Vector3 = (_player.global_position - global_position).normalized()
 	direction.y = 0.0
-	velocity = direction * move_speed
+	velocity = direction * eff_speed()
 	move_and_slide()
 
 	# 朝向玩家
@@ -450,11 +467,30 @@ func _start_dash() -> void:
 	_attack_timer = attack_interval  # 冲完进入攻击冷却
 
 
+## 有效移速：基础值 × 减速系数（寒霜/侵蚀/泥沼等词条）
+## 所有移动都走这里，减速才会真正生效
+func eff_speed() -> float:
+	if buffs == null:
+		return move_speed
+	return move_speed * (1.0 - buffs.total_slow())
+
+
+## 有效攻击间隔：基础值 ×（1 + 攻速降低）——「迟钝」等词条
+func eff_attack_interval() -> float:
+	if buffs == null:
+		return attack_interval
+	var down := 0.0
+	for id in buffs.active_ids():
+		down += float(BuffDefs.params_of(id).get("aspd_down", 0.0))
+	return attack_interval / maxf(1.0 - clampf(down, 0.0, 0.8), 0.2)
+
+
 ## 突进推进
 func _update_dash(delta: float) -> void:
 	_dash_timer -= delta
-	velocity = _dash_dir * move_speed * 2.2
+	velocity = _dash_dir * eff_speed() * 2.2
 	move_and_slide()
+
 	if _dash_timer <= 0.0:
 		_current_state = EnemyState.CHASE
 
@@ -473,9 +509,25 @@ func _perform_attack() -> void:
 		player_def = gm.stat_value("def")
 	var result = DamagePipeline.physical(atk, 1.0, 0.0, player_def)
 	_player.take_damage(result.damage)
+	_apply_element_to_player()
 	var bus = _event_bus()
 	if bus:
 		bus.damage_dealt.emit(self, _player, result.damage, "physical", false)
+
+
+## 把本怪的攻击元素叠到玩家身上（元素系怪才有；纯物理怪跳过）
+## 阈值事件（冰冻/麻痹）转为控制词条挂到玩家。
+func _apply_element_to_player() -> void:
+	if attack_element < 0 or _player == null:
+		return
+	var tgt = _player.get("buffs")
+	if tgt == null:
+		return
+	var out: Dictionary = ElementDamage.attack(tgt, attack_element)
+	for ev in out.get("events", []):
+		var ctrl_id: String = ElementDamage.control_for_event(str(ev))
+		if ctrl_id != "":
+			tgt.apply(ctrl_id, "element")
 
 
 ## 远程弹射（直线飞行的能量球）

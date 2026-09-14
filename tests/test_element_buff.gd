@@ -23,6 +23,8 @@ func _ready() -> void:
 	_test_vulnerability()
 	_test_damage_hooks()
 	_test_element_combo()
+	_test_element_damage_bridge()
+	_test_control_effects()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -408,6 +410,133 @@ func dict_merge(a: Dictionary, b: Dictionary) -> Dictionary:
 	for k in b:
 		out[k] = b[k]
 	return out
+
+
+## ---------- 元素伤害桥接层 ----------
+func _test_element_damage_bridge() -> void:
+	_test = "ElementDamageBridge"
+	print("\n--- %s ---" % _test)
+
+	var EDmg = load("res://gameplay/combat/element_damage.gd")
+	var ED = load("res://data/elements/element_defs.gd")
+	var H = load("res://gameplay/status/buff_holder.gd")
+
+	# 键名 ↔ 枚举
+	_check(EDmg.elem_from_key("fire") == ED.Elem.FIRE, "键名 fire → 火")
+	_check(EDmg.elem_from_key("poison") == ED.Elem.POISON, "键名 poison → 毒")
+	_check(EDmg.elem_from_key("") == EDmg.NO_ELEMENT, "空键名 → 无元素")
+	_check(EDmg.elem_from_key("nonsense") == EDmg.NO_ELEMENT, "未知键名 → 无元素")
+
+	# 纯物理（无元素）不叠层
+	var h = H.new(null)
+	var r0: Dictionary = EDmg.attack(h, EDmg.NO_ELEMENT)
+	_check(r0.get("stacks_applied") == 0, "无元素攻击不叠层")
+
+	# 火攻击叠 1 层
+	var r1: Dictionary = EDmg.attack(h, ED.Elem.FIRE)
+	_check(r1.get("stacks_applied") == 1, "火攻击叠 1 层")
+	_check(h.elem_stacks(ED.Elem.FIRE) == 1, "层数已写入目标")
+
+	# 冰：叠 3 次触发冰冻事件
+	var h2 = H.new(null)
+	var last: Dictionary = {}
+	for _i in 3:
+		last = EDmg.attack(h2, ED.Elem.FROST)
+	_check((last.get("events", []) as Array).has("freeze"), "冰攻击第 3 次触发冰冻事件")
+	_check(h2.is_frozen(), "目标进入冰冻")
+
+	# 雷：叠 10 次触发雷暴
+	var h3 = H.new(null)
+	var last3: Dictionary = {}
+	for _i in 10:
+		last3 = EDmg.attack(h3, ED.Elem.STATIC)
+	_check((last3.get("events", []) as Array).has("thunderstorm"), "雷攻击第 10 次触发雷暴")
+
+	# 阈值事件 → 控制词条
+	_check(EDmg.control_for_event("freeze") == "freeze", "冰冻事件 → freeze 词条")
+	_check(EDmg.control_for_event("thunderstorm") == "paralyze", "雷暴事件 → 麻痹词条")
+
+	# 联动生效：冰冻 + 山崩 → 碎裂岩击，本次伤害倍率被放大
+	# 注意不要用「静电≥5 + 冰冻」测——雷攻击叠满 10 层会触发雷暴并归零，
+	# 判定时静电已为 0（这是元素机制本身的正确行为，不是 bug）。
+	var h4 = H.new(null)
+	h4.apply("freeze", "test")
+	var boosted: Dictionary = EDmg.attack(h4, ED.Elem.FIRE, 1.0, {"shatter_proc": true})
+	_check((boosted.get("combo", {}) as Dictionary).has(ED.COMBO_SHATTER_ROCK),
+		"冰冻+山崩 → 碎裂岩击联动被判定",
+		[str((boosted.get("combo", {}) as Dictionary).keys())])
+	_check(float(boosted.get("damage_mult", 1.0)) > 1.0, "联动放大本次伤害倍率",
+		[str(boosted.get("damage_mult"))])
+
+	# 冰晶电导也验证一次：直接构造状态快照（不经攻击叠层，避免雷暴归零）
+	var h4b = H.new(null)
+	for _i in 5:
+		h4b.add_element(ED.Elem.STATIC, 1)
+	h4b.add_element(ED.Elem.FROST, 3)   # 触发冰冻
+	var b2: Dictionary = EDmg.attack(h4b, ED.Elem.EARTH, 1.0)
+	_check((b2.get("combo", {}) as Dictionary).has(ED.COMBO_ICE_CONDUCT),
+		"静电5+冰冻 → 冰晶电导被判定",
+		[str((b2.get("combo", {}) as Dictionary).keys())])
+
+	# DOT 每秒：火 10 层 + 法强 100 = 40
+	var h5 = H.new(null)
+	for _i in 10:
+		h5.add_element(ED.Elem.FIRE, 1)
+	_check(absf(EDmg.dot_per_second(h5, 100.0) - 40.0) < 0.5,
+		"元素 DOT 每秒 40（法强100 火10层）", [str(EDmg.dot_per_second(h5, 100.0))])
+
+
+## ---------- 控制型词条真正生效 ----------
+func _test_control_effects() -> void:
+	_test = "ControlEffects"
+	print("\n--- %s ---" % _test)
+
+	var H = load("res://gameplay/status/buff_holder.gd")
+
+	# 硬控判定：冰冻/麻痹/眩晕/定身 为真；减速不算硬控
+	var h = H.new(null)
+	_check(not h.is_controlled(), "无词条时不受控")
+	h.apply("freeze", "t")
+	_check(h.is_controlled(), "冰冻 → 受控")
+	var h2 = H.new(null)
+	h2.apply("paralyze", "t")
+	_check(h2.is_controlled(), "麻痹 → 受控")
+	var h3 = H.new(null)
+	h3.apply("stun", "t")
+	_check(h3.is_controlled(), "眩晕 → 受控")
+	var h4 = H.new(null)
+	h4.apply("entangle", "t")
+	_check(h4.is_controlled(), "定身 → 受控")
+	var h5 = H.new(null)
+	h5.apply("frost", "t")
+	_check(not h5.is_controlled(), "寒霜是减速不是硬控")
+
+	# 硬控会随时间结束
+	var h6 = H.new(null)
+	h6.apply("stun", "t")   # 眩晕 1 秒
+	_check(h6.is_controlled(), "眩晕中")
+	h6.tick(1.5)
+	_check(not h6.is_controlled(), "1.5 秒后眩晕已结束")
+
+	# 减速累加（多来源叠加）
+	var h7 = H.new(null)
+	_check(h7.total_slow() == 0.0, "无减速")
+	h7.apply("mire", "t")   # -40%
+	_check(absf(h7.total_slow() - 0.40) < 0.01, "泥沼减速 40%")
+	h7.apply("erosion", "t")  # 再 -20%
+	_check(absf(h7.total_slow() - 0.60) < 0.01, "叠加后 60%", [str(h7.total_slow())])
+
+	# 减速有上限（不会超过 90%）
+	var h8 = H.new(null)
+	for id in ["mire", "erosion", "thorn_slow"]:
+		h8.apply(id, "t")
+	_check(h8.total_slow() <= 0.9, "减速封顶 90%", [str(h8.total_slow())])
+
+	# 攻速降低（迟钝 25%）
+	var h9 = H.new(null)
+	h9.apply("dull", "t")
+	var down := float(load("res://data/buffs/buff_defs.gd").params_of("dull").get("aspd_down", 0.0))
+	_check(absf(down - 0.25) < 0.01, "迟钝 攻速 -25%")
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:

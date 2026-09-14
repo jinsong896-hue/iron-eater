@@ -162,6 +162,30 @@ const ELITE_ATK_MIN := 1.3
 const ELITE_ATK_MAX := 1.5
 
 
+## 元素攻击（分册 7.x）：**只有部分怪带元素**，其余为纯物理。
+## 稀疏表 —— 未列出的怪物不带元素（绝不臆造）。
+## 依据：分册第 4/5 章的怪物命名与主题（毒瘴系=毒、硫磺/熔岩/炎/鬼火系=火、
+## 石翼/矿晶=土）。冰与雷在怪物侧没有自然来源，需靠装备赋予（登记待办）。
+const ELEMENT_BY_ID := {
+	# 毒系
+	"zombie_miasma": "poison", "miasma_p2": "poison", "miasma_p4": "poison",
+	"venom_frog": "poison", "water_spore": "poison",
+	# 火系（硫磺/熔岩/炎/鬼火/自爆）
+	"miasma_p3": "fire",
+	"archer_p3": "fire",
+	"sentry_p3": "fire",
+	"hound_p3": "fire",
+	"bat_p3": "fire",
+	"rat_p3": "fire",
+	"wisp_ghostfire": "fire", "wisp_p2": "fire", "wisp_p3": "fire", "wisp_p4": "fire",
+	"mine_bomber": "fire", "orb_bomber": "fire",
+	"sulfur_elemental": "fire", "forge_core": "fire",
+	"ash_walker": "fire", "flame_spawn": "fire",
+	# 土系（石/矿晶）
+	"bat_stonewing": "earth", "crystal_beetle": "earth",
+}
+
+
 ## 初始化（幂等）
 static func init() -> void:
 	if _initialized:
@@ -211,6 +235,7 @@ static func _build_base_monsters() -> void:
 				"scale": scale,
 				"weight": weight,
 				"special": _special_for(str(st[5])),
+				"element": str(ELEMENT_BY_ID.get(id, "")),
 				"phase": phase,
 				"base_key": key,
 				"is_elite": false,
@@ -252,6 +277,7 @@ static func _build_unique_monsters() -> void:
 			"scale": scale,
 			"weight": weight,
 			"special": _special_for(mech),
+			"element": str(ELEMENT_BY_ID.get(id, "")),
 			"phase": PHASE_OF_LAYER.get(layer, 1),
 			"base_key": proto,
 			"appears_layer": layer,      # 只在本层及相邻层出现
@@ -282,6 +308,7 @@ static func _build_layer9_monsters() -> void:
 			"scale": row[4],
 			"weight": row[5],
 			"special": _special_for(str(row[6])),
+			"element": str(ELEMENT_BY_ID.get(id, "")),
 			"phase": 5,
 			"base_key": proto,
 			"appears_layer": 9,
