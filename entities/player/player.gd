@@ -382,7 +382,14 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 		GameBalance.COMBO_DAMAGE_CAP
 	)
 	var target_def: float = enemy.get("defense") if enemy.get("defense") != null else 0.0
-	var result := DamagePipeline.physical(atk, multiplier, fusion_bonus + combo_bonus, target_def)
+	# 目标身上的词条影响：易伤（毒蚀等）与减伤（护盾/防御型）
+	var vuln := 0.0
+	var taken_down := 0.0
+	var tgt_buffs = enemy.get("buffs")
+	if tgt_buffs != null and tgt_buffs is BuffHolder:
+		vuln = (tgt_buffs as BuffHolder).total_vulnerability()
+		taken_down = (tgt_buffs as BuffHolder).total_damage_reduction()
+	var result := DamagePipeline.physical(atk, multiplier, fusion_bonus + combo_bonus, target_def, vuln, taken_down)
 	var crit := GameManager.rng.randf() < crt
 	var total := DamagePipeline.with_crit(result.damage, crit, crd)
 

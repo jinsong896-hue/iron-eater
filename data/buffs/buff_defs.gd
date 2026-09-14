@@ -1,0 +1,209 @@
+class_name BuffDefs
+extends RefCounted
+## 词条（Buff / Debuff）定义表 —— 《噬铁者》名词设计分册 第 3/4/5 章
+##
+## 分册口径：词条按功能分类，同类可叠层；同一攻击可同时触发多种词条，独立判定。
+## 本文件只放**数据**；运行时的挂接/计时/叠层见 buff_holder.gd。
+##
+## 总计 81 种：负面 38（3.1~3.6）+ 增益 22（4.1~4.4）+ 通用池 21（第 5 章）
+## 实现分层见每条 impl 字段：
+##   "stat"     —— 纯属性型，Modifier 立刻可作用（本轮生效）
+##   "dot"      —— 持续伤害/治疗，由 buff_holder 按 tick 结算（本轮生效）
+##   "control"  —— 控制型（定身/眩晕/冰冻/麻痹…），需要目标状态机配合（登记）
+##   "special"  —— 需要专属逻辑（护盾/反伤/传送/召唤…）（登记）
+
+enum Kind { DOT, SLOW, CONTROL, VULN, WEAKEN, DISPLACE, SHIELD, ATTACK, MOBILITY, RESOURCE, GENERIC }
+
+## 词条行格式：
+## [id, 名称, 分类, 持续时间(0=永久), 叠层上限(0=不叠), 效果描述, 实现类型, 效果参数]
+## 效果参数键约定（供运行时消费）：
+##   stat / flat / pct     —— 属性修正
+##   dot_pct               —— 每秒伤害 = 法强 × dot_pct（× 层数）
+##   slow / aspd_down      —— 移速/攻速降低比例
+##   vuln                  —— 受到伤害 +%
+##   heal_down             —— 受到治疗 -%
+##   dmg_down              —— 造成伤害 -%
+const BUFFS := [
+	# ---------- 3.1 持续伤害型（5） ----------
+	["burn", "灼烧", Kind.DOT, 4.0, 50, "每秒造成法强×0.04 法术伤害", "dot", {"dot_pct": 0.04}],
+	["poison_rot", "毒蚀", Kind.DOT, 0.0, 30, "每秒法强×0.03 法术伤害，全局易伤 +1%/层", "dot", {"dot_pct": 0.03, "vuln": 0.01}],
+	["tear", "撕裂", Kind.DOT, 4.0, 0, "每秒造成攻击力×0.2 物理伤害", "dot", {"dot_atk": 0.2}],
+	["bleed", "流血", Kind.DOT, 3.0, 3, "每秒造成攻击力×0.15 物理伤害", "dot", {"dot_atk": 0.15}],
+	["curse_burn", "诅咒燃烧", Kind.DOT, 3.0, 0, "每秒法强×0.5 法术伤害，治疗效果 -30%", "dot", {"dot_pct": 0.5, "heal_down": 0.30}],
+
+	# ---------- 3.2 减速 / 减速攻型（6） ----------
+	["frost", "寒霜", Kind.SLOW, 3.0, 3, "移速 -25%/层，攻速 -20%/层", "stat", {"slow": 0.25, "aspd_down": 0.20}],
+	["erosion", "侵蚀", Kind.SLOW, 0.0, 0, "移速 -20%（毒蚀 10 层解锁）", "stat", {"slow": 0.20}],
+	["entangle", "缠绕", Kind.CONTROL, 1.5, 0, "定身 1.5 秒（不能移动，可攻击）", "control", {"root": true}],
+	["thorn_slow", "荆棘地减速", Kind.SLOW, 0.0, 0, "移速 -50%（踏入期间）", "stat", {"slow": 0.50}],
+	["dull", "迟钝", Kind.SLOW, 4.0, 0, "攻速 -25%，施法速度 -25%", "stat", {"aspd_down": 0.25}],
+	["mire", "泥沼", Kind.SLOW, 3.0, 0, "移速 -40%，无法翻滚", "stat", {"slow": 0.40, "no_dodge": true}],
+
+	# ---------- 3.3 硬控型（8） ----------
+	["freeze", "冰冻", Kind.CONTROL, 1.5, 0, "无法移动/攻击（冰裂可延长至 2.5 秒）", "control", {"stun": true}],
+	["paralyze", "麻痹", Kind.CONTROL, 1.5, 0, "无法行动（雷暴触发）", "control", {"stun": true}],
+	["stun", "眩晕", Kind.CONTROL, 1.0, 0, "无法行动", "control", {"stun": true}],
+	["knockup", "击飞", Kind.DISPLACE, 0.0, 0, "面朝方向弹射 3 米", "control", {"knockup": 3.0}],
+	["silence", "沉默", Kind.CONTROL, 3.0, 0, "无法施放技能", "control", {"no_skill": true}],
+	["disarm", "缴械", Kind.CONTROL, 3.0, 0, "无法普攻", "control", {"no_attack": true}],
+	["taunt", "嘲讽", Kind.CONTROL, 3.0, 0, "强制攻击施法者", "control", {"taunt": true}],
+	["fear", "恐惧", Kind.CONTROL, 2.0, 0, "强制远离施法者", "control", {"fear": true}],
+
+	# ---------- 3.4 易伤 / 破甲型（10） ----------
+	["static_charge", "静电", Kind.VULN, 0.0, 10, "雷系增伤叠层；满 10 层触发雷暴", "special", {"element_stack": "static"}],
+	["judgement", "审判印记", Kind.VULN, 8.0, 0, "受到伤害提升", "stat", {"vuln": 0.15}],
+	["dark_erosion", "暗蚀", Kind.VULN, 5.0, 0, "受到暗影伤害提升", "stat", {"vuln": 0.12}],
+	["brand", "烙印", Kind.VULN, 6.0, 0, "受到伤害提升", "stat", {"vuln": 0.10}],
+	["mark", "标记", Kind.VULN, 6.0, 0, "被标记，受到伤害提升", "stat", {"vuln": 0.20}],
+	["armor_down", "降甲", Kind.VULN, 4.0, 0, "护甲降低", "stat", {"def_down": 0.20}],
+	["armor_break", "破甲", Kind.VULN, 4.0, 0, "护甲大幅降低", "stat", {"def_down": 0.35}],
+	["frailty", "脆弱", Kind.VULN, 5.0, 0, "受到暴击伤害提升", "special", {"crit_vuln": 0.25}],
+	["charm", "蛊惑", Kind.WEAKEN, 4.0, 0, "攻击有概率打空", "special", {"miss_chance": 0.30}],
+	["expose", "暴露", Kind.VULN, 5.0, 0, "无法闪避，受到伤害提升", "stat", {"vuln": 0.10, "no_dodge": true}],
+
+	# ---------- 3.5 减益 / 削弱型（5） ----------
+	["enfeeble", "衰弱", Kind.WEAKEN, 5.0, 0, "造成伤害 -20%（毒蚀 20 层解锁）", "stat", {"dmg_down": 0.20}],
+	["weakness", "虚弱", Kind.WEAKEN, 6.0, 0, "治疗效果 -50%（毒蚀 30 层解锁）", "stat", {"heal_down": 0.50}],
+	["immolate", "焚身", Kind.DOT, 4.0, 0, "自身受到火焰伤害提升", "stat", {"vuln": 0.15}],
+	["blind", "致盲", Kind.WEAKEN, 3.0, 0, "命中率大幅下降", "special", {"miss_chance": 0.50}],
+	["fatigue", "疲软", Kind.WEAKEN, 4.0, 0, "攻击力降低", "stat", {"atk_down": 0.20}],
+
+	# ---------- 3.6 击退 / 位移型（4） ----------
+	["pull", "牵引", Kind.DISPLACE, 0.0, 0, "强制拉向风眼/施法者", "control", {"pull": true}],
+	["knockback", "击退", Kind.DISPLACE, 0.0, 0, "被推开", "control", {"knockback": true}],
+	["drag", "拉拽", Kind.DISPLACE, 0.0, 0, "被拖拽至目标位置", "control", {"drag": true}],
+	["shadow_dash", "暗影突袭瞬移", Kind.MOBILITY, 0.0, 0, "瞬移至目标背后", "special", {"teleport_behind": true}],
+
+	# ---------- 4.1 护盾 / 防御型（4） ----------
+	["shield", "护盾", Kind.SHIELD, 8.0, 0, "吸收固定伤害", "special", {"absorb": 200.0}],
+	["light_shield", "光盾", Kind.SHIELD, 8.0, 0, "吸收伤害并反射部分", "special", {"absorb": 150.0, "reflect": 0.20}],
+	["iron_body", "铁身", Kind.SHIELD, 6.0, 0, "受到伤害降低", "stat", {"dmg_taken_down": 0.30}],
+	["adamant", "金刚体", Kind.SHIELD, 5.0, 0, "免疫控制且受到伤害降低", "special", {"cc_immune": true, "dmg_taken_down": 0.20}],
+
+	# ---------- 4.2 攻击 / 输出型（9） ----------
+	["war_cry", "战吼", Kind.ATTACK, 6.0, 0, "攻击力提升", "stat", {"atk_up": 0.25}],
+	["blood_rage", "血怒", Kind.ATTACK, 8.0, 0, "生命越低伤害越高", "special", {"low_hp_dmg": 0.50}],
+	["spell_flame", "咒焰", Kind.ATTACK, 6.0, 0, "法术强度提升", "stat", {"ap_up": 0.30}],
+	["focus", "聚力", Kind.ATTACK, 5.0, 0, "下次攻击伤害大幅提升", "special", {"charge_next": 1.5}],
+	["supreme", "极意", Kind.ATTACK, 6.0, 0, "攻速与移速同时提升", "stat", {"aspd_up": 0.25, "spd_up": 0.15}],
+	["break_limit", "破极状态", Kind.ATTACK, 5.0, 0, "全属性提升", "stat", {"atk_up": 0.20, "aspd_up": 0.20, "spd_up": 0.10}],
+	["forest_wrath", "森林之怒", Kind.ATTACK, 6.0, 0, "攻击附带自然伤害", "special", {"bonus_element": "nature"}],
+	["forest_bless", "森林祝福", Kind.ATTACK, 8.0, 0, "攻击与回复同时提升", "stat", {"atk_up": 0.15, "heal_up": 0.20}],
+	["verdict", "裁决时刻", Kind.ATTACK, 5.0, 0, "对低血目标伤害提升", "special", {"execute_bonus": 0.40}],
+
+	# ---------- 4.3 移动 / 机动型（4） ----------
+	["shadow_trace", "影痕", Kind.MOBILITY, 4.0, 0, "留下残影，闪避提升", "stat", {"dodge_up": 0.20}],
+	["shadow_form", "暗影形态", Kind.MOBILITY, 5.0, 0, "移速提升且可穿怪", "special", {"spd_up": 0.25, "phase": true}],
+	["wind_step", "风之步", Kind.MOBILITY, 6.0, 0, "移速提升", "stat", {"spd_up": 0.30}],
+	["gale", "疾风", Kind.MOBILITY, 5.0, 0, "移速与攻速提升", "stat", {"spd_up": 0.20, "aspd_up": 0.15}],
+
+	# ---------- 4.4 资源 / 回复型（5） ----------
+	["bloodbath", "浴血", Kind.RESOURCE, 6.0, 0, "造成伤害时回复生命", "special", {"lifesteal": 0.10}],
+	["shadow_hunt", "暗影猎杀", Kind.RESOURCE, 5.0, 0, "击杀回复资源", "special", {"on_kill_resource": true}],
+	["element_affinity", "元素亲和", Kind.RESOURCE, 8.0, 0, "元素伤害提升", "stat", {"elem_up": 0.25}],
+	["arcane_echo", "奥术回响", Kind.RESOURCE, 6.0, 0, "技能有概率不消耗资源", "special", {"free_cast_chance": 0.30}],
+	["execute", "处决", Kind.RESOURCE, 5.0, 0, "对低血目标直接斩杀", "special", {"execute_threshold": 0.15}],
+
+	# ---------- 第 5 章 通用词条池（21） ----------
+	["gen_atk_up", "属性增益·攻击", Kind.GENERIC, 8.0, 0, "攻击力提升", "stat", {"atk_up": 0.12}],
+	["gen_def_up", "属性增益·防御", Kind.GENERIC, 8.0, 0, "防御提升", "stat", {"def_up": 0.12}],
+	["gen_hp_up", "属性增益·生命", Kind.GENERIC, 8.0, 0, "生命上限提升", "stat", {"hp_up": 0.12}],
+	["gen_spd_up", "属性增益·移速", Kind.GENERIC, 8.0, 0, "移速提升", "stat", {"spd_up": 0.12}],
+	["gen_aspd_up", "属性增益·攻速", Kind.GENERIC, 8.0, 0, "攻速提升", "stat", {"aspd_up": 0.12}],
+	["gen_crit_up", "属性增益·暴击率", Kind.GENERIC, 8.0, 0, "暴击率提升", "stat", {"crit_up": 0.10}],
+	["gen_crd_up", "属性增益·暴击伤害", Kind.GENERIC, 8.0, 0, "暴击伤害提升", "stat", {"crd_up": 0.20}],
+	["gen_ap_up", "属性增益·法强", Kind.GENERIC, 8.0, 0, "法术强度提升", "stat", {"ap_up": 0.12}],
+	["gen_cdr_up", "属性增益·冷却缩减", Kind.GENERIC, 8.0, 0, "冷却缩减提升", "stat", {"cdr_up": 0.10}],
+	["gen_rng_up", "属性增益·射程", Kind.GENERIC, 8.0, 0, "射程提升", "stat", {"rng_up": 0.15}],
+	["gen_control_1", "控制附加·减速", Kind.GENERIC, 3.0, 0, "命中时附加减速", "stat", {"slow": 0.25}],
+	["gen_control_2", "控制附加·定身", Kind.GENERIC, 1.5, 0, "命中时附加定身", "control", {"root": true}],
+	["gen_control_3", "控制附加·眩晕", Kind.GENERIC, 1.0, 0, "命中时附加眩晕", "control", {"stun": true}],
+	["gen_control_4", "控制附加·击退", Kind.GENERIC, 0.0, 0, "命中时击退", "control", {"knockback": true}],
+	["gen_fx_1", "特效附加·灼烧", Kind.GENERIC, 4.0, 10, "命中时附加灼烧层数", "dot", {"dot_pct": 0.04, "element_stack": "fire"}],
+	["gen_fx_2", "特效附加·毒蚀", Kind.GENERIC, 0.0, 10, "命中时附加毒蚀层数", "dot", {"dot_pct": 0.03, "element_stack": "poison"}],
+	["gen_fx_3", "特效附加·寒霜", Kind.GENERIC, 3.0, 3, "命中时附加寒霜层数", "stat", {"slow": 0.25, "element_stack": "frost"}],
+	["gen_fx_4", "特效附加·静电", Kind.GENERIC, 0.0, 10, "命中时附加静电层数", "special", {"element_stack": "static"}],
+	["gen_sustain_1", "续航·灭杀回复", Kind.GENERIC, 6.0, 0, "击杀时回复生命", "special", {"on_kill_heal": 0.05}],
+	["gen_sustain_2", "续航·受击减伤", Kind.GENERIC, 6.0, 0, "受到伤害降低", "stat", {"dmg_taken_down": 0.15}],
+	["gen_sustain_3", "续航·脱战回复", Kind.GENERIC, 10.0, 0, "脱战时持续回复", "special", {"regen": 0.02}],
+]
+
+## 分类中文名
+const KIND_NAMES := {
+	Kind.DOT: "持续伤害", Kind.SLOW: "减速", Kind.CONTROL: "硬控",
+	Kind.VULN: "易伤/破甲", Kind.WEAKEN: "削弱", Kind.DISPLACE: "位移",
+	Kind.SHIELD: "护盾/防御", Kind.ATTACK: "攻击/输出", Kind.MOBILITY: "移动/机动",
+	Kind.RESOURCE: "资源/回复", Kind.GENERIC: "通用",
+}
+
+## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
+## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），
+## 此处是策划文档的分节（「缠绕」在 3.2 减速型）。二者不该混为一谈，
+## 但数据必须能按文档分节核对，故单列此表。
+## 合计 5+6+8+10+5+4 + 4+9+4+5 + 21 = 81
+const DOC_SECTIONS := {
+	"3.1 持续伤害型": ["burn", "poison_rot", "tear", "bleed", "curse_burn"],
+	"3.2 减速/减速攻型": ["frost", "erosion", "entangle", "thorn_slow", "dull", "mire"],
+	"3.3 硬控型": ["freeze", "paralyze", "stun", "knockup", "silence", "disarm", "taunt", "fear"],
+	"3.4 易伤/破甲型": ["static_charge", "judgement", "dark_erosion", "brand", "mark", "armor_down", "armor_break", "frailty", "charm", "expose"],
+	"3.5 减益/削弱型": ["enfeeble", "weakness", "immolate", "blind", "fatigue"],
+	"3.6 击退/位移型": ["pull", "knockback", "drag", "shadow_dash"],
+	"4.1 护盾/防御型": ["shield", "light_shield", "iron_body", "adamant"],
+	"4.2 攻击/输出型": ["war_cry", "blood_rage", "spell_flame", "focus", "supreme", "break_limit", "forest_wrath", "forest_bless", "verdict"],
+	"4.3 移动/机动型": ["shadow_trace", "shadow_form", "wind_step", "gale"],
+	"4.4 资源/回复型": ["bloodbath", "shadow_hunt", "element_affinity", "arcane_echo", "execute"],
+	"第5章 通用词条池": [
+		"gen_atk_up", "gen_def_up", "gen_hp_up", "gen_spd_up", "gen_aspd_up",
+		"gen_crit_up", "gen_crd_up", "gen_ap_up", "gen_cdr_up", "gen_rng_up",
+		"gen_control_1", "gen_control_2", "gen_control_3", "gen_control_4",
+		"gen_fx_1", "gen_fx_2", "gen_fx_3", "gen_fx_4",
+		"gen_sustain_1", "gen_sustain_2", "gen_sustain_3",
+	],
+}
+
+## 某文档分节包含的词条 id
+static func section_ids(section: String) -> Array:
+	return DOC_SECTIONS.get(section, [])
+
+
+static func _index() -> Dictionary:
+	var out := {}
+	for row in BUFFS:
+		out[str(row[0])] = row
+	return out
+
+static var _cached: Dictionary = {}
+
+## 按 id 取定义行
+static func get_buff(id: String) -> Array:
+	if _cached.is_empty():
+		_cached = _index()
+	return _cached.get(id, [])
+
+## 全部词条 id
+static func all_ids() -> Array:
+	if _cached.is_empty():
+		_cached = _index()
+	return _cached.keys()
+
+## 按分类取词条
+static func by_kind(kind: int) -> Array:
+	var out: Array = []
+	for row in BUFFS:
+		if int(row[2]) == kind:
+			out.append(row)
+	return out
+
+## 该词条的实现类型（stat/dot/control/special）
+static func impl_of(id: String) -> String:
+	var row := get_buff(id)
+	return str(row[6]) if not row.is_empty() else ""
+
+## 效果参数
+static func params_of(id: String) -> Dictionary:
+	var row := get_buff(id)
+	return row[7] if row.size() > 7 else {}
+
+## 本轮真正生效的实现类型（其余为登记）
+static func implemented_types() -> Array:
+	return ["stat", "dot"]

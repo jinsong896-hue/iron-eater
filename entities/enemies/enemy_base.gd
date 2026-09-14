@@ -64,6 +64,7 @@ var death_split := false      ## 死亡分裂为小型同类
 var split_count := 2          ## 分裂数量
 var summon_spec: Dictionary = {}   ## 召唤配置 {id,count,chance}
 var affixes: Array = []       ## 词缀 id 列表（数值型已作用到属性，其余待后续系统）
+var buffs = null              ## BuffHolder：词条与元素叠层容器（_ready 创建）
 var _explode_timer := 0.0     ## 自爆前摇倒计时（>0 表示正在蓄爆）
 var _exploding := false
 var _dash_timer := 0.0        ## 突进持续时间
@@ -99,6 +100,9 @@ func _ready() -> void:
 	add_to_group("enemies")
 	_hp = max_hp
 	rng.randomize()
+	# 词条/元素容器：挂在敌人身上，玩家攻击时读它的易伤与减伤
+	if buffs == null:
+		buffs = BuffHolder.new(self)
 	_find_player()
 	_create_visual()
 

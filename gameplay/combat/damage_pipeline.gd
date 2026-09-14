@@ -5,14 +5,20 @@ extends RefCounted
 ## 护甲减伤% = 防御 / (防御 + 100)
 
 ## 物理伤害计算
-static func physical(attacker_atk: float, skill_multiplier: float, bonus: float, target_def: float) -> Dictionary:
+## bonus  = 增伤（连击/融合等）
+## vuln   = 目标易伤（词条累加，如毒蚀每层 +1%）
+## taken_down = 目标受到伤害降低（护盾/防御型词条）
+static func physical(attacker_atk: float, skill_multiplier: float, bonus: float, target_def: float, vuln: float = 0.0, taken_down: float = 0.0) -> Dictionary:
 	var raw := attacker_atk * skill_multiplier * (1.0 + bonus)
 	var reduction := target_def / (target_def + 100.0)
-	var final_damage := maxf(raw * (1.0 - reduction), 1.0)
+	var final_damage := raw * (1.0 - reduction) * (1.0 + vuln) * (1.0 - clampf(taken_down, 0.0, 0.9))
+	final_damage = maxf(final_damage, 1.0)
 	return {
 		"damage": final_damage,
 		"raw": raw,
 		"reduction": reduction,
+		"vuln": vuln,
+		"taken_down": taken_down,
 	}
 
 
