@@ -18,6 +18,7 @@ func _ready() -> void:
 	_test_validate()
 	_test_suggest()
 	_test_help_completeness()
+	_test_complete()
 	await _test_gate()
 	_test_time_scale()
 	await _test_modal()
@@ -298,6 +299,53 @@ func _test_god_mode() -> void:
 	p.call("take_damage", 50.0)
 	_check(float(attrs.get("hp")) < hp0, "关掉后正常受伤",
 		["%f → %f" % [hp0, float(attrs.get("hp"))]])
+
+
+## ---------- 自动补全 ----------
+func _test_complete() -> void:
+	print("\n--- Autocomplete ---")
+	var dm := _dm()
+	var DP = load("res://core/debug_parser.gd")
+
+	# 命令名：前缀过滤
+	var a: Dictionary = dm.call("complete", "go")
+	_check((a.get("candidates", []) as Array).has("god") and
+		(a.get("candidates", []) as Array).has("gold"), "命令名前缀补全 go → god/gold",
+		[str(a.get("candidates"))])
+	var b: Dictionary = dm.call("complete", "spa")
+	_check(b.get("candidates") == ["spawn"], "唯一前缀 spa → spawn")
+
+	# 参数补全：尾随空格后应给该命令的参数候选，**不是**命令名
+	var c: Dictionary = dm.call("complete", "testmode ")
+	_check(c.get("candidates") == ["on", "off"], "testmode 后补 on/off（回归：曾被误判为命令名）",
+		[str(c.get("candidates"))])
+	# 这曾是个真 bug：_token_index 先 strip_edges 会丢掉尾随空格
+	var d: Dictionary = dm.call("complete", "god o")
+	_check(d.get("candidates") == ["on", "off", "orange"] or (d.get("candidates", []) as Array).has("on"),
+		"god o → on/off", [str(d.get("candidates"))])
+
+	# 枚举参数
+	var e: Dictionary = dm.call("complete", "item gr")
+	_check(e.get("candidates") == ["green"], "item gr → green")
+
+	# 运行时注入：怪物 id
+	var f: Dictionary = dm.call("complete", "spawn rat")
+	_check((f.get("candidates", []) as Array).has("rat_mutant"), "spawn 后补怪物 id（运行时注入）",
+		[str(f.get("candidates"))])
+
+	# 运行时注入：房间序号
+	var g: Dictionary = dm.call("complete", "tp ")
+	_check((g.get("candidates", []) as Array).size() > 1, "tp 后补房间序号",
+		[str((g.get("candidates", []) as Array).size())])
+
+	# 公共前缀
+	_check(DP.common_prefix(["gold", "god"]) == "go", "公共前缀 gold/god → go")
+	_check(DP.common_prefix(["rat_mutant", "rat_mutant_b"]) == "rat_mutant", "公共前缀含包含关系")
+	_check(DP.common_prefix([]) == "", "空列表公共前缀为空")
+
+	# 无候选
+	var h: Dictionary = dm.call("complete", "zzzz")
+	_check((h.get("candidates", []) as Array).is_empty(), "无匹配则空候选")
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:

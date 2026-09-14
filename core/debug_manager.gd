@@ -542,6 +542,16 @@ func monster_ids() -> Array:
 	return _monster_ids
 
 
+## 自动补全入口：把运行时上下文（怪物库/房间数）注入解析器。
+## 解析器本身不认识 MonsterDB / dungeon_graph，故候选来源由这里提供。
+func complete(line: String) -> Dictionary:
+	var ctx := {"monster_ids": monster_ids(), "room_count": 0}
+	var gr := game_root()
+	if gr != null:
+		ctx["room_count"] = (gr.get("dungeon_graph") as Array).size()
+	return DebugParser.complete(line, COMMANDS, ctx)
+
+
 # ============================================================
 # 小工具
 # ============================================================

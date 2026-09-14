@@ -8,8 +8,8 @@ extends CanvasLayer
 ## 故 InputManager 会问 DebugManager.is_text_input_active()，本控制台的 visible
 ## 就是那个判断依据。
 
-@onready var _output: RichTextLabel = get_node_or_null("Root/VBox/Output")
-@onready var _input_box: LineEdit = get_node_or_null("Root/VBox/Input")
+@onready var _output: RichTextLabel = get_node_or_null("Root/Panel/VBox/Output")
+@onready var _input_box: LineEdit = get_node_or_null("Root/Panel/VBox/Input")
 
 const MAX_LINES := 200
 
@@ -60,6 +60,43 @@ func _input(event: InputEvent) -> void:
 		elif kc == KEY_DOWN:
 			_recall(1)
 			get_viewport().set_input_as_handled()
+		elif kc == KEY_TAB:
+			_complete()
+			get_viewport().set_input_as_handled()
+
+
+## Tab 自动补全：一个候选直接补全；多个候选补到公共前缀并列出全部。
+func _complete() -> void:
+	if _input_box == null:
+		return
+	var dm := _debug_manager()
+	if dm == null or not dm.has_method("complete"):
+		return
+	var line := _input_box.text
+	var r: Dictionary = dm.call("complete", line)
+	var cands: Array = r.get("candidates", [])
+	if cands.is_empty():
+		return
+	if cands.size() == 1:
+		_apply_completion(line, str(r.get("token", "")), str(cands[0]))
+		return
+	# 多个候选：先补到公共前缀，再把候选列出来
+	var DP = load("res://core/debug_parser.gd")
+	var pre: String = DP.common_prefix(cands)
+	if pre.length() > str(r.get("token", "")).length():
+		_apply_completion(line, str(r.get("token", "")), pre)
+	# 候选太多（如 64 个怪物）只显示数量与前若干个，避免刷屏
+	var show: Array = cands.slice(0, 12)
+	var more := "" if cands.size() <= 12 else "  …共 %d 个" % cands.size()
+	_print_line("  候选：%s%s" % ["  ".join(show), more])
+
+
+## 用 repl 替换行尾的那个 token（保留前面的内容）
+func _apply_completion(line: String, token: String, repl: String) -> void:
+	var start := line.length() - token.length()
+	var newline := line.substr(0, start) + repl
+	_input_box.text = newline
+	_input_box.caret_column = newline.length()
 
 
 func toggle() -> void:

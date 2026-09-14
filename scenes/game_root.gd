@@ -402,10 +402,50 @@ func _transition_to_room(target_idx: int, enter_direction: String = "") -> void:
 	# 加载新房间
 	load_current_room()
 	_activate_current_room()
+	# 顺序关键：**先把门标记为已触发，再放玩家**。
+	# Godot 在 Area3D 进树时会对「已与其重叠的 body」派发 body_entered。
+	# 若先放玩家、出生点又恰在某扇门的触发区内，信号会在我们能禁用之前就发出去
+	# → 切房连锁（实测：期望房10 实际房8，玩家落在 (11,0,2) 的出生点、并不在门旁）。
+	# _is_transitioning 只挡同一次调用的重入，跨调用无效，挡不住这个。
+	_suppress_all_doors()
 	_place_player(enter_direction)
-	# 刚进来的那扇门暂时失效：玩家落点就在它旁边，立刻踩上会再触发一次
-	# → 「进一格却穿两房」。短暂失效后恢复，保留回头路。
+	_release_suppressed_doors()
+	# 再按落点收尾：只禁玩家真正压着的那扇（保留回头路）
 	_disarm_entry_door(enter_direction)
+
+	_is_transitioning = false
+
+
+## 把本房所有门临时标为「已触发」，挡住 Area3D 进树时对重叠 body 的派发。
+## 必须配合 _release_suppressed_doors()：否则门会一直哑掉，正常穿门失灵。
+func _suppress_all_doors() -> void:
+	for trig in _room_door_triggers():
+		trig.set("_triggered", true)
+
+
+## 解除抑制，但**保留玩家当前压着的那扇**（否则会被重叠派发再次触发）
+func _release_suppressed_doors() -> void:
+	for trig in _room_door_triggers():
+		if not _player_touches_door(trig):
+			if trig.has_method("reset_trigger"):
+				trig.call("reset_trigger")
+
+
+## 本房所有门触发器
+func _room_door_triggers() -> Array:
+	var out: Array = []
+	if current_room_node == null:
+		return out
+	var doors_node := current_room_node.get_node_or_null("Doors")
+	if doors_node == null:
+		return out
+	for door in doors_node.get_children():
+		if not str(door.name).begins_with("Door_"):
+			continue
+		var trig = door.get_node_or_null("DoorTrigger")
+		if trig != null:
+			out.append(trig)
+	return out
 
 	_is_transitioning = false
 

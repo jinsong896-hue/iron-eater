@@ -117,3 +117,103 @@ static func help_text(registry: Dictionary, topic: String = "") -> String:
 		var s: Dictionary = registry[k]
 		lines.append("  %-14s %s" % [s.get("usage", k), s.get("desc", "")])
 	return "\n".join(lines)
+
+
+## 每个命令的**参数候选**来源键。DebugParser 不认识怪物库/房间表，
+## 故只声明「该去问谁」，实际候选由调用方通过 ctx 注入。
+const ARG_SOURCE := {
+	"testmode": "onoff",
+	"god": "onoff",
+	"crit": "onoff",
+	"list": "listwhat",
+	"item": "rarity",
+	"spawn": "monster",
+	"tp": "room",
+	"floor": "floor",
+	"timescale": "num_ts",
+	"dmgmult": "num",
+	"gold": "num",
+	"potion": "num",
+	"help": "command",
+}
+
+
+## 自动补全。返回 {candidates: Array[String], token: String, index: int}
+##
+## line 为整行文本；补全**最后一个以空白分隔的 token**。
+##   index 0        → 命令名
+##   index >= 1     → 按命令的 ARG_SOURCE 取候选（ctx 注入）
+##
+## ctx 可含：monster_ids / room_count / floors
+static func complete(line: String, registry: Dictionary, ctx: Dictionary = {}) -> Dictionary:
+	var idx := _token_index(line)
+	var cut := line.length()
+	if cut > 0 and (line[cut - 1] == " " or line[cut - 1] == "\t"):
+		# 刚打完空格：正在开始一个新 token（补全它的空前缀 = 列全部候选）
+		return {"candidates": _candidates_for("", idx, _first_word(line), registry, ctx),
+			"token": "", "index": idx}
+	var start := maxi(line.rfind(" "), line.rfind("\t")) + 1
+	var token := line.substr(start, cut - start)
+	var names := _candidates_for(token, idx, _first_word(line), registry, ctx)
+	var stripped: Array = []
+	for n in names:
+		if str(n).to_lower().begins_with(token.to_lower()):
+			stripped.append(str(n))
+	return {"candidates": stripped, "token": token, "index": idx}
+
+
+## 当前正在输入第几个 token（0 = 命令名）
+## 数的是「已完成的 token 数」= 空格数。**不能先 strip_edges**——那会丢掉
+## 尾随空格，使「testmode 」（正准备输参数）被误判成在输命令名。
+static func _token_index(line: String) -> int:
+	var n := 0
+	for ch in line:
+		if ch == " " or ch == "	":
+			n += 1
+	return n
+
+
+static func _first_word(line: String) -> String:
+	var t := line.strip_edges()
+	var sp := t.find(" ")
+	return t if sp < 0 else t.substr(0, sp)
+
+
+static func _candidates_for(token: String, idx: int, cmd: String,
+		registry: Dictionary, ctx: Dictionary) -> Array:
+	if idx == 0:
+		return registry.keys()
+	var src := str(ARG_SOURCE.get(cmd.to_lower(), ""))
+	match src:
+		"onoff": return ["on", "off"]
+		"listwhat": return ["monsters", "rooms", "entities"]
+		"rarity": return ["white", "green", "blue", "purple", "orange"]
+		"monster": return ctx.get("monster_ids", [])
+		"room":
+			var out: Array = []
+			for i in int(ctx.get("room_count", 0)):
+				out.append(str(i))
+			return out
+		"floor":
+			var f: Array = []
+			for i in range(1, 10):
+				f.append(str(i))
+			return f
+		"command": return registry.keys()
+		_: return []
+
+
+## 最长公共前缀（多候选时先补到公共部分，再列出全部）
+static func common_prefix(items: Array) -> String:
+	if items.is_empty():
+		return ""
+	var p := str(items[0])
+	for s in items:
+		var t := str(s)
+		var i := 0
+		while i < p.length() and i < t.length() and p[i] == t[i]:
+			i += 1
+		p = p.substr(0, i)
+		if p == "":
+			break
+	return p
