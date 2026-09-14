@@ -43,6 +43,13 @@ var explode_damage := 0.0
 var _fuse_armed := false
 var _fuse_timer := 0.0
 
+# —— 分册第 4/9 章：击杀分裂 / 命中留区域 ——
+var split_on_hit := 0          ## >0：命中时分裂出 N 枚小弹（虚空弓手/混沌幼蛛）
+var split_damage_pct := 0.4    ## 分裂弹伤害占本体的比例
+var split_spread := 0.5        ## 分裂弹的散射半角（弧度）
+var zone_on_land := {}         ## 命中/有效期结束后原地生成区域（熔炉哨兵火焰区）
+var data: Dictionary = {}      ## 生成时的原始配置（分裂时复制用）
+
 var _owner_faction := TARGET_ENEMY   ## 本投射物"属于"哪一方（决定打谁）
 var _elapsed := 0.0
 var _hit_count := 0
@@ -67,6 +74,12 @@ static func spawn(data: Dictionary, parent: Node3D, target_group: String = TARGE
 	p.explode_damage = float(data.get("explode_damage", p.damage))
 	p._owner_faction = target_group
 	p._arc_height = float(data.get("arc_height", 3.0))
+	p.split_on_hit = int(data.get("split_on_hit", 0))
+	p.split_damage_pct = float(data.get("split_damage_pct", 0.4))
+	p.split_spread = float(data.get("split_spread", 0.5))
+	p.zone_on_land = data.get("zone_on_land", {})
+	# 保留原始配置：分裂时要据此复制出同类型小弹
+	p.data = data
 
 	p.position = data.get("position", Vector3.ZERO)
 	p._arc_start = p.position
@@ -155,6 +168,12 @@ func _on_body_entered(body: Node3D) -> void:
 	_deal_damage(body)
 	_hit_count += 1
 
+	# 命中分裂（虚空弓手 9-4 / 混沌幼蛛）：射出 N 枚散射小弹。
+	# 只分裂一次，否则会无限繁殖。
+	if split_on_hit > 0:
+		_spawn_split()
+		split_on_hit = 0
+
 	# 弹射：命中后改变方向继续飞（弹向下一个目标或反弹）
 	if _bounced < bounces:
 		_bounced += 1
@@ -162,10 +181,42 @@ func _on_body_entered(body: Node3D) -> void:
 		return
 
 	if _hit_count > pierce_count:
+		_spawn_land_zone()
 		if fuse > 0.0:
 			_arm_fuse()
 		else:
 			queue_free()
+
+
+## 命中时分裂出散射小弹（只分裂一次）
+func _spawn_split() -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	for i in split_on_hit:
+		# 以飞行方向为中心均匀散射
+		var t := 0.0 if split_on_hit <= 1 else (float(i) / float(split_on_hit - 1)) * 2.0 - 1.0
+		var ang := t * split_spread
+		var d := data.duplicate()
+		d["direction"] = direction.rotated(Vector3.UP, ang)
+		d["damage"] = damage * split_damage_pct
+		d["bounces"] = 0
+		d["pierce_count"] = 0
+		d["lifetime"] = 1.2
+		d["position"] = global_position
+		Projectile.spawn(d, parent, _owner_faction)
+
+
+## 命中/结束时在原地留下区域（熔炉哨兵 4-4 射击点火焰区）
+func _spawn_land_zone() -> void:
+	if zone_on_land.is_empty():
+		return
+	var parent := get_parent()
+	if parent == null:
+		return
+	var spec := zone_on_land.duplicate()
+	spec["position"] = global_position
+	DamageZone.spawn(spec, parent)
 
 
 ## 弹射：转向到最近的未命中目标；找不到则原路反弹

@@ -32,6 +32,7 @@ func _ready() -> void:
 	await _test_damage_zones()
 	_test_projectile_advanced()
 	_test_mechanic_buff_ids()
+	_test_teleport_stealth_mechanics()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -971,6 +972,64 @@ func _regex_all(text: String, pattern: String) -> Array:
 	for m in re.search_all(text):
 		out.append(m.get_string(1))
 	return out
+
+
+## ---------- 传送/潜伏/护盾类机制装配 ----------
+func _test_teleport_stealth_mechanics() -> void:
+	_test = "TeleportStealth"
+	print("\n--- %s ---" % _test)
+
+	var MDB = load("res://data/monsters/monster_db.gd")
+	var EB = load("res://entities/enemies/enemy_base.gd")
+	MDB.init()
+
+	# 机制标记 → 应被置位的字段
+	var cases := {
+		"shadow_lurker": ["stealth_always", true],       # 2-13 常态隐身
+		"entropy_wraith": ["hit_swap_positions", true],  # 9-4 命中交换位置
+		"wetland_ambusher": ["ambush", true],            # 4-17 潜伏突袭
+		"shadow_sentry": ["shield_on_timer", 20.0],      # 9-8 每 20 秒护盾
+		"forge_core": ["pulse_invuln", true],            # 6-20 脉冲无敌
+		"warped_beast": ["gravity_pull", true],          # 9-3 引力拉扯
+		"void_hunter": ["hit_root_seconds", 1.5],        # 9-4 突进定身
+	}
+	for mid in cases:
+		var m: Dictionary = MDB.get_monster(mid)
+		if m.is_empty():
+			_check(false, "%s 在库" % mid)
+			continue
+		var e = EB.new()
+		add_child(e)
+		e.apply_monster_config(m)
+		var field: String = cases[mid][0]
+		var want = cases[mid][1]
+		var got = e.get(field)
+		var ok: bool
+		if want is bool:
+			ok = bool(got) == want
+		else:
+			ok = absf(float(got) - float(want)) < 0.01
+		_check(ok, "%s 装配 %s（%s）" % [mid, field, str(got)], [str(got)])
+		e.queue_free()
+
+	# 护盾的数值口径（暗影哨兵：吸收 200）
+	var ss: Dictionary = MDB.get_monster("shadow_sentry")
+	var sh = EB.new()
+	add_child(sh)
+	sh.apply_monster_config(ss)
+	_check(absf(sh.shield_amount - 200.0) < 0.01, "暗影哨兵护盾吸收 200",
+		[str(sh.shield_amount)])
+	sh.queue_free()
+
+	# 潜伏突袭的距离口径（湿地伏击者：3 米）
+	var wa: Dictionary = MDB.get_monster("wetland_ambusher")
+	var amb = EB.new()
+	add_child(amb)
+	amb.apply_monster_config(wa)
+	_check(absf(amb.ambush_range - 3.0) < 0.01, "伏击触发距离 3 米",
+		[str(amb.ambush_range)])
+	_check(amb.ambush_damage_pct > 1.0, "突袭为高伤害（%.1fx）" % amb.ambush_damage_pct)
+	amb.queue_free()
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:

@@ -110,6 +110,26 @@ var hit_dodge_bonus := 0.0       ## 受击后闪避加成（硫磺蝙蝠）
 var hit_dodge_seconds := 0.0
 var _hit_dodge_timer := 0.0
 var hit_slow_buff := ""          ## 命中减速词条（硫磺幽魂）
+
+# —— 传送/位移 · 潜伏 · 护盾（分册 4.x / 5.x / 6.x）——
+var teleport_behind := false     ## 闪避成功后瞬移到玩家背后（虚空蝠群）
+var teleport_after_shot := 0.0   ## 射击后瞬移距离（熵能幽灵，3 米）
+var hit_swap_positions := false  ## 命中后与玩家交换位置（熵能幽灵，≤8 米）
+var stealth_always := false      ## 常态隐身（暗影潜伏者，半透明）
+var _reveal_timer := 0.0         ## 临时显形剩余（受击/攻击后）
+var ambush := false              ## 潜伏于地面，靠近突袭（湿地伏击者）
+var ambush_range := 3.0
+var ambush_damage_pct := 2.0     ## 突袭伤害倍率（分册「高伤害」）
+var _ambush_armed := true        ## 是否处于潜伏态
+var shield_on_timer := 0.0       ## 每 N 秒生成护盾（暗影哨兵，20 秒）
+var shield_amount := 0.0         ## 护盾吸收量（200）
+var _shield := 0.0               ## 当前护盾值
+var _shield_cd := 0.0
+var stealth_exit_bonus := 0.0    ## 退出隐身时突袭伤害加成（+50%）
+var _stealth_bonus_ready := false
+var pulse_invuln := false        ## 脉冲期间自身无敌（熔炉核心）
+var _pulse_timer := 0.0          ## 无敌剩余
+var gravity_pull := false        ## 周期性全屏引力（扭曲巨兽）
 var melee_knockback := 0.0    ## 石翼蝙蝠：命中击退玩家
 var hit_mark_seconds := 0.0   ## 熵能浮体：命中标记玩家（秒）
 var ash_chance_on_hit := 0.0  ## 灰烬行者：命中后进入灰烬形态的概率
@@ -159,6 +179,8 @@ func _ready() -> void:
 		buffs = BuffHolder.new(self)
 	_find_player()
 	_create_visual()
+	if stealth_always or stealth_exit_bonus > 0.0:
+		_apply_stealth_visual()
 
 
 func _find_player() -> void:
@@ -329,6 +351,45 @@ func _apply_mechanic(m: String) -> void:
 			aura_interval = 10.0
 			aura_spec = {"radius": 8.0, "duration": 3.0, "damage": 0.0,
 				"slow_buff": "mire", "color": Color(0.5, 0.2, 0.6, 0.35)}
+		# ——传送/位移 · 潜伏 · 护盾（分册 4.x / 5.x / 6.x）——
+		# 9-4 熵能幽魂：命中后随机交换玩家与怪物位置（≤8 米）
+		"swap_positions":
+			hit_swap_positions = true
+		# 4.8 熵能幽灵：射击后瞬移 3 米
+		"blink_after_shot":
+			teleport_after_shot = 3.0
+		# 4.7 虚空蝠群：闪避成功后瞬移到玩家背后
+		"teleport_behind":
+			teleport_behind = true
+		# 2-13 暗影潜伏者：常态隐身（半透明），攻击显形，受击显形 3 秒
+		"stealth":
+			stealth_always = true
+		# 4.10 虚空魅影：闪避成功后隐身 3 秒，退出隐身时突袭 +50%
+		"stealth_ambush":
+			stealth_exit_bonus = 0.50
+		# 4-17 湿地伏击者：潜伏于地面，玩家靠近 3 米内突袭（高伤害）
+		"ambush":
+			ambush = true
+			ambush_range = 3.0
+			ambush_damage_pct = 2.0
+		# 6-20 熔炉核心：周期性全屏脉冲（每秒 15 伤，3 秒）期间自身无敌
+		"pulse_invuln":
+			aura_interval = 12.0
+			aura_spec = {"radius": 12.0, "duration": 3.0, "damage": 15.0,
+				"color": Color(1.0, 0.6, 0.2, 0.35)}
+			pulse_invuln = true
+		# 9-3 扭曲巨兽：每 10 秒全屏引力（拉向自身，3 秒）
+		"gravity_pull":
+			aura_interval = 10.0
+			gravity_pull = true
+		# 9-4 虚空猎手：突进距离翻倍，命中后定身 1.5 秒
+		"long_dash_root":
+			dash_range_mult = 2.0
+			hit_root_seconds = 1.5
+		# 9-8 暗影哨兵：每 20 秒生成护盾（吸收 200），期间免疫控制
+		"shield_immune":
+			shield_on_timer = 20.0
+			shield_amount = 200.0
 		_:
 			pass   # 其余机制尚未实现（见 docs/progress 待办）
 
@@ -341,6 +402,9 @@ func _tick_aura(delta: float) -> void:
 	if _aura_timer > 0.0:
 		return
 	_aura_timer = aura_interval
+	# 熔炉核心：脉冲期间自身无敌（需打掉护盾发生器才能破，本版简化）
+	if pulse_invuln:
+		_pulse_timer = float(aura_spec.get("duration", 3.0))
 	var spec := aura_spec.duplicate()
 	spec["position"] = global_position
 	# 水波是「减速」而非伤害：给区域内玩家挂减速词条（分册 4-18，40%）
@@ -484,6 +548,7 @@ func _physics_process(delta: float) -> void:
 			move_speed /= 1.3
 	_tick_aura(delta)
 	_tick_mech_timers(delta)
+	_tick_stealth_timers(delta)
 
 	# 受击闪红衰减（每帧都要走，包括硬直/死亡前）
 	if _flash_timer > 0.0:
@@ -532,6 +597,10 @@ func _physics_process(delta: float) -> void:
 		EnemyState.IDLE:
 			_state_idle()
 		EnemyState.CHASE:
+			if _try_ambush():
+				return
+			_pull_player(delta)
+			_check_melee_haste()
 			_state_chase(delta)
 		EnemyState.WINDUP:
 			_state_windup(delta)
@@ -760,6 +829,120 @@ func _spawn_dash_trap() -> void:
 	DamageZone.spawn(spec, parent)
 
 
+# ============================================================
+# 传送/位移 · 潜伏 · 护盾（分册 4.x / 5.x / 6.x）
+# ============================================================
+
+## 瞬移到目标背后：取目标前向的反方向落点
+func _teleport_behind_target() -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var back: Vector3 = -(_player as Node3D).global_transform.basis.z
+	back.y = 0.0
+	if back.length_squared() < 0.001:
+		back = Vector3.BACK
+	global_position = (_player as Node3D).global_position + back.normalized() * 1.5
+
+
+## 射击后瞬移：朝远离玩家的方向闪 3 米（熵能幽灵）
+func _blink_after_shot(dist: float) -> void:
+	if _player == null or dist <= 0.0:
+		return
+	var away: Vector3 = global_position - (_player as Node3D).global_position
+	away.y = 0.0
+	if away.length_squared() < 0.001:
+		away = Vector3.FORWARD
+	global_position += away.normalized() * dist
+
+
+## 与玩家交换位置（熵能幽魂，限 ≤8 米）
+func _swap_with_player(max_dist: float = 8.0) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var mine := global_position
+	var theirs: Vector3 = (_player as Node3D).global_position
+	if mine.distance_to(theirs) > max_dist:
+		return
+	global_position = theirs
+	if _player.has_method("force_position"):
+		_player.call("force_position", mine)
+	else:
+		(_player as Node3D).global_position = mine
+
+
+## 隐身视觉：常态半透明（暗影潜伏者）
+func _apply_stealth_visual() -> void:
+	if _model == null or _model.material_override == null:
+		return
+	var mat := _model.material_override as StandardMaterial3D
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.albedo_color.a = 0.35
+
+
+## 推进潜伏/隐身/护盾计时器
+func _tick_stealth_timers(delta: float) -> void:
+	# 受击显形计时结束后回到隐身
+	if _reveal_timer > 0.0:
+		_reveal_timer = maxf(_reveal_timer - delta, 0.0)
+		if _reveal_timer == 0.0:
+			_apply_stealth_visual()
+	# 脉冲无敌
+	if _pulse_timer > 0.0:
+		_pulse_timer = maxf(_pulse_timer - delta, 0.0)
+	# 护盾冷却
+	if shield_on_timer > 0.0 and _shield <= 0.0:
+		_shield_cd -= delta
+		if _shield_cd <= 0.0:
+			_shield = shield_amount
+			_shield_cd = shield_on_timer
+
+
+## 潜伏突袭（湿地伏击者）：玩家进入 3 米内则高伤害突袭
+## 返回 true 表示本次已触发突袭（调用方应跳过常规攻击）
+func _try_ambush() -> bool:
+	if not ambush or not _ambush_armed or _player == null:
+		return false
+	if global_position.distance_to((_player as Node3D).global_position) > ambush_range:
+		return false
+	_ambush_armed = false
+	# 显形（潜伏态结束）
+	if _model != null and _model.material_override != null:
+		var mat := _model.material_override as StandardMaterial3D
+		mat.albedo_color.a = 1.0
+	# 突袭伤害：高倍率
+	var dmg := atk * ambush_damage_pct
+	if (_player as Node3D).has_method("take_damage"):
+		(_player as Node3D).call("take_damage", dmg)
+	var bus = _event_bus()
+	if bus:
+		bus.damage_popup.emit((_player as Node3D).global_position, dmg, "crit")
+	return true
+
+
+## 引力拉扯：把玩家朝自身拉（扭曲巨兽）
+func _pull_player(delta: float, strength: float = 6.0) -> void:
+	if not gravity_pull or _player == null:
+		return
+	var p := _player as Node3D
+	var to_me: Vector3 = global_position - p.global_position
+	to_me.y = 0.0
+	if to_me.length() < 0.5:
+		return
+	p.global_position += to_me.normalized() * strength * delta
+
+
+## 闪避成功后的位移/隐身效果
+func _on_dodged() -> void:
+	# 虚空蝠群：瞬移到玩家背后
+	if teleport_behind:
+		_teleport_behind_target()
+	# 虚空魅影：进入隐身，退出时获得突袭加成
+	if stealth_exit_bonus > 0.0:
+		_apply_stealth_visual()
+		_stealth_bonus_ready = true
+		_reveal_timer = 3.0
+
+
 func _perform_attack() -> void:
 	if _player == null or not is_instance_valid(_player):
 		return
@@ -825,6 +1008,9 @@ func _apply_melee_mechanics() -> void:
 	# 虚空猎犬：命中定身 1.5 秒
 	if hit_root_seconds > 0.0 and pb != null:
 		pb.apply("entangle", "monster")
+	# 熵能幽魂：命中后与玩家交换位置
+	if hit_swap_positions:
+		_swap_with_player(8.0)
 
 
 ## 每帧推进本怪的攻击/突进附加效果计时器
@@ -927,15 +1113,34 @@ func _fire_projectile() -> void:
 			var back: Vector3 = -dir
 			global_position += back * 1.5
 	Projectile.spawn(data, get_parent(), Projectile.TARGET_PLAYER)
+	# 熵能幽灵：射击后瞬移 3 米
+	if teleport_after_shot > 0.0:
+		_blink_after_shot(teleport_after_shot)
 
 
 func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vector3.ZERO) -> void:
+	# 熔炉核心：脉冲期间自身无敌
+	if _pulse_timer > 0.0:
+		return
 	# 闪避判定（迷雾幽灵 30%）
 	if dodge_pct > 0.0 and rng.randf() < dodge_pct:
 		var bus0 = _event_bus()
 		if bus0:
 			bus0.damage_popup.emit(global_position, 0.0, "dodge")
+		_on_dodged()
 		return
+	# 暗影哨兵：护盾先吸收伤害，未破盾则本次不受伤
+	if _shield > 0.0:
+		var absorbed := minf(_shield, amount)
+		_shield -= absorbed
+		amount -= absorbed
+		if amount <= 0.0:
+			return
+	# 隐身怪受击：显形 3 秒
+	if stealth_always or stealth_exit_bonus > 0.0:
+		_reveal_timer = 3.0
+		if _model != null and _model.material_override != null:
+			(_model.material_override as StandardMaterial3D).albedo_color.a = 1.0
 	# 矿晶甲虫：常驻护甲减伤（在调用方已算的防御减伤之上再叠一层）
 	if armor_plates > 0.0:
 		amount = amount * (1.0 - armor_plates)
