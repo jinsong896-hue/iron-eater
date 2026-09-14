@@ -17,11 +17,54 @@ const RARITY_SUFFIX := ["", "·绿", "·蓝", "·紫", "·橙", "·红"]
 ## 各稀有度 id 后缀
 const RARITY_ID_SUFFIX := ["", "_G", "_B", "_P", "_O", "_R"]
 
+## 元素武器（**占位设计，待策划替换**）
+##
+## ⚠ 策划《武器设计分册》18 种白装**未给任何武器指定元素**——原文里元素机制
+## 挂在红装（传奇）的专属机制上（如 R-01 狱火断头台的火焰爆炸）。
+## 为了让元素系统在红装落地前就可用，这里为少数武器按「武器类型语义」指定
+## 元素作为**占位**：法术类武器→火、远程穿刺类→毒。待策划出元素武器表后替换。
+##
+## 键为基础 id（不含稀有度后缀），稀有度变体自动继承。
+const WEAPON_ELEMENT := {
+	"W11": "fire",     # 学徒长杖 —— 法术武器
+	"W09": "poison",   # 猎人长弓 —— 淬毒箭矢
+}
+
+## 元素亲和（分册 4.x 词条「所有元素伤害 +15%」）——只挂饰品/护甲，武器不带。
+## 键为基础 id，稀有度变体继承；数值固定 15%（分册口径）。
+const ELEMENT_AFFINITY_IDS := {
+	"J02": 0.15,   # 蓝晶戒指 —— 法术系饰品
+	"J04": 0.15,   # 铁链护符
+}
+
+
+## 取某件装备的攻击元素（按基础 id 查占位表；无则空）
+static func element_for(template_id: StringName) -> String:
+	var base := _base_id(String(template_id))
+	return str(WEAPON_ELEMENT.get(base, ""))
+
+
+## 取某件装备的元素亲和加成（无则 0）
+static func affinity_for(template_id: StringName) -> float:
+	var base := _base_id(String(template_id))
+	return float(ELEMENT_AFFINITY_IDS.get(base, 0.0))
+
+
+## 去掉稀有度 id 后缀，得基础 id（W11_G → W11）
+static func _base_id(tid: String) -> String:
+	for suffix in RARITY_ID_SUFFIX:
+		if suffix != "" and tid.ends_with(suffix):
+			return tid.substr(0, tid.length() - suffix.length())
+	return tid
+
 
 ## 注册模板
 static func register(template: EquipmentTemplate) -> void:
 	if template == null:
 		return
+	# 元素与元素亲和：统一在此注入，白装与高稀有度克隆都覆盖
+	template.element = element_for(template.id)
+	template.element_affinity = affinity_for(template.id)
 	_templates[template.id] = template
 
 

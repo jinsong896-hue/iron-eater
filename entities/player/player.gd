@@ -85,6 +85,10 @@ func _ready() -> void:
 	var bus := get_node_or_null("/root/EventBus")
 	if bus and bus.has_signal("enemy_died"):
 		bus.enemy_died.connect(_on_enemy_killed)
+	# 装备变更 → 重算攻击元素（武器决定元素，护甲/饰品只给元素亲和）
+	if bus and bus.has_signal("equipment_changed"):
+		bus.equipment_changed.connect(func(_s, _i): _refresh_attack_element())
+	_refresh_attack_element()
 
 
 ## 装配受击闪红用的模型引用。
@@ -414,8 +418,16 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	if tgt_buffs != null and tgt_buffs is BuffHolder:
 		vuln = (tgt_buffs as BuffHolder).total_vulnerability()
 		taken_down = (tgt_buffs as BuffHolder).total_damage_reduction()
-	var result := DamagePipeline.physical(atk, multiplier, fusion_bonus + combo_bonus, target_def, vuln, taken_down)
-	var crit := GameManager.rng.randf() < crt
+	var result := DamagePipeline.elemental_attack(
+		atk, multiplier, fusion_bonus + combo_bonus, target_def, attack_element,
+		0.0, vuln, taken_down)
+	# 元素亲和：元素伤害 +15%（分册 4.x 词条）
+	if attack_element >= 0:
+		result.damage = result.damage * (1.0 + _element_affinity_bonus())
+	# 法术部分不可暴击（分册 2.3）——火/冰/雷/毒为纯法术，永不暴击；
+	# 土/风的物理半可暴击，此处按「是否法术为主」简化：纯法术元素跳过暴击
+	var can_crit := attack_element < 0 or ElementDefs.can_crit(attack_element)
+	var crit := can_crit and GameManager.rng.randf() < crt
 	var total := DamagePipeline.with_crit(result.damage, crit, crd)
 
 	# 击退向量（EnemyBase 硬直期间消费）
@@ -437,7 +449,7 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 
 
 ## 把本次攻击的元素叠到目标身上，并处理阈值触发（冰冻/雷暴）
-## 攻击元素来源：装备/形态赋予（attack_element）；未赋予则为纯物理，不叠层。
+## 攻击元素来源：已装备武器的 element 字段；未赋予则为纯物理，不叠层。
 func _apply_element_to(enemy: Node3D) -> void:
 	if attack_element < 0:
 		return
@@ -450,6 +462,35 @@ func _apply_element_to(enemy: Node3D) -> void:
 		if ctrl_id != "":
 			tgt.apply(ctrl_id, "element")
 			EventBus.message.emit("触发%s" % ElementDamage.event_name(str(ev)))
+
+
+## 元素亲和：已装备物品提供的「所有元素伤害 +X%」总和（分册 4.x 词条）
+## 词条挂在 EquipmentTemplate.element_affinity（0.15 = +15%），只取已装备的。
+func _element_affinity_bonus() -> float:
+	var total := 0.0
+	for inst in GameManager.equipment_manager.get_equipped().values():
+		if inst == null:
+			continue
+		var tpl = inst.get_template()
+		if tpl != null:
+			total += float(tpl.element_affinity)
+	return total
+
+
+## 刷新攻击元素：取已装备武器里第一件带元素的。
+## 武器才赋予攻击元素——护甲/饰品的元素只作为词条加成（元素亲和）。
+func _refresh_attack_element() -> void:
+	attack_element = -1
+	var equipped: Dictionary = GameManager.equipment_manager.get_equipped()
+	for slot in [EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Slot.WEAPON_2]:
+		var inst = equipped.get(slot)
+		if inst == null:
+			continue
+		var tpl = inst.get_template()
+		if tpl != null and not str(tpl.element).is_empty():
+			attack_element = ElementDamage.elem_from_key(str(tpl.element))
+			if attack_element != -1:
+				return
 
 
 ## 攻击收尾反馈

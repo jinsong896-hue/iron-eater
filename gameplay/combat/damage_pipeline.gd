@@ -40,6 +40,59 @@ static func elemental(base_damage: float, element: String, target_resistance: fl
 	}
 
 
+## 带元素的攻击结算（分册 7.1 伤害类型总览）
+##
+## 分册规则：
+##   火/冰/雷/毒 = **法术伤害**：无视护甲、不可暴击
+##   土/风       = **各占 50%**：物理半受护甲影响且可暴击，法术半无视护甲
+##   无元素      = 纯物理
+##
+## 注意 target_def 传防御值（不是减伤率），内部按 防御/(防御+100) 折算。
+## 返回 {damage, phys, spell, reduction, is_spell_only}
+static func elemental_attack(atk: float, skill_multiplier: float, bonus: float,
+		target_def: float, element: int, resistance: float = 0.0,
+		vuln: float = 0.0, taken_down: float = 0.0) -> Dictionary:
+	if element < 0:
+		var p := physical(atk, skill_multiplier, bonus, target_def, vuln, taken_down)
+		p["phys"] = p["damage"]
+		p["spell"] = 0.0
+		p["is_spell_only"] = false
+		return p
+
+	# 用 element_defs 的 damage_type 元数据判定，不硬编码元素名——
+	# 后续新增/调整元素时只改数据表，这里自动跟随
+	var dtype := str(ElementDefs.get_element(element).get("damage_type", "magic"))
+
+	var raw := atk * skill_multiplier * (1.0 + bonus)
+	var reduction := target_def / (target_def + 100.0)
+	var common := (1.0 + vuln) * (1.0 - clampf(taken_down, 0.0, 0.9)) * (1.0 - resistance)
+
+	var phys_part := 0.0
+	var spell_part := 0.0
+	match dtype:
+		"physical":
+			phys_part = raw * (1.0 - reduction) * common
+		"mixed":
+			# 土/风：物理法术各半，只有物理半吃护甲
+			phys_part = raw * 0.5 * (1.0 - reduction) * common
+			spell_part = raw * 0.5 * common
+		_:
+			# 火/冰/雷/毒：法术伤害，全然无视护甲
+			spell_part = raw * common
+
+	var total := maxf(phys_part + spell_part, 1.0)
+	return {
+		"damage": total,
+		"raw": raw,
+		"phys": phys_part,
+		"spell": spell_part,
+		"reduction": reduction,
+		"is_spell_only": dtype == "magic",
+		"damage_type": dtype,
+		"element": element,
+	}
+
+
 ## 受击反馈（伤害弹出 + 消息）
 ## 注意：EventBus 是 Autoload，仅在完整游戏运行时可用
 static func emit_damage_result(target: Node3D, amount: float, kind: String) -> void:

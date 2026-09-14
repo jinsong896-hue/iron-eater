@@ -507,12 +507,21 @@ func _perform_attack() -> void:
 	var gm = _game_manager()
 	if gm:
 		player_def = gm.stat_value("def")
-	var result = DamagePipeline.physical(atk, 1.0, 0.0, player_def)
+	# 按攻击元素走对应伤害类型：火/冰/雷/毒 无视护甲（分册 7.1），
+	# 土/风 各半，无元素为纯物理
+	var result = DamagePipeline.elemental_attack(atk, 1.0, 0.0, player_def, attack_element)
 	_player.take_damage(result.damage)
 	_apply_element_to_player()
 	var bus = _event_bus()
 	if bus:
-		bus.damage_dealt.emit(self, _player, result.damage, "physical", false)
+		bus.damage_dealt.emit(self, _player, result.damage, _element_key(), false)
+
+
+## 本怪攻击元素的字符串键（无元素返回 "physical"，供信号与文案用）
+func _element_key() -> String:
+	if attack_element < 0:
+		return "physical"
+	return ElementDefs.elem_name(attack_element)
 
 
 ## 把本怪的攻击元素叠到玩家身上（元素系怪才有；纯物理怪跳过）

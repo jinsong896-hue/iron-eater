@@ -25,6 +25,7 @@ func _ready() -> void:
 	_test_element_combo()
 	_test_element_damage_bridge()
 	_test_control_effects()
+	_test_equipment_element()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -537,6 +538,72 @@ func _test_control_effects() -> void:
 	h9.apply("dull", "t")
 	var down := float(load("res://data/buffs/buff_defs.gd").params_of("dull").get("aspd_down", 0.0))
 	_check(absf(down - 0.25) < 0.01, "迟钝 攻速 -25%")
+
+
+## ---------- 装备元素与元素亲和 ----------
+func _test_equipment_element() -> void:
+	_test = "EquipmentElement"
+	print("\n--- %s ---" % _test)
+
+	var EDB = load("res://data/equipment/equipment_db.gd")
+	var ED = load("res://data/elements/element_defs.gd")
+	EDB.init_equipment_db()
+
+	# 占位元素表生效：长杖=火，长弓=毒
+	var staff = EDB.get_template(&"W11")
+	_check(staff != null and staff.element == "fire", "学徒长杖带火元素",
+		[str(staff.element) if staff else "nil"])
+	var bow = EDB.get_template(&"W09")
+	_check(bow != null and bow.element == "poison", "猎人长弓带毒元素",
+		[str(bow.element) if bow else "nil"])
+
+	# 未指定的武器为空（纯物理）
+	var sword = EDB.get_template(&"W01")
+	_check(sword != null and sword.element == "", "铁制单手剑无元素（纯物理）")
+
+	# 高稀有度克隆继承元素
+	var staff_p = EDB.get_template(&"W11_P")
+	_check(staff_p != null and staff_p.element == "fire", "紫装长杖继承火元素",
+		[str(staff_p.element) if staff_p else "nil"])
+	var staff_g = EDB.get_template(&"W11_G")
+	_check(staff_g != null and staff_g.element == "fire", "绿装长杖继承火元素")
+
+	# 元素亲和词条（分册 4.x）只挂饰品
+	var ring = EDB.get_template(&"J02")
+	_check(ring != null and absf(ring.element_affinity - 0.15) < 0.001,
+		"蓝晶戒指提供元素亲和 +15%",
+		[str(ring.element_affinity) if ring else "nil"])
+	var ring_o = EDB.get_template(&"J02_O")
+	_check(ring_o != null and absf(ring_o.element_affinity - 0.15) < 0.001,
+		"橙装蓝晶戒指继承元素亲和")
+	var plain = EDB.get_template(&"J01")
+	_check(plain != null and plain.element_affinity == 0.0, "铁戒指无元素亲和")
+
+	# 元素伤害类型（分册 7.1）：火/冰/雷/毒=法术无视护甲；土/风=各半
+	var DP = load("res://gameplay/combat/damage_pipeline.gd")
+	var armor := 100.0   # 减伤 50%
+
+	# 火：纯法术，护甲完全不影响
+	var fire_hit: Dictionary = DP.elemental_attack(100.0, 1.0, 0.0, armor, ED.Elem.FIRE)
+	_check(absf(fire_hit.damage - 100.0) < 0.5, "火伤害无视护甲（100 防御下仍 100）",
+		[str(fire_hit.damage)])
+	_check(fire_hit.get("is_spell_only", false), "火为纯法术伤害")
+
+	# 物理对照：同样 100 攻，护甲 100 → 减半
+	var phys_hit: Dictionary = DP.elemental_attack(100.0, 1.0, 0.0, armor, -1)
+	_check(absf(phys_hit.damage - 50.0) < 0.5, "物理伤害被护甲减半（100→50）",
+		[str(phys_hit.damage)])
+
+	# 土：mixed，物理半吃护甲 → 50*(1-0.5) + 50 = 75
+	var earth_hit: Dictionary = DP.elemental_attack(100.0, 1.0, 0.0, armor, ED.Elem.EARTH)
+	_check(absf(earth_hit.damage - 75.0) < 0.5, "土伤害=物理半减伤+法术半（100→75）",
+		[str(earth_hit.damage)])
+
+	# 可暴击性（分册 2.3）：法术不可暴击，土/风的物理半可
+	_check(not ED.can_crit(ED.Elem.FIRE), "火不可暴击")
+	_check(not ED.can_crit(ED.Elem.POISON), "毒不可暴击")
+	_check(ED.can_crit(ED.Elem.EARTH), "土可暴击（物理半）")
+	_check(ED.can_crit(ED.Elem.WIND), "风可暴击（物理半）")
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:

@@ -19,6 +19,12 @@ extends Resource
 @export var icon_path: String = ""
 @export var scene_path: String = ""
 
+## 攻击元素（分册 7.1）：仅武器使用。空 = 纯物理。
+## 取值 "fire"/"frost"/"static"/"earth"/"wind"/"poison"（ElementDefs）
+@export var element: String = ""
+## 元素亲和：该件提供的「所有元素伤害 +X%」（分册 4.x 词条），0 = 无
+@export var element_affinity: float = 0.0
+
 
 func _init() -> void:
 	resource_name = "EquipmentTemplate"
