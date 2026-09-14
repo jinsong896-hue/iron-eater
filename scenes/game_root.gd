@@ -233,13 +233,34 @@ func _apply_topology_doors(jd: Dictionary) -> void:
 	)
 	if doors.is_empty():
 		return
+	# 模板里的旧门位置：若重算后那里不再是门，必须**把墙补回来**。
+	# 否则模板里为旧门留的洞会变成「没有门的缺口」，玩家从那儿直接走出房间。
+	var stale_door_keys := {}
+	for d in jd.get("doors", []):
+		stale_door_keys["%d_%d_%s" % [
+			int(d.get("x", 0)), int(d.get("y", 0)), str(d.get("direction", ""))]] = true
+
 	jd["doors"] = doors
 
-	# 墙在门格留洞：门替换的是「同名方位」的墙段
-	# （门与墙同方位时位置重合；角落格的反向墙要保留）
+	# 墙在门格留洞。
+	#
+	# **必须留两格**：门宽 DOOR_WIDTH=2.0，而墙段是 1 格宽（CELL_SIZE=1.0）。
+	# 只删门格那一格 → 洞宽 1.0，而玩家胶囊直径也是 1.0 → **零间隙**，
+	# 位置稍偏就卡在墙段上、推不进门触发区（表现为「走到门口过不去」）。
+	# 门沿门面方向跨格，故洞要在该方向多留一格。
+	# 角落格的反向墙要保留，故只删「与门同方位」的墙。
 	var door_keys := {}
 	for d in doors:
-		door_keys["%d_%d_%s" % [int(d["x"]), int(d["y"]), str(d["direction"])]] = true
+		var dx := int(d["x"])
+		var dy := int(d["y"])
+		var dir := str(d["direction"])
+		door_keys["%d_%d_%s" % [dx, dy, dir]] = true
+		# 沿门面方向扩一格：north/south 门面沿 x，west/east 沿 y
+		if dir == "north" or dir == "south":
+			door_keys["%d_%d_%s" % [dx + 1, dy, dir]] = true
+		else:
+			door_keys["%d_%d_%s" % [dx, dy + 1, dir]] = true
+
 	var walls: Array = []
 	for wall in jd.get("walls", []):
 		var wdk := "%d_%d_%s" % [
@@ -248,6 +269,28 @@ func _apply_topology_doors(jd: Dictionary) -> void:
 		if door_keys.has(wdk):
 			continue
 		walls.append(wall)
+
+	# 补回「旧门位置但已不是门」的墙（含其扩格），除非它现在是门
+	for old_key in stale_door_keys:
+		if door_keys.has(old_key):
+			continue
+		var parts: PackedStringArray = str(old_key).split("_")
+		if parts.size() != 3:
+			continue
+		var ox := int(parts[0])
+		var oy := int(parts[1])
+		var odir := str(parts[2])
+		# 该位置现在是否已被别的门占用
+		if door_keys.has("%d_%d_%s" % [ox, oy, odir]):
+			continue
+		walls.append({"x": ox, "y": oy, "direction": odir, "type": "normal_wall"})
+		if odir == "north" or odir == "south":
+			if not door_keys.has("%d_%d_%s" % [ox + 1, oy, odir]):
+				walls.append({"x": ox + 1, "y": oy, "direction": odir, "type": "normal_wall"})
+		else:
+			if not door_keys.has("%d_%d_%s" % [ox, oy + 1, odir]):
+				walls.append({"x": ox, "y": oy + 1, "direction": odir, "type": "normal_wall"})
+
 	jd["walls"] = walls
 
 
