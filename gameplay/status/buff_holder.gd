@@ -95,6 +95,11 @@ func total_vulnerability() -> float:
 			continue
 		var p: Dictionary = BuffDefs.params_of(id)
 		v += float(p.get("vuln", 0.0)) * int(e.get("stacks", 1))
+	# 元素层数自带易伤：毒蚀每层 +1%（分册 4.x，与词条「毒蚀」同口径）。
+	# 以元素层数为唯一真相——不再另挂一份 poison_rot 词条，避免两份状态漂移。
+	var poison := int(_elem_stacks.get(ElementDefs.Elem.POISON, 0))
+	if poison > 0:
+		v += float(ElementDefs.get_element(ElementDefs.Elem.POISON).get("vuln_per_stack", 0.01)) * poison
 	return v
 
 
@@ -123,6 +128,11 @@ func total_slow() -> float:
 		var e: Dictionary = _buffs[id]
 		var p: Dictionary = BuffDefs.params_of(id)
 		v += float(p.get("slow", 0.0)) * int(e.get("stacks", 1))
+	# 寒霜层数自带减速：每层 -25%（分册 7.3）。
+	# 寒霜层数存在 _elem_stacks 而非 _buffs，必须单独叠加。
+	var frost := int(_elem_stacks.get(ElementDefs.Elem.FROST, 0))
+	if frost > 0:
+		v += float(ElementDefs.get_element(ElementDefs.Elem.FROST).get("slow_per_stack", 0.25)) * frost
 	return clampf(v, 0.0, 0.9)
 
 
@@ -166,6 +176,16 @@ func add_element(elem: int, stacks: int = 1) -> Array:
 	if elem == ElementDefs.Elem.STATIC and cur >= int(th.get("thunderstorm", 10)):
 		_elem_stacks[elem] = 0
 		events.append("thunderstorm")
+
+	# 毒：按层数解锁 侵蚀(-20%移速) / 衰弱(-20%伤害) / 虚弱(-50%治疗)
+	# 分册 7.7；层数不衰减，故一旦解锁就持续有效，直到层数回落
+	if elem == ElementDefs.Elem.POISON:
+		if cur >= int(th.get("erosion", 10)) and not _buffs.has("erosion"):
+			apply("erosion", "poison")
+		if cur >= int(th.get("weakness", 20)) and not _buffs.has("weakness"):
+			apply("weakness", "poison")
+		if cur >= int(th.get("frailty", 30)) and not _buffs.has("frailty"):
+			apply("frailty", "poison")
 
 	for ev in events:
 		if _on_element_event.is_valid():
@@ -232,6 +252,16 @@ func tick(delta: float) -> Dictionary:
 			if float(e["remaining"]) <= 0.0:
 				expired.append(id)
 
+	# 元素层数 DOT（分册 7.x：火=灼烧、毒=毒蚀，每层每秒 ×法强）
+	# 注意与下面的「词条 DOT」是两条独立来源：元素层数不走 _buffs，
+	# 故必须单独结算，否则火的灼烧只显示层数、不造成任何伤害。
+	var elem_dot := 0.0
+	for elem in _elem_stacks.keys():
+		var ecfg: Dictionary = ElementDefs.get_element(elem)
+		var per := float(ecfg.get("dot_per_stack", 0.0))
+		if per > 0.0:
+			elem_dot += ap * per * float(_elem_stacks[elem]) * delta
+
 	# 元素衰减（火：停止攻击后每秒 -5 层；毒/雷不衰减）
 	for elem in _elem_stacks.keys():
 		var cfg: Dictionary = ElementDefs.get_element(elem)
@@ -247,7 +277,7 @@ func tick(delta: float) -> Dictionary:
 		_clear_modifier(id)
 		_buffs.erase(id)
 
-	return {"dot": dot_total, "expired": expired}
+	return {"dot": dot_total + elem_dot, "elem_dot": elem_dot, "expired": expired}
 
 
 var _elem_decay_accum := {}

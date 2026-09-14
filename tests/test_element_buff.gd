@@ -26,6 +26,8 @@ func _ready() -> void:
 	_test_element_damage_bridge()
 	_test_control_effects()
 	_test_equipment_element()
+	_test_element_dot()
+	_test_monster_mechanics()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -606,6 +608,129 @@ func _test_equipment_element() -> void:
 	_check(ED.can_crit(ED.Elem.WIND), "风可暴击（物理半）")
 
 
+## ---------- 元素 DOT 与毒阈值（任务 3）----------
+func _test_element_dot() -> void:
+	_test = "ElementDot"
+	print("\n--- %s ---" % _test)
+
+	var ED = load("res://data/elements/element_defs.gd")
+	var H = load("res://gameplay/status/buff_holder.gd")
+
+	# 火层数应产生 DOT（此前只显示层数、不造成伤害）
+	# 注意 DOT 的伤害基数来自宿主法强（_target_ap），桩宿主必须提供 eff_ap，
+	# 否则法强为 0、DOT 恒为 0——测试会误判成「DOT 没实现」。
+	var host := _ApStub.new()
+	var h = H.new(host)
+	for _i in 10:
+		h.add_element(ED.Elem.FIRE, 1)
+	var out: Dictionary = h.tick(1.0)
+	# 火 dot_per_stack 0.04 × 法强100 × 10 层 = 40/秒
+	_check(absf(float(out.get("elem_dot", 0.0)) - 40.0) < 0.5, "火层数产生 DOT（法强100×10层=40/秒）",
+		[str(out.get("elem_dot"))])
+	_check(float(out.get("dot", 0.0)) >= float(out.get("elem_dot", 0.0)),
+		"总 DOT 含元素 DOT 部分")
+
+	# 毒层数同样有 DOT（0.03 × 100 × 10 = 30）
+	var h2 = H.new(_ApStub.new())
+	for _i in 10:
+		h2.add_element(ED.Elem.POISON, 1)
+	var out2: Dictionary = h2.tick(1.0)
+	_check(absf(float(out2.get("elem_dot", 0.0)) - 30.0) < 0.5,
+		"毒层数产生 DOT（法强100×10层=30/秒）", [str(out2.get("elem_dot"))])
+
+	# 毒每层 +1% 易伤（分册 4.x）
+	var h3 = H.new(null)
+	_check(h3.total_vulnerability() == 0.0, "无毒层时无易伤")
+	for _i in 10:
+		h3.add_element(ED.Elem.POISON, 1)
+	_check(absf(h3.total_vulnerability() - 0.10) < 0.001,
+		"毒 10 层 → 易伤 +10%", [str(h3.total_vulnerability())])
+
+	# 毒阈值解锁：10 层侵蚀（减速）/ 20 层衰弱 / 30 层虚弱（治疗降低）
+	var h4 = H.new(null)
+	for _i in 10:
+		h4.add_element(ED.Elem.POISON, 1)
+	_check(h4.total_slow() > 0.0, "毒 10 层解锁侵蚀（减速）", [str(h4.total_slow())])
+	var h5 = H.new(null)
+	for _i in 30:
+		h5.add_element(ED.Elem.POISON, 1)
+	_check(h5.total_heal_reduction() > 0.0, "毒 30 层解锁虚弱（治疗降低）",
+		[str(h5.total_heal_reduction())])
+
+	# 寒霜层数自带减速（每层 -25%）
+	var h6 = H.new(null)
+	h6.add_element(ED.Elem.FROST, 1)
+	_check(absf(h6.total_slow() - 0.25) < 0.01, "寒霜 1 层 → 减速 25%",
+		[str(h6.total_slow())])
+	h6.add_element(ED.Elem.FROST, 1)
+	_check(absf(h6.total_slow() - 0.50) < 0.01, "寒霜 2 层 → 减速 50%")
+
+
+## ---------- 怪物专属机制（任务 2）----------
+func _test_monster_mechanics() -> void:
+	_test = "MonsterMechanics"
+	print("\n--- %s ---" % _test)
+
+	var MDB = load("res://data/monsters/monster_db.gd")
+	MDB.init()
+
+	# 机制标记应随怪物数据一起下发
+	var blade: Dictionary = MDB.get_monster("chaos_blade")
+	_check(not blade.is_empty(), "混沌利刃在库")
+	_check(str(blade.get("mech", "")) == "true_damage", "混沌利刃带 true_damage 标记",
+		[str(blade.get("mech"))])
+	var beetle: Dictionary = MDB.get_monster("crystal_beetle")
+	_check(str(beetle.get("mech", "")) == "armor_break", "矿晶甲虫带 armor_break 标记")
+	var guard: Dictionary = MDB.get_monster("void_guard")
+	_check(str(guard.get("mech", "")) == "rage_on_hit", "虚无守卫带 rage_on_hit 标记")
+	var warp: Dictionary = MDB.get_monster("time_warp")
+	_check(str(warp.get("mech", "")) == "slow_haste", "时间畸变者带 slow_haste 标记")
+
+	# 用真实敌人实例验证机制装配（不进场景树，直接构造）
+	var EB = load("res://entities/enemies/enemy_base.gd")
+	var e = EB.new()
+	add_child(e)
+	e.apply_monster_config(beetle)
+	_check(absf(e.armor_plates - 0.30) < 0.001, "矿晶甲虫装配护甲减伤 30%",
+		[str(e.armor_plates)])
+	_check(absf(e.armor_break_at - 300.0) < 0.001, "护甲碎裂阈值 300")
+
+	# 护甲减伤生效：100 伤害只吃 70
+	e._hp = 1000.0
+	e.take_damage(100.0)
+	_check(absf(e._hp - 930.0) < 0.5, "护甲减伤 30%（1000-70=930）", [str(e._hp)])
+
+	# 累计伤害达 300 后护甲碎裂
+	for _i in 5:
+		e.take_damage(100.0)
+	_check(e.armor_plates == 0.0, "累计受伤达阈值后护甲碎裂（减伤失效）",
+		[str(e.armor_plates)])
+	var hp_before: float = e._hp
+	e.take_damage(100.0)
+	_check(absf((hp_before - e._hp) - 100.0) < 0.5, "碎裂后全额受伤（无减伤）")
+
+	# 虚无守卫：每受击 +5% 攻击，最多 10 层
+	var g = EB.new()
+	add_child(g)
+	g.apply_monster_config(guard)
+	var base_atk: float = g.atk
+	g.take_damage(1.0)
+	_check(g.atk > base_atk, "虚无守卫受击后攻击提升",
+		["%f → %f" % [base_atk, g.atk]])
+	for _i in 20:
+		g.take_damage(1.0)
+	_check(absf(g.atk - base_atk * 1.5) < 0.01, "激怒封顶 10 层（+50%）",
+		[str(g.atk), str(base_atk * 1.5)])
+
+	# 混沌利刃：真实伤害标记
+	var c = EB.new()
+	add_child(c)
+	c.apply_monster_config(blade)
+	_check(c.true_damage, "混沌利刃开启真实伤害")
+
+	e.queue_free(); g.queue_free(); c.queue_free()
+
+
 func _check(c: bool, name: String, detail: Array = []) -> void:
 	if c:
 		print("  [OK] %s" % name)
@@ -622,3 +747,9 @@ class _FakeHost extends RefCounted:
 	var atk := 0.0
 	func eff_ap() -> float: return ap
 	func eff_atk() -> float: return atk
+
+
+## 法强桩：DOT 伤害基数来自宿主法强，测试用它固定 100
+class _ApStub extends RefCounted:
+	func eff_ap() -> float: return 100.0
+	func eff_atk() -> float: return 50.0

@@ -66,6 +66,27 @@ var summon_spec: Dictionary = {}   ## 召唤配置 {id,count,chance}
 var affixes: Array = []       ## 词缀 id 列表（数值型已作用到属性，其余待后续系统）
 var buffs = null              ## BuffHolder：词条与元素叠层容器（_ready 创建）
 var attack_element := -1      ## 攻击附带的元素（ElementDefs.Elem；-1 = 纯物理）
+
+# —— 分册第 5/6 章专属机制（本轮落地「状态/属性类」8 个）——
+var mech := ""                ## 本怪的机制标记（来自 MonsterDB 的 special 标记名）
+var true_damage := false      ## 混沌利刃：攻击无视护甲（真实伤害）
+var armor_plates := 0.0       ## 矿晶甲虫：常驻护甲减伤，累计受伤后碎裂归零
+var armor_break_at := 0.0     ## 护甲碎裂阈值（累计伤害）
+var armor_absorbed := 0.0     ## 已累计吸收的伤害
+var rage_per_hit := 0.0       ## 虚无守卫：每次受击自身伤害 +X%（可叠层）
+var rage_max_stacks := 0      ## 叠层上限
+var _rage_stacks := 0
+var _base_atk := 0.0          ## 激怒加成基准（避免反复自乘）
+var _ash_timer := 0.0         ## 灰烬形态剩余（结束时还原闪避与移速）
+var melee_knockback := 0.0    ## 石翼蝙蝠：命中击退玩家
+var hit_mark_seconds := 0.0   ## 熵能浮体：命中标记玩家（秒）
+var ash_chance_on_hit := 0.0  ## 灰烬行者：命中后进入灰烬形态的概率
+var ash_duration := 0.0
+var slow_target_pct := 0.0    ## 时间畸变者：命中减速玩家
+var slow_target_seconds := 0.0
+var haste_self_pct := 0.0     ## 时间畸变者：自身攻速提升
+var haste_self_seconds := 0.0
+var _haste_timer := 0.0
 var _explode_timer := 0.0     ## 自爆前摇倒计时（>0 表示正在蓄爆）
 var _exploding := false
 var _dash_timer := 0.0        ## 突进持续时间
@@ -155,6 +176,9 @@ func apply_monster_config(m: Dictionary) -> void:
 	# 词缀（分册第 7 章）：非数值型词缀已登记在 affixes，此处只记录供后续系统消费
 	affixes = m.get("affixes", [])
 
+	# 专属机制（分册第 5/6 章）：按机制标记装配，数值取自分册原文
+	_apply_mechanic(str(m.get("mech", "")))
+
 	# AI 类型映射
 	match str(m.get("ai", "melee")):
 		"kite":
@@ -178,7 +202,43 @@ func apply_monster_config(m: Dictionary) -> void:
 			behavior = AIBehavior.MELEE_CHASE
 
 
-## 创建临时视觉模型（按 AI 类型配色，体型缩放）
+## 装配专属机制（分册第 5/6 章）。数值全部取自分册原文，未给数值的不臆造。
+func _apply_mechanic(m: String) -> void:
+	mech = m
+	_base_atk = atk
+	match m:
+		# 9-1 混沌利刃：攻击附带真实伤害（无视护甲）
+		"true_damage":
+			true_damage = true
+		# 2-14 矿晶甲虫：常驻护甲减伤 30%，累计受到 300 伤害后碎裂
+		"armor_break":
+			armor_plates = 0.30
+			armor_break_at = 300.0
+		# 8-26 虚无守卫：每受一次攻击伤害 +5%（最多 10 层）
+		"rage_on_hit":
+			rage_per_hit = 0.05
+			rage_max_stacks = 10
+		# 6-21 / 4.10 灰烬行者：攻击命中后进入灰烬形态（闪避+50%、移速+30%，4 秒）
+		"ash_form":
+			ash_chance_on_hit = 1.0
+			ash_duration = 4.0
+		# 8-25 时间畸变者：攻击后减速玩家 50%（3 秒），自身攻速 +30%（3 秒）
+		"slow_haste":
+			slow_target_pct = 0.50
+			slow_target_seconds = 3.0
+			haste_self_pct = 0.30
+			haste_self_seconds = 3.0
+		# 9-5 虚空吞噬者：击杀单位恢复 20% 血量并增大体型（伤害 +10%）
+		"devour_grow":
+			pass   # 行为在击杀回调里处理
+		# 8-24 熵能浮体：攻击后标记玩家 6 秒
+		"mark_player":
+			hit_mark_seconds = 6.0
+		# 4.7 石翼蝙蝠：命中击退玩家
+		"knockback_on_hit":
+			melee_knockback = 4.0
+		_:
+			pass   # 其余机制尚未实现（见 docs/progress 待办）
 func _create_visual() -> void:
 	var model := MeshInstance3D.new()
 	model.name = "Model"
@@ -261,6 +321,16 @@ func _update_health_bar() -> void:
 
 func _physics_process(delta: float) -> void:
 	_attack_timer = maxf(_attack_timer - delta, 0.0)
+
+	# 机制计时器：时间畸变者的攻速加成、灰烬行者的灰烬形态
+	if _haste_timer > 0.0:
+		_haste_timer = maxf(_haste_timer - delta, 0.0)
+	if _ash_timer > 0.0:
+		_ash_timer = maxf(_ash_timer - delta, 0.0)
+		if _ash_timer == 0.0:
+			# 还原灰烬形态加成（闪避 -50%、移速 ÷1.3），避免永久叠加
+			dodge_pct = maxf(dodge_pct - 0.5, 0.0)
+			move_speed /= 1.3
 
 	# 受击闪红衰减（每帧都要走，包括硬直/死亡前）
 	if _flash_timer > 0.0:
@@ -475,14 +545,37 @@ func eff_speed() -> float:
 	return move_speed * (1.0 - buffs.total_slow())
 
 
-## 有效攻击间隔：基础值 ×（1 + 攻速降低）——「迟钝」等词条
+## 有效攻击间隔：基础值 ×（1 + 攻速降低）——「迟钝」等词条；也含机制自身的加速
 func eff_attack_interval() -> float:
+	var interval := attack_interval
+	if _haste_timer > 0.0 and haste_self_pct > 0.0:
+		interval = interval / (1.0 + haste_self_pct)   # 时间畸变者：攻速 +30%
 	if buffs == null:
-		return attack_interval
+		return interval
 	var down := 0.0
 	for id in buffs.active_ids():
 		down += float(BuffDefs.params_of(id).get("aspd_down", 0.0))
-	return attack_interval / maxf(1.0 - clampf(down, 0.0, 0.8), 0.2)
+	return interval / maxf(1.0 - clampf(down, 0.0, 0.8), 0.2)
+
+
+## 累计护甲减伤（矿晶甲虫：常驻 30%，累计受伤达阈值后碎裂）
+## 返回本次额外减伤比例（与词条减伤叠加前，由调用方并入）
+func armor_mitigation() -> float:
+	return armor_plates if armor_plates > 0.0 else 0.0
+
+
+## 记录本次实际受到的伤害：护甲累计与碎裂、激怒叠层
+func _note_damage_taken(amount: float) -> void:
+	# 矿晶甲虫：护甲吸收累计，达阈值后碎裂（减伤失效）
+	if armor_plates > 0.0:
+		armor_absorbed += amount
+		if armor_break_at > 0.0 and armor_absorbed >= armor_break_at:
+			armor_plates = 0.0
+			armor_absorbed = 0.0
+	# 虚无守卫：每受一次攻击伤害 +5%，最多 10 层
+	if rage_per_hit > 0.0 and _rage_stacks < rage_max_stacks:
+		_rage_stacks += 1
+		atk = _base_atk * (1.0 + rage_per_hit * float(_rage_stacks))
 
 
 ## 突进推进
@@ -507,14 +600,44 @@ func _perform_attack() -> void:
 	var gm = _game_manager()
 	if gm:
 		player_def = gm.stat_value("def")
+	# 混沌利刃：攻击无视护甲（真实伤害）→ 按 0 防御结算
+	if true_damage:
+		player_def = 0.0
 	# 按攻击元素走对应伤害类型：火/冰/雷/毒 无视护甲（分册 7.1），
 	# 土/风 各半，无元素为纯物理
 	var result = DamagePipeline.elemental_attack(atk, 1.0, 0.0, player_def, attack_element)
 	_player.take_damage(result.damage)
 	_apply_element_to_player()
+	_apply_melee_mechanics()
 	var bus = _event_bus()
 	if bus:
 		bus.damage_dealt.emit(self, _player, result.damage, _element_key(), false)
+
+
+## 攻击命中后的专属机制（分册第 5/6 章）
+func _apply_melee_mechanics() -> void:
+	if _player == null:
+		return
+	# 石翼蝙蝠：命中击退玩家
+	if melee_knockback > 0.0 and _player.has_method("apply_knockback"):
+		var dir: Vector3 = (_player.global_position - global_position)
+		dir.y = 0.0
+		_player.call("apply_knockback", dir.normalized() * melee_knockback)
+	# 熵能浮体 / 时间畸变者：给玩家挂词条（时长走词条自身的 duration）
+	var pb = _player.get("buffs")
+	if pb != null:
+		if hit_mark_seconds > 0.0:
+			pb.apply("mark", "monster")
+		if slow_target_pct > 0.0 and slow_target_seconds > 0.0:
+			pb.apply("thorn_slow", "monster")
+	# 时间畸变者：自身攻速提升
+	if haste_self_pct > 0.0 and haste_self_seconds > 0.0:
+		_haste_timer = haste_self_seconds
+	# 灰烬行者：命中后概率进入灰烬形态（闪避 +50%、移速 +30%）
+	if ash_chance_on_hit > 0.0 and rng.randf() < ash_chance_on_hit:
+		dodge_pct = minf(dodge_pct + 0.5, 0.9)
+		move_speed *= 1.3
+		_ash_timer = ash_duration
 
 
 ## 本怪攻击元素的字符串键（无元素返回 "physical"，供信号与文案用）
@@ -612,7 +735,12 @@ func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vec
 		if bus0:
 			bus0.damage_popup.emit(global_position, 0.0, "dodge")
 		return
+	# 矿晶甲虫：常驻护甲减伤（在调用方已算的防御减伤之上再叠一层）
+	if armor_plates > 0.0:
+		amount = amount * (1.0 - armor_plates)
 	_hp = maxf(_hp - amount, 0.0)
+	# 记录受伤：护甲累计/碎裂、虚无守卫激怒叠层
+	_note_damage_taken(amount)
 	var gm = _game_manager()
 	if gm:
 		gm.total_damage += amount

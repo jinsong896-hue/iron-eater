@@ -719,6 +719,15 @@ func take_damage(amount: float) -> void:
 		die()
 
 
+## 受击击退（石翼蝙蝠等怪物机制调用）
+## 与敌人一样在短时间内把外力加进 velocity，由移动逻辑自然衰减。
+func apply_knockback(force: Vector3) -> void:
+	if _is_dodging:
+		return
+	velocity.x += force.x
+	velocity.z += force.z
+
+
 func die() -> void:
 	if not is_inside_tree():
 		return
