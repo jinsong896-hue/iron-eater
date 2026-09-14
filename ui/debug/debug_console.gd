@@ -92,9 +92,13 @@ func _complete() -> void:
 
 
 ## 用 repl 替换行尾的那个 token（保留前面的内容）
+## 用 repl 替换行尾的那个 token（保留前面的内容）。
+## 若补出的 token 后面还没有空格，自动补一个 —— 补全后可以立刻接着输参数。
 func _apply_completion(line: String, token: String, repl: String) -> void:
 	var start := line.length() - token.length()
 	var newline := line.substr(0, start) + repl
+	if not newline.ends_with(" "):
+		newline += " "
 	_input_box.text = newline
 	_input_box.caret_column = newline.length()
 

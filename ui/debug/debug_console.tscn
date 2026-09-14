@@ -40,7 +40,7 @@ theme_override_constants/separation = 6
 
 [node name="Title" type="Label" parent="Root/Panel/VBox"]
 layout_mode = 2
-text = "调试控制台  （` 关闭 · Esc 关闭 · ↑↓ 翻历史）"
+text = "调试控制台  （` 关闭 · Esc 关闭 · ↑↓ 翻历史 · Tab 自动补全）"
 theme_override_colors/font_color = Color(0.71, 0.592, 0.384, 1)
 theme_override_font_sizes/font_size = 14
 
@@ -57,5 +57,5 @@ theme_override_font_sizes/normal_font_size = 14
 [node name="Input" type="LineEdit" parent="Root/Panel/VBox"]
 custom_minimum_size = Vector2(0, 32)
 layout_mode = 2
-placeholder_text = "输入命令后回车（help 查看全部）"
+placeholder_text = "输入命令后回车 · 按 Tab 补全（help 查看全部）"
 theme_override_font_sizes/font_size = 16

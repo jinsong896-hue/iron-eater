@@ -3,7 +3,15 @@ extends Node3D
 ## 将 3D 画面转为 2.5D 像素风格
 ## 挂在 Camera3D 下，作为全屏后处理
 
-@export var enabled := true
+## `enabled` 被改时才同步可见性。
+## 原先这里是无条件的 `_process`：每帧给**全屏 quad** 写一次 visible。
+## 在 Godot 里写 visible 会让渲染状态失效并重算——每帧做这件事开销可观，
+## 而 `enabled` 实际从来没人改，属纯浪费。改为 setter 驱动。
+var enabled := true:
+	set(v):
+		enabled = v
+		if _quad != null:
+			_quad.visible = v
 @export var pixel_size := 2.0          # 像素化程度
 @export var light_intensity := 1.25    # 光照强度
 @export var line_alpha := 0.7          # 线条透明度
@@ -46,8 +54,4 @@ func _setup_post_process() -> void:
 
 	# 放在相机前方
 	_quad.position = Vector3(0, 0, -1.0)
-
-
-func _process(_delta: float) -> void:
-	if _quad:
-		_quad.visible = enabled
+	_quad.visible = enabled

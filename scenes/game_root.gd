@@ -102,18 +102,14 @@ func _register_templates() -> void:
 	dir.list_dir_end()
 
 
+## 读单个字段（注册模板时用）。走同一个缓存，避免每个 JSON 读两遍。
 func _read_json_field(path: String, field: String) -> String:
 	if not FileAccess.file_exists(path):
 		return ""
-	var f := FileAccess.open(path, FileAccess.READ)
-	if f == null:
-		return ""
-	var t := f.get_as_text()
-	f.close()
-	var j := JSON.new()
-	if j.parse(t) != OK:
-		return ""
-	return str(j.data.get(field, ""))
+	if _json_cache.has(path):
+		return str((_json_cache[path] as Dictionary).get(field, ""))
+	var d := _read_json_dict(path)
+	return str(d.get(field, ""))
 
 
 # ============================================================
@@ -197,7 +193,18 @@ func load_current_room() -> Node3D:
 	return room_node
 
 
+## 房间 JSON 缓存：路径 → 解析后的字典。
+## 原先每次切房都重新读盘 + JSON.parse（实测单次 0.97ms，占切房耗时的可观比例），
+## 而房间模板在运行期不会变，读一次就够。
+static var _json_cache := {}
+
+
+## 读房间 JSON（带缓存）。
+## **返回深拷贝**：调用方（_apply_topology_doors）会就地改 doors/walls，
+## 直接给缓存引用会被写坏，下一次切同一间房就拿到被污染的数据。
 func _read_json_dict(path: String) -> Dictionary:
+	if _json_cache.has(path):
+		return (_json_cache[path] as Dictionary).duplicate(true)
 	if not FileAccess.file_exists(path):
 		return {}
 	var f := FileAccess.open(path, FileAccess.READ)
@@ -208,7 +215,9 @@ func _read_json_dict(path: String) -> Dictionary:
 	var j := JSON.new()
 	if j.parse(t) != OK:
 		return {}
-	return j.data
+	var parsed: Dictionary = j.data
+	_json_cache[path] = parsed
+	return parsed.duplicate(true)
 
 
 ## 按地牢拓扑重算本房的门，写回 jd["doors"]，并让边界墙在门格留洞
