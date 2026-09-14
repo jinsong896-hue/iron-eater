@@ -667,65 +667,34 @@ func _fire_projectile() -> void:
 	if _player == null:
 		return
 	var dir: Vector3 = (_player.global_position - global_position).normalized()
-	var proj := Node3D.new()
-	proj.position = global_position + Vector3(0, 1.2, 0) + dir * 0.6
-	proj.add_to_group("enemy_projectiles")
-
-	var mesh := MeshInstance3D.new()
-	var sphere := SphereMesh.new()
-	sphere.radius = 0.18
-	sphere.height = 0.36
-	mesh.mesh = sphere
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.9, 0.6, 0.2)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.5, 0.1)
-	mesh.material_override = mat
-	proj.add_child(mesh)
-
-	var area := Area3D.new()
-	var col := CollisionShape3D.new()
-	var shape := SphereShape3D.new()
-	shape.radius = 0.35
-	col.shape = shape
-	area.add_child(col)
-	proj.add_child(area)
-
-	area.body_entered.connect(_on_projectile_hit.bind(proj, atk))
-
-	var speed := 8.0
-	var life := attack_range / speed + 0.5
-	get_parent().add_child(proj)
-
-	# 弹射推进（await 逐帧移动）
-	_fly_projectile(proj, dir, speed, life)
-
-
-## 弹射逐帧飞行
-func _fly_projectile(proj: Node3D, dir: Vector3, speed: float, life: float) -> void:
-	var t := 0.0
-	while t < life and is_instance_valid(proj):
-		var step := get_physics_process_delta_time()
-		proj.position += dir * speed * step
-		t += step
-		await get_tree().physics_frame
-	if is_instance_valid(proj):
-		proj.queue_free()
-
-
-## 弹射命中玩家
-func _on_projectile_hit(body: Node3D, proj: Node3D, damage: float) -> void:
-	if not body.is_in_group("player"):
-		return
-	if not is_instance_valid(proj):
-		return
-	var player_def := 0.0
-	var gm = _game_manager()
-	if gm:
-		player_def = gm.stat_value("def")
-	var result = DamagePipeline.physical(damage, 1.0, 0.0, player_def)
-	body.call("take_damage", result.damage)
-	proj.queue_free()
+	var data := {
+		"direction": dir,
+		"position": global_position + Vector3(0, 1.2, 0) + dir * 0.6,
+		"speed": 8.0,
+		"damage": atk,
+		"lifetime": attack_range / 8.0 + 0.5,
+		"element": _element_key(),
+	}
+	# 分册第 5/6 章的投射物改造机制
+	match mech:
+		"bounce_shot":        # 6-19 硫磺元素：火球弹射 2 次 + 弧线轨迹
+			data["bounces"] = 2
+			data["arc"] = true
+			data["arc_height"] = 2.5
+		"delayed_bomb":       # 2-12 轨道投弹手：投掷延时炸弹，3 秒后爆炸
+			data["fuse"] = 3.0
+			data["explode_radius"] = 2.5
+			data["explode_damage"] = atk * 1.5
+			data["arc"] = true
+			data["arc_height"] = 3.5
+		"triple_shot":        # 9-2 裂隙射手：三连散射
+			for angle in [-0.25, 0.0, 0.25]:
+				var d2 := data.duplicate()
+				d2["direction"] = dir.rotated(Vector3.UP, angle)
+				d2["position"] = global_position + Vector3(0, 1.2, 0) + d2["direction"] * 0.6
+				Projectile.spawn(d2, get_parent(), Projectile.TARGET_PLAYER)
+			return
+	Projectile.spawn(data, get_parent(), Projectile.TARGET_PLAYER)
 
 
 func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vector3.ZERO) -> void:

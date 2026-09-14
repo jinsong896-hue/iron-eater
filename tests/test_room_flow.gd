@@ -166,6 +166,11 @@ func _test_special_room(gr) -> void:
 		gr._transition_to_room(idx)
 		await get_tree().process_frame
 		await get_tree().process_frame
+		# 落点断言：切过去后必须停在目标房。
+		# 曾出现偶发失败——切到 shop 后实际加载的是普通房（2 扇门、无交互物），
+		# 正是「穿过门又连锁触发一次」的表现。这里显式断言，让连锁失败可定位。
+		_check(gr.current_room_index == idx,
+			"[%s] 切房后停在目标房（期望 %d 实际 %d）" % [special_type, idx, gr.current_room_index])
 		await _check_one_special_room(gr, special_type)
 
 

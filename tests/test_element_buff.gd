@@ -28,6 +28,7 @@ func _ready() -> void:
 	_test_equipment_element()
 	_test_element_dot()
 	_test_monster_mechanics()
+	_test_projectile_mechanics()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -729,6 +730,74 @@ func _test_monster_mechanics() -> void:
 	_check(c.true_damage, "混沌利刃开启真实伤害")
 
 	e.queue_free(); g.queue_free(); c.queue_free()
+
+
+## ---------- 投射物机制（分册第 5/6 章）----------
+func _test_projectile_mechanics() -> void:
+	_test = "ProjectileMechanics"
+	print("\n--- %s ---" % _test)
+
+	var P = load("res://gameplay/skills/projectile.gd")
+	var ED = load("res://data/elements/element_defs.gd")
+
+	# 投射物父节点必须是 Node3D（挂载点）；用普通 Node 会触发类型错误，
+	# 而运行时类型错误不会让测试失败——会静默跳过整段断言（假绿灯）。
+	var host := Node3D.new()
+	add_child(host)
+
+	# 弹射弹：方向/速度/伤害/弹射次数正确落到实例上
+	var bounce: Node3D = P.spawn({
+		"direction": Vector3.FORWARD, "position": Vector3.ZERO,
+		"speed": 10.0, "damage": 25.0, "lifetime": 2.0,
+		"element": "fire", "bounces": 2,
+	}, host, P.TARGET_ENEMY)
+	_check(bounce != null, "弹射弹生成成功")
+	_check(bounce.bounces == 2, "弹射次数 2（分册 6-19 硫磺元素）",
+		[str(bounce.bounces)])
+	_check(bounce.elem_enum == ED.Elem.FIRE, "元素枚举解析正确（火）",
+		[str(bounce.elem_enum)])
+	_check(bounce.is_in_group("enemies") == false, "投射物自身不属于命中组")
+	bounce.queue_free()
+
+	# 弧线弹：标记 arc 并按抛物线推进
+	var arc: Node3D = P.spawn({
+		"direction": Vector3.FORWARD, "position": Vector3.ZERO,
+		"speed": 8.0, "damage": 20.0, "lifetime": 2.0,
+		"arc": true, "arc_height": 3.0,
+	}, host, P.TARGET_ENEMY)
+	_check(arc.arc, "弧线轨迹已开启")
+	# 抛物线在 t=0.5 时最高：4·h·0.5·0.5 = h
+	var mid := 4.0 * 3.0 * 0.5 * (1.0 - 0.5)
+	_check(absf(mid - 3.0) < 0.01, "抛物线峰值 = 高度设定（3.0）", [str(mid)])
+	arc.queue_free()
+
+	# 延时炸弹：引信标记与爆炸范围
+	var bomb: Node3D = P.spawn({
+		"direction": Vector3.FORWARD, "position": Vector3.ZERO,
+		"speed": 6.0, "damage": 30.0, "lifetime": 1.0,
+		"fuse": 3.0, "explode_radius": 2.5, "explode_damage": 45.0,
+	}, host, P.TARGET_ENEMY)
+	_check(absf(bomb.fuse - 3.0) < 0.01, "引信 3 秒（分册 2-12 轨道投弹手）",
+		[str(bomb.fuse)])
+	_check(absf(bomb.explode_radius - 2.5) < 0.01, "爆炸半径 2.5")
+	_check(not bomb._fuse_armed, "初始未进入引信阶段")
+	bomb.queue_free()
+
+	# 命中目标过滤：玩家侧投射物只打 enemies 组
+	var pe: Node3D = P.spawn({"direction": Vector3.FORWARD, "damage": 10.0}, host, P.TARGET_ENEMY)
+	_check(pe._owner_faction == "enemies", "玩家投射物目标组 = enemies")
+	pe.queue_free()
+	var pp: Node3D = P.spawn({"direction": Vector3.FORWARD, "damage": 10.0}, host, P.TARGET_PLAYER)
+	_check(pp._owner_faction == "player", "怪物投射物目标组 = player（此前打不到玩家）")
+	pp.queue_free()
+
+	# 兼容入口：ProjectileSystem 仍可用且走同一实现
+	var PS = load("res://gameplay/skills/projectile_system.gd")
+	var legacy: Node3D = PS.spawn({"direction": Vector3.FORWARD, "damage": 12.0}, host)
+	_check(legacy.get_class() == "Area3D" and legacy.get("bounces") != null,
+		"ProjectileSystem.spawn 返回统一 Projectile 实例",
+		[legacy.get_class(), str(legacy.get_script())])
+	legacy.queue_free()
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:
