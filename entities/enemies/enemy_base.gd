@@ -130,6 +130,17 @@ var _stealth_bonus_ready := false
 var pulse_invuln := false        ## 脉冲期间自身无敌（熔炉核心）
 var _pulse_timer := 0.0          ## 无敌剩余
 var gravity_pull := false        ## 周期性全屏引力（扭曲巨兽）
+
+# —— 召唤 · 死亡区域变体 · 弹道变体（分册 4.x / 5.x）——
+var pierce_every := 0            ## 每 N 次射击发射穿透箭（符文哨兵，3）
+var _shot_count := 0
+var dodge_teleport := false      ## 闪避成功后瞬移到玩家背后并强化下次攻击
+var dodge_break := false         ## 闪避成功后破除玩家闪避（虚空魅影）
+var _next_hit_bonus := 0.0       ## 下次攻击伤害加成（瞬移后的突袭）
+var void_echo := false           ## 射击后产生虚空回响区域（减速+伤害）
+# 死亡区域变体：由 death_poison 的具体形态决定
+enum DeathZone { NONE, POISON, SULFUR, ENTROPY, BIG_POISON }
+var death_zone := DeathZone.NONE
 var melee_knockback := 0.0    ## 石翼蝙蝠：命中击退玩家
 var hit_mark_seconds := 0.0   ## 熵能浮体：命中标记玩家（秒）
 var ash_chance_on_hit := 0.0  ## 灰烬行者：命中后进入灰烬形态的概率
@@ -217,6 +228,9 @@ func apply_monster_config(m: Dictionary) -> void:
 
 	var special: Dictionary = m.get("special", {})
 	death_poison = special.get("death_poison", false)
+	# 死亡区域形态（分册 4.2 毒系四阶段的递进，数值取原文）
+	# 死亡区域形态交给 _apply_mechanic 按 mech 装配（机制名在 mech 字段，
+	# 不在 special 里——death_sulfur/death_entropy 在 _special_for 中未映射）
 	kite_range = special.get("kite_range", 5.0)
 	dash_range = special.get("dash_range", 0.0)
 	# 死亡自爆（矿道自爆者）：范围伤害 + 前摇（前摇期间被打死则提前引爆）
@@ -390,6 +404,46 @@ func _apply_mechanic(m: String) -> void:
 		"shield_immune":
 			shield_on_timer = 20.0
 			shield_amount = 200.0
+		# ——召唤 · 死亡变体 · 弹道变体（分册 4.x / 5.x）——
+		# 4.3 符文哨兵：每 3 次射击后发射穿透箭
+		"pierce_every_3":
+			pierce_every = 3
+		# 4.4 熔炉哨兵：射击点留下虚空回响（范围内减速 30%、每秒 15 伤）
+		"shot_void_echo":
+			void_echo = true
+		# 4.10 虚空魅影：闪避成功后瞬移到玩家背后，下次攻击 +50%
+		"dodge_teleport":
+			dodge_teleport = true
+			_next_hit_bonus = 0.50
+		# 4.10 迷雾幽灵：闪避成功后破除玩家闪避（命中必中）
+		"dodge_break":
+			dodge_break = true
+		# ——死亡区域变体（分册 4.2 毒系四阶段递进，数值取原文）——
+		# 机制名在 mech 字段；_special_for 只映射了 death_poison，
+		# 故三个变体必须在**这里**按 mech 装配，读 special 是读不到的。
+		"death_poison":
+			death_zone = DeathZone.POISON        # 毒瘴僵尸：基础毒雾
+		"death_poison_big":
+			death_zone = DeathZone.BIG_POISON   # 腐毒僵尸：毒雾扩大
+		"death_sulfur":
+			death_zone = DeathZone.SULFUR        # 硫磺僵尸：硫磺爆炸点燃地面
+		"death_entropy":
+			death_zone = DeathZone.ENTROPY       # 熵毒僵尸：熵毒领域
+		# ——召唤变体（分册 4.1）——
+		# special.summon.id 是 "forge_imp"/"void_rift"，**不在 MonsterDB 里**，
+		# 直接查表会得到空字典 → 召唤不出东西。这里补内联数值并区分形态。
+		"summon_imp":
+			summon_spec = {"id": "forge_imp", "name": "熔炉小鬼",
+				"hp": 100.0, "atk": 20.0, "count": 2,
+				"death_explode": true, "explode_damage": 30.0, "chance": 1.0}
+		"summon_rift":
+			# 虚空僵尸：召唤虚空裂痕——不是小怪，是一块持续 6 秒的伤害区域
+			summon_spec = {"zone": true, "radius": 2.5, "duration": 6.0,
+				"damage": 40.0, "count": 1, "chance": 1.0}
+		# 4.5 熔炉哨兵（p3）的射击火焰区已由 shot_fire_zone 处理；
+		# 虚空哨卫（p4）的虚空回响：射击点留减速+伤害区域
+		"shot_void_echo":
+			void_echo = true
 		_:
 			pass   # 其余机制尚未实现（见 docs/progress 待办）
 
@@ -933,14 +987,31 @@ func _pull_player(delta: float, strength: float = 6.0) -> void:
 
 ## 闪避成功后的位移/隐身效果
 func _on_dodged() -> void:
-	# 虚空蝠群：瞬移到玩家背后
-	if teleport_behind:
+	# 虚空蝠群 / 虚空魅影：闪避成功后瞬移到玩家背后
+	if teleport_behind or dodge_teleport:
 		_teleport_behind_target()
+	# 迷雾幽灵：破除玩家闪避（下次命中必中）
+	if dodge_break and _player != null:
+		var pb = _player.get("buffs")
+		if pb != null:
+			pb.apply("expose", "monster")
 	# 虚空魅影：进入隐身，退出时获得突袭加成
 	if stealth_exit_bonus > 0.0:
 		_apply_stealth_visual()
 		_stealth_bonus_ready = true
 		_reveal_timer = 3.0
+
+
+## 虚空回响（熔炉哨兵）：射击点留下减速+伤害区域
+func _spawn_void_echo() -> void:
+	var parent := get_parent()
+	if parent == null:
+		return
+	DamageZone.spawn({
+		"position": global_position, "radius": 2.5, "duration": 3.0,
+		"damage": 15.0, "slow_buff": "mire",
+		"color": Color(0.5, 0.3, 0.8, 0.4),
+	}, parent)
 
 
 func _perform_attack() -> void:
@@ -1112,7 +1183,14 @@ func _fire_projectile() -> void:
 		"backstep_on_shot":   # 4.8 鬼火灵体：射击后后撤拉开距离
 			var back: Vector3 = -dir
 			global_position += back * 1.5
+	# 符文哨兵：每 N 次射击发射穿透箭
+	_shot_count += 1
+	if pierce_every > 0 and _shot_count % pierce_every == 0:
+		data["pierce_count"] = 3
 	Projectile.spawn(data, get_parent(), Projectile.TARGET_PLAYER)
+	# 熔炉哨兵：射击点留下虚空回响（减速 30% + 每秒 15 伤）
+	if void_echo:
+		_spawn_void_echo()
 	# 熵能幽灵：射击后瞬移 3 米
 	if teleport_after_shot > 0.0:
 		_blink_after_shot(teleport_after_shot)
@@ -1224,8 +1302,8 @@ func die() -> void:
 		bus.enemy_died.emit(self, global_position, [])
 	died.emit(global_position)
 
-	# 死亡毒雾（毒瘴僵尸）：2 米每秒 10 伤持续 3 秒
-	if death_poison:
+	# 死亡区域（分册 4.2 毒系四阶段：普通毒雾 → 扩大 → 硫磺爆炸 → 熵毒领域）
+	if death_zone != DeathZone.NONE:
 		_spawn_death_poison()
 
 	# 死亡自爆（矿道自爆者 / 熔炉小鬼）
@@ -1333,9 +1411,34 @@ func _try_summon() -> void:
 	var parent := get_parent()
 	if parent == null:
 		return
+
+	# 虚空裂痕：不是召小怪，而是生成一块持续伤害区域（分册 4.1 虚空僵尸）
+	if bool(summon_spec.get("zone", false)):
+		DamageZone.spawn({
+			"position": global_position, "radius": float(summon_spec.get("radius", 2.5)),
+			"duration": float(summon_spec.get("duration", 6.0)),
+			"damage": float(summon_spec.get("damage", 40.0)),
+			"color": Color(0.6, 0.2, 0.9, 0.45),
+		}, parent)
+		return
+
 	var count := int(summon_spec.get("count", 1))
 	for _i in count:
 		var m := MonsterDB.get_monster(str(summon_spec.get("id", "")))
+		# 内联配置（熔炉小鬼等不在 MonsterDB 里的小怪）
+		if m.is_empty() and summon_spec.has("hp"):
+			m = {
+				"id": str(summon_spec.get("id", "minion")),
+				"name": str(summon_spec.get("name", "小怪")),
+				"hp": float(summon_spec.get("hp", 60)),
+				"atk": float(summon_spec.get("atk", 10)),
+				"defense": 3.0, "speed_pct": 70.0, "attack_interval": 3.0,
+				"attack_range": 2.0, "dodge_pct": 0.0, "scale": 0.7,
+				"special": {
+					"death_explode": bool(summon_spec.get("death_explode", false)),
+					"explode_damage": float(summon_spec.get("explode_damage", 30.0)),
+				},
+			}
 		if m.is_empty():
 			continue
 		var minion := EnemyBase.new()
@@ -1359,14 +1462,39 @@ func _register_summon(minion: Node) -> void:
 
 ## 死亡毒雾（2 米，每秒 10 伤，持续 3 秒）—— 走统一 DamageZone
 ## 原实现用 await 定时器逐秒结算，节点被 free 时协程会悬挂；改后无此风险
+## 死亡区域：按形态取不同半径/伤害（分册 4.2 毒系递进，数值取原文）
 func _spawn_death_poison() -> void:
 	var parent := get_parent()
 	if parent == null:
 		return
-	DamageZone.spawn({
+	var spec := {
 		"position": global_position, "radius": 2.0, "duration": 3.0,
 		"damage": 10.0, "color": Color(0.3, 0.9, 0.2, 0.4),
-	}, parent)
+	}
+	match death_zone:
+		DeathZone.BIG_POISON:
+			# 腐毒僵尸：毒雾扩大（半径 3.5）+ 持续更久
+			spec["radius"] = 3.5
+			spec["duration"] = 5.0
+			spec["damage"] = 15.0
+		DeathZone.SULFUR:
+			# 硫磺僵尸：硫磺爆炸（4 米，40 伤），点燃地面 5 秒
+			spec["radius"] = 4.0
+			spec["damage"] = 40.0
+			spec["duration"] = 5.0
+			spec["color"] = Color(1.0, 0.45, 0.1, 0.5)
+		DeathZone.ENTROPY:
+			# 熵毒僵尸：熵毒领域（5 米，每秒 25 伤）
+			spec["radius"] = 5.0
+			spec["damage"] = 25.0
+			spec["duration"] = 5.0
+			spec["color"] = Color(0.6, 0.2, 0.8, 0.45)
+	DamageZone.spawn(spec, parent)
+	# 熵毒/腐毒：领域内同时给玩家叠毒气层数（分册「毒气层数 +1」）
+	if death_zone == DeathZone.ENTROPY or death_zone == DeathZone.BIG_POISON:
+		var pb = _player.get("buffs") if _player != null else null
+		if pb != null:
+			pb.add_element(ElementDefs.Elem.POISON, 1)
 
 
 ## 获取 GameManager autoload（--script 测试模式下不存在，返回 null）

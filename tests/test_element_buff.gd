@@ -33,6 +33,7 @@ func _ready() -> void:
 	_test_projectile_advanced()
 	_test_mechanic_buff_ids()
 	_test_teleport_stealth_mechanics()
+	_test_summon_and_variants()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -1030,6 +1031,84 @@ func _test_teleport_stealth_mechanics() -> void:
 		[str(amb.ambush_range)])
 	_check(amb.ambush_damage_pct > 1.0, "突袭为高伤害（%.1fx）" % amb.ambush_damage_pct)
 	amb.queue_free()
+
+
+## ---------- 召唤变体 / 死亡区域变体 / 弹道变体 ----------
+func _test_summon_and_variants() -> void:
+	_test = "SummonVariants"
+	print("\n--- %s ---" % _test)
+
+	var MDB = load("res://data/monsters/monster_db.gd")
+	var EB = load("res://entities/enemies/enemy_base.gd")
+	MDB.init()
+
+	# 死亡区域形态：毒系四阶段必须各不相同（分册 4.2 递进）
+	var zone_expect := {
+		"zombie_miasma": "POISON",       # 毒瘴僵尸：基础毒雾
+		"miasma_p2": "BIG_POISON",   # 腐毒僵尸：毒雾扩大
+		"miasma_p3": "SULFUR",           # 硫磺僵尸：硫磺爆炸
+		"miasma_p4": "ENTROPY",          # 熵毒僵尸：熵毒领域
+	}
+	for mid in zone_expect:
+		var m: Dictionary = MDB.get_monster(mid)
+		if m.is_empty():
+			_check(false, "%s 在库" % mid)
+			continue
+		var e = EB.new()
+		add_child(e)
+		e.apply_monster_config(m)
+		var want: String = zone_expect[mid]
+		var got_name: String = EB.DeathZone.keys()[e.death_zone]
+		_check(got_name == want, "%s 死亡区域为 %s（实际 %s）" % [mid, want, got_name],
+			[got_name])
+		e.queue_free()
+
+	# 召唤变体配置
+	var z3: Dictionary = MDB.get_monster("zombie_p3")
+	if not z3.is_empty():
+		var e3 = EB.new()
+		add_child(e3)
+		e3.apply_monster_config(z3)
+		_check(int(e3.summon_spec.get("count", 0)) == 2, "熔炉僵尸召唤 2 只小鬼",
+			[str(e3.summon_spec)])
+		_check(float(e3.summon_spec.get("hp", 0)) == 100.0, "熔炉小鬼 100 血")
+		_check(float(e3.summon_spec.get("atk", 0)) == 20.0, "熔炉小鬼 20 攻")
+		_check(bool(e3.summon_spec.get("death_explode", false)), "熔炉小鬼死亡自爆")
+		e3.queue_free()
+
+	var z4: Dictionary = MDB.get_monster("zombie_p4")
+	if not z4.is_empty():
+		var e4 = EB.new()
+		add_child(e4)
+		e4.apply_monster_config(z4)
+		_check(bool(e4.summon_spec.get("zone", false)), "虚空僵尸召唤的是裂痕区域")
+		_check(float(e4.summon_spec.get("damage", 0)) == 40.0, "虚空裂痕每秒 40 伤")
+		e4.queue_free()
+
+	# 弹道变体：穿透箭 / 虚空回响
+	var se: Dictionary = MDB.get_monster("sentry_p2")
+	if not se.is_empty():
+		var es = EB.new()
+		add_child(es)
+		es.apply_monster_config(se)
+		_check(es.pierce_every == 3, "符文哨兵每 3 次射击穿透", [str(es.pierce_every)])
+		es.queue_free()
+	var se3: Dictionary = MDB.get_monster("sentry_p4")
+	if not se3.is_empty():
+		var es3 = EB.new()
+		add_child(es3)
+		es3.apply_monster_config(se3)
+		_check(es3.void_echo, "熔炉哨兵射击产生虚空回响")
+		es3.queue_free()
+
+	# 闪避派生
+	var ph4: Dictionary = MDB.get_monster("phantom_p2")
+	if not ph4.is_empty():
+		var ep = EB.new()
+		add_child(ep)
+		ep.apply_monster_config(ph4)
+		_check(ep.dodge_teleport, "虚空魅影闪避后瞬移")
+		ep.queue_free()
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:
