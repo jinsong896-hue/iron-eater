@@ -32,6 +32,7 @@ func _ready() -> void:
 	await _test_room_build_is_merged(gr)
 	await _test_slash_reuses_resources(gr)
 	await _test_room_preload(gr)
+	await _test_loading_budget(gr)
 
 	if failed == 0:
 		print("ALL GAMEPLAY FIXES2 TESTS PASSED")
@@ -464,3 +465,32 @@ func _test_room_preload(gr) -> void:
 	var fresh: Dictionary = gr.preload_stats()
 	_check(int(fresh.get("cached", 0)) == 0, "重建地牢后缓存已清空")
 	_check(gr.current_room_node != null, "重建后起始房已加载")
+
+
+## ---------- 加载过渡 + 时长预算 ----------
+## 策划总册 11.8 性能预算：单房间加载 < 1 秒。整层生成也必须落在这个预算内，
+## 否则「用动画盖住加载」的前提就不成立（动画再长也盖不住超预算的生成）。
+func _test_loading_budget(gr) -> void:
+	var sm := get_node_or_null("/root/SceneManager")
+	_check(sm != null, "SceneManager 存在")
+	if sm != null:
+		_check(absf(float(sm.get("LOAD_BUDGET_SECONDS")) - 1.0) < 0.001,
+			"加载预算 = 1.0 秒（策划总册 11.8），实际 %s" % str(sm.get("LOAD_BUDGET_SECONDS")))
+		# 过渡屏挂在 autoload 下 → 必须跨场景存活，否则切场景时黑屏会被一起销毁
+		var ls = sm.call("loading")
+		_check(ls != null, "过渡屏已创建")
+		if ls != null:
+			_check(ls.get_parent() == sm, "过渡屏挂在 SceneManager 下（跨场景存活）")
+			_check(int(ls.get("layer")) >= 100, "过渡屏层级足够高（盖住其他 UI）")
+			_check(ls.has_method("begin") and ls.has_method("finish"),
+				"过渡屏提供两段式接口 begin/finish")
+			_check(ls.has_method("show_in_game_progress") and ls.has_method("set_progress"),
+				"过渡屏提供房内进度接口")
+
+	# 整层预建必须在预算内
+	gr.preload_all()
+	var budget: Dictionary = gr.preload_budget_check()
+	_check(bool(budget.get("ok", false)),
+		"整层生成在 1 秒预算内（%.0f ms / 预算 %.0f ms）" % [
+			float(budget.get("seconds", 0.0)) * 1000.0,
+			float(budget.get("budget", 1.0)) * 1000.0])

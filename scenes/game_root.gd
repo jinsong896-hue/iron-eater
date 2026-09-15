@@ -216,6 +216,47 @@ var _preload_usec := 0
 ## 首次由开场动画盖住（玩家看不到），之后在游玩过程中逐步补完。
 func _process(_delta: float) -> void:
 	_preload_step()
+	_update_in_game_progress()
+
+
+## 第二段：房内进度条。
+## 玩家已站在初始房里，把剩余房间的预建摊开；进度条不拦输入。
+func _update_in_game_progress() -> void:
+	var ls = _loading_screen()
+	if ls == null:
+		return
+	if preload_done():
+		if _in_game_progress_shown:
+			_in_game_progress_shown = false
+			ls.show_in_game_progress(false)
+		return
+	if not _in_game_progress_shown:
+		_in_game_progress_shown = true
+		ls.show_in_game_progress(true)
+	var total := maxi(dungeon_graph.size(), 1)
+	ls.set_progress(float(_preload_cursor) / float(total))
+
+
+## 取过渡屏（挂在 SceneManager autoload 下，跨场景存活）
+func _loading_screen():
+	var sm := get_node_or_null("/root/SceneManager")
+	if sm != null and sm.has_method("loading"):
+		return sm.call("loading")
+	return null
+
+
+## 整层生成是否在策划预算内（总册 11.8：单房间加载 < 1 秒）
+## 返回 {ok, seconds, budget}
+func preload_budget_check() -> Dictionary:
+	var budget := 1.0
+	var sm := get_node_or_null("/root/SceneManager")
+	if sm != null:
+		budget = float(sm.get("LOAD_BUDGET_SECONDS"))
+	var secs := float(_preload_usec) / 1000000.0
+	return {"ok": secs <= budget, "seconds": secs, "budget": budget}
+
+
+var _in_game_progress_shown := false
 
 
 func _preload_step() -> void:
