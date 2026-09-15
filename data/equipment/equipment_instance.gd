@@ -29,17 +29,12 @@ func display_name() -> String:
 	return t.display_name
 
 
-## 融合等级文本
+## 融合等级文本。
+## **委托给 FusionRules.tier_name**，不在此重复判定边界——
+## 原先这里和 FusionRules 各写了一份，边界还不一致（3 次/7 次错位），
+## 两处会各自漂移。品质规则只该有一个真相源。
 func fusion_tier() -> String:
-	if fusion_count < 3:
-		return "粗糙"
-	elif fusion_count < 7:
-		return "完整"
-	elif fusion_count < 13:
-		return "纯净"
-	elif fusion_count < 21:
-		return "不朽"
-	return "神话"
+	return FusionRules.tier_name(fusion_count)
 
 
 ## 基础词条有效值（含强化）
@@ -50,9 +45,13 @@ func base_affix_value() -> float:
 	return t.base_affix.value * (1.0 + enhancement_level * 0.05)
 
 
-## 融合攻击加成
+## 融合带来的攻击加成。
+## **委托给 FusionRules.attack_bonus_at**（策划 3.1 的分段公式：
+## 0→+0%，5→+15%，10→+30%，15→+50%，20→+75%，25→+100%）。
+## 原先这里是 `fusion_count * 0.02`（25 次只有 +50%），
+## 与 FusionRules 里的正确公式并存却各算各的，实际生效的是这个错的。
 func fusion_bonus() -> float:
-	return fusion_count * 0.02
+	return FusionRules.attack_bonus_at(fusion_count)
 
 
 ## 强化倍率

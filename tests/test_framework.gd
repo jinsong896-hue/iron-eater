@@ -345,6 +345,49 @@ func test_fusion_rules() -> void:
 	_check(not FR.can_fuse(25), "融合 25 不可继续融合（上限 25）")
 	_check(FR.next_fusion_count(0) == 1, "融合后等级 +1")
 
+	# 策划 3.1 的**全部 6 个锚点**（此前只测了 0/5/25 三个）
+	_check(absf(FR.attack_bonus_at(10) - 0.30) < 0.001, "融合 10 = 30%", [FR.attack_bonus_at(10)])
+	_check(absf(FR.attack_bonus_at(15) - 0.50) < 0.001, "融合 15 = 50%", [FR.attack_bonus_at(15)])
+	_check(absf(FR.attack_bonus_at(20) - 0.75) < 0.001, "融合 20 = 75%", [FR.attack_bonus_at(20)])
+	# 单调递增（不能出现涨到一半又掉）
+	var mono := true
+	for n in range(1, 26):
+		if FR.attack_bonus_at(n) < FR.attack_bonus_at(n - 1):
+			mono = false
+	_check(mono, "融合加成随次数单调不减")
+
+	# 品质档位边界（策划 3.2：1~3 粗糙 | 4~7 完整 | 8~12 纯净 | 13~20 不朽 | 21+ 神话）
+	_check(FR.tier_name(0) == "粗糙", "0 次为粗糙")
+	_check(FR.tier_name(1) == "粗糙", "1 次为粗糙")
+	_check(FR.tier_name(3) == "粗糙", "3 次仍为粗糙（边界）", [FR.tier_name(3)])
+	_check(FR.tier_name(4) == "完整", "4 次进入完整（边界）", [FR.tier_name(4)])
+	_check(FR.tier_name(7) == "完整", "7 次仍为完整（边界）", [FR.tier_name(7)])
+	_check(FR.tier_name(8) == "纯净", "8 次进入纯净", [FR.tier_name(8)])
+	_check(FR.tier_name(12) == "纯净", "12 次仍为纯净", [FR.tier_name(12)])
+	_check(FR.tier_name(13) == "不朽", "13 次进入不朽", [FR.tier_name(13)])
+	_check(FR.tier_name(20) == "不朽", "20 次仍为不朽", [FR.tier_name(20)])
+	_check(FR.tier_name(21) == "神话", "21 次进入神话", [FR.tier_name(21)])
+	_check(FR.tier_name(25) == "神话", "25 次为神话（满级）")
+
+	# 品质档位的攻击加成（策划 3.2 满级效果参考）
+	_check(absf(FR.tier_affix_attack(1) - 0.03) < 0.001, "粗糙 = +3%", [FR.tier_affix_attack(1)])
+	_check(absf(FR.tier_affix_attack(5) - 0.08) < 0.001, "完整 = +8%", [FR.tier_affix_attack(5)])
+	_check(absf(FR.tier_affix_attack(10) - 0.15) < 0.001, "纯净 = +15%", [FR.tier_affix_attack(10)])
+	_check(absf(FR.tier_affix_attack(15) - 0.25) < 0.001, "不朽 = +25%", [FR.tier_affix_attack(15)])
+	_check(absf(FR.tier_affix_attack(25) - 0.40) < 0.001, "神话 = +40%", [FR.tier_affix_attack(25)])
+
+	# EquipmentInstance 必须与 FusionRules 同源（曾各写一份、边界还不一致）
+	var EI = _require_script("res://data/equipment/equipment_instance.gd")
+	if EI != null:
+		var inst = EI.new()
+		inst.fusion_count = 3
+		_check(inst.fusion_tier() == "粗糙",
+			"实例 3 次也报粗糙（与 FusionRules 同源）", [inst.fusion_tier()])
+		inst.fusion_count = 25
+		_check(absf(inst.fusion_bonus() - 1.0) < 0.001,
+			"实例 25 次融合加成 = 100%（原先写死 count×0.02 只有 50%）",
+			[inst.fusion_bonus()])
+
 
 func test_room_data() -> void:
 	_current_test = "RoomData"

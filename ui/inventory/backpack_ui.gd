@@ -6,7 +6,10 @@ extends CanvasLayer
 ## 左键查看详情，右键功能菜单（穿戴/强化/融合/吞噬/锁定/丢弃/卸下）
 
 const ITEM_SCENE := preload("res://ui/inventory/backpack_item.tscn")
-const CAPACITY := 40  # 背包容量（8列 × 5行）
+## 背包格子数。**以逻辑层为准**（EquipmentManager.MAX_INVENTORY_SIZE），
+## 此常量只是 GameManager 未就绪时的兜底——两者不一致会让玩家
+## 「看到空格却放不进去」。
+const DEFAULT_CAPACITY := 40
 const COLUMNS := 8
 ## 模态面板组：打开时入组，暂停菜单据此让位（避免 Esc 叠加）
 const MODAL_GROUP := "modal_ui"
@@ -46,7 +49,7 @@ func _ready() -> void:
 func _build_grid() -> void:
 	var grid := $SafeZone/Panel/Margin/VBox/Content/Left/Scroll/Grid
 	grid.columns = COLUMNS
-	for i in range(CAPACITY):
+	for i in range(_capacity()):
 		var n := ITEM_SCENE.instantiate() as BackpackItem
 		n.index = i
 		n.swap_requested.connect(_on_swap_requested)
@@ -54,6 +57,17 @@ func _build_grid() -> void:
 		n.item_clicked.connect(_on_item_clicked)
 		_grids.push_back(n)
 		grid.add_child(n)
+
+
+## 背包格子数：从逻辑层取（单一真相源），取不到时用常量兜底。
+## 界面格子数与 EquipmentManager 的实际容量必须一致，否则会出现
+## 「空格子放不进东西」（两者曾分别是 40 与 20）。
+func _capacity() -> int:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm != null and gm.equipment_manager != null:
+		if gm.equipment_manager.has_method("get_capacity"):
+			return int(gm.equipment_manager.call("get_capacity"))
+	return DEFAULT_CAPACITY
 
 
 # ============================================================

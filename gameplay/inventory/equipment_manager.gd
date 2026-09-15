@@ -11,7 +11,11 @@ const MAX_ENHANCEMENT_LEVEL := 10
 # 装备槽位
 var _equipped: Dictionary = {}          # slot -> EquipmentInstance
 var _inventory: Array[EquipmentInstance] = []
-var _max_inventory_size := 20
+## 背包容量。**与 UI 的格子数必须是同一个数**——UI 按 CAPACITY 画 8×5 格，
+## 而逻辑层原先写死 20，导致「界面有 40 格、实际只能装 20 件」，
+## 玩家看到空格却放不进去。现由 UI 从这里读（见 BackpackUI.CAPACITY）。
+const MAX_INVENTORY_SIZE := 40
+var _max_inventory_size := MAX_INVENTORY_SIZE
 
 # 融合攻击加成缓存
 var _fusion_attack_bonus: float = 0.0
@@ -46,6 +50,9 @@ func equip(slot: int, inst: EquipmentInstance) -> void:
 	_equipped[slot] = inst
 	_inventory.erase(inst)
 	_apply_equipment_modifiers(inst)
+	_apply_fusion_affix(inst)
+	# 穿戴会改变「已装备武器」的构成 → 融合攻击加成必须重算
+	_recalc_fusion_bonus()
 	var bus = _event_bus()
 	if bus:
 		bus.equipment_changed.emit(slot, inst.instance_id)
@@ -57,10 +64,13 @@ func unequip(slot: int) -> void:
 	if not _equipped.has(slot):
 		return
 	var inst: EquipmentInstance = _equipped[slot]
-	_remove_equipment_modifiers(inst)
+	# 卸下要清**全部**词条（基础 + 融合）——装备离身，两者都不该继续生效
+	_clear_all_modifiers(inst)
 	_equipped.erase(slot)
 	if _inventory.size() < _max_inventory_size:
 		_inventory.append(inst)
+	# 卸下同理：武器槽空了，融合加成要跟着降下来
+	_recalc_fusion_bonus()
 	var bus = _event_bus()
 	if bus:
 		bus.equipment_changed.emit(slot, "")
@@ -129,6 +139,8 @@ func fuse(main: EquipmentInstance, material: EquipmentInstance) -> Dictionary:
 	if gm:
 		gm.gold -= cost
 		gm.fusion_count += 1
+	# 融合词条按新档位刷新（策划 3.2：品质随累计次数上涨）
+	_apply_fusion_affix(main)
 	_recalc_fusion_bonus()
 	remove_item(material)
 	_emit_bus("inventory_changed")
@@ -206,6 +218,11 @@ func get_inventory() -> Array:
 	return _inventory.duplicate()
 
 
+## 背包容量（UI 据此画格子，保证界面与实际能装的件数一致）
+func get_capacity() -> int:
+	return _max_inventory_size
+
+
 ## 交换背包内两个物品的顺序（拖拽排序用）
 func swap_items(from: int, to: int) -> void:
 	if from < 0 or to < 0 or from >= _inventory.size() or to >= _inventory.size():
@@ -243,15 +260,72 @@ func _apply_equipment_modifiers(inst: EquipmentInstance) -> void:
 		)
 
 
-## 移除装备词条
+## 移除装备**基础词条**。
+## **不要在这里连融合词条一起删**：enhance() 会调本函数后重挂基础词条，
+## 若连融合词条也删了，强化一次就会永久丢失融合成长
+## （融合次数还在、档位却丢了）。融合词条的生命周期由
+## _apply_fusion_affix / _clear_fusion_affix 单独管。
 func _remove_equipment_modifiers(inst: EquipmentInstance) -> void:
 	var gm = _game_manager()
 	if gm and gm.attributes:
 		gm.attributes.remove_modifiers("equip_%s" % inst.instance_id)
 
 
-## 重算背包内所有物品的融合加成总和
+## 清除某实例的**全部**词条（基础 + 融合）。卸下/丢弃时用。
+func _clear_all_modifiers(inst: EquipmentInstance) -> void:
+	if inst == null:
+		return
+	var gm = _game_manager()
+	if gm and gm.attributes:
+		gm.attributes.remove_modifiers("equip_%s" % inst.instance_id)
+		gm.attributes.remove_modifiers("fusion_%s" % inst.instance_id)
+
+
+## 应用/刷新**融合词条**（策划 3.2「融合词条品质成长」）。
+##
+## 策划：词条品质只看累计融合次数，满级效果 粗糙+3% → 神话+40%
+## （以攻击加成为例）。故数值**随 fusion_count 逐档上涨**，不是模板里的固定值
+## ——模板的 fusion_affix 只提供「这条词条加什么属性」，数值由档位决定。
+##
+## 用独立的 modifier 源名（fusion_<id>），与基础词条（equip_<id>）分开：
+## 二者生命周期不同——基础词条随强化变，融合词条随融合次数变。
+func _apply_fusion_affix(inst: EquipmentInstance) -> void:
+	if inst == null:
+		return
+	var gm = _game_manager()
+	if gm == null or gm.attributes == null:
+		return
+	# 先清旧的（融合次数变化时要覆盖，不是叠加）
+	gm.attributes.remove_modifiers("fusion_%s" % inst.instance_id)
+	var template := inst.get_template()
+	if template == null or template.fusion_affix == null:
+		return
+	if inst.fusion_count <= 0:
+		return   # 未融合过就没有融合词条
+	var affix := template.fusion_affix
+	# 按当前档位取比例（策划 3.2 的攻击加成档位表）
+	var pct := FusionRules.tier_affix_attack(inst.fusion_count)
+	gm.attributes.add_modifier(
+		"fusion_%s" % inst.instance_id,
+		affix.stat,
+		0.0,
+		pct
+	)
+
+
+## 重算融合攻击加成。
+##
+## 两个口径修正（原先都错）：
+## ① **只算已穿戴的武器**——策划 1.2：「武器是融合系统的核心载体…
+##    玩家对**一件武器**的长期投入是本作单件养成的仪式感来源，
+##    换武器则所有融合投入归零」。故加成的载体是**当前装备的武器**，
+##    不是背包里的东西（原先只遍历 _inventory，穿着的武器反而不算）。
+## ② **只算武器类**——护甲/饰品的融合走的是词条成长，
+##    不该贡献武器攻击力加成。
 func _recalc_fusion_bonus() -> void:
 	_fusion_attack_bonus = 0.0
-	for item in _inventory:
-		_fusion_attack_bonus += item.fusion_bonus()
+	for slot in [EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Slot.WEAPON_2]:
+		var inst = _equipped.get(slot)
+		if inst == null:
+			continue
+		_fusion_attack_bonus += inst.fusion_bonus()
