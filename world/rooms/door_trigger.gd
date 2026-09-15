@@ -84,6 +84,15 @@ func _on_body_entered(body: Node3D) -> void:
 	if is_locked or not is_open:
 		return
 	if body.is_in_group("player"):
+		# 几何复核（防御纵深）：物理服务器在玩家 teleport 后的一段时间内
+		# 会基于陈旧的 broadphase pair 迟发 body_entered——实测玩家距门
+		# 局部 z=-1.5（触发盒半厚 0.75 + 胶囊半径 0.5 = 包络 1.25 之外）
+		# 仍被派发，且可迟至切房后十几物理帧（连锁切房的根因）。
+		# 引擎状态不可信时，几何是客观事实：玩家不在触发区内 → 丢弃。
+		# 真实穿门的玩家必然在触发区内（胶囊与盒相交），此复核无感知。
+		var local: Vector3 = global_transform.affine_inverse() * (body as Node3D).global_position
+		if absf(local.x) > 1.5 or absf(local.z) > 1.25:
+			return
 		_triggered = true
 		# EventBus 运行时获取（--script 测试模式下不存在）
 		var tree := Engine.get_main_loop() as SceneTree

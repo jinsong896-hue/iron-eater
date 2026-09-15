@@ -310,9 +310,15 @@ func _test_door_transition(gr) -> void:
 	_check(true, "门触发器存在")
 	_check(trig.direction != "", "门方向有效（%s）" % trig.direction)
 
-	# 模拟玩家进入门区域
+	# 模拟玩家真实穿门：先把玩家移进触发区再触发。
+	# 只直调 _on_body_entered 而玩家还站在房间中央的话，触发语义与
+	# 「teleport 后物理引擎的陈旧 broadphase 迟发」不可区分——门触发器的
+	# 几何复核（见 door_trigger._on_body_entered）会把两者一起拦掉。
 	var before_idx: int = gr.current_room_index
-	trig._on_body_entered(gr.get_node_or_null("Player"))
+	var p := gr.get_node_or_null("Player") as Node3D
+	if p:
+		p.global_position = (trig as Node3D).global_position + Vector3(0, -1.5, 0)
+	trig._on_body_entered(p)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	_check(gr.current_room_index != before_idx, "门触发后切到新房间（%d → %d）" % [before_idx, gr.current_room_index])

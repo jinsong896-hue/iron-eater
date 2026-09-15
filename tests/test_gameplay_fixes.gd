@@ -69,6 +69,10 @@ func _ready() -> void:
 			trig.set("_disarmed", false)
 			trig.set("_disarm_timer", 0.0)
 			_c(not trig._triggered, "门触发器初始未触发")
+			# 模拟真实穿门：玩家先站进触发区再触发。
+			# 门触发器有几何复核（玩家不在触发区内 → 判为幽灵派发丢弃），
+			# 远距离直调会被拦掉。
+			p.global_position = (trig as Node3D).global_position + Vector3(0, -1.5, 0)
 			trig._on_body_entered(p)
 			_c(trig._triggered, "门触发后置位")
 			var idx_before: int = gr.current_room_index
@@ -214,11 +218,11 @@ func _test_attack_grace(p) -> void:
 	Input.action_press("sprint")
 	Input.action_press("move_right")
 	var frames := 0
-	while p._sprint_hold < 0.10 and frames < 60:
+	while p.sprint_hold < 0.10 and frames < 60:
 		await get_tree().physics_frame
 		frames += 1
-	_c(p._sprint_hold < threshold, "短奔跑未达冲撞阈值",
-		"hold=%.3f 阈值=%.2f" % [p._sprint_hold, threshold])
+	_c(p.sprint_hold < threshold, "短奔跑未达冲撞阈值",
+		"hold=%.3f 阈值=%.2f" % [p.sprint_hold, threshold])
 	await _fire_attack(p)
 	_c(p._state_machine.current_state_name() == "MoveState",
 		"短奔跑时攻击走普攻（不误触冲撞）",
@@ -230,13 +234,13 @@ func _test_attack_grace(p) -> void:
 	Input.action_press("sprint")
 	Input.action_press("move_right")
 	frames = 0
-	while p._sprint_hold < threshold + 0.15 and frames < 120:
+	while p.sprint_hold < threshold + 0.15 and frames < 120:
 		await get_tree().physics_frame
 		frames += 1
 	await _fire_attack(p)
 	_c(p._state_machine.current_state_name() == "SprintAttackState",
 		"持续奔跑后攻击走冲撞",
-		"hold=%.3f 状态=%s" % [p._sprint_hold, p._state_machine.current_state_name()])
+		"hold=%.3f 状态=%s" % [p.sprint_hold, p._state_machine.current_state_name()])
 	_release_all()
 
 
@@ -267,9 +271,9 @@ func _sprint_reset(p) -> void:
 		im.set("_buffered_attack", Vector2.ZERO)
 		im.set("_buffered_attack_time", -999.0)
 	p._is_sprinting = false
-	p._sprint_hold = 0.0
-	p._prev_raw_input = Vector3.ZERO
-	p._since_dir_press = 99.0
+	p.sprint_hold = 0.0
+	p.prev_raw_input = Vector3.ZERO
+	p.since_dir_press = 99.0
 	p._attack_timer = 0.0
 	p._current_attack_cooldown = 0.0
 	p.velocity = Vector3.ZERO
