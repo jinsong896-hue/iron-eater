@@ -397,19 +397,24 @@ func _spawn_boss() -> void:
 	var layer := _current_layer()
 	MonsterDB.init()
 
-	# 抽取本层 Boss（同一局内每层独立，不同局不同）
-	var rng := RandomNumberGenerator.new()
-	var gm_rng = _game_manager()
-	if gm_rng != null and gm_rng.get("rng") != null:
-		rng.seed = gm_rng.rng.randi()
-	else:
-		rng.randomize()
-	var boss_def := BossDB.random_for_floor(layer, rng)
+	# **读生成阶段预抽的 Boss**，不在这里现抽。
+	# 原因：Boss 决定房间模板尺寸（策划 7 章），而房间是预建的——
+	# 必须先生成阶段定下来。这里现抽的话会出现「房间按 A 的尺寸建、
+	# 却刷出 B」的错配，且同一种子两次进入可能刷不同 Boss。
+	var boss_def := _preassigned_boss()
 
 	_boss = EnemyBase.new()
 	_boss.position = _boss_spawn.global_position
 	if boss_def.is_empty():
-		# 兜底：BossDB 取不到时退回旧的鼠王配置（不该发生，防御性保留）
+		# 兜底：房间数据缺 boss_def（旧存档 / 手工构造的图）时现场抽一个
+		var rng := RandomNumberGenerator.new()
+		var gm_rng = _game_manager()
+		if gm_rng != null and gm_rng.get("rng") != null:
+			rng.seed = gm_rng.rng.randi()
+		else:
+			rng.randomize()
+		boss_def = BossDB.random_for_floor(layer, rng)
+	if boss_def.is_empty():
 		_boss.apply_monster_config(MonsterDB.boss_monster())
 	else:
 		var cfg := BossDB.to_monster_config(boss_def, layer, FloorDefs.boss_hp(layer))
@@ -457,6 +462,19 @@ func _on_boss_died(world_position: Vector3) -> void:
 	_show_portal()
 	if enemies_alive <= 0:
 		_on_cleared()
+
+
+## 读生成阶段预抽的 Boss 定义（房间数据里的 boss_def）。
+## 取不到时返回空字典，由调用方兜底。
+func _preassigned_boss() -> Dictionary:
+	var gr = _game_root()
+	if gr == null:
+		return {}
+	var graph = gr.get("dungeon_graph")
+	var idx: int = int(gr.get("current_room_index"))
+	if graph == null or idx < 0 or idx >= graph.size():
+		return {}
+	return graph[idx].get("boss_def", {})
 
 
 ## 难度倍率 = 玩家难度选择 × 层因子。
@@ -580,8 +598,11 @@ func _room_type() -> String:
 
 
 ## 判断是否为商店、泉水或事件特殊房。
+## 是否为「不刷怪、不锁门」的功能房间。
+## 商店/泉水/事件是特殊房（有交互物），奖励大厅（第 9 层）也是——
+## 它满屋宝箱、没有敌人，玩家进来就是搜刮，锁门毫无意义。
 func _is_special_room() -> bool:
-	return _room_type() in ["shop", "heal", "event"]
+	return _room_type() in ["shop", "heal", "event", "reward_hall"]
 
 ## 执行特殊房交互（不锁门，可重复进入；奖励只结算一次）
 ## 返回 {ok, reason?, already_used?}，UI / 输入层据 ok 决定是否提示

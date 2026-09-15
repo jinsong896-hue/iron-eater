@@ -61,6 +61,31 @@ func generate(seed_value: int = -1) -> void:
 	_assign_room_types()
 
 
+## 为某个 Boss 房抽定 Boss 并写入房间数据。
+##
+## **为什么在生成阶段抽**：房间是预建的，而 Boss 房模板尺寸按 Boss 个体决定
+## （策划 7 章），所以必须先定 Boss 再建房间。抽定后：
+##   · _build_room 读 room["boss_size"] 选模板
+##   · _spawn_boss 读 room["boss_def"] 刷怪
+##   · 存档/掉落查询引用同一份，不会出现「房间是大的、Boss 是小的」
+##
+## seq 用于第 9 层三连战按序取（0 = 常规单 Boss 房）。
+func _assign_boss_for_room(idx: int, seq: int = 0) -> void:
+	if idx < 0 or idx >= rooms.size():
+		return
+	var pool := BossDB.pool_for_floor(floor_num)
+	if pool.is_empty():
+		return
+	var boss: Dictionary
+	if floor_num >= FloorDefs.MAX_FLOOR:
+		# 第 9 层：按序号取（三连战顺序固定：守卫 → 双子 → 完全体）
+		boss = pool[clampi(seq, 0, pool.size() - 1)]
+	else:
+		boss = pool[rng.randi_range(0, pool.size() - 1)]
+	rooms[idx]["boss_def"] = boss
+	rooms[idx]["boss_size"] = BossDB.room_size_of(boss)
+
+
 ## 生成房间节点（简单路径扩展）
 ## range_half > 0 时限制坐标在 ±range_half（母网格可用范围，策划书 2.1）；
 ## 超出范围的方向直接放弃。实测各层房间数/范围组合都能放满（见测试）。
@@ -150,6 +175,10 @@ func _assign_room_types() -> void:
 			max_dist = d
 			boss_room_index = i
 	rooms[boss_room_index]["type"] = "boss"
+	# **Boss 在此刻抽定**，而非切房时现抽——房间是预建的，模板尺寸要按 Boss
+	# 决定（策划 7 章：不同 Boss 用不同大小的战场），所以必须先生成阶段定下来。
+	# 抽定后写入房间数据，后续 _build_room 选模板、_spawn_boss 刷怪都读同一份。
+	_assign_boss_for_room(boss_room_index, 0)
 
 	# 顺序要紧：先放特殊房（它们从普通房里挑），再定精英
 	# 否则精英先占了普通房，特殊房可选项变少
@@ -177,6 +206,16 @@ func _assign_room_types() -> void:
 ## 结构：起始房（传送进入点）+ 3 间 Boss 房（混沌守卫 → 虚空双子 → 破坏神完全体）
 ##       + 1 间奖励大厅（满地图宝箱）。
 ## 按 BFS 距离排序：越远的越靠后（Boss 战顺序由玩家推进自然形成）。
+## 第 9 层「混沌裂隙」房间结构（策划 6.10）。
+##
+## 策划的流程是：**传送进入 → 奖励大厅搜刮 → Boss 连战三场 → 通关结算**。
+##
+## **顺序不能搞错**：奖励大厅必须在起始房**旁边**（玩家传送进来第一间就是它），
+## Boss 连战排在更远处。早期实现按「距离升序，前 3 间标 boss」，
+## 结果奖励大厅落在最远的房间（距起点 3），而距离 1 的房间就是 Boss——
+## 玩家一出门直接撞 Boss，奖励大厅反而要打完才拿得到，与策划完全相反。
+##
+## 布局：起始房 → 奖励大厅（距离 1）→ Boss 1 → Boss 2 → Boss 3（由近及远）。
 func _assign_layer9_rooms() -> void:
 	var dist := _bfs_distances(start_room_index)
 	# 按距离升序排列候选房（排除起始房）
@@ -186,21 +225,28 @@ func _assign_layer9_rooms() -> void:
 			order.append(i)
 	order.sort_custom(func(a, b): return int(dist.get(a, 0)) < int(dist.get(b, 0)))
 
-	# 依次标：3 间 Boss 房（连战顺序即距离顺序），最后一间作奖励大厅
-	var boss_seq := 0
-	for k in order.size():
-		var idx: int = order[k]
-		if boss_seq < 3:
-			rooms[idx]["type"] = "boss"
-			boss_room_index = idx          # 最后一间 Boss 房（连战终点）
-			boss_seq += 1
-		else:
-			rooms[idx]["type"] = "treasure"   # 奖励大厅（宝箱房）
+	# 最近的一间作奖励大厅（玩家一进来就能搜刮）
+	if order.is_empty():
+		return
+	rooms[order[0]]["type"] = "reward_hall"
 
-	# 兜底：房间不足 4 间时至少保证 1 间 Boss 房
-	if boss_seq == 0 and rooms.size() > 1:
-		rooms[1]["type"] = "boss"
-		boss_room_index = 1
+	# 其余按距离由近及远标为 Boss 连战（越深越难，与策划的连战顺序一致）。
+	# 三连战顺序固定（策划 6.10）：混沌守卫 → 虚空双子 → 破坏神完全体，
+	# 故按 seq 取而非随机——BossDB.pool_for_floor(9) 的数组顺序即策划顺序。
+	var boss_seq := 0
+	for k in range(1, order.size()):
+		var idx: int = order[k]
+		rooms[idx]["type"] = "boss"
+		_assign_boss_for_room(idx, boss_seq)
+		boss_seq += 1
+		# boss_room_index 指向**最后一间**（连战终点）——掉落/结算按它算
+		boss_room_index = idx
+
+	# 兜底：一间 Boss 都没有时，把第 2 近的房间标为 Boss
+	if boss_seq == 0 and order.size() > 1:
+		rooms[order[1]]["type"] = "boss"
+		_assign_boss_for_room(order[1], 0)
+		boss_room_index = order[1]
 
 
 ## 分配特殊房（商店/宝箱/泉水），按策划的距离规则而非纯随机

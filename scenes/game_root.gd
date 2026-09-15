@@ -143,7 +143,7 @@ func next_floor() -> void:
 # ============================================================
 
 func _register_templates() -> void:
-	room_templates = {"start": [], "normal": [], "elite": [], "treasure": [], "boss": [], "shop": [], "heal": [], "event": [], "hidden": []}
+	room_templates = {"start": [], "normal": [], "elite": [], "treasure": [], "boss": [], "shop": [], "heal": [], "event": [], "hidden": [], "reward_hall": []}
 	var dir := DirAccess.open(ROOM_DATA_DIR)
 	if dir == null:
 		return
@@ -371,7 +371,12 @@ func _build_room(idx: int) -> Node3D:
 
 	var data: Dictionary = dungeon_graph[idx]
 	var room_type: String = data.get("type", "normal")
-	var template_path := _pick_template(room_type)
+	# Boss 房按预抽的 boss_size 指定模板尺寸（策划 7 章：不同 Boss 不同战场大小）
+	var prefer := ""
+	if room_type == "boss":
+		var size_key := str(data.get("boss_size", "standard"))
+		prefer = str(BossDB.SIZE_TEMPLATE.get(size_key, "room_boss"))
+	var template_path := _pick_template(room_type, prefer)
 	if template_path.is_empty():
 		return null
 
@@ -587,8 +592,15 @@ func _apply_topology_doors(jd: Dictionary, idx: int = -1) -> void:
 	jd["walls"] = walls
 
 
-func _pick_template(room_type: String) -> String:
+func _pick_template(room_type: String, prefer_id: String = "") -> String:
 	var templates: Array = room_templates.get(room_type, [])
+	# 指定模板（Boss 房用）：按 id 精确匹配 data/rooms/<prefer_id>.json
+	if not prefer_id.is_empty():
+		var want := "res://data/rooms/%s.json" % prefer_id
+		if templates.has(want):
+			return want
+		# 指定模板不在本房型的池里时**不回退到随机**——宁可让调用方拿到空、
+		# 走 _create_fallback_room，也不要静默换成尺寸不符的模板
 	if templates.is_empty():
 		for key in room_templates:
 			var arr: Array = room_templates[key]
@@ -653,8 +665,10 @@ func _spawn_chest(pos: Vector3, parent: Node3D) -> void:
 		return
 	var chest := scene.instantiate()
 	chest.position = pos
-	# 隐藏房宝箱走高价值奖励（策划 3.2：金币 300~800 + 必掉高稀有度装备）
-	if _current_room_is_hidden():
+	# 高价值宝箱：隐藏房（策划 3.2）与第 9 层奖励大厅（策划 6.10「奖励狂欢」）
+	# 同档——金币 300~800 + 必掉高稀有度装备。
+	var rtype := _building_room_type()
+	if rtype == "hidden" or rtype == "reward_hall":
 		chest.set("is_hidden_reward", true)
 		chest.set("gold_min", 300)
 		chest.set("gold_max", 800)
@@ -663,10 +677,15 @@ func _spawn_chest(pos: Vector3, parent: Node3D) -> void:
 
 ## 当前正在构建的房间是否为隐藏房（_build_room 里按 idx 判断）
 func _current_room_is_hidden() -> bool:
+	return _building_room_type() == "hidden"
+
+
+## 当前正在构建的房间类型（预建时 current_room_index 指向别的房，必须按 idx 查）
+func _building_room_type() -> String:
 	var idx := _building_room_index
 	if idx < 0 or idx >= dungeon_graph.size():
-		return false
-	return str(dungeon_graph[idx].get("type", "")) == "hidden"
+		return ""
+	return str(dungeon_graph[idx].get("type", ""))
 
 
 func _create_fallback_room() -> Node3D:
