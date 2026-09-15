@@ -399,6 +399,10 @@ func _build_room(idx: int) -> Node3D:
 		controller.set("room_data", jd)
 		room_node.add_child(controller)
 
+		# 本层环境机制（毒气/熔岩/爆炸/传送…）。挂在房间节点下，
+		# 随房间销毁；无机制层（第 1 层）返回 null。
+		FloorEnvironment.apply(room_node, floor_num, jd)
+
 	return room_node
 
 

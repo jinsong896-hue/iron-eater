@@ -95,6 +95,10 @@ func _ready() -> void:
 	await test_layer9_structure()
 	await test_key_fragments()
 
+	# 批次 D：楼层环境机制
+	await test_floor_environment()
+	await test_floor_environment_robustness()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -1917,6 +1921,94 @@ func test_key_fragments() -> void:
 		[gm.meta_key_fragments])
 
 	gm.free()
+
+
+## 楼层环境机制：各层 env 登记完整、机制能装配、安全区不被侵占
+## 依据关卡设计分册第 4 章「每层主题与环境机制」
+func test_floor_environment() -> void:
+	_current_test = "FloorEnvironment"
+	print("\n--- %s ---" % _current_test)
+
+	# 各层 env 标识：1 层无机制（教学层），2~9 层各有机制且不重复
+	_check(FloorDefs.env_id(1).is_empty(), "第 1 层无环境机制（教学层）",
+		[FloorDefs.env_id(1)])
+	var seen := {}
+	for f in range(2, 10):
+		var e := FloorDefs.env_id(f)
+		_check(not e.is_empty(), "第 %d 层登记了环境机制" % f)
+		_check(not seen.has(e), "第 %d 层机制 %s 唯一" % [f, e])
+		seen[e] = f
+
+	# 机制装配表齐全（FloorEnvironment._setup 处理了所有登记的 env）
+	var known := ["collapse", "poison", "mire", "lava", "sulfur",
+		"low_gravity", "firestorm", "chaos_warp"]
+	for e in seen:
+		_check(e in known, "机制 %s 有实现分支" % e)
+
+	# 造一个房间数据，验证危害区真的生成且避开安全点
+	var data := {
+		"width": 20, "height": 15,
+		"entities": [{"type": "player_spawn", "x": 10, "y": 12}],
+		"doors": [{"x": 10, "y": 14, "direction": "south"}],
+	}
+	# 区域型机制（2~5 层）：应生成危害区
+	for f in [2, 3, 4, 5]:
+		var room := Node3D.new()
+		var fe := FloorEnvironment.apply(room, f, data)
+		_check(fe != null, "第 %d 层环境已装配" % f)
+		if fe:
+			var zones: Array = []
+			for c in fe.get_children():
+				if c is DamageZone:
+					zones.append(c)
+			_check(zones.size() > 0, "第 %d 层生成了危害区（%d 个）" % [f, zones.size()])
+			# 安全区不变量：危害不得压在出生点或门上
+			var bad := 0
+			for z in zones:
+				var zp: Vector3 = (z as Node3D).position
+				var to_spawn := Vector2(zp.x - 10.0, zp.z - 12.0).length()
+				var to_door := Vector2(zp.x - 10.0, zp.z - 14.5).length()
+				var r: float = float(z.get("radius"))
+				if to_spawn < r or to_door < r:
+					bad += 1
+			_check(bad == 0, "第 %d 层危害区避开出生点与门" % f, ["侵占 %d 个" % bad])
+		room.free()
+
+	# 周期型机制（6~9 层）：无静态危害区，但有机制配置
+	for f in [6, 7, 8, 9]:
+		var room2 := Node3D.new()
+		var fe2 := FloorEnvironment.apply(room2, f, data)
+		_check(fe2 != null, "第 %d 层环境已装配" % f)
+		if fe2:
+			var m: Dictionary = fe2.mechanism()
+			_check(not m.is_empty(), "第 %d 层有机制配置（%s）" % [f, m.get("kind", "")])
+		room2.free()
+
+	# 第 1 层（无机制）返回 null
+	var room1 := Node3D.new()
+	_check(FloorEnvironment.apply(room1, 1, data) == null, "第 1 层不装配环境机制")
+	room1.free()
+
+
+## 环境机制不会在没有房间控制器时崩溃（预建房间尚未接入控制器）
+func test_floor_environment_robustness() -> void:
+	_current_test = "FloorEnvironmentRobust"
+	print("\n--- %s ---" % _current_test)
+
+	# 极端房间数据：无 entities / 无 doors / 尺寸极小
+	var bare := {"width": 4, "height": 4}
+	for f in range(2, 10):
+		var room := Node3D.new()
+		var fe := FloorEnvironment.apply(room, f, bare)
+		# 不崩即通过；无出生点数据时应回退到房间中心作安全点
+		_check(true, "第 %d 层在缺数据房间下不崩" % f)
+		room.free()
+
+	# 越界层数钳制（存档损坏）
+	var room2 := Node3D.new()
+	FloorEnvironment.apply(room2, 99, bare)
+	_check(true, "越界层数不崩")
+	room2.free()
 
 
 ## 地牢配置的模板池覆盖：生成器产出的房型都能在 data/rooms 找到模板
