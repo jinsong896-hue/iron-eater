@@ -105,6 +105,7 @@ func _ready() -> void:
 	# 批次 C：Boss 体系
 	await test_boss_db()
 	await test_boss_mechanic_wiring()
+	await test_boss_room_sizes()
 
 	print("=".repeat(60))
 	if _failed == 0:
@@ -1887,18 +1888,18 @@ func test_layer9_structure() -> void:
 	_check(gen.rooms.size() == 5, "第 9 层固定 5 间房", [gen.rooms.size()])
 
 	var bosses := 0
-	var treasures := 0
+	var halls := 0
 	var start := 0
 	for r in gen.rooms:
 		match str(r.get("type", "")):
 			"boss":
 				bosses += 1
-			"treasure":
-				treasures += 1
+			"reward_hall":
+				halls += 1
 			"start":
 				start += 1
 	_check(bosses == 3, "第 9 层 3 间 Boss 房（三连战）", [bosses])
-	_check(treasures >= 1, "第 9 层有奖励大厅", [treasures])
+	_check(halls == 1, "第 9 层 1 间奖励大厅", [halls])
 	_check(start == 1, "第 9 层 1 间起始房", [start])
 	# 第 9 层不应有常规怪物房（纯 Boss 挑战）
 	var normal := 0
@@ -1906,6 +1907,21 @@ func test_layer9_structure() -> void:
 		if str(r.get("type", "")) == "normal":
 			normal += 1
 	_check(normal == 0, "第 9 层无普通怪物房（纯 Boss 挑战）", [normal])
+
+	# **顺序断言**（策划 6.10：传送进入 → 奖励大厅搜刮 → Boss 连战三场）。
+	# 早期实现按「距离升序，前 3 间标 boss」，奖励大厅落在最远处
+	# （实测距起始房 3），玩家要打完 Boss 才拿得到奖励，与策划相反。
+	# 只断言数量查不出这个，必须断言**距离**。
+	#
+	# 注意：不能断言「所有 Boss 都比大厅远」——起始房通常扇形连 2~3 个房间，
+	# 距离 1 的位置不止一个，大厅占其一后必然还有 Boss 并列在距离 1。
+	# 能保证且该保证的是「大厅就在起始房旁边」，玩家进门第一间就能搜刮。
+	var dist := gen._bfs_distances(gen.start_room_index)
+	var hall_dist := -1
+	for i in gen.rooms.size():
+		if str(gen.rooms[i].get("type", "")) == "reward_hall":
+			hall_dist = int(dist.get(i, 99))
+	_check(hall_dist == 1, "奖励大厅紧邻起始房（实际距离 %d）" % hall_dist, [hall_dist])
 
 	# 对照：第 1 层仍是常规结构（1 间 Boss）
 	var gen1 := DungeonGenerator.new()
@@ -1967,11 +1983,19 @@ func test_floor_environment() -> void:
 		_check(not seen.has(e), "第 %d 层机制 %s 唯一" % [f, e])
 		seen[e] = f
 
-	# 机制装配表齐全（FloorEnvironment._setup 处理了所有登记的 env）
-	var known := ["collapse", "poison", "mire", "lava", "sulfur",
-		"low_gravity", "firestorm", "chaos_warp"]
-	for e in seen:
-		_check(e in known, "机制 %s 有实现分支" % e)
+	# 机制装配**行为级**断言：每层 env 装配后 mechanism() 必须非空。
+	# 不用硬编码的 env 名列表——那样只能证明"名字在名单里"，
+	# 证明不了"真的有实现"（第 7 层曾登记 low_gravity 却被当成已实现，
+	# 实际落地的机制叫 void_warp，名实不符且从名单上看不出来）。
+	var bare := Node3D.new()
+	for f in range(2, 10):
+		var env_node := FloorEnvironment.apply(bare, f, {"width": 20, "height": 15})
+		var mech: Dictionary = env_node.mechanism()
+		_check(not mech.is_empty(),
+			"第 %d 层 env '%s' 有实际机制装配" % [f, FloorDefs.env_id(f)],
+			[mech])
+		env_node.queue_free()
+	bare.free()
 
 	# 造一个房间数据，验证危害区真的生成且避开安全点
 	var data := {
@@ -2323,6 +2347,106 @@ func test_boss_mechanic_wiring() -> void:
 		["%s → %s" % [b1.get("params", {}).get("summon", {}).get("id"), spec.get("id")]])
 	_check(not MonsterDB.get_monster(str(spec.get("id", ""))).is_empty(),
 		"1-4 解析后的召唤 id 可查")
+
+
+## Boss 房尺寸分级（策划 7 章）：按 Boss 个体选战场大小
+func test_boss_room_sizes() -> void:
+	_current_test = "BossRoomSizes"
+	print("\n--- %s ---" % _current_test)
+
+	# 策划明写的映射：第 1 层三档、第 2 层两档（无 3×3）
+	_check(BossDB.room_size_of(BossDB.get_boss("1-7")) == "large",
+		"1-7 枷锁幽灵用大型房（策划：3×3）")
+	_check(BossDB.room_size_of(BossDB.get_boss("1-3")) == "mid",
+		"1-3 典狱长用中型房（策划：2×2）")
+	_check(BossDB.room_size_of(BossDB.get_boss("1-1")) == "standard",
+		"1-1 狱卒用标准房（策划：1×1）")
+	# 第 2 层无 3×3
+	var has_large_f2 := false
+	for b in BossDB.pool_for_floor(2):
+		if BossDB.room_size_of(b) == "large":
+			has_large_f2 = true
+	_check(not has_large_f2, "第 2 层无大型房（策划明写取消 3×3）")
+	# 2-3/2-4/2-7 是中型
+	for bid in ["2-3", "2-4", "2-7"]:
+		_check(BossDB.room_size_of(BossDB.get_boss(bid)) == "mid",
+			"%s 用中型房" % bid)
+
+	# 未定义的层/Boss 一律 standard（不自行编造）
+	_check(BossDB.room_size_of(BossDB.get_boss("7-1")) == "standard",
+		"策划未定义的层用标准房（不自编）")
+
+	# 模板必须存在且尺寸递增
+	var sizes := {}
+	for key in ["standard", "mid", "large"]:
+		var tid := str(BossDB.SIZE_TEMPLATE[key])
+		var path := "res://data/rooms/%s.json" % tid
+		_check(FileAccess.file_exists(path), "尺寸档 %s 的模板存在（%s）" % [key, tid])
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f:
+			var j := JSON.new()
+			if j.parse(f.get_as_text()) == OK:
+				sizes[key] = int(j.data.get("width", 0)) * int(j.data.get("height", 0))
+			f.close()
+	_check(sizes.get("standard", 0) < sizes.get("mid", 0),
+		"中型房面积大于标准房", [sizes])
+	_check(sizes.get("mid", 0) < sizes.get("large", 0),
+		"大型房面积大于中型房", [sizes])
+
+	# 生成阶段抽定 Boss：dungeon_graph 的 boss 房必须带 boss_def 与 boss_size
+	var gen := DungeonGenerator.new()
+	gen.rng.set_seed(555)
+	gen.min_rooms = 13
+	gen.max_rooms = 13
+	gen.floor_num = 1
+	gen.generate(555)
+	var boss_rooms := 0
+	var with_def := 0
+	for r in gen.rooms:
+		if str(r.get("type", "")) != "boss":
+			continue
+		boss_rooms += 1
+		if not r.get("boss_def", {}).is_empty() and not str(r.get("boss_size", "")).is_empty():
+			with_def += 1
+	_check(boss_rooms >= 1 and with_def == boss_rooms,
+		"生成阶段已为 Boss 房抽定 Boss 与尺寸（%d/%d）" % [with_def, boss_rooms])
+
+	# 同种子两次生成必须抽到同一个 Boss（可复现）
+	var gen2 := DungeonGenerator.new()
+	gen2.rng.set_seed(555)
+	gen2.min_rooms = 13
+	gen2.max_rooms = 13
+	gen2.floor_num = 1
+	gen2.generate(555)
+	var a := ""
+	var b := ""
+	for i in gen.rooms.size():
+		if str(gen.rooms[i].get("type", "")) == "boss":
+			a = str(gen.rooms[i].get("boss_def", {}).get("id", ""))
+	for i in gen2.rooms.size():
+		if str(gen2.rooms[i].get("type", "")) == "boss":
+			b = str(gen2.rooms[i].get("boss_def", {}).get("id", ""))
+	_check(a == b, "同种子两次生成的 Boss 相同（可复现）", ["%s vs %s" % [a, b]])
+
+	# 第 9 层三连战按策划顺序取（守卫 → 双子 → 完全体），不是随机
+	var gen9 := DungeonGenerator.new()
+	gen9.rng.set_seed(31)
+	gen9.min_rooms = 5
+	gen9.max_rooms = 5
+	gen9.range_half = 15
+	gen9.floor_num = 9
+	gen9.generate(31)
+	var seq_ids: Array = []
+	var d9 := gen9._bfs_distances(gen9.start_room_index)
+	var order9: Array = []
+	for i in gen9.rooms.size():
+		if str(gen9.rooms[i].get("type", "")) == "boss":
+			order9.append(i)
+	order9.sort_custom(func(x, y): return int(d9.get(x, 0)) < int(d9.get(y, 0)))
+	for i in order9:
+		seq_ids.append(str(gen9.rooms[i].get("boss_def", {}).get("id", "")))
+	_check(seq_ids == ["9-1", "9-2", "9-3"],
+		"第 9 层三连战按策划顺序（守卫→双子→完全体）", [seq_ids])
 
 
 ## 地牢配置的模板池覆盖：生成器产出的房型都能在 data/rooms 找到模板

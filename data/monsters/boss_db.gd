@@ -38,6 +38,41 @@ const ALL_MECHANICS := [
 	M_FIELD, M_RANGED, M_CONTROL, M_CHARGE,
 ]
 
+## Boss 房尺寸档位 → 房间模板 id（策划 7 章）。
+##
+## 策划只给了**第 1、2 层**的映射（原文标注"前两层示例"），
+## 第 3 层及以后未定义——本表不自行编造，未列出的 Boss 一律用 standard。
+##
+## 尺寸口径说明：策划的 1×1 / 2×2 / 3×3 是"占几个屏幕"的**母网格**口径
+## （20/40/60 格），而本项目一屏一间房、每间房是独立场景，无法拼接成
+## 多屏战场。故按**房间可用面积**映射策划的意图（Boss 需要多大战场）。
+const SIZE_TEMPLATE := {
+	"standard": "room_boss",         # 25×17 — 小 Boss，站桩可打
+	"mid":      "room_boss_mid",     # 34×22 — 中等 Boss，需要走位
+	"large":    "room_boss_large",   # 44×28 — 大 Boss，辽阔战场
+}
+
+## 策划 7 章明写的尺寸映射（Boss id → 档位）。未列出的用 standard。
+const BOSS_ROOM_SIZE := {
+	# 第 1 层：三档齐全（1×1 / 2×2 / 3×3）
+	"1-1": "standard", "1-2": "standard", "1-5": "standard", "1-6": "standard",
+	"1-3": "mid", "1-4": "mid",
+	"1-7": "large",
+	# 第 2 层：两档（策划明写"无 3×3，降低空间复杂度"）
+	"2-1": "standard", "2-2": "standard", "2-5": "standard", "2-6": "standard",
+	"2-3": "mid", "2-4": "mid", "2-7": "mid",
+}
+
+
+## 该 Boss 应用的房间尺寸档位（未定义 → standard）
+static func room_size_of(boss: Dictionary) -> String:
+	return str(BOSS_ROOM_SIZE.get(str(boss.get("id", "")), "standard"))
+
+
+## 该 Boss 应用的房间模板 id
+static func room_template_of(boss: Dictionary) -> String:
+	return str(SIZE_TEMPLATE.get(room_size_of(boss), "room_boss"))
+
 ## Boss 定义。按层分组：层号 → Boss 数组（每层 7 个，第 8 层固定、第 9 层三连战）。
 ##
 ## 字段：
