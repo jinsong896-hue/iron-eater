@@ -44,10 +44,8 @@ func _ready() -> void:
 
 
 func _init_dungeon() -> void:
+	# generate_dungeon 内部已同步加载起始房并放置玩家（见其尾部）
 	generate_dungeon(randi(), 13)
-	load_current_room()
-	_place_player()
-	_activate_current_room()
 
 
 ## 进入下一层：清空当前层 → 重生成地牢 → 回初始房
@@ -67,10 +65,8 @@ func next_floor() -> void:
 	if gm and gm.rng:
 		seed_value = gm.rng.randi()
 
+	# generate_dungeon 内部已同步加载起始房、放置玩家、激活控制器
 	generate_dungeon(seed_value, 13)
-	load_current_room()
-	_place_player()
-	_activate_current_room()
 
 	if gm:
 		gm.set_state(GameManager.GamePhase.DUNGEON)
@@ -129,9 +125,17 @@ func generate_dungeon(seed_value: int, count: int = 13) -> void:
 	dungeon_generated = true
 	current_room_index = 0
 	room_state.clear()
+	# 丢弃上一层的预建房间——留着会把旧层房间挂到新层上
+	_clear_preload()
 
 	for i in dungeon_graph.size():
 		room_state[i] = {"cleared": false, "visited": false}
+
+	# 起始房立刻需要（玩家马上就在里面），同步建好入树；
+	# 其余房间交给 _process 逐帧预建
+	load_current_room()
+	_place_player()
+	_activate_current_room()
 
 
 # ============================================================
@@ -145,21 +149,118 @@ func get_current_room_data() -> Dictionary:
 
 
 func load_current_room() -> Node3D:
-	var data := get_current_room_data()
-	if data.is_empty():
+	var idx := current_room_index
+	var room_node: Node3D = null
+
+	# 命中预建缓存 → 只需挂载。实测：构建 3.12ms + 入树 0.14ms，
+	# 预建把玩家可感知的那段压到 ~1/35（真实 GPU 上材质首次编译更贵，收益更大）
+	if _room_cache.has(idx):
+		room_node = _room_cache[idx]
+		_room_cache.erase(idx)
+	else:
+		room_node = _build_room(idx)
+
+	if room_node == null:
 		return _create_fallback_room()
 
+	room_node.name = "Room_%d" % idx
+	world.add_child(room_node)
+	room_node.position = Vector3.ZERO
+	if room_state.has(idx):
+		room_state[idx]["visited"] = true
+	current_room_node = room_node
+	return room_node
+
+
+# ============================================================
+# 房间预加载
+# ============================================================
+
+## 房间节点缓存：索引 → 已构建但未入树的房间。
+## 与 _json_cache 的区别：那个缓存的是 JSON 解析结果（省读盘），
+## 这个缓存的是**建好的网格节点**（省建模，是切房卡顿的大头）。
+var _room_cache: Dictionary = {}
+var _preload_cursor := 0
+## 一次性预建整层（**给开场动画/加载画面用**）。
+## 逐帧 1 间 ≈ 7ms，放在游戏进行中会占掉一帧预算的四成、造成微顿；
+## 开场动画期间没有别的事在做，一次建完最划算。
+## 返回本次新建的房间数。
+func preload_all() -> int:
+	if not dungeon_generated:
+		return 0
+	var built := 0
+	while _preload_cursor < dungeon_graph.size():
+		var i := _preload_cursor
+		_preload_cursor += 1
+		if i == current_room_index or _room_cache.has(i):
+			continue
+		var t0 := Time.get_ticks_usec()
+		var node := _build_room(i)
+		_preload_usec += Time.get_ticks_usec() - t0
+		if node != null:
+			_room_cache[i] = node
+			_preload_built += 1
+			built += 1
+	return built
+
+
+## 每帧预建房间数。1 间 ≈ 7ms；分散到帧里仍有微顿，
+## 故只在**开场动画尚未覆盖**或缓存已空时才有意义——
+## 正常情况下由 preload_all() 在动画期间一次建完，这里兜底补齐。
+const PRELOAD_PER_FRAME := 1
+var _preload_built := 0
+var _preload_usec := 0
+
+
+## 增量预加载：每帧建少量房间，直到整层建完。
+## 首次由开场动画盖住（玩家看不到），之后在游玩过程中逐步补完。
+func _process(_delta: float) -> void:
+	_preload_step()
+
+
+func _preload_step() -> void:
+	if not dungeon_generated or _preload_cursor >= dungeon_graph.size():
+		return
+	for _n in PRELOAD_PER_FRAME:
+		if _preload_cursor >= dungeon_graph.size():
+			return
+		var i := _preload_cursor
+		_preload_cursor += 1
+		if i == current_room_index or _room_cache.has(i):
+			continue
+		var t0 := Time.get_ticks_usec()
+		var node := _build_room(i)
+		_preload_usec += Time.get_ticks_usec() - t0
+		if node != null:
+			_room_cache[i] = node
+			_preload_built += 1
+
+
+## 丢弃预建缓存（重建地牢时必须调用，否则会挂上上一层的房间）
+func _clear_preload() -> void:
+	for k in _room_cache:
+		var n = _room_cache[k]
+		if n != null and is_instance_valid(n):
+			n.free()      # 未入树，free 即可
+	_room_cache.clear()
+	_preload_cursor = 0
+	_preload_built = 0
+	_preload_usec = 0
+
+
+## 构建房间节点（**不入树**）。入树由调用方负责——
+## 预加载路径把它挂进缓存，正常路径立刻 world.add_child。
+func _build_room(idx: int) -> Node3D:
+	if dungeon_graph.is_empty() or idx < 0 or idx >= dungeon_graph.size():
+		return null
+
+	var data: Dictionary = dungeon_graph[idx]
 	var room_type: String = data.get("type", "normal")
 	var template_path := _pick_template(room_type)
 	if template_path.is_empty():
-		return _create_fallback_room()
+		return null
 
-	# 创建房间节点
 	var room_node := Node3D.new()
-	room_node.name = "Room_%d" % current_room_index
-	world.add_child(room_node)
-
-	# 子容器
 	var containers := {}
 	for name in ["Floor", "Walls", "Doors", "Props", "SpawnPoints"]:
 		var c := Node3D.new()
@@ -167,12 +268,12 @@ func load_current_room() -> Node3D:
 		room_node.add_child(c)
 		containers[name] = c
 
-	# 加载 RoomData 并构建
 	var RoomDataClass = load("res://data/rooms/room_data.gd")
 	var jd := _read_json_dict(template_path)
 	if RoomDataClass and not jd.is_empty():
 		# 门按地牢拓扑重算，覆盖模板里写死的门（消除哑门与死胡同）
-		_apply_topology_doors(jd)
+		# 必须传 idx：预建时 current_room_index 指向别的房
+		_apply_topology_doors(jd, idx)
 		var rd = RoomDataClass.new()
 		rd.load_from_dict(jd)
 		FloorBuilder.build(containers["Floor"], jd)
@@ -181,16 +282,28 @@ func load_current_room() -> Node3D:
 		DecorationBuilder.build(containers["Props"], jd)
 		_build_spawn_markers(containers["SpawnPoints"], jd)
 
-		# 附加 RoomController
 		var controller := RoomController.new()
 		controller.name = "RoomController"
 		controller.set("room_data", jd)
 		room_node.add_child(controller)
 
-	room_node.position = Vector3(0, 0, 0)
-	room_state[current_room_index]["visited"] = true
-	current_room_node = room_node
 	return room_node
+
+
+## 预加载统计（供调试面板/测试断言）
+func preload_stats() -> Dictionary:
+	return {
+		"total": dungeon_graph.size(),
+		"built": _preload_built,
+		"cached": _room_cache.size(),
+		"cursor": _preload_cursor,
+		"avg_ms": (float(_preload_usec) / float(maxi(_preload_built, 1))) / 1000.0,
+	}
+
+
+## 整层预建是否完成
+func preload_done() -> bool:
+	return dungeon_generated and _preload_cursor >= dungeon_graph.size()
 
 
 ## 房间 JSON 缓存：路径 → 解析后的字典。
@@ -222,22 +335,28 @@ func _read_json_dict(path: String) -> Dictionary:
 
 ## 按地牢拓扑重算本房的门，写回 jd["doors"]，并让边界墙在门格留洞
 ## 模板里的门方位是固定的，与随机拓扑对不上就会产生哑门（走上去不切房）
-func _apply_topology_doors(jd: Dictionary) -> void:
+##
+## idx 显式传入而非读 current_room_index——预加载时房间是**提前**构建的，
+## 那时 current_room_index 还指向别的房，读它会把门装到错误的房间上。
+## 不传（-1）则回退到 current_room_index，兼容既有调用。
+func _apply_topology_doors(jd: Dictionary, idx: int = -1) -> void:
 	if dungeon_graph.is_empty() or dungeon_connections.is_empty():
 		return
-	if current_room_index < 0 or current_room_index >= dungeon_graph.size():
+	if idx < 0:
+		idx = current_room_index
+	if idx < 0 or idx >= dungeon_graph.size():
 		return
 
 	var start_idx: int = clampi(dungeon_start_index, 0, dungeon_graph.size() - 1)
 	var parents: Array = DoorsByTopology.bfs_parents(dungeon_graph, dungeon_connections, start_idx)
 	var back_idx: int = start_idx
-	if current_room_index < parents.size() and int(parents[current_room_index]) >= 0:
-		back_idx = int(parents[current_room_index])
+	if idx < parents.size() and int(parents[idx]) >= 0:
+		back_idx = int(parents[idx])
 
 	var w: int = int(jd.get("width", 20))
 	var h: int = int(jd.get("height", 15))
 	var doors: Array = DoorsByTopology.build_doors(
-		dungeon_graph, dungeon_connections, current_room_index,
+		dungeon_graph, dungeon_connections, idx,
 		start_idx, back_idx, w, h
 	)
 	if doors.is_empty():

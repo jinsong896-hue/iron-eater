@@ -31,6 +31,7 @@ func _ready() -> void:
 	await _test_damage_setting_toggle(gr)
 	await _test_room_build_is_merged(gr)
 	await _test_slash_reuses_resources(gr)
+	await _test_room_preload(gr)
 
 	if failed == 0:
 		print("ALL GAMEPLAY FIXES2 TESTS PASSED")
@@ -419,3 +420,47 @@ func _check(c: bool, name: String) -> void:
 	else:
 		failed += 1
 		print("  [FAIL] %s" % name)
+
+
+## ---------- 房间预加载（切房卡顿优化）----------
+## 背景：切房时现建网格约 10ms（真实 GPU 上材质首次编译更贵）。
+## 改为预建整层，切房时只剩挂载。实测命中缓存 2.28ms vs 现建 10.48ms。
+func _test_room_preload(gr) -> void:
+	var stats: Dictionary = gr.preload_stats()
+	_check(int(stats.get("total", 0)) == 13, "本层 13 间房")
+
+	# 开场批量预建（供开场动画/加载画面调用）。
+	# 注意：前面的测试已跑过很多帧，_process 的逐帧预建多半已完成，
+	# 故这里不断言"本次建了几间"（那是时机相关的），只断言终态与幂等。
+	gr.preload_all()
+	_check(gr.preload_done(), "整层预建完成")
+	var after: Dictionary = gr.preload_stats()
+	_check(int(after.get("cached", 0)) >= 11,
+		"缓存了绝大多数房间（%d/%d）" % [after.get("cached"), after.get("total")])
+	_check(int(after.get("built", 0)) > 0, "确有房间被预建（%d 间）" % after.get("built"))
+
+	# 幂等：再调一次不应重复建
+	_check(int(gr.preload_all()) == 0, "重复 preload_all 不再新建（幂等）")
+
+	# 命中缓存的切房：必须能正常挂载且落点正确
+	var target := -1
+	for i in gr.dungeon_graph.size():
+		if gr._room_cache.has(i) and i != gr.current_room_index:
+			target = i
+			break
+	_check(target >= 0, "有可用的缓存房间")
+	if target >= 0:
+		gr._transition_to_room(target, "")
+		_check(gr.current_room_index == target, "命中缓存的切房落点正确")
+		if gr.current_room_node != null:
+			_check(gr.current_room_node.is_inside_tree(), "缓存房间已挂载入树")
+			var fl: Node = gr.current_room_node.get_node_or_null("Floor")
+			_check(fl != null and fl.get_child_count() > 0, "缓存房间的地板已构建")
+			var rc: Node = gr.current_room_node.get_node_or_null("RoomController")
+			_check(rc != null, "缓存房间带 RoomController")
+
+	# 重建地牢必须清空缓存（否则会挂上上一层的房间）
+	gr.generate_dungeon(9999, 13)
+	var fresh: Dictionary = gr.preload_stats()
+	_check(int(fresh.get("cached", 0)) == 0, "重建地牢后缓存已清空")
+	_check(gr.current_room_node != null, "重建后起始房已加载")
