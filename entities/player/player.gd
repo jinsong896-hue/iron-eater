@@ -459,9 +459,14 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	# 元素攻击：给目标叠层，并把阈值事件转成控制词条（冰冻/麻痹）
 	_apply_element_to(enemy)
 	EventBus.damage_popup.emit(enemy.global_position, total, "crit" if crit else "normal")
-	# 暴击/重击 hitstop 顿帧
-	if crit or multiplier >= 1.5:
+	# 暴击/终结技 hitstop 顿帧。
+	# 阈值必须是「罕见时刻」而非常规段位——旧值 1.5 把普攻4（1.8）、
+	# 冲撞（1.5）、跳跃斩（1.7）全纳入，而这些是连段家常便饭，等于
+	# 每击 0.06s 的 20 倍慢动作，连段手感变成「打一下卡一下」。
+	# 收紧为暴击或终结技（第 4 段）才顿帧 + 震屏。
+	if crit or _current_combo_stage == combo_stages_size():
 		_hitstop(0.06)
+		_screen_shake(0.1)
 
 
 ## 把本次攻击的元素叠到目标身上，并处理阈值触发（冰冻/雷暴）
@@ -515,12 +520,15 @@ func _refresh_attack_element() -> void:
 				return
 
 
-## 攻击收尾反馈
+## 攻击收尾反馈。
+## 普通命中**不震屏**：相机是正上方俯视 + rig.position 跟随 lerp，
+## 水平向的震屏偏移会被俯视投影放大成整个画面大幅斜向抖动，且与
+## 跟随逻辑每帧对抗（0.2s 内震荡）——体感是「屏幕被刷新一下」的假卡顿。
+## 震屏保留给重时刻：落地斩已有 0.3；暴击/终结技在 _apply_hit 里震。
 func _finish_attack_feedback(hit_any: bool) -> void:
 	if hit_any:
 		EventBus.player_attacked.emit(_facing, "")
 		AudioManager.play("hit")
-		_screen_shake(0.15)
 
 
 ## Hitstop：短暂全局减速制造顿帧感
@@ -606,19 +614,26 @@ var _damage_multiplier := 1.0    ## 出手伤害倍率
 var _force_crit := false         ## 强制暴击（故意绕过 can_crit，便于观察法术暴击顿帧）
 
 
-## 屏幕震动：相机 rig 短促偏移衰减
+## 屏幕震动：给 rig 下的 Camera3D 一个短促位置脉冲，指数衰减回零。
+## **偏移加在相机节点上而非 rig**：rig 的 position 由 CameraRig._process
+## 每帧 lerp 向玩家——直接改 rig.position 会被跟随逻辑对抗（先被拉走一半、
+## tween 又往回补，0.2s 内来回震荡，俯视投影下是大幅斜向抖动）。
+## 相机是 rig 的子节点，改它的局部位置不影响跟随。
 func _screen_shake(strength: float) -> void:
 	var rig := get_node_or_null("../CameraRig")
 	if rig == null:
 		return
-	var tween := create_tween()
+	var cam := rig.get_node_or_null("Camera3D") as Node3D
+	if cam == null:
+		return
 	var offset := Vector3(
 		rng_shake.randf_range(-strength, strength),
 		0.0,
 		rng_shake.randf_range(-strength, strength)
 	)
-	rig.position += offset
-	tween.tween_property(rig, "position", rig.position - offset, 0.2)\
+	cam.position += offset
+	var tween := create_tween()
+	tween.tween_property(cam, "position", Vector3.ZERO, 0.2)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 var rng_shake := RandomNumberGenerator.new()
