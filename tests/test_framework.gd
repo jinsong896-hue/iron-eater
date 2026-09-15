@@ -102,6 +102,9 @@ func _ready() -> void:
 	# 批次 E：隐藏房
 	await test_hidden_rooms()
 
+	# 批次 C：Boss 体系
+	await test_boss_db()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -1322,7 +1325,20 @@ func test_boss_room_loop() -> void:
 	var boss = controller.get("_boss")
 	_check(boss != null, "Boss 实例存在")
 	if boss:
-		_check(boss.max_hp >= 480.0, "Boss 血量 ≥ 480（普通难度 600×0.8 下限）", [boss.max_hp])
+		# Boss 血量 = FloorDefs.boss_hp(本层) × BossDB 个体倍率 × 难度（batch C 起）。
+		# 不再等于固定的 600，故断言落在合理区间（0.8~1.5 倍基准为个体差异 + 难度）。
+		var base: float = FloorDefs.boss_hp(1)
+		var lo: float = base * 0.7
+		var hi: float = base * 1.6
+		_check(boss.max_hp >= lo and boss.max_hp <= hi,
+			"Boss 血量来自 FloorDefs（实际 %.0f，区间 %.0f~%.0f）" % [boss.max_hp, lo, hi])
+		# 名字必须来自 BossDB 的轮换池，不再是固定的「鼠王」
+		var bname: String = str(boss.get("monster_name"))
+		var pool_names: Array = []
+		for b in BossDB.pool_for_floor(1):
+			pool_names.append(str(b.get("name", "")))
+		_check(bname in pool_names,
+			"Boss 名字来自第 1 层轮换池（%s）" % bname, [pool_names])
 
 		# 杀 Boss → 房间清空 + 传送门出现
 		boss.take_damage(999999.0)
@@ -2130,6 +2146,98 @@ func test_hidden_rooms() -> void:
 			fn = dir.get_next()
 		dir.list_dir_end()
 	_check(found_hidden_template, "hidden 房型有模板（避免回退到起始房）")
+
+
+## Boss 体系（BossDB）：每层 7 个轮换、机制归类完整、配置翻译正确
+## 依据关卡设计分册 6.1（池容量）、6.2~6.10（各层 Boss 池）
+func test_boss_db() -> void:
+	_current_test = "BossDB"
+	print("\n--- %s ---" % _current_test)
+
+	# 总量：7 层 × 7 轮换 + 第 8 层固定 1 + 第 9 层三连战 3 = 53
+	_check(BossDB.total_count() == 53, "Boss 总数 53（策划 6.1）",
+		[BossDB.total_count()])
+
+	# 1~7 层各 7 个轮换
+	for f in range(1, 8):
+		var pool: Array = BossDB.pool_for_floor(f)
+		_check(pool.size() == 7, "第 %d 层 7 个轮换 Boss" % f, [pool.size()])
+
+	# 第 8 层固定 1 个、第 9 层三连战 3 个
+	_check(BossDB.pool_for_floor(8).size() == 1, "第 8 层固定 Boss",
+		[BossDB.pool_for_floor(8).size()])
+	_check(BossDB.pool_for_floor(9).size() == 3, "第 9 层三连战 3 个",
+		[BossDB.pool_for_floor(9).size()])
+
+	# 每个 Boss 必须有：唯一 id、名字、至少一类机制、合法 ai
+	var ids := {}
+	var bad_mech: Array = []
+	var bad_ai: Array = []
+	var valid_ai := ["melee", "kite", "sentry", "rusher"]
+	for f in BossDB.BOSSES:
+		for b in BossDB.BOSSES[f]:
+			var bid := str(b.get("id", ""))
+			_check(not ids.has(bid), "Boss id 唯一（%s）" % bid)
+			ids[bid] = true
+			_check(not str(b.get("name", "")).is_empty(), "Boss %s 有名字" % bid)
+			var mechs: Array = b.get("mechs", [])
+			if mechs.is_empty():
+				bad_mech.append(bid)
+			# 机制类必须是已知的 9 类之一
+			for m in mechs:
+				if not BossDB.ALL_MECHANICS.has(str(m)):
+					bad_mech.append("%s:%s" % [bid, m])
+			if not valid_ai.has(str(b.get("ai", ""))):
+				bad_ai.append(bid)
+	_check(bad_mech.is_empty(), "所有 Boss 都归入已知机制类", [bad_mech])
+	_check(bad_ai.is_empty(), "所有 Boss 的 ai 合法", [bad_ai])
+
+	# 9 类机制必须都有 Boss 使用（归并设计不能有死类）
+	var used := {}
+	for f in BossDB.BOSSES:
+		for b in BossDB.BOSSES[f]:
+			for m in b.get("mechs", []):
+				used[str(m)] = true
+	var unused: Array = []
+	for m in BossDB.ALL_MECHANICS:
+		if not used.has(m):
+			unused.append(m)
+	_check(unused.is_empty(), "9 类机制都有 Boss 使用", [unused])
+
+	# 配置翻译：血量随层提升（同 hp_pct 下，层基准更高）
+	var c1 := BossDB.to_monster_config(BossDB.pool_for_floor(1)[0], 1, FloorDefs.boss_hp(1))
+	var c7 := BossDB.to_monster_config(BossDB.pool_for_floor(7)[0], 7, FloorDefs.boss_hp(7))
+	_check(float(c7.get("hp", 0)) > float(c1.get("hp", 0)),
+		"高层 Boss 血量更高", ["%s vs %s" % [c1.get("hp"), c7.get("hp")]])
+	_check(float(c7.get("atk", 0)) > float(c1.get("atk", 0)),
+		"高层 Boss 攻击更高")
+	_check(bool(c1.get("is_boss", false)), "翻译结果标记为 Boss")
+	_check(str(c1.get("name", "")) == str(BossDB.pool_for_floor(1)[0].get("name", "")),
+		"翻译保留 Boss 名字")
+
+	# 阶段：第 8 层四阶段（策划 6.9.1）
+	var p8: Dictionary = BossDB.pool_for_floor(8)[0].get("params", {})
+	_check(p8.has("phases") and p8["phases"].size() == 3,
+		"第 8 层有 3 个阶段阈值（共 4 阶段）", [p8.get("phases")])
+	_check(p8.has("burn_per_second"), "第 8 层有地狱灼烧（每秒掉血）")
+
+	# 第 9 层首战血量基准 4500（策划 5.3）、终战 12000
+	_check(absf(FloorDefs.boss_hp(9) - 4500.0) < 1.0,
+		"第 9 层首战血量 4500", [FloorDefs.boss_hp(9)])
+
+	# random_for_floor 抽取：同层多次抽取能拿到不同的 Boss（轮换而非固定）
+	var seen := {}
+	var rng2 := RandomNumberGenerator.new()
+	rng2.seed = 777
+	for _i in 30:
+		var b := BossDB.random_for_floor(1, rng2)
+		seen[str(b.get("id", ""))] = true
+	_check(seen.size() > 1, "第 1 层多次抽取能拿到不同 Boss（轮换）",
+		["抽到 %d 种" % seen.size()])
+
+	# get_boss 按 id 精确取
+	_check(not BossDB.get_boss("3-1").is_empty(), "get_boss 能按 id 取到")
+	_check(BossDB.get_boss("nonexistent").is_empty(), "get_boss 未知 id 返回空")
 
 
 ## 地牢配置的模板池覆盖：生成器产出的房型都能在 data/rooms 找到模板

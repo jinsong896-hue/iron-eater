@@ -383,15 +383,40 @@ func _spawn_enemy_at(point: Marker3D, difficulty_mult: float, m: Dictionary = {}
 	return enemy
 
 
-## 生成 Boss（鼠王·巨型变异老鼠精英版，难度缩放 + 必掉装备）
+## 生成 Boss（按层从 BossDB 抽取——每层 7 个轮换，不同局不同）。
+##
+## 原先所有层都刷同一个「鼠王」，9 层打下来 Boss 完全相同。
+## 现在：Boss 个体（名字/机制/相对强度）来自 BossDB，
+## 层难度（boss_hp 基准）来自 FloorDefs，两者相乘。
+## 第 8 层固定破坏神化身、第 9 层三连战由 BossDB 的 pool 直接决定。
 func _spawn_boss() -> void:
 	if _boss_spawn == null:
 		return
 	var mult := _difficulty_mult()
+	var layer := _current_layer()
 	MonsterDB.init()
+
+	# 抽取本层 Boss（同一局内每层独立，不同局不同）
+	var rng := RandomNumberGenerator.new()
+	var gm_rng = _game_manager()
+	if gm_rng != null and gm_rng.get("rng") != null:
+		rng.seed = gm_rng.rng.randi()
+	else:
+		rng.randomize()
+	var boss_def := BossDB.random_for_floor(layer, rng)
+
 	_boss = EnemyBase.new()
 	_boss.position = _boss_spawn.global_position
-	_boss.apply_monster_config(MonsterDB.boss_monster())
+	if boss_def.is_empty():
+		# 兜底：BossDB 取不到时退回旧的鼠王配置（不该发生，防御性保留）
+		_boss.apply_monster_config(MonsterDB.boss_monster())
+	else:
+		var cfg := BossDB.to_monster_config(boss_def, layer, FloorDefs.boss_hp(layer))
+		_boss.apply_monster_config(cfg)
+		# 装配 Boss 通用机制（阶段/护盾/场地/召唤）
+		var bm_script = load("res://entities/enemies/boss_mechanics.gd")
+		if bm_script != null:
+			_boss.boss_mech = bm_script.attach(_boss, boss_def)
 	_boss.max_hp *= mult
 	_boss.atk *= mult
 	_boss.attack_range = 2.6

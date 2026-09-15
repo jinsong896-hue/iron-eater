@@ -156,6 +156,11 @@ var _dash_timer := 0.0        ## 突进持续时间
 var _dash_dir := Vector3.ZERO
 var rng := RandomNumberGenerator.new()
 
+## Boss 通用机制（阶段转换/护盾破防/场地/召唤）。
+## 用无类型声明避免 enemy_base ↔ boss_mechanics 的解析期循环依赖
+## （BossMechanics 要读本类的字段，本类要调它的 tick）。
+var boss_mech = null
+
 var _current_state := EnemyState.IDLE
 var _hp: float
 var _attack_timer := 0.0
@@ -622,6 +627,10 @@ func _update_health_bar() -> void:
 func _physics_process(delta: float) -> void:
 	_attack_timer = maxf(_attack_timer - delta, 0.0)
 
+	# Boss 通用机制推进（阶段/场地/召唤；非 Boss 时为 null）
+	if boss_mech != null and boss_mech.has_method("tick"):
+		boss_mech.call("tick", delta)
+
 	# 机制计时器：时间畸变者的攻速加成、灰烬行者的灰烬形态
 	if _haste_timer > 0.0:
 		_haste_timer = maxf(_haste_timer - delta, 0.0)
@@ -884,6 +893,9 @@ func _note_damage_taken(amount: float) -> void:
 	if rage_per_hit > 0.0 and _rage_stacks < rage_max_stacks:
 		_rage_stacks += 1
 		atk = _base_atk * (1.0 + rage_per_hit * float(_rage_stacks))
+	# Boss 机制：阶段转换（血量阈值）与护盾破防
+	if boss_mech != null and boss_mech.has_method("on_damaged"):
+		boss_mech.call("on_damaged", amount)
 
 
 ## 突进推进
@@ -1436,38 +1448,49 @@ func _spawn_splits() -> void:
 func _try_summon() -> void:
 	if summon_spec.is_empty():
 		return
-	var chance := float(summon_spec.get("chance", 1.0))
-	if randf() > chance:
+	_do_summon(summon_spec)
+
+
+## 供 Boss 机制调用的公开召唤入口（BossMechanics 按自己的间隔驱动）。
+## 复用 _do_summon 的全部逻辑（含虚空裂痕、内联配置、死亡自爆子体）。
+func summon_minions(spec: Dictionary) -> void:
+	if spec.is_empty():
 		return
+	_do_summon(spec)
+
+
+## 实际执行一次召唤（chance 由调用方判定；此处不再重复掷骰，
+## 否则「按间隔必召」的 Boss 会被 50% 概率二次削弱）
+func _do_summon(spec: Dictionary) -> void:
 	var parent := get_parent()
 	if parent == null:
 		return
 
 	# 虚空裂痕：不是召小怪，而是生成一块持续伤害区域（分册 4.1 虚空僵尸）
-	if bool(summon_spec.get("zone", false)):
+	if bool(spec.get("zone", false)):
 		DamageZone.spawn({
-			"position": global_position, "radius": float(summon_spec.get("radius", 2.5)),
-			"duration": float(summon_spec.get("duration", 6.0)),
-			"damage": float(summon_spec.get("damage", 40.0)),
+			"position": global_position, "radius": float(spec.get("radius", 2.5)),
+			"duration": float(spec.get("duration", 6.0)),
+			"damage": float(spec.get("damage", 40.0)),
 			"color": Color(0.6, 0.2, 0.9, 0.45),
 		}, parent)
 		return
 
-	var count := int(summon_spec.get("count", 1))
+	var count := int(spec.get("count", 1))
 	for _i in count:
-		var m := MonsterDB.get_monster(str(summon_spec.get("id", "")))
+		var m := MonsterDB.get_monster(str(spec.get("id", "")))
 		# 内联配置（熔炉小鬼等不在 MonsterDB 里的小怪）
-		if m.is_empty() and summon_spec.has("hp"):
+		if m.is_empty() and spec.has("hp"):
 			m = {
-				"id": str(summon_spec.get("id", "minion")),
-				"name": str(summon_spec.get("name", "小怪")),
-				"hp": float(summon_spec.get("hp", 60)),
-				"atk": float(summon_spec.get("atk", 10)),
+				"id": str(spec.get("id", "minion")),
+				"name": str(spec.get("name", "小怪")),
+				"hp": float(spec.get("hp", 60)),
+				"atk": float(spec.get("atk", 10)),
 				"defense": 3.0, "speed_pct": 70.0, "attack_interval": 3.0,
 				"attack_range": 2.0, "dodge_pct": 0.0, "scale": 0.7,
 				"special": {
-					"death_explode": bool(summon_spec.get("death_explode", false)),
-					"explode_damage": float(summon_spec.get("explode_damage", 30.0)),
+					"death_explode": bool(spec.get("death_explode", false)),
+					"explode_damage": float(spec.get("explode_damage", 30.0)),
 				},
 			}
 		if m.is_empty():
