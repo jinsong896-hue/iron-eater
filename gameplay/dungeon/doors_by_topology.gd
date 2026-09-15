@@ -58,10 +58,16 @@ static func cell_for(direction: String, width: int, height: int) -> Vector2i:
 
 
 ## 为房间数据生成 doors 数组（覆盖模板里原有的门）
+## **隐藏房（hidden）不生成任何门**：它不在 connections 里，本来就没有邻居，
+## 而 directions_for 会对「无邻接」的房间补一扇回退门——那会让隐藏房
+## 出现一扇通向别处的门，直接暴露它的存在。
 static func build_doors(
 	rooms: Array, connections: Array, room_index: int,
 	start_index: int, back_index: int, width: int, height: int
 ) -> Array:
+	if room_index >= 0 and room_index < rooms.size():
+		if str(rooms[room_index].get("type", "")) == "hidden":
+			return []
 	var doors: Array = []
 	for d in directions_for(rooms, connections, room_index, start_index, back_index):
 		var cell := cell_for(d, width, height)

@@ -37,13 +37,25 @@ func generate(seed_value: int = -1) -> void:
 	connections.clear()
 
 	# 计算房间数量
+	# 隐藏房计入总配额（策划 3.1：总房间数 = 怪物房 + 特殊房 + 隐藏房），
+	# 故连通房只生成 count - 隐藏房数，余下 2 间在连通性之后追加。
 	var room_count := rng.randi_range(min_rooms, max_rooms)
+	# 隐藏房数受总配额约束：连通房至少要 MIN_SAFE_ROOMS 间
+	# （起始房 + Boss 房 + 普通房），否则特殊房/精英分配会因候选不足退化。
+	var max_hidden := maxi(room_count - MIN_SAFE_ROOMS, 0)
+	var hidden_count := mini(2, max_hidden) if floor_num < FloorDefs.MAX_FLOOR else 0
+	var linked_count := room_count - hidden_count
 
 	# 生成房间节点
-	_generate_rooms(room_count)
+	_generate_rooms(linked_count)
 
 	# 生成连接（最小生成树 + 额外回路）
 	_generate_connections()
+
+	# 隐藏房：**在连通性之后**追加，故不写入 connections、无门通向它。
+	# 第 9 层（纯 Boss 连战）不加隐藏房。
+	if hidden_count > 0:
+		_append_hidden_rooms(hidden_count)
 
 	# 分配房间类型
 	_assign_room_types()
@@ -206,6 +218,56 @@ func _assign_special_rooms(dist_from_start: Dictionary) -> void:
 	# 事件房：策划要求每层至少 2 间
 	_place_by_distance("event", dist_from_start, 2, 99)
 	_place_by_distance("event", dist_from_start, 2, 99)
+
+
+## 追加隐藏房（策划 3.1：每层稳定 2 间，**不计入总房间数配额**）。
+##
+## 在 `_generate_connections()` **之后**调用——它不写入 connections，
+## 因此没有邻居、没有门指向它（门由坐标差算出，见 DoorsByTopology）。
+## 这就是「隐藏」的实现：不需要额外标记，靠图论上的孤立天然成立。
+##
+## 位置：贴着某个已连通房间。破墙入口挂在那个邻房间的共用墙上
+## （见 GameRoot 的隐藏房入口生成）。
+func _append_hidden_rooms(count: int) -> void:
+	var guard := 0
+	var added := 0
+	while added < count and guard < count * 60:
+		guard += 1
+		# 随机挑一个已有房间，在它四邻中找一个空位
+		var anchor_idx := rng.randi() % rooms.size()
+		var anchor: Vector2i = rooms[anchor_idx].get("position", Vector2i.ZERO)
+		var dirs := [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
+		var d: Vector2i = dirs[rng.randi() % dirs.size()]
+		var pos: Vector2i = anchor + d
+		if not _in_range(pos):
+			continue
+		# 位置必须空着
+		var occupied := false
+		for r in rooms:
+			if r.get("position", Vector2i.ZERO) == pos:
+				occupied = true
+				break
+		if occupied:
+			continue
+		rooms.append({
+			"id": "room_hidden_%d" % (added + 1),
+			"position": pos,
+			"type": "hidden",
+			"anchor_index": anchor_idx,   # 破墙入口挂在这个房间
+			"anchor_dir": _dir_name_from(d),  # 从锚点看隐藏房的方位
+		})
+		added += 1
+
+
+## 方向向量 → 方位名
+func _dir_name_from(d: Vector2i) -> String:
+	if d == Vector2i.UP:
+		return "north"
+	if d == Vector2i.DOWN:
+		return "south"
+	if d == Vector2i.LEFT:
+		return "west"
+	return "east"
 
 
 ## 在满足距离区间的普通房里挑一间改为指定类型

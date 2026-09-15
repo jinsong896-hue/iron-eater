@@ -866,7 +866,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		EventBus.message.emit("背包")
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact"):
-		if not _interact_special_room():
+		# 交互优先级：破墙（隐藏房）→ 特殊房 → 拾取
+		if not _interact_hidden_wall() and not _interact_special_room():
 			_pickup_nearby()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("devour"):
@@ -883,6 +884,22 @@ func _toggle_auto_pickup() -> void:
 	var now: bool = not bool(sm.get_setting("auto_pickup"))
 	sm.set_setting("auto_pickup", now)
 	EventBus.message.emit("自动拾取：%s" % ("开" if now else "关"))
+
+## 破墙进入隐藏房（策划 3.2：靠近出现裂缝 → 破开）。
+## 返回 true 表示本次交互已被处理（破墙成功），调用方不再尝试其它交互。
+func _interact_hidden_wall() -> bool:
+	var walls := get_tree().get_nodes_in_group("hidden_walls")
+	for w in walls:
+		if not is_instance_valid(w):
+			continue
+		if w.has_method("can_interact_with") and bool(w.call("can_interact_with", self)):
+			var ok: bool = bool(w.call("break_wall", self))
+			if ok:
+				AudioManager.play("hit")
+				EventBus.message.emit("你破开了墙壁")
+				return true
+	return false
+
 
 ## 交互当前房间的商店、泉水或事件服务。
 ## 返回 false 表示"本房不是特殊房"，让位给 _pickup_nearby()——

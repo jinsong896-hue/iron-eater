@@ -81,6 +81,22 @@ func _generate_boss_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 				bus.message.emit("获得钥匙碎片（%d/8）" % int(gm.get("run_key_fragments")))
 
 
+## 隐藏房奖励掉落（策划 3.2：专属橙色装备，带特殊词条）。
+## 隐藏房是每层限量 2 间的高价值目标，故保底**橙装**而非按层加权随机，
+## 且给两件（策划 3.2 列了「红装碎片 + 大量金币 + 稀有消耗品 + 专属橙装」四项，
+## 装备部分按橙装 ×2 表达；消耗品与金币由宝箱本体结算）。
+func generate_hidden_room_loot(position: Vector3, parent: Node3D) -> void:
+	var orange := _random_template_of_rarity(EquipmentDefs.Rarity.ORANGE)
+	if orange != null:
+		_spawn_pickup(EquipmentInstance.create(orange),
+			position + Vector3(-0.35, 0.0, 0.0), parent)
+	# 第二件：按层加权（高层可能出红装，与"专属高价值"定位一致）
+	var bonus := _random_template_of_rarity(_roll_rarity(_current_floor()))
+	if bonus != null:
+		_spawn_pickup(EquipmentInstance.create(bonus),
+			position + Vector3(0.35, 0.0, 0.0), parent)
+
+
 ## 宝箱掉落：必掉 count 件，稀有度按层加权抽取（无金币——金币由 Chest 自身入账）
 ## 宝箱是策划指定的高稀有度补充渠道之一（总册 3.4）
 func generate_chest_loot(position: Vector3, parent: Node3D, count: int = 1) -> void:

@@ -1,10 +1,16 @@
 extends Node3D
 ## 宝箱实体 —— treasure 房可交互掉落（金币 + 装备）
 ## 走近自动开箱（一次性），掉落由 LootSystem 处理
+##
+## 隐藏房里的宝箱走**高价值奖励**路径（策划 3.2）：
+## 金币 300~800、必掉高稀有度装备、概率掉钥匙碎片与稀有消耗品。
+## 由 GameRoot 生成时按房型设置 is_hidden_reward。
 
 var is_opened := false
 var gold_min := 20
 var gold_max := 50
+## 是否隐藏房的高价值宝箱（策划 3.2 的奖励口径）
+var is_hidden_reward := false
 
 var _lid: MeshInstance3D = null
 var _body: MeshInstance3D = null
@@ -67,7 +73,8 @@ func open_chest() -> void:
 	var gm = tree.root.get_node_or_null("GameManager") if tree and tree.root else null
 	var bus = tree.root.get_node_or_null("EventBus") if tree and tree.root else null
 
-	# 金币直接入账
+	# 金币直接入账。隐藏房宝箱按策划 3.2 的 300~800 档，
+	# 由生成方设置 gold_min/max（见 _spawn_chest）。
 	var gold := randi_range(gold_min, gold_max)
 	if gm:
 		gm.gold += gold
@@ -75,10 +82,20 @@ func open_chest() -> void:
 		bus.gold_changed.emit(gm.gold if gm else gold)
 		bus.message.emit("宝箱：金币 +%d" % gold)
 
-	# 装备掉落（宝箱必掉一件，走 LootSystem 白装池）
 	if gm and get_parent() != null:
 		var loot := LootSystem.new()
-		loot.generate_chest_loot(global_position, get_parent(), 1)
+		if is_hidden_reward:
+			# 隐藏房奖励：必掉高稀有度装备（策划 3.2「专属橙色装备」）
+			loot.generate_hidden_room_loot(global_position, get_parent())
+			# 概率额外给一片钥匙碎片（策划 3.2 明列「红装碎片」——
+			# 本项目的"碎片"即钥匙碎片，见 GameManager.add_key_fragment）
+			if gm.has_method("add_key_fragment") and randf() < 0.5:
+				gm.call("add_key_fragment", 0)
+				if bus:
+					bus.message.emit("隐藏房：发现钥匙碎片！")
+		else:
+			# 普通宝箱：必掉一件，走 LootSystem 按层加权池
+			loot.generate_chest_loot(global_position, get_parent(), 1)
 
 	_open_visual()
 

@@ -99,6 +99,9 @@ func _ready() -> void:
 	await test_floor_environment()
 	await test_floor_environment_robustness()
 
+	# 批次 E：隐藏房
+	await test_hidden_rooms()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -1449,16 +1452,23 @@ func test_dungeon_generation_rules() -> void:
 	g.min_rooms = 13
 	g.max_rooms = 13
 	g.generate(12345)
-	_check(g.rooms.size() == 13, "生成 13 房间", [g.rooms.size()])
+	# 总房间数 = 13（隐藏房计入配额：连通房 11 + 隐藏房 2，见 generate 注释）
+	_check(g.rooms.size() == 13, "生成 13 房间（含隐藏房配额）", [g.rooms.size()])
 	var d0: Dictionary = g._bfs_distances(g.start_room_index)
 	_check(int(d0.get(g.start_room_index, -1)) == 0, "起点到自身距离 0")
 	# 相邻房间距离必为 1
 	var adj: Array = g.get_adjacent_rooms(g.start_room_index)
 	if not adj.is_empty():
 		_check(int(d0.get(adj[0], -1)) == 1, "相邻房间距离为 1", [d0.get(adj[0], -1)])
-	# 所有房间都可达（连通性）
-	_check(d0.size() == g.rooms.size(), "所有房间从起点可达（连通）",
-		["可达 %d / 共 %d" % [d0.size(), g.rooms.size()]])
+	# 所有**连通**房间都可达（隐藏房不在此列——它故意不与任何房间连通，
+	# 靠破墙进入，见 DoorsByTopology.build_doors 对 hidden 的短路）
+	var hidden := 0
+	for r in g.rooms:
+		if str(r.get("type", "")) == "hidden":
+			hidden += 1
+	_check(d0.size() == g.rooms.size() - hidden,
+		"所有连通房间从起点可达（隐藏房除外）",
+		["可达 %d / 共 %d（隐藏 %d）" % [d0.size(), g.rooms.size(), hidden]])
 	# Boss 是图距离最远的房
 	var boss_d: int = int(d0.get(g.boss_room_index, -1))
 	var max_d := 0
@@ -1753,6 +1763,7 @@ func test_dungeon_range_fits() -> void:
 		gen.min_rooms = want
 		gen.max_rooms = want
 		gen.range_half = half
+		gen.floor_num = f
 		gen.generate(12345 + f)
 		_check(gen.rooms.size() == want,
 			"第 %d 层生成 %d 间房（范围 ±%d）" % [f, want, half],
@@ -2009,6 +2020,116 @@ func test_floor_environment_robustness() -> void:
 	FloorEnvironment.apply(room2, 99, bare)
 	_check(true, "越界层数不崩")
 	room2.free()
+
+
+## 隐藏房：每层稳定 2 间、不与任何房间连通（无门通向）、有锚房间可破墙进入
+## 依据关卡设计分册 3.1（每层 2 间）与 3.2（发现规则）
+func test_hidden_rooms() -> void:
+	_current_test = "HiddenRooms"
+	print("\n--- %s ---" % _current_test)
+
+	# 1~8 层各有 2 间隐藏房（第 9 层是纯 Boss 层，无隐藏房）
+	for f in range(1, 9):
+		var gen := DungeonGenerator.new()
+		gen.rng.set_seed(9000 + f)
+		gen.min_rooms = 14
+		gen.max_rooms = 14
+		gen.range_half = FloorDefs.range_half(f)
+		gen.floor_num = f
+		gen.generate(9000 + f)
+
+		var hidden: Array[int] = []
+		for i in gen.rooms.size():
+			if str(gen.rooms[i].get("type", "")) == "hidden":
+				hidden.append(i)
+		_check(hidden.size() == 2, "第 %d 层 2 间隐藏房（实际 %d）" % [f, hidden.size()])
+
+		# 核心不变量：没有任何 connection 连到隐藏房（否则门会指向它、暴露）
+		var conn_to_hidden := 0
+		for c in gen.connections:
+			if c.size() < 2:
+				continue
+			if int(c[0]) in hidden or int(c[1]) in hidden:
+				conn_to_hidden += 1
+		_check(conn_to_hidden == 0, "第 %d 层隐藏房不与任何房间连通" % f,
+			["连接数 %d" % conn_to_hidden])
+
+		# 每间隐藏房都要有锚房间与方位（破墙入口挂在那里）
+		for hi in hidden:
+			var anchor := int(gen.rooms[hi].get("anchor_index", -1))
+			var adir := str(gen.rooms[hi].get("anchor_dir", ""))
+			_check(anchor >= 0 and anchor < gen.rooms.size(),
+				"第 %d 层隐藏房有锚房间" % f, [anchor])
+			_check(adir in ["north", "south", "west", "east"],
+				"第 %d 层隐藏房有方位" % f, [adir])
+
+		# 隐藏房不生成门（DoorsByTopology 对 hidden 短路）
+		var hd := gen.rooms[hidden[0]]
+		var doors := DoorsByTopology.build_doors(
+			gen.rooms, gen.connections, hidden[0],
+			gen.start_room_index, gen.start_room_index, 20, 15)
+		_check(doors.is_empty(), "第 %d 层隐藏房不生成门" % f, [doors.size()])
+
+	# 第 9 层（纯 Boss 层）无隐藏房
+	var gen9 := DungeonGenerator.new()
+	gen9.rng.set_seed(31)
+	gen9.min_rooms = 5
+	gen9.max_rooms = 5
+	gen9.floor_num = 9
+	gen9.range_half = 15
+	gen9.generate(31)
+	var h9 := 0
+	for r in gen9.rooms:
+		if str(r.get("type", "")) == "hidden":
+			h9 += 1
+	_check(h9 == 0, "第 9 层无隐藏房（纯 Boss 层）", [h9])
+
+	# 锚房间的方位与两房相对位置一致（破墙入口要挂在正确的墙上）
+	var gen2 := DungeonGenerator.new()
+	gen2.rng.set_seed(1234)
+	gen2.min_rooms = 14
+	gen2.max_rooms = 14
+	gen2.floor_num = 3
+	gen2.range_half = 9
+	gen2.generate(1234)
+	var ok_dir := true
+	for i in gen2.rooms.size():
+		var r: Dictionary = gen2.rooms[i]
+		if str(r.get("type", "")) != "hidden":
+			continue
+		var a := int(r.get("anchor_index", -1))
+		if a < 0:
+			continue
+		var hp: Vector2i = r.get("position", Vector2i.ZERO)
+		var ap: Vector2i = gen2.rooms[a].get("position", Vector2i.ZERO)
+		var diff := hp - ap
+		var expect := ""
+		if diff == Vector2i.UP: expect = "north"
+		elif diff == Vector2i.DOWN: expect = "south"
+		elif diff == Vector2i.LEFT: expect = "west"
+		elif diff == Vector2i.RIGHT: expect = "east"
+		if expect != str(r.get("anchor_dir", "")):
+			ok_dir = false
+	_check(ok_dir, "隐藏房的锚方位与相对位置一致")
+
+	# 模板齐全：hidden 房型有 JSON 模板（否则 _pick_template 回退到 start 房）
+	var found_hidden_template := false
+	var dir := DirAccess.open("res://data/rooms/")
+	if dir != null:
+		dir.list_dir_begin()
+		var fn := dir.get_next()
+		while not fn.is_empty():
+			if fn.ends_with(".json") and not dir.current_is_dir():
+				var fh := FileAccess.open("res://data/rooms/" + fn, FileAccess.READ)
+				if fh:
+					var jj := JSON.new()
+					if jj.parse(fh.get_as_text()) == OK:
+						if str(jj.data.get("room_type", "")) == "hidden":
+							found_hidden_template = true
+					fh.close()
+			fn = dir.get_next()
+		dir.list_dir_end()
+	_check(found_hidden_template, "hidden 房型有模板（避免回退到起始房）")
 
 
 ## 地牢配置的模板池覆盖：生成器产出的房型都能在 data/rooms 找到模板

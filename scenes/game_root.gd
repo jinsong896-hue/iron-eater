@@ -143,7 +143,7 @@ func next_floor() -> void:
 # ============================================================
 
 func _register_templates() -> void:
-	room_templates = {"start": [], "normal": [], "elite": [], "treasure": [], "boss": [], "shop": [], "heal": [], "event": []}
+	room_templates = {"start": [], "normal": [], "elite": [], "treasure": [], "boss": [], "shop": [], "heal": [], "event": [], "hidden": []}
 	var dir := DirAccess.open(ROOM_DATA_DIR)
 	if dir == null:
 		return
@@ -356,11 +356,18 @@ func _clear_preload() -> void:
 	_preload_usec = 0
 
 
+## 正在构建的房间索引。**不能用 current_room_index 代替**——
+## 预加载时房间是提前建的，那时 current_room_index 指向别的房
+## （与 _apply_topology_doors 的 idx 参数同一个原因）。
+var _building_room_index := -1
+
+
 ## 构建房间节点（**不入树**）。入树由调用方负责——
 ## 预加载路径把它挂进缓存，正常路径立刻 world.add_child。
 func _build_room(idx: int) -> Node3D:
 	if dungeon_graph.is_empty() or idx < 0 or idx >= dungeon_graph.size():
 		return null
+	_building_room_index = idx
 
 	var data: Dictionary = dungeon_graph[idx]
 	var room_type: String = data.get("type", "normal")
@@ -403,7 +410,37 @@ func _build_room(idx: int) -> Node3D:
 		# 随房间销毁；无机制层（第 1 层）返回 null。
 		FloorEnvironment.apply(room_node, floor_num, jd)
 
+		# 破墙入口：本房若是隐藏房的锚房间，在共用的墙上放一个可交互裂缝
+		_build_hidden_wall(room_node, idx, jd)
+
 	return room_node
+
+
+## 构建破墙入口（本房是某个隐藏房的锚房间时）。
+## 位置取本房边界中点那条边（与门的落格口径一致）——隐藏房与锚房共用该边。
+func _build_hidden_wall(room_node: Node3D, anchor_idx: int, jd: Dictionary) -> void:
+	var w: float = float(jd.get("width", 20))
+	var h: float = float(jd.get("height", 15))
+	for i in dungeon_graph.size():
+		var r: Dictionary = dungeon_graph[i]
+		if str(r.get("type", "")) != "hidden":
+			continue
+		if int(r.get("anchor_index", -1)) != anchor_idx:
+			continue
+		var dir := str(r.get("anchor_dir", ""))
+		# 锚房间朝隐藏房那侧的边界中点（与 DoorsByTopology.cell_for 同口径）
+		var pos := Vector3.ZERO
+		match dir:
+			"north": pos = Vector3(w * 0.5, 1.5, -0.5)
+			"south": pos = Vector3(w * 0.5, 1.5, h - 0.5)
+			"west":  pos = Vector3(-0.5, 1.5, h * 0.5)
+			"east":  pos = Vector3(w - 0.5, 1.5, h * 0.5)
+		if dir.is_empty():
+			continue
+		var hw_script = load("res://world/rooms/hidden_wall.gd")
+		if hw_script == null:
+			continue
+		hw_script.create(room_node, pos, i, dir)
 
 
 ## 当前层数（取不到时按第 1 层）。层数是主题/难度/规模的共同输入，
@@ -616,7 +653,20 @@ func _spawn_chest(pos: Vector3, parent: Node3D) -> void:
 		return
 	var chest := scene.instantiate()
 	chest.position = pos
+	# 隐藏房宝箱走高价值奖励（策划 3.2：金币 300~800 + 必掉高稀有度装备）
+	if _current_room_is_hidden():
+		chest.set("is_hidden_reward", true)
+		chest.set("gold_min", 300)
+		chest.set("gold_max", 800)
 	parent.add_child(chest)
+
+
+## 当前正在构建的房间是否为隐藏房（_build_room 里按 idx 判断）
+func _current_room_is_hidden() -> bool:
+	var idx := _building_room_index
+	if idx < 0 or idx >= dungeon_graph.size():
+		return false
+	return str(dungeon_graph[idx].get("type", "")) == "hidden"
 
 
 func _create_fallback_room() -> Node3D:
