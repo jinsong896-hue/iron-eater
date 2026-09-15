@@ -158,6 +158,32 @@ func _build_event_choices() -> void:
 			else:
 				for i in 3:
 					_choices_data.append({"id": "box_%d" % i, "label": "第 %d 只箱子" % (i + 1)})
+		"plague":
+			# 瘟疫之泉：高风险高回报，文案要把代价说清楚
+			if used:
+				_choices_data.append({"id": "leave", "label": "泉水已饮尽（离开）"})
+			else:
+				_choices_data.append({"id": "drink_plague", "label": "饮下泉水（回满生命，但随机一项属性 -10%）"})
+				_choices_data.append({"id": "leave", "label": "不喝，离开"})
+		"forge":
+			# 锻造炉：需要选一件背包装备
+			if used:
+				_choices_data.append({"id": "leave", "label": "锻造炉已冷却（离开）"})
+			else:
+				_append_bag_item_choices("forge_item_", "免费提升稀有度")
+				_choices_data.append({"id": "leave", "label": "离开"})
+		"altar":
+			if used:
+				_choices_data.append({"id": "leave", "label": "祭坛已沉寂（离开）"})
+			else:
+				_append_bag_item_choices("sacrifice_", "献祭换取更高稀有度")
+				_choices_data.append({"id": "leave", "label": "离开"})
+		"rift":
+			if used:
+				_choices_data.append({"id": "leave", "label": "裂隙已闭合（离开）"})
+			else:
+				_choices_data.append({"id": "enter_rift", "label": "踏入裂隙（传送至已探索房间，可再刷）"})
+				_choices_data.append({"id": "leave", "label": "离开"})
 		_:
 			# 记忆碎片等自动事件：已领过则只剩离开
 			if used:
@@ -165,6 +191,26 @@ func _build_event_choices() -> void:
 			else:
 				_choices_data.append({"id": "claim", "label": "收下这段记忆"})
 				_choices_data.append({"id": "leave", "label": "离开"})
+
+
+## 把背包里的装备列成选项（锻造炉/祭坛要玩家指定一件）。
+## prefix 是动作 id 前缀，后面接下标；物品名进 label 供玩家辨认。
+func _append_bag_item_choices(prefix: String, verb: String) -> void:
+	var gm = _game_manager()
+	if gm == null or gm.equipment_manager == null:
+		return
+	var inv: Array = gm.equipment_manager.get_inventory()
+	if inv.is_empty():
+		_choices_data.append({"id": "leave", "label": "背包里没有装备"})
+		return
+	for i in inv.size():
+		var inst = inv[i]
+		var tpl = inst.get_template()
+		var nm: String = tpl.display_name if tpl != null else "未知装备"
+		_choices_data.append({
+			"id": "%s%d" % [prefix, i],
+			"label": "%s：%s（%s）" % [verb, nm, EquipmentDefs.rarity_name(inst.rarity)],
+		})
 
 
 ## 绘制选项行（数字前缀；选中项用暗金高亮）
@@ -235,6 +281,17 @@ func _activate(id: String) -> void:
 			var r: Dictionary = _controller.claim_memory_shard()
 			_notify(r, "获得 %d 金币" % int(r.get("reward", 0)))
 			refresh(_controller.get_special_context())
+		"drink_plague":
+			var r: Dictionary = _controller.interact_event()
+			_notify(r, "生命已回满，但 %s 永久降低 10%%" % str(r.get("cursed_stat", "")))
+			refresh(_controller.get_special_context())
+		"enter_rift":
+			# 传送后本房会切走，不必 refresh
+			var r: Dictionary = _controller.interact_event()
+			if not r.get("ok", false):
+				_notify(r, "")
+			close()
+			return
 		"start_gamble":
 			var r: Dictionary = _controller.start_gambler_challenge()
 			if r.get("ok", false):
@@ -243,7 +300,19 @@ func _activate(id: String) -> void:
 				_notify(r, "")
 			refresh(_controller.get_special_context())
 		_:
-			if id.begins_with("box_"):
+			if id.begins_with("forge_item_"):
+				# 锻造炉：把选中的背包装备提升 1 个稀有度
+				var fi := int(id.substr("forge_item_".length()))
+				var r: Dictionary = _controller.interact_event(fi)
+				_notify(r, "装备已重铸为更高品质")
+				refresh(_controller.get_special_context())
+			elif id.begins_with("sacrifice_"):
+				# 古代祭坛：献祭选中的装备换同部位更高稀有度
+				var si := int(id.substr("sacrifice_".length()))
+				var r: Dictionary = _controller.interact_event(si)
+				_notify(r, "获得装备：%s" % str(r.get("item_name", "")))
+				refresh(_controller.get_special_context())
+			elif id.begins_with("box_"):
 				var idx := int(id.substr(4))
 				var r: Dictionary = _controller.resolve_gambler_choice(idx)
 				if r.get("ok", false):

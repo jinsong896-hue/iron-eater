@@ -71,6 +71,7 @@ func _ready() -> void:
 
 	# 特殊房交互测试（商店/泉水/事件）
 	await test_special_room_interactions()
+	await test_event_room_pool()
 
 	# 门拓扑测试（按地牢连通关系算门，消除哑门）
 	await test_doors_by_topology()
@@ -1254,6 +1255,88 @@ func test_resource_system() -> void:
 
 
 ## 特殊房交互测试：商店购买、泉水治疗、事件一次性奖励
+## 事件房池：策划 总册 5.2 的 9 种事件规则
+func test_event_room_pool() -> void:
+	_current_test = "EventRoomPool"
+	print("\n--- %s ---" % _current_test)
+
+	var S = _require_script("res://gameplay/dungeon/special_room_service.gd")
+	var AS = _require_script("res://data/attributes/attribute_system.gd")
+	if S == null or AS == null:
+		return
+	var svc = S.new()
+
+	# ① 瘟疫之泉：回满生命 + 随机一项属性 -10%
+	var attrs = AS.new()
+	attrs.take_damage(300.0)
+	var claimed := {"value": false}
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 42
+	var r1: Dictionary = svc.use_plague_spring(attrs, claimed, rng)
+	_check(r1.get("ok", false), "瘟疫之泉可用")
+	_check(attrs.hp == attrs.max_hp, "瘟疫之泉回满生命",
+		["%.0f/%.0f" % [attrs.hp, attrs.max_hp]])
+	_check(r1.get("cursed_stat", "") in ["atk", "def", "spd"],
+		"瘟疫之泉诅咒一项合法属性", [r1.get("cursed_stat")])
+	_check(absf(float(r1.get("cursed_pct", 0.0)) + 0.10) < 0.001,
+		"诅咒幅度为 -10%")
+	_check(bool(claimed["value"]), "瘟疫之泉标记已使用")
+	# 重复使用被拒
+	var r1b: Dictionary = svc.use_plague_spring(attrs, claimed, rng)
+	_check(not r1b.get("ok", false), "瘟疫之泉不可重复使用")
+
+	# ② 锻造炉：稀有度 +1，上限蓝装
+	var ED = _require_script("res://data/equipment/equipment_defs.gd")
+	if ED != null:
+		var f1: Dictionary = svc.forge_upgrade(ED.Rarity.WHITE, ED.Rarity.BLUE)
+		_check(f1.get("ok", false) and int(f1.get("new_rarity", -1)) == ED.Rarity.GREEN,
+			"锻造炉：白 → 绿", [f1])
+		var f2: Dictionary = svc.forge_upgrade(ED.Rarity.GREEN, ED.Rarity.BLUE)
+		_check(f2.get("ok", false) and int(f2.get("new_rarity", -1)) == ED.Rarity.BLUE,
+			"锻造炉：绿 → 蓝", [f2])
+		var f3: Dictionary = svc.forge_upgrade(ED.Rarity.BLUE, ED.Rarity.BLUE)
+		_check(not f3.get("ok", false), "锻造炉：蓝装已达上限，拒绝", [f3])
+
+		# ③ 古代祭坛：同部位 +1 稀有度，上限紫
+		var a1: Dictionary = svc.altar_sacrifice(ED.Rarity.WHITE, 0, ED.Rarity.PURPLE)
+		_check(a1.get("ok", false) and int(a1.get("want_rarity", -1)) == ED.Rarity.GREEN,
+			"祭坛：白装献祭 → 换绿装", [a1])
+		var a2: Dictionary = svc.altar_sacrifice(ED.Rarity.PURPLE, 0, ED.Rarity.PURPLE)
+		_check(not a2.get("ok", false), "祭坛：紫装已达上限「最高至紫」，拒绝", [a2])
+
+	# ④ 时空裂隙：从已探索房里挑一个（排除当前房）
+	var r2: Dictionary = svc.rift_pick_target([0, 1, 2, 3], 2, rng)
+	_check(r2.get("ok", false), "裂隙能选出目标房")
+	_check(int(r2.get("target_index", -1)) != 2, "裂隙不传送到当前房",
+		[r2.get("target_index")])
+	_check(int(r2.get("target_index", -1)) in [0, 1, 3], "裂隙目标在已探索列表内")
+	# 只有当前房时拒绝
+	var r3: Dictionary = svc.rift_pick_target([2], 2, rng)
+	_check(not r3.get("ok", false), "无其它已探索房时裂隙拒绝")
+
+	# ⑤ 事件房模板齐全：9 种事件都有对应 JSON（否则生成器抽到就回退起始房）
+	var want_types := ["memory_shard", "gambler", "plague", "forge", "altar", "rift"]
+	var found := {}
+	var dir := DirAccess.open("res://data/rooms/")
+	if dir != null:
+		dir.list_dir_begin()
+		var fn := dir.get_next()
+		while not fn.is_empty():
+			if fn.ends_with(".json") and not dir.current_is_dir():
+				var f := FileAccess.open("res://data/rooms/" + fn, FileAccess.READ)
+				if f:
+					var j := JSON.new()
+					if j.parse(f.get_as_text()) == OK:
+						var et := str(j.data.get("interaction", {}).get("event_type", ""))
+						if not et.is_empty():
+							found[et] = true
+					f.close()
+			fn = dir.get_next()
+		dir.list_dir_end()
+	for et in want_types:
+		_check(found.has(et), "事件 %s 有模板" % et, [found.keys()])
+
+
 func test_special_room_interactions() -> void:
 	_current_test = "SpecialRoomInteractions"
 	print("\n--- %s ---" % _current_test)

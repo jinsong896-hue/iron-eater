@@ -642,11 +642,176 @@ func interact_special() -> Dictionary:
 					gm_shop.consumable_inventory.add_health_potion(1)
 		"event":
 			var config_event: Dictionary = _room_interaction()
-			result = _special_service.claim_event_reward(config_event, int(config_event.get("reward", 12)))
+			# 事件按 event_type 分派到各自的规则（策划 总册 5.2 共 9 种）。
+			# 未识别的类型退回「直接领奖」的旧行为，保证老模板仍可用。
+			result = _handle_event(str(config_event.get("event_type", "memory_shard")), config_event)
 	if result.get("ok", false):
 		_special_used = true
 		_mark_special_used()
 	return result
+
+
+## 事件房分派（对应策划 总册 5.2 的事件池）。
+## 返回统一格式 {ok, reason?, ...}，具体字段按事件类型不同。
+## selected_index 供锻造炉/祭坛指定背包里的装备（旧路径不传时取 -1）。
+func _handle_event(event_type: String, config: Dictionary,
+		selected_index: int = -1) -> Dictionary:
+	match event_type:
+		"plague":
+			return _event_plague(config)
+		"forge":
+			return _event_forge(config, selected_index)
+		"altar":
+			return _event_altar(config, selected_index)
+		"rift":
+			return _event_rift(config)
+		_:
+			# 记忆碎片等「自动获得」型：直接结算奖励
+			return _special_service.claim_event_reward(config, int(config.get("reward", 12)))
+
+
+## 事件交互的公开入口（UI 用）。
+## **不走 interact_special()**：那个是「按 E 直接结算」的旧路径，
+## 无法传 selected_index——而锻造炉/祭坛必须先指定一件装备。
+## 返回统一格式；成功后自动置 _special_used 并落盘。
+func interact_event(selected_index: int = -1) -> Dictionary:
+	if not _is_special_room():
+		return {"ok": false, "reason": "该房间不可交互"}
+	if _special_used:
+		return {"ok": false, "already_used": true, "reason": "这里已经探索过了"}
+	var config: Dictionary = _room_interaction()
+	var result: Dictionary = _handle_event(
+		str(config.get("event_type", "memory_shard")), config, selected_index)
+	if result.get("ok", false):
+		_special_used = true
+		_mark_special_used()
+	return result
+
+
+## 瘟疫之泉：回满生命 + 随机一项属性 -10%（本局）。
+func _event_plague(config: Dictionary) -> Dictionary:
+	var gm = _game_manager()
+	if gm == null or gm.attributes == null:
+		return {"ok": false, "reason": "状态不可用"}
+	var claimed := {"value": _special_used}
+	var r: Dictionary = _special_service.use_plague_spring(gm.attributes, claimed, gm.rng)
+	if not r.get("ok", false):
+		return r
+	# 施加永久减益（本局）——用独立源名，避免与装备/吞噬的 modifier 混淆
+	var stat_key := str(r.get("cursed_stat", "atk"))
+	var stat_id: int = gm.attributes.STAT_BY_NAME.get(stat_key, 0)
+	gm.attributes.add_modifier("plague_curse", stat_id, 0.0, float(r.get("cursed_pct", -0.10)))
+	_special_used = true
+	_mark_special_used()
+	var bus = _event_bus()
+	if bus:
+		bus.stats_changed.emit()
+		bus.message.emit("瘟疫之泉：生命已恢复，但 %s 永久降低 10%%" % _stat_label(stat_key))
+	return {"ok": true, "healed": r.get("healed", 0.0), "cursed_stat": stat_key}
+
+
+## 锻造炉：免费把 1 件装备的稀有度 +1（策划：白→绿→蓝…）。
+## 需要玩家指定装备——由 UI 传入 selected_index（背包下标）。
+func _event_forge(config: Dictionary, selected_index: int = -1) -> Dictionary:
+	var gm = _game_manager()
+	if gm == null or gm.equipment_manager == null:
+		return {"ok": false, "reason": "装备系统不可用"}
+	var inv: Array = gm.equipment_manager.get_inventory()
+	var idx := selected_index
+	if idx < 0 or idx >= inv.size():
+		return {"ok": false, "reason": "请先选择要锻造的装备"}
+	var inst = inv[idx]
+	if inst.rarity >= EquipmentDefs.Rarity.BLUE:
+		return {"ok": false, "reason": "锻造炉最高只能把装备提升到蓝装"}
+	var r: Dictionary = _special_service.forge_upgrade(inst.rarity, EquipmentDefs.Rarity.BLUE)
+	if not r.get("ok", false):
+		return r
+	inst.rarity = int(r.get("new_rarity", inst.rarity))
+	_special_used = true
+	_mark_special_used()
+	_emit_bus_inventory_changed()
+	return {"ok": true, "new_rarity": inst.rarity}
+
+
+## 古代祭坛：献祭一件装备 → 同部位高 1 稀有度的随机装备（上限紫）。
+func _event_altar(config: Dictionary, selected_index: int = -1) -> Dictionary:
+	var gm = _game_manager()
+	if gm == null or gm.equipment_manager == null:
+		return {"ok": false, "reason": "装备系统不可用"}
+	var inv: Array = gm.equipment_manager.get_inventory()
+	var idx := selected_index
+	if idx < 0 or idx >= inv.size():
+		return {"ok": false, "reason": "请先选择要献祭的装备"}
+	var inst = inv[idx]
+	var tpl = inst.get_template()
+	if tpl == null:
+		return {"ok": false, "reason": "装备数据异常"}
+	var r: Dictionary = _special_service.altar_sacrifice(
+		inst.rarity, int(tpl.slot), EquipmentDefs.Rarity.PURPLE)
+	if not r.get("ok", false):
+		return r
+	# 抽同部位、目标稀有度的随机装备
+	var pool: Array = EquipmentDB.get_templates_by_rarity(int(r.get("want_rarity", 1)))
+	var matched: Array = []
+	for t in pool:
+		if int(t.slot) == int(tpl.slot):
+			matched.append(t)
+	if matched.is_empty():
+		return {"ok": false, "reason": "没有可献祭换取的装备"}
+	var picked = matched[gm.rng.randi_range(0, matched.size() - 1)]
+	# 移除献祭品、加入新装备
+	gm.equipment_manager.remove_item(inst)
+	gm.equipment_manager.add_item(EquipmentInstance.create(picked))
+	_special_used = true
+	_mark_special_used()
+	_emit_bus_inventory_changed()
+	return {"ok": true, "item_name": picked.display_name}
+
+
+## 时空裂隙：传送到本层一个已探索房间（重置该房间，可再刷掉落）。
+func _event_rift(config: Dictionary) -> Dictionary:
+	var gr = _game_root()
+	if gr == null:
+		return {"ok": false, "reason": "状态不可用"}
+	# 已探索房列表
+	var states = gr.get("room_state")
+	var explored: Array = []
+	if states is Dictionary:
+		for i in states:
+			if states[i].get("visited", false):
+				explored.append(int(i))
+	var cur: int = int(gr.get("current_room_index"))
+	var gm_rng = _game_manager()
+	var pick_rng: RandomNumberGenerator = gm_rng.rng if gm_rng != null and gm_rng.get("rng") != null else null
+	var r: Dictionary = _special_service.rift_pick_target(explored, cur, pick_rng)
+	if not r.get("ok", false):
+		return r
+	var target := int(r.get("target_index", -1))
+	# 重置目标房的清空状态 → 可再刷一次掉落
+	if states is Dictionary and states.has(target):
+		states[target]["cleared"] = false
+	_special_used = true
+	_mark_special_used()
+	# 延迟一帧再传送：此刻还在交互面板里，立即切房会让 UI 悬空
+	gr.call_deferred("_transition_to_room", target)
+	return {"ok": true, "target_index": target}
+
+
+## 属性键 → 中文名（提示文案用）
+func _stat_label(key: String) -> String:
+	match key:
+		"atk": return "攻击力"
+		"def": return "防御"
+		"spd": return "移动速度"
+	return key
+
+
+## 发射背包变更信号（事件改动了装备时用）
+func _emit_bus_inventory_changed() -> void:
+	var bus = _event_bus()
+	if bus:
+		bus.inventory_changed.emit()
+		bus.stats_changed.emit()
 
 ## 获取特殊房配置。
 func _room_interaction() -> Dictionary:

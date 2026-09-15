@@ -106,3 +106,79 @@ func resolve_gambler_box(picked: Array, index: int, claimed: Dictionary = {}) ->
 		"outcome": str(box.get("kind", "empty")),
 		"amount": int(box.get("amount", 0)),
 	}
+
+
+# ============================================================
+# 事件房规则（策划 总册 5.2 的 9 种）
+# ============================================================
+# 分工：本服务只做**纯规则**（可单测、不碰游戏对象）；
+# 涉及金币/背包/装备数据库的副作用由 RoomController 施加。
+# 与已有的 use_healing_spring / claim_event_reward 同口径。
+
+## 瘟疫之泉：回满生命，但随机一项属性 -10%（本局）。
+## 策划原文「生命恢复至满，但随机一项属性 -10%（本局）」——
+## 高风险高回报：满血换一个永久减益。
+##
+## 返回 {ok, healed, cursed_stat, cursed_pct}；
+## 属性减益由调用方按 cursed_stat 施加（本服务不碰属性系统）。
+## 可诅咒的属性：攻击/防御/移速（不含生命——生命已回满，再减会自相矛盾）。
+const PLAGUE_CURSE_STATS := ["atk", "def", "spd"]
+
+
+func use_plague_spring(attributes, claimed: Dictionary = {},
+		rng: RandomNumberGenerator = null) -> Dictionary:
+	if not claimed.is_empty() and bool(claimed.get("value", false)):
+		return {"ok": false, "reason": "此处已使用过"}
+	if attributes == null:
+		return {"ok": false, "reason": "属性不可用"}
+	# 先回满
+	var healed := float(attributes.heal(float(attributes.max_hp)))
+	# 再随机诅咒一项属性
+	var idx: int = 0 if rng == null else rng.randi_range(0, PLAGUE_CURSE_STATS.size() - 1)
+	var stat_name: String = PLAGUE_CURSE_STATS[idx]
+	if not claimed.is_empty():
+		claimed["value"] = true
+	return {
+		"ok": true,
+		"healed": healed,
+		"cursed_stat": stat_name,
+		"cursed_pct": -0.10,
+	}
+
+
+## 锻造炉：免费把 1 件装备的稀有度提升 1 级（策划：白→绿→蓝…）。
+## 上限由调用方按 rarity 判断（策划写"白→绿→蓝"，即只到蓝装就够；
+## 但更高稀有度封顶由 EquipmentDefs.Rarity 决定，这里只做 +1 与合法性校验）。
+##
+## 参数 rarity 为当前稀有度（EquipmentDefs.Rarity 枚举值）。
+## 返回 {ok, new_rarity} 或 {ok:false, reason}。
+func forge_upgrade(rarity: int, max_rarity: int) -> Dictionary:
+	if rarity >= max_rarity:
+		return {"ok": false, "reason": "已达该装备的锻造上限"}
+	return {"ok": true, "new_rarity": rarity + 1}
+
+
+## 古代祭坛：献祭一件装备，换同部位、稀有度高 1 级的随机装备（上限紫）。
+## 策划原文「献祭一件装备，获得同部位高 1 稀有度的随机装备（最高至紫）」。
+##
+## 返回 {ok, want_rarity, slot} 供调用方去装备库抽同部位同稀有度的模板。
+func altar_sacrifice(current_rarity: int, slot: int, purple_rarity: int) -> Dictionary:
+	# 已是紫装或更高 → 无法再升（策划明写"最高至紫"）
+	if current_rarity >= purple_rarity:
+		return {"ok": false, "reason": "该装备已是紫色或更高，祭坛无法提升"}
+	return {"ok": true, "want_rarity": current_rarity + 1, "slot": slot}
+
+
+## 时空裂隙：传送到本层一个已探索房间。
+## 纯选择逻辑——从已探索房列表里挑一个（排除当前房）。
+## 返回 {ok, target_index} 或 {ok:false, reason}。
+func rift_pick_target(explored: Array, current_index: int,
+		rng: RandomNumberGenerator = null) -> Dictionary:
+	var candidates: Array = []
+	for i in explored:
+		if int(i) != current_index:
+			candidates.append(int(i))
+	if candidates.is_empty():
+		return {"ok": false, "reason": "本层没有其它已探索的房间"}
+	var pick: int = 0 if rng == null else rng.randi_range(0, candidates.size() - 1)
+	return {"ok": true, "target_index": int(candidates[pick])}
