@@ -884,6 +884,86 @@ func purchase_health_potion() -> Dictionary:
 	return result
 
 
+## 商店：属性灌注（策划 4.3.2「金币终极黑洞」）。
+## 无限购，价格随次数递增（300 起、每次 +50）；
+## 每次随机 +1~3 攻击 或 +3~8 生命（本局永久）。
+## 返回 {ok, stat, amount, cost, gold}。
+func purchase_infusion() -> Dictionary:
+	if _room_type() != "shop":
+		return {"ok": false, "reason": "此处不出售"}
+	var gm = _game_manager()
+	if gm == null or gm.attributes == null:
+		return {"ok": false, "reason": "状态不可用"}
+	var cost := SpecialRoomService.infuse_cost(gm.infused_count)
+	if int(gm.gold) < cost:
+		return {"ok": false, "reason": "金币不足（需要 %d）" % cost}
+	var roll := SpecialRoomService.roll_infusion(gm.rng)
+	var stat_key := str(roll.get("stat", "atk"))
+	var amount := int(roll.get("amount", 0))
+	# 灌注用固定源名累加（多次灌注叠加），故不 remove 旧值
+	var stat_id: int = gm.attributes.STAT_BY_NAME.get(stat_key, 0)
+	gm.attributes.add_modifier("infusion", stat_id, float(amount), 0.0)
+	gm.gold -= cost
+	gm.infused_count += 1
+	_emit_gold_changed()
+	var bus = _event_bus()
+	if bus:
+		bus.stats_changed.emit()
+	return {"ok": true, "stat": stat_key, "amount": amount, "cost": cost,
+		"gold": int(gm.gold)}
+
+
+## 商店：购买融合折扣券（策划 4.3.2，300 金 → 下次融合费用减半）。
+func purchase_fusion_coupon() -> Dictionary:
+	if _room_type() != "shop":
+		return {"ok": false, "reason": "此处不出售"}
+	var gm = _game_manager()
+	if gm == null:
+		return {"ok": false, "reason": "状态不可用"}
+	if gm.has_fusion_coupon:
+		return {"ok": false, "reason": "已持有折扣券"}
+	var price := SpecialRoomService.FUSION_COUPON_PRICE
+	if int(gm.gold) < price:
+		return {"ok": false, "reason": "金币不足（需要 %d）" % price}
+	gm.gold -= price
+	gm.has_fusion_coupon = true
+	_emit_gold_changed()
+	return {"ok": true, "cost": price, "gold": int(gm.gold)}
+
+
+## 商店：购买升级券（策划 4.3.2，500/800/1200 三级）。
+func purchase_shop_upgrade() -> Dictionary:
+	if _room_type() != "shop":
+		return {"ok": false, "reason": "此处不出售"}
+	var gm = _game_manager()
+	if gm == null:
+		return {"ok": false, "reason": "状态不可用"}
+	var r := SpecialRoomService.shop_upgrade(gm.shop_level)
+	if not r.get("ok", false):
+		return r
+	var cost := int(r.get("cost", 0))
+	if int(gm.gold) < cost:
+		return {"ok": false, "reason": "金币不足（需要 %d）" % cost}
+	gm.gold -= cost
+	gm.shop_level = int(r.get("level", gm.shop_level + 1))
+	_emit_gold_changed()
+	return {"ok": true, "level": gm.shop_level, "cost": cost, "gold": int(gm.gold)}
+
+
+## 商店：贷款（策划 4.3.2，借 2000 还 4000，结算时扣）。
+func purchase_loan() -> Dictionary:
+	if _room_type() != "shop":
+		return {"ok": false, "reason": "此处不出售"}
+	var gm = _game_manager()
+	if gm == null:
+		return {"ok": false, "reason": "状态不可用"}
+	gm.gold += SpecialRoomService.LOAN_AMOUNT
+	gm.loan_debt += SpecialRoomService.LOAN_REPAY
+	_emit_gold_changed()
+	return {"ok": true, "amount": SpecialRoomService.LOAN_AMOUNT,
+		"debt": gm.loan_debt, "gold": int(gm.gold)}
+
+
 ## 事件：记忆碎片——直接发放（无选择）
 ## 返回 {ok, reward?, reason?}
 func claim_memory_shard() -> Dictionary:

@@ -132,6 +132,36 @@ func _build_shop_choices() -> void:
 		"id": "buy_potion",
 		"label": "购买生命药水（%d 金 · 恢复 %.0f 生命）" % [price, heal],
 	})
+	# —— 策划 总册 4.3.2 的消费模块「防溢出深坑」——
+	var gm = _game_manager()
+	if gm != null:
+		# 属性灌注：无限购，价格随次数递增
+		var icost: int = SpecialRoomService.infuse_cost(gm.infused_count)
+		_choices_data.append({
+			"id": "buy_infusion",
+			"label": "属性灌注（%d 金 · 随机 +1~3 攻击 或 +3~8 生命，本局永久）" % icost,
+		})
+		# 融合折扣券
+		if not gm.has_fusion_coupon:
+			_choices_data.append({
+				"id": "buy_coupon",
+				"label": "融合折扣券（%d 金 · 下次融合费用减半）" % SpecialRoomService.FUSION_COUPON_PRICE,
+			})
+		# 商店升级券（三级）
+		var up := SpecialRoomService.shop_upgrade(gm.shop_level)
+		if up.get("ok", false):
+			_choices_data.append({
+				"id": "buy_upgrade",
+				"label": "商店升级券（%d 金 · 升至 %d 级%s）" % [
+					int(up.get("cost", 0)), int(up.get("level", 1)),
+					"（解锁全店 9 折）" if int(up.get("level", 1)) >= SpecialRoomService.SHOP_MAX_LEVEL else ""],
+			})
+		# 贷款：高风险博弈
+		_choices_data.append({
+			"id": "buy_loan",
+			"label": "贷款（借 %d，通关结算时还 %d）" % [
+				SpecialRoomService.LOAN_AMOUNT, SpecialRoomService.LOAN_REPAY],
+		})
 	_choices_data.append({"id": "leave", "label": "离开"})
 
 
@@ -272,6 +302,27 @@ func _activate(id: String) -> void:
 		"buy_potion":
 			var r: Dictionary = _controller.purchase_health_potion()
 			_notify(r, "购入生命药水")
+			refresh(_controller.get_special_context())
+		"buy_infusion":
+			var r: Dictionary = _controller.purchase_infusion()
+			if r.get("ok", false):
+				var stat_name := "攻击力" if str(r.get("stat", "")) == "atk" else "生命值"
+				_notify(r, "灌注成功：%s +%d" % [stat_name, int(r.get("amount", 0))])
+			else:
+				_notify(r, "")
+			refresh(_controller.get_special_context())
+		"buy_coupon":
+			var r: Dictionary = _controller.purchase_fusion_coupon()
+			_notify(r, "已获得融合折扣券")
+			refresh(_controller.get_special_context())
+		"buy_upgrade":
+			var r: Dictionary = _controller.purchase_shop_upgrade()
+			_notify(r, "商店升至 %d 级" % int(r.get("level", 0)))
+			refresh(_controller.get_special_context())
+		"buy_loan":
+			var r: Dictionary = _controller.purchase_loan()
+			_notify(r, "已到账 %d 金（欠款 %d）" % [
+				int(r.get("amount", 0)), int(r.get("debt", 0))])
 			refresh(_controller.get_special_context())
 		"heal":
 			var r: Dictionary = _controller.interact_special()

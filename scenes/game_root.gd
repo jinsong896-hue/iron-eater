@@ -856,6 +856,20 @@ func _disarm_entry_door(enter_direction: String) -> void:
 
 ## 玩家是否压在某个门触发器上（在触发器局部空间做盒判定，自动兼容门朝向）
 ## 触发器尺寸 2×3×1.5（半长 1.0 / 1.5 / 0.75），放宽容差。
+## 玩家是否压在某个门触发器上（在触发器局部空间做盒判定，自动兼容门朝向）。
+##
+## **容差必须 ≥ 物理重叠包络**，否则会漏判：
+##   物理包络 = 触发盒半长 + 玩家胶囊半径 = x ±(1.0+0.5) / z ±(0.75+0.5)
+##            = x ±1.5 / z ±1.25
+## 原先取的是 x±1.3 / z±1.05（比物理窄 0.2 米），留下的**缝隙带**会导致：
+## 落点物理上压着门（Area3D 会派发 body_entered）、几何上却判"没碰"
+## → _release_suppressed_doors 把这扇门 reset 释放 → 下一物理帧
+## 幽灵派发穿透 → 连锁切房（表现为 room_flow 偶发「期望房 N 实际房 M」）。
+## 这与 door_trigger 里的几何复核是同一个包络口径，两处必须一致。
+const DOOR_TOUCH_HALF_X := 1.5
+const DOOR_TOUCH_HALF_Z := 1.25
+
+
 func _player_touches_door(trig: Node) -> bool:
 	if player == null or not is_instance_valid(player):
 		return false
@@ -863,7 +877,7 @@ func _player_touches_door(trig: Node) -> bool:
 		return false
 	var t := trig as Node3D
 	var local: Vector3 = t.global_transform.affine_inverse() * player.global_position
-	return absf(local.x) <= 1.3 and absf(local.z) <= 1.05
+	return absf(local.x) <= DOOR_TOUCH_HALF_X and absf(local.z) <= DOOR_TOUCH_HALF_Z
 
 
 func _activate_current_room() -> void:

@@ -182,3 +182,86 @@ func rift_pick_target(explored: Array, current_index: int,
 		return {"ok": false, "reason": "本层没有其它已探索的房间"}
 	var pick: int = 0 if rng == null else rng.randi_range(0, candidates.size() - 1)
 	return {"ok": true, "target_index": int(candidates[pick])}
+
+
+# ============================================================
+# 商店消费模块（策划 总册 4.3.2「防溢出深坑」）
+# ============================================================
+
+## 属性灌注价格：300 起，每次 +50（策划 4.3.2）。
+## 已灌注次数越多越贵——这是有意为之的「金币终极黑洞」，
+## 防止后期金币溢出无处可花。
+const INFUSE_BASE_COST := 300
+const INFUSE_COST_STEP := 50
+## 每次灌注随机 +1~3 攻击 或 +3~8 生命（策划原文）
+const INFUSE_ATK_RANGE := [1, 3]
+const INFUSE_HP_RANGE := [3, 8]
+## 单件装备附魔可叠 3 次（策划：可叠 3 次）
+const ENCHANT_MAX_STACKS := 3
+
+
+## 属性灌注当前价格（第 n 次灌注的价格，n 从 0 计）
+static func infuse_cost(infused_count: int) -> int:
+	return INFUSE_BASE_COST + INFUSE_COST_STEP * maxi(infused_count, 0)
+
+
+## 执行一次属性灌注的**掷骰**（纯函数）。
+## 返回 {stat, amount}；stat 为 "atk" 或 "hp"。
+## 副作用（改属性/扣金币）由调用方施加。
+## rng 为空时按中点返回（供测试与无随机源场景），保证不返回 0 值——
+## 灌注出 0 点属性会让玩家白花钱。
+static func roll_infusion(rng: RandomNumberGenerator = null) -> Dictionary:
+	var use_atk: bool = true if rng == null else rng.randf() < 0.5
+	if use_atk:
+		var lo: int = INFUSE_ATK_RANGE[0]
+		var hi: int = INFUSE_ATK_RANGE[1]
+		var amt: int = int((lo + hi) / 2) if rng == null else rng.randi_range(lo, hi)
+		return {"stat": "atk", "amount": amt}
+	var hlo: int = INFUSE_HP_RANGE[0]
+	var hhi: int = INFUSE_HP_RANGE[1]
+	var hamt: int = int((hlo + hhi) / 2) if rng == null else rng.randi_range(hlo, hhi)
+	return {"stat": "hp", "amount": hamt}
+
+
+## 商店升级券：三级累计（500 / 800 / 1,200），解锁紫装→红装碎片→全店 9 折。
+## 返回 {ok, level, cost} 或 {ok:false, reason}。
+const SHOP_UPGRADE_COSTS := [500, 800, 1200]
+const SHOP_MAX_LEVEL := 3
+
+
+static func shop_upgrade(current_level: int) -> Dictionary:
+	if current_level >= SHOP_MAX_LEVEL:
+		return {"ok": false, "reason": "商店已达最高等级"}
+	var cost: int = SHOP_UPGRADE_COSTS[clampi(current_level, 0, SHOP_MAX_LEVEL - 1)]
+	return {"ok": true, "level": current_level + 1, "cost": cost}
+
+
+## 商店等级带来的折扣（3 级解锁全店 9 折）
+static func shop_discount(level: int) -> float:
+	return 0.9 if level >= SHOP_MAX_LEVEL else 1.0
+
+
+## 融合折扣券：下一次融合费用减半（策划 4.3.2，300 金）
+const FUSION_COUPON_PRICE := 300
+const FUSION_COUPON_DISCOUNT := 0.5
+
+
+## 用折扣券折算融合费用
+static func apply_fusion_coupon(cost: int, has_coupon: bool) -> int:
+	if not has_coupon:
+		return cost
+	return int(ceil(float(cost) * FUSION_COUPON_DISCOUNT))
+
+
+## 装备附魔费用档位（策划 4.3.2：低级 800 / 中级 2,000 / 高级 5,000）
+const ENCHANT_COSTS := {"low": 800, "mid": 2000, "high": 5000}
+
+
+## 附魔合法性：可叠 3 次
+static func can_enchant(current_stacks: int) -> bool:
+	return current_stacks < ENCHANT_MAX_STACKS
+
+
+## 贷款服务：借 2,000 还 4,000（策划 4.3.2）
+const LOAN_AMOUNT := 2000
+const LOAN_REPAY := 4000

@@ -36,6 +36,16 @@ var run_key_fragments := 0
 ## 策划书 6.「钥匙碎片：局内数据持有，集齐 8 片触发隐藏层入口；结算时写入局外记录」。
 var meta_key_fragments := 0
 
+# —— 商店消费状态（策划 总册 4.3.2）——
+## 属性灌注已购买次数（价格随次数递增：300 起、每次 +50）
+var infused_count := 0
+## 商店等级（0~3，通过升级券提升；3 级解锁全店 9 折）
+var shop_level := 0
+## 是否持有融合折扣券（下一次融合费用减半）
+var has_fusion_coupon := false
+## 贷款欠款（策划 4.3.2：借 2000 还 4000，通关结算时扣除）
+var loan_debt := 0
+
 # 本局配置
 var run_info := {
 	"character": "warrior",
@@ -92,6 +102,11 @@ func _reset_run() -> void:
 	elite_kills = 0
 	boss_kills = 0
 	run_key_fragments = 0
+	# 商店消费状态随局重置（策划：灌注/折扣券都是本局有效）
+	infused_count = 0
+	shop_level = 0
+	has_fusion_coupon = false
+	loan_debt = 0
 	_run_start_ms = Time.get_ticks_msec()
 
 

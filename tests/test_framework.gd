@@ -72,6 +72,7 @@ func _ready() -> void:
 	# 特殊房交互测试（商店/泉水/事件）
 	await test_special_room_interactions()
 	await test_event_room_pool()
+	await test_shop_consumption()
 
 	# 门拓扑测试（按地牢连通关系算门，消除哑门）
 	await test_doors_by_topology()
@@ -1256,6 +1257,76 @@ func test_resource_system() -> void:
 
 ## 特殊房交互测试：商店购买、泉水治疗、事件一次性奖励
 ## 事件房池：策划 总册 5.2 的 9 种事件规则
+## 商店消费模块（策划 总册 4.3.2「防溢出深坑」）
+func test_shop_consumption() -> void:
+	_current_test = "ShopConsumption"
+	print("\n--- %s ---" % _current_test)
+
+	var S = _require_script("res://gameplay/dungeon/special_room_service.gd")
+	if S == null:
+		return
+
+	# 属性灌注：300 起、每次 +50 递增（策划 4.3.2）
+	_check(S.infuse_cost(0) == 300, "首次灌注 300 金", [S.infuse_cost(0)])
+	_check(S.infuse_cost(1) == 350, "第二次 350 金", [S.infuse_cost(1)])
+	_check(S.infuse_cost(5) == 550, "第 6 次 550 金", [S.infuse_cost(5)])
+	# 负数次也安全（防御性）
+	_check(S.infuse_cost(-3) == 300, "负数次数按首次计价")
+
+	# 灌注掷骰：属性合法且数量在策划区间内
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var saw_atk := false
+	var saw_hp := false
+	var out_of_range := 0
+	for _i in 60:
+		var roll: Dictionary = S.roll_infusion(rng)
+		var st := str(roll.get("stat", ""))
+		var amt := int(roll.get("amount", 0))
+		if st == "atk":
+			saw_atk = true
+			if amt < 1 or amt > 3:
+				out_of_range += 1
+		elif st == "hp":
+			saw_hp = true
+			if amt < 3 or amt > 8:
+				out_of_range += 1
+		else:
+			out_of_range += 1
+	_check(saw_atk and saw_hp, "灌注能随机到攻击与生命两种")
+	_check(out_of_range == 0, "灌注数值都在策划区间内（atk 1~3 / hp 3~8）",
+		["越界 %d 次" % out_of_range])
+
+	# 商店升级券：500/800/1200 三级，满级拒绝
+	var u1: Dictionary = S.shop_upgrade(0)
+	_check(u1.get("ok", false) and int(u1.get("cost", 0)) == 500, "升级券 1 级 500 金", [u1])
+	var u2: Dictionary = S.shop_upgrade(1)
+	_check(u2.get("ok", false) and int(u2.get("cost", 0)) == 800, "升级券 2 级 800 金", [u2])
+	var u3: Dictionary = S.shop_upgrade(2)
+	_check(u3.get("ok", false) and int(u3.get("cost", 0)) == 1200, "升级券 3 级 1200 金", [u3])
+	var u4: Dictionary = S.shop_upgrade(3)
+	_check(not u4.get("ok", false), "商店满级后拒绝继续升级", [u4])
+
+	# 折扣：3 级解锁全店 9 折
+	_check(absf(S.shop_discount(0) - 1.0) < 0.001, "未升级无折扣")
+	_check(absf(S.shop_discount(3) - 0.9) < 0.001, "3 级解锁 9 折")
+
+	# 融合折扣券：费用减半
+	_check(S.apply_fusion_coupon(100, false) == 100, "无券不打折")
+	_check(S.apply_fusion_coupon(100, true) == 50, "有券费用减半", [S.apply_fusion_coupon(100, true)])
+	_check(S.apply_fusion_coupon(55, true) == 28, "奇数费用向上取整", [S.apply_fusion_coupon(55, true)])
+
+	# 附魔：可叠 3 次
+	_check(S.can_enchant(0) and S.can_enchant(2), "附魔 0~2 次可继续")
+	_check(not S.can_enchant(3), "附魔满 3 次后拒绝（策划：可叠 3 次）")
+	_check(int(S.ENCHANT_COSTS.get("low", 0)) == 800, "低级附魔 800 金")
+	_check(int(S.ENCHANT_COSTS.get("mid", 0)) == 2000, "中级附魔 2000 金")
+	_check(int(S.ENCHANT_COSTS.get("high", 0)) == 5000, "高级附魔 5000 金")
+
+	# 贷款：借 2000 还 4000
+	_check(S.LOAN_AMOUNT == 2000 and S.LOAN_REPAY == 4000, "贷款借 2000 还 4000")
+
+
 func test_event_room_pool() -> void:
 	_current_test = "EventRoomPool"
 	print("\n--- %s ---" % _current_test)

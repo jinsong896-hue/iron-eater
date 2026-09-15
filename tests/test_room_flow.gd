@@ -214,13 +214,22 @@ func _check_one_special_room(gr, special_type: String) -> void:
 			gm.consumable_inventory.quantities.clear()
 		if gm.attributes:
 			gm.attributes.take_damage(100.0)
+		# 锻造炉/祭坛需要玩家指定一件背包装备——放一件进去，
+		# 否则它们会以「请先选择要锻造的装备」拒绝（这是正确行为）
+		if gm.equipment_manager != null:
+			var tpl = EquipmentDB.get_template(&"W06")
+			if tpl != null:
+				gm.equipment_manager.add_item(EquipmentInstance.create(tpl))
 
-	var result: Dictionary = ctrl.interact_special()
+	# 走 interact_event（支持指定背包下标）而非旧路径 interact_special：
+	# 锻造炉/祭坛必须先选装备，旧路径传不了下标。
+	# 传 0 = 背包第一件（上面刚放的那件）。
+	var result: Dictionary = ctrl.interact_event(0)
 	_check(result.get("ok", false), "[%s] 交互成功（%s）" % [special_type, result.get("reason", "")])
 
 	# 重复交互不应重复发放奖励
 	var before_state = _special_state(gm, special_type)
-	var repeat: Dictionary = ctrl.interact_special()
+	var repeat: Dictionary = ctrl.interact_event(0)
 	_check(repeat.get("already_used", false), "[%s] 重复交互不重复发奖" % special_type)
 	_check(_special_state(gm, special_type) == before_state, "[%s] 重复交互后状态未变" % special_type)
 
