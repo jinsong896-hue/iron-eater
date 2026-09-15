@@ -491,17 +491,34 @@ func _show_portal() -> void:
 		bus.message.emit("Boss 已击败！进入传送门前往下一层")
 
 
-## 触碰传送门 → 进入下一层
+## 触碰传送门 → 进入下一层。
+##
+## **隐藏层门槛**（策划书 1.3）：第 9 层需集齐 8 片钥匙碎片才能进入。
+## 未集齐时**拦下传送**（提示 + 不切层），玩家留在本层可继续探索，
+## 但传送门已开、可反复尝试——策划原文「进入后不可回头」指的是进去之后，
+## 不是「凑不齐就死局」。
 func _on_portal_entered(body: Node3D) -> void:
 	if not body.is_in_group("player"):
 		return
 	var gm = _game_manager()
 	if gm:
-		gm.run_info["floor"] = int(gm.run_info.get("floor", 1)) + 1
+		var cur: int = int(gm.run_info.get("floor", 1))
+		var next_floor: int = cur + 1
+
+		# 隐藏层门槛：进入第 9 层需集齐碎片
+		if next_floor >= FloorDefs.MAX_FLOOR and not gm.has_all_key_fragments():
+			var bus_deny = _event_bus()
+			if bus_deny:
+				bus_deny.message.emit("混沌裂隙需要 %d 片钥匙碎片（当前 %d 片）" % [
+					FloorDefs.KEY_FRAGMENTS_REQUIRED, int(gm.run_key_fragments)])
+			return
+
+		gm.run_info["floor"] = next_floor
 		# 层间全恢复（满状态进新层）
 		if GameBalance.FLOOR_TRANSITION_FULL_HEAL and gm.attributes:
 			gm.attributes.hp = gm.attributes.max_hp
-		if int(gm.run_info["floor"]) > 9:
+		# 超出层数上限即通关（第 9 层打完结算）
+		if next_floor > FloorDefs.MAX_FLOOR:
 			gm.finish_run("cleared")
 			return
 		var bus0 = _event_bus()

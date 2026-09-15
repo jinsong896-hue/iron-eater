@@ -8,7 +8,13 @@ var rng := RandomNumberGenerator.new()
 
 
 ## 生成掉落（enemy_data: MonsterData / EnemyBase / Dictionary）
+## Boss 走独立的策划掉落表（保底装备 + 碎片 + 策划金币 + 额外掉落），
+## 其余敌人用通用的金币 + 概率装备。
 func generate_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
+	if _is_boss(enemy_data):
+		_generate_boss_loot(enemy_data, position, parent)
+		return
+
 	# 金币掉落（直接入账）
 	var gold := _roll_gold(enemy_data)
 	var gm = _game_manager()
@@ -25,6 +31,54 @@ func generate_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 
 	var item := EquipmentInstance.create(template)
 	_spawn_pickup(item, position, parent)
+
+
+## Boss 掉落（关卡分册 6.2~6.9 各层「掉落标准」）。
+## 四项独立结算：
+##   ① 保底装备 ×1（按层稀有度：1~5 层橙、6~8 层红）
+##   ② 钥匙碎片 ×1（按层概率 30~35%，集齐 8 片解锁隐藏层）
+##   ③ 金币（按层区间，直接入账）
+##   ④ 额外装备（按层概率与稀有度：蓝装/紫装）
+func _generate_boss_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
+	var floor_num := _current_floor()
+	var spec := FloorDefs.boss_drop(floor_num)
+	var gm = _game_manager()
+	var bus = _event_bus()
+
+	# ③ 金币（直接入账）
+	var gold_range := FloorDefs.boss_gold_range(floor_num)
+	var gold := 0
+	if gold_range.y > 0.0:
+		gold = rng.randi_range(int(gold_range.x), int(gold_range.y))
+		if gm:
+			gm.gold += gold
+			if bus:
+				bus.gold_changed.emit(gm.gold)
+
+	# ① 保底装备
+	var offset := 0.0
+	var pity := _random_template_of_rarity(int(spec.get("rarity", EquipmentDefs.Rarity.ORANGE)))
+	if pity != null:
+		_spawn_pickup(EquipmentInstance.create(pity),
+			position + Vector3(offset, 0.0, 0.0), parent)
+		offset += 0.7
+
+	# ④ 额外装备
+	var extra_chance := float(spec.get("extra_chance", 0.0))
+	if extra_chance > 0.0 and rng.randf() < extra_chance:
+		var extra := _random_template_of_rarity(int(spec.get("extra_rarity", EquipmentDefs.Rarity.BLUE)))
+		if extra != null:
+			_spawn_pickup(EquipmentInstance.create(extra),
+				position + Vector3(offset, 0.0, 0.0), parent)
+			offset += 0.7
+
+	# ② 钥匙碎片（不生成拾取物——局内计数 + 局外累积，见 GameManager.add_key_fragment）
+	var frag_chance := FloorDefs.boss_fragment_chance(floor_num)
+	if frag_chance > 0.0 and rng.randf() < frag_chance:
+		if gm and gm.has_method("add_key_fragment"):
+			gm.call("add_key_fragment", floor_num)
+			if bus:
+				bus.message.emit("获得钥匙碎片（%d/8）" % int(gm.get("run_key_fragments")))
 
 
 ## 宝箱掉落：必掉 count 件，稀有度按层加权抽取（无金币——金币由 Chest 自身入账）
@@ -89,11 +143,11 @@ func _roll_template(enemy_data) -> EquipmentTemplate:
 	return _random_template_of_rarity(_roll_rarity(floor))
 
 
-## Boss 保底稀有度：1~5 层橙装，6 层起红装（总册 3.4）
+## Boss 保底稀有度：由 FloorDefs 的掉落表给出（1~5 层橙、6 层起红）。
+## 策划依据：关卡分册 6.2~6.9 各层「掉落标准」，
+## 第 6 层明写「Boss 保底升级为红装 ×1（自第 6 层起）」。
 func _boss_pity_rarity(floor_num: int) -> int:
-	if floor_num <= GameBalance.BOSS_PITY_ORANGE_MAX_FLOOR:
-		return EquipmentDefs.Rarity.ORANGE
-	return EquipmentDefs.Rarity.RED
+	return FloorDefs.boss_rarity(floor_num)
 
 
 ## 按层数加权的稀有度抽取

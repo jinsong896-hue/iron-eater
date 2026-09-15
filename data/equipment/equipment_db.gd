@@ -238,9 +238,17 @@ static func init_equipment_db() -> void:
 		_apply_affixes(t, row[2], row[3], row[4])
 
 	# 绿～橙：完整目录按系数缩放
-	# （红装需逐件机制设计，见策划武器分册第 5 章，不在此生成）
-	for rarity in range(EquipmentDefs.Rarity.GREEN, EquipmentDefs.Rarity.RED):
+	for rarity in range(EquipmentDefs.Rarity.GREEN, EquipmentDefs.Rarity.ORANGE + 1):
 		_generate_rarity(rarity)
+
+	# 红装：策划口径是**逐件独立机制设计**（武器分册第 5 章，如"狱火断头台"
+	# 的火焰爆炸），不是系数克隆。但第 6 层起 Boss 保底即红装
+	# （FloorDefs.boss_drop / GameBalance.BOSS_PITY_ORANGE_MAX_FLOOR），
+	# 池空会让 _random_template_of_rarity 回退到**白装**——
+	# 第 6~8 层 Boss 掉白装，比占位红装更糟。
+	# 故先按同系数模式生成占位红装，待策划给出逐件机制表后替换这行。
+	# ⚠ 占位：这些红装的机制与普通装备无异，只有数值倍率更高。
+	_generate_rarity(EquipmentDefs.Rarity.RED)
 
 
 ## 按稀有度生成完整目录（数值按系数缩放，名称加后缀）

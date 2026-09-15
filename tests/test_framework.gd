@@ -89,6 +89,12 @@ func _ready() -> void:
 	await test_floor_defs()
 	await test_dungeon_range_fits()
 
+	# 批次 B：Boss 掉落表 / 红装池 / 隐藏层结构与碎片
+	await test_boss_drop_table()
+	await test_red_rarity_pool_not_empty()
+	await test_layer9_structure()
+	await test_key_fragments()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -197,12 +203,14 @@ func test_white_equipment_db() -> void:
 
 	EDB.init_equipment_db()
 
-	# 白装 = 基础款（每槽位 1 件），绿～橙 = 完整目录（36 件）按系数缩放
-	# 合计 13 + 36×4 = 157
+	# 白装 = 基础款（每槽位 1 件），绿～红 = 完整目录（36 件）按系数缩放
+	# 合计 13 + 36×5 = 193
+	# （红装原为「仅占位不生成」，但第 6 层起 Boss 保底红装、
+	#   池空会回退白装，故按同系数生成占位红装——见 equipment_db 注释）
 	var white_count: int = EDB.get_templates_by_rarity(ED.Rarity.WHITE).size()
 	_check(white_count == EDB.WHITE_COUNT, "白装为基础款 %d 件" % EDB.WHITE_COUNT, [white_count])
 	_check(white_count == 13, "白装 13 件（4 武器 + 6 护甲 + 3 饰品）", [white_count])
-	_check(EDB.template_count() == 157, "模板总数 = 157（13 白 + 36×4 高稀有度）", [EDB.template_count()])
+	_check(EDB.template_count() == 193, "模板总数 = 193（13 白 + 36×5 高稀有度）", [EDB.template_count()])
 
 	# 稀有度阶梯：种类数量 紫 > 蓝 >= 橙 > 绿 > 白
 	var n_green: int = EDB.get_templates_by_rarity(ED.Rarity.GREEN).size()
@@ -1761,6 +1769,154 @@ func test_dungeon_range_fits() -> void:
 	gen2.range_half = 0
 	gen2.generate(7)
 	_check(gen2.rooms.size() == 10, "range_half=0 时不受范围限制", [gen2.rooms.size()])
+
+
+## 每层 Boss 掉落标准（关卡分册 6.2~6.9 各层「掉落标准」）
+func test_boss_drop_table() -> void:
+	_current_test = "BossDropTable"
+	print("\n--- %s ---" % _current_test)
+
+	_check(FloorDefs.BOSS_DROPS.size() == 9, "9 层掉落表齐全",
+		[FloorDefs.BOSS_DROPS.size()])
+
+	# 保底稀有度：1~5 层橙、6~8 层红（策划：第 6 层起升级为红装）
+	for f in range(1, 6):
+		_check(FloorDefs.boss_rarity(f) == FloorDefs.RARITY_ORANGE,
+			"第 %d 层 Boss 保底橙装" % f, [FloorDefs.boss_rarity(f)])
+	for f in range(6, 9):
+		_check(FloorDefs.boss_rarity(f) == FloorDefs.RARITY_RED,
+			"第 %d 层 Boss 保底红装" % f, [FloorDefs.boss_rarity(f)])
+
+	# 金币区间：递增且合法
+	var prev_hi := 0
+	var gold_ok := true
+	for f in range(1, 9):
+		var g := FloorDefs.boss_gold_range(f)
+		if g.x <= 0.0 or g.y < g.x:
+			gold_ok = false
+		if int(g.y) < prev_hi:
+			gold_ok = false
+		prev_hi = int(g.y)
+	_check(gold_ok, "各层金币区间合法且上限不减")
+
+	# 碎片概率：1~8 层为正（8 层各 1 片才能凑齐 8），第 9 层为 0
+	for f in range(1, 9):
+		var c := FloorDefs.boss_fragment_chance(f)
+		_check(c > 0.0 and c <= 1.0, "第 %d 层有碎片掉落概率（%.2f）" % [f, c])
+	_check(FloorDefs.boss_fragment_chance(9) == 0.0, "第 9 层不产碎片（终极层）")
+
+	# 解锁所需碎片数 = 8 片 = 前 8 层每层至多 1 片
+	_check(FloorDefs.KEY_FRAGMENTS_REQUIRED == 8, "解锁隐藏层需 8 片碎片",
+		[FloorDefs.KEY_FRAGMENTS_REQUIRED])
+
+
+## 红装池非空：第 6 层起 Boss 保底红装，池空会回退白装（回归此 bug）
+func test_red_rarity_pool_not_empty() -> void:
+	_current_test = "RedRarityPool"
+	print("\n--- %s ---" % _current_test)
+
+	EquipmentDB.init_equipment_db()
+	var reds := EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.RED)
+	_check(reds.size() > 0, "红装池非空（否则第 6 层起 Boss 掉白装）",
+		["红装数 %d" % reds.size()])
+
+	# 橙装也应存在（1~5 层保底）
+	var oranges := EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.ORANGE)
+	_check(oranges.size() > 0, "橙装池非空", ["橙装数 %d" % oranges.size()])
+
+	# 稀有度越高数值倍率越高（红 > 橙）
+	if reds.size() > 0 and oranges.size() > 0:
+		var r_scale := EquipmentDB.rarity_scale(EquipmentDefs.Rarity.RED)
+		var o_scale := EquipmentDB.rarity_scale(EquipmentDefs.Rarity.ORANGE)
+		_check(r_scale > o_scale, "红装数值倍率高于橙装",
+			["红 %.1f vs 橙 %.1f" % [r_scale, o_scale]])
+	# 红色不在随机掉落权重里（仅保底产出）
+	var w := LootSystem.rarity_weights_for_floor(9)
+	var red_idx: int = EquipmentDefs.Rarity.RED
+	if red_idx < w.size():
+		_check(float(w[red_idx]) == 0.0, "红装不参与随机掉落（仅 Boss 保底）",
+			[w[red_idx]])
+
+
+## 第 9 层（隐藏层）固定结构：3 间 Boss 房 + 奖励大厅（策划书 6.10）
+func test_layer9_structure() -> void:
+	_current_test = "Layer9Structure"
+	print("\n--- %s ---" % _current_test)
+
+	var gen := DungeonGenerator.new()
+	gen.rng.set_seed(4242)
+	var want := FloorDefs.room_count(9)
+	gen.min_rooms = want
+	gen.max_rooms = want
+	gen.range_half = FloorDefs.range_half(9)
+	gen.floor_num = 9
+	gen.generate(4242)
+
+	_check(gen.rooms.size() == 5, "第 9 层固定 5 间房", [gen.rooms.size()])
+
+	var bosses := 0
+	var treasures := 0
+	var start := 0
+	for r in gen.rooms:
+		match str(r.get("type", "")):
+			"boss":
+				bosses += 1
+			"treasure":
+				treasures += 1
+			"start":
+				start += 1
+	_check(bosses == 3, "第 9 层 3 间 Boss 房（三连战）", [bosses])
+	_check(treasures >= 1, "第 9 层有奖励大厅", [treasures])
+	_check(start == 1, "第 9 层 1 间起始房", [start])
+	# 第 9 层不应有常规怪物房（纯 Boss 挑战）
+	var normal := 0
+	for r in gen.rooms:
+		if str(r.get("type", "")) == "normal":
+			normal += 1
+	_check(normal == 0, "第 9 层无普通怪物房（纯 Boss 挑战）", [normal])
+
+	# 对照：第 1 层仍是常规结构（1 间 Boss）
+	var gen1 := DungeonGenerator.new()
+	gen1.rng.set_seed(4242)
+	gen1.min_rooms = 13
+	gen1.max_rooms = 13
+	gen1.floor_num = 1
+	gen1.generate(4242)
+	var b1 := 0
+	for r in gen1.rooms:
+		if str(r.get("type", "")) == "boss":
+			b1 += 1
+	_check(b1 == 1, "第 1 层仍是 1 间 Boss 房", [b1])
+
+
+## 钥匙碎片：局内计数、集齐判定、局外累积
+func test_key_fragments() -> void:
+	_current_test = "KeyFragments"
+	print("\n--- %s ---" % _current_test)
+
+	var gm: Node = load("res://core/game_manager.gd").new()
+	_check(gm.run_key_fragments == 0, "初始碎片为 0")
+	_check(not gm.has_all_key_fragments(), "初始未集齐")
+
+	for i in range(7):
+		gm.add_key_fragment(i + 1)
+	_check(gm.run_key_fragments == 7, "累加 7 片", [gm.run_key_fragments])
+	_check(not gm.has_all_key_fragments(), "7 片未集齐（需 8 片）")
+
+	gm.add_key_fragment(8)
+	_check(gm.run_key_fragments == 8, "累加至 8 片", [gm.run_key_fragments])
+	_check(gm.has_all_key_fragments(), "8 片集齐（可进隐藏层）")
+
+	# 局外累积与局内计数同步增长
+	_check(gm.meta_key_fragments == 8, "局外累积同步", [gm.meta_key_fragments])
+
+	# 新局重置局内计数，但局外保留
+	gm._reset_run()
+	_check(gm.run_key_fragments == 0, "新局重置局内碎片")
+	_check(gm.meta_key_fragments == 8, "新局保留局外碎片（跨局）",
+		[gm.meta_key_fragments])
+
+	gm.free()
 
 
 ## 地牢配置的模板池覆盖：生成器产出的房型都能在 data/rooms 找到模板

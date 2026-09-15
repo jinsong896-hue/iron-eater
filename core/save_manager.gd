@@ -150,6 +150,8 @@ func _collect_save_data() -> Dictionary:
 		"play_time": "00:00",
 		"saved_at": Time.get_datetime_string_from_system(),
 		"has_active_run": false,
+		# 局外累积：钥匙碎片跨局保留（策划书 6. 结算时写入局外记录）
+		"meta_key_fragments": 0,
 	}
 	if gm:
 		data["character"] = gm.run_info.get("character", "warrior")
@@ -161,10 +163,17 @@ func _collect_save_data() -> Dictionary:
 		data["devoured_count"] = gm.devoured_count
 		data["fusion_count"] = gm.fusion_count
 		data["play_time"] = _format_time(gm._run_start_ms)
+		if "meta_key_fragments" in gm:
+			data["meta_key_fragments"] = int(gm.meta_key_fragments)
 		# 仅当局内属性已初始化（DUNGEON/BOSS 阶段）才视为进行中
 		if gm.attributes != null:
 			data["has_active_run"] = true
 	return data
+
+
+## 读出存档里的局外碎片数（读档后由调用方写回 GameManager）
+static func read_meta_key_fragments(data: Dictionary) -> int:
+	return int(data.get("meta_key_fragments", 0))
 
 
 func _format_time(start_ms: int) -> String:

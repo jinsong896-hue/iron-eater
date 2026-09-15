@@ -195,6 +195,8 @@ func generate_dungeon(seed_value: int, count: int = -1) -> void:
 	gen.max_rooms = count
 	# 本层可用范围（策划书 2.1：14×14 → 30×30 逐层扩张）
 	gen.range_half = FloorDefs.range_half(floor_num)
+	# 层数：第 9 层走特殊的「奖励大厅 + 三连战」房型分配
+	gen.floor_num = floor_num
 	gen.generate(seed_value)
 
 	dungeon_graph = gen.rooms

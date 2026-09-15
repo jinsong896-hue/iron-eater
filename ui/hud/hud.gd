@@ -82,12 +82,12 @@ func _connect_signals() -> void:
 		eb.boss_engaged.connect(_on_boss_engaged)
 	if eb.has_signal("boss_state_changed"):
 		eb.boss_state_changed.connect(_on_boss_state_changed)
+	if eb.has_signal("key_fragment_gained"):
+		eb.key_fragment_gained.connect(_on_key_fragment_gained)
 	if boss_bar:
 		boss_bar.visible = false
-	# 初始层数显示
-	var gm0 := get_node_or_null("/root/GameManager")
-	if gm0 and floor_label:
-		floor_label.text = "第 %d 层" % int(gm0.run_info.get("floor", 1))
+	# 初始层数显示（含本层主题名与碎片进度）
+	_refresh_floor_text()
 	# 小地图初始刷新
 	if minimap:
 		minimap.notify_room_changed()
@@ -210,13 +210,54 @@ func _on_floor_changed(floor_num: int) -> void:
 	set_floor(floor_num)
 
 
-## 更新楼层显示
+## 更新楼层显示。
+## 楼层名由调用方传入；不传时按 FloorDefs 自动取（每层主题名不同）。
+## 附带显示钥匙碎片进度（集齐 8 片解锁隐藏层）。
 func set_floor(floor_num: int, floor_name: String = "") -> void:
-	if floor_label:
-		if floor_name.is_empty():
-			floor_label.text = "第 %d 层" % floor_num
-		else:
-			floor_label.text = "第 %d 层 · %s" % [floor_num, floor_name]
+	if floor_label == null:
+		return
+	var name_part := floor_name
+	if name_part.is_empty():
+		# FloorDefs 的 9 层主题名（监牢入口/废弃矿道/…）
+		if floor_num >= 1 and floor_num <= FloorDefs.FLOORS.size():
+			name_part = FloorDefs.theme_name(floor_num)
+	var txt := "第 %d 层" % floor_num
+	if not name_part.is_empty():
+		txt += " · %s" % name_part
+	var frag := _fragment_suffix()
+	if not frag.is_empty():
+		txt += "\n" + frag
+	floor_label.text = txt
+
+
+## 碎片进度后缀（"钥匙碎片 3/8"；一片都没有时不显示）
+func _fragment_suffix() -> String:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm == null or not ("run_key_fragments" in gm):
+		return ""
+	var have: int = int(gm.run_key_fragments)
+	if have <= 0:
+		return ""
+	var need: int = FloorDefs.KEY_FRAGMENTS_REQUIRED
+	if have >= need:
+		return "钥匙碎片 %d/%d（可进隐藏层）" % [have, need]
+	return "钥匙碎片 %d/%d" % [have, need]
+
+
+## 钥匙碎片获得回调：刷新显示 + 飘字提示
+func _on_key_fragment_gained(total: int, _from_floor: int) -> void:
+	_refresh_floor_text()
+	var need: int = FloorDefs.KEY_FRAGMENTS_REQUIRED
+	if total >= need:
+		EventBus.message.emit("钥匙碎片集齐！击败本层 Boss 后可进入混沌裂隙")
+
+
+## 重刷楼层文本（不改层数，只更新碎片后缀）
+func _refresh_floor_text() -> void:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm == null:
+		return
+	set_floor(int(gm.run_info.get("floor", 1)))
 
 
 ## 更新技能冷却

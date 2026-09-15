@@ -17,6 +17,9 @@ const MIN_SAFE_ROOMS := 4
 ## 策划书 2.1：每层在 14×14 → 30×30 的范围内生成，逐层扩张。
 ## 给 1 层留出余量（房间坐标是曼哈顿扩展，range_half 太小时会提前填满）。
 var range_half := 0
+## 当前层数。第 9 层（隐藏层）结构特殊：奖励大厅 + Boss 连战 ×3 + 传送点，
+## 不是常规的「1 间 Boss + 一堆怪物房」（策划书 6.10）。
+var floor_num := 1
 
 # 生成结果
 var rooms: Array[Dictionary] = []       # [{id, position: Vector2i, type, ...}]
@@ -118,6 +121,13 @@ func _generate_connections() -> void:
 
 ## 分配房间类型（Boss 用图距离；特殊房按策划距离门控）
 func _assign_room_types() -> void:
+	# 第 9 层（隐藏层）：固定结构——奖励大厅 + Boss 连战 ×3 + 传送点。
+	# 策划书 6.10 明写「无探索负担，纯 Boss 挑战 + 奖励狂欢」，
+	# 故不走常规的特殊房/精英分配。
+	if floor_num >= FloorDefs.MAX_FLOOR:
+		_assign_layer9_rooms()
+		return
+
 	# Boss 房：图距离最远的房间
 	# （原实现用曼哈顿距离 abs(x)+abs(y) 代理，绕墙 5 步可能输给直线 4 步）
 	var dist_from_start := _bfs_distances(start_room_index)
@@ -149,6 +159,36 @@ func _assign_room_types() -> void:
 		if rooms[idx]["type"] == "normal":
 			rooms[idx]["type"] = "elite"
 			assigned += 1
+
+
+## 第 9 层专用房型分配（策划书 6.10：固定三连战）。
+## 结构：起始房（传送进入点）+ 3 间 Boss 房（混沌守卫 → 虚空双子 → 破坏神完全体）
+##       + 1 间奖励大厅（满地图宝箱）。
+## 按 BFS 距离排序：越远的越靠后（Boss 战顺序由玩家推进自然形成）。
+func _assign_layer9_rooms() -> void:
+	var dist := _bfs_distances(start_room_index)
+	# 按距离升序排列候选房（排除起始房）
+	var order: Array = []
+	for i in rooms.size():
+		if i != start_room_index:
+			order.append(i)
+	order.sort_custom(func(a, b): return int(dist.get(a, 0)) < int(dist.get(b, 0)))
+
+	# 依次标：3 间 Boss 房（连战顺序即距离顺序），最后一间作奖励大厅
+	var boss_seq := 0
+	for k in order.size():
+		var idx: int = order[k]
+		if boss_seq < 3:
+			rooms[idx]["type"] = "boss"
+			boss_room_index = idx          # 最后一间 Boss 房（连战终点）
+			boss_seq += 1
+		else:
+			rooms[idx]["type"] = "treasure"   # 奖励大厅（宝箱房）
+
+	# 兜底：房间不足 4 间时至少保证 1 间 Boss 房
+	if boss_seq == 0 and rooms.size() > 1:
+		rooms[1]["type"] = "boss"
+		boss_room_index = 1
 
 
 ## 分配特殊房（商店/宝箱/泉水），按策划的距离规则而非纯随机

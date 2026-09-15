@@ -28,6 +28,14 @@ var fusion_count := 0
 var elite_kills := 0
 var boss_kills := 0
 
+## 本局钥匙碎片数（集齐 8 片解锁隐藏第 9 层，策划书 1.3）。
+## 掉落由 LootSystem 在 Boss 死亡时按层概率产出（见 FloorDefs.boss_fragment_chance）。
+var run_key_fragments := 0
+
+## 局外累积的钥匙碎片（跨局保留，写入存档 meta）。
+## 策划书 6.「钥匙碎片：局内数据持有，集齐 8 片触发隐藏层入口；结算时写入局外记录」。
+var meta_key_fragments := 0
+
 # 本局配置
 var run_info := {
 	"character": "warrior",
@@ -83,7 +91,33 @@ func _reset_run() -> void:
 	fusion_count = 0
 	elite_kills = 0
 	boss_kills = 0
+	run_key_fragments = 0
 	_run_start_ms = Time.get_ticks_msec()
+
+
+## 获得一片钥匙碎片（Boss 掉落调用）。
+## 局内计数；同时累积到局外（跨局保留，死亡不掉——策划书未规定丢失规则，
+## 保守起见按「累积保留」实现，待策划明确后再调整）。
+## 返回当前本局碎片总数。
+func add_key_fragment(from_floor: int = 0) -> int:
+	run_key_fragments += 1
+	meta_key_fragments += 1
+	EventBus.key_fragment_gained.emit(run_key_fragments, from_floor)
+	return run_key_fragments
+
+
+## 本局是否已集齐解锁隐藏层所需的钥匙碎片
+func has_all_key_fragments() -> bool:
+	return run_key_fragments >= FloorDefs.KEY_FRAGMENTS_REQUIRED
+
+
+## 局外累积碎片写入/读出（存档用）
+func set_meta_key_fragments(count: int) -> void:
+	meta_key_fragments = maxi(count, 0)
+
+
+func get_meta_key_fragments() -> int:
+	return meta_key_fragments
 
 
 ## 本局结束

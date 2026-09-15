@@ -85,3 +85,7 @@ signal boss_state_changed(cleared: bool)
 signal boss_engaged(boss_name: String, max_hp: float)
 @warning_ignore("unused_signal")
 signal floor_changed(floor_number: int)
+
+## 钥匙碎片：获得一片时发（当前本局总数, 来源层）。HUD 据此提示与刷新进度
+@warning_ignore("unused_signal")
+signal key_fragment_gained(total: int, from_floor: int)

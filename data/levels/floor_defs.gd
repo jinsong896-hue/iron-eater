@@ -13,6 +13,57 @@ extends RefCounted
 ## 层数上限（超出即结算通关）
 const MAX_FLOOR := 9
 
+## 解锁隐藏层（第 9 层）所需的钥匙碎片总数。
+## 策划书 1.3：第 9 层需集齐前 8 层 Boss 掉落的全部 8 片钥匙碎片解锁。
+const KEY_FRAGMENTS_REQUIRED := 8
+
+## 每层 Boss 掉落标准（关卡分册 6.2~6.9 各节末尾的「掉落标准」）。
+## 下标 0 = 第 1 层。字段：
+##   rarity      保底装备稀有度（EquipmentDefs.Rarity 枚举值）
+##   gold        金币区间 [min, max]（策划书各层金币档位）
+##   fragment    钥匙碎片掉落概率（0~1）
+##   extra_*     额外掉落（蓝装/紫装等）概率与稀有度
+##
+## ⚠ 稀有度用整数值而非 EquipmentDefs.Rarity.X：FloorDefs 是纯数据层，
+## 不应依赖 equipment_defs.gd（那个文件会反向引用 data 层，形成解析环）。
+## 数值与 EquipmentDefs.Rarity 枚举一一对应：0白 1绿 2蓝 3紫 4橙 5红。
+const RARITY_WHITE := 0
+const RARITY_GREEN := 1
+const RARITY_BLUE := 2
+const RARITY_PURPLE := 3
+const RARITY_ORANGE := 4
+const RARITY_RED := 5
+
+const BOSS_DROPS := [
+	# 1 层：橙装 1 件（白装 2.5 倍）+ 碎片 35% + 金币 120~160 + 15% 蓝装
+	{"rarity": RARITY_ORANGE, "gold": [120, 160], "fragment": 0.35,
+		"extra_rarity": RARITY_BLUE, "extra_chance": 0.15},
+	# 2 层：橙装 + 碎片 30% + 金币 140~200 + 20% 蓝装
+	{"rarity": RARITY_ORANGE, "gold": [140, 200], "fragment": 0.30,
+		"extra_rarity": RARITY_BLUE, "extra_chance": 0.20},
+	# 3 层：橙装 + 碎片 35% + 金币 180~240 + 20% 紫装
+	{"rarity": RARITY_ORANGE, "gold": [180, 240], "fragment": 0.35,
+		"extra_rarity": RARITY_PURPLE, "extra_chance": 0.20},
+	# 4 层：橙装 + 碎片 35% + 金币 190~250 + 20% 紫装
+	{"rarity": RARITY_ORANGE, "gold": [190, 250], "fragment": 0.35,
+		"extra_rarity": RARITY_PURPLE, "extra_chance": 0.20},
+	# 5 层：橙装 + 碎片 35% + 金币 190~330 + 20% 紫装
+	{"rarity": RARITY_ORANGE, "gold": [190, 330], "fragment": 0.35,
+		"extra_rarity": RARITY_PURPLE, "extra_chance": 0.20},
+	# 6 层：**保底升级为红装** + 碎片 35% + 金币 250~350 + 20% 紫装
+	{"rarity": RARITY_RED, "gold": [250, 350], "fragment": 0.35,
+		"extra_rarity": RARITY_PURPLE, "extra_chance": 0.20},
+	# 7 层：红装 + 碎片 35% + 金币 300~400 + 20% 紫装
+	{"rarity": RARITY_RED, "gold": [300, 400], "fragment": 0.35,
+		"extra_rarity": RARITY_PURPLE, "extra_chance": 0.20},
+	# 8 层：红装 + 碎片 35% + 金币 350~450（策划未给明数，对齐 7 层档位上浮）
+	{"rarity": RARITY_RED, "gold": [350, 450], "fragment": 0.35,
+		"extra_rarity": RARITY_PURPLE, "extra_chance": 0.20},
+	# 9 层：隐藏层三连战，奖励走奖励大厅，不给常规 Boss 掉落
+	{"rarity": RARITY_RED, "gold": [0, 0], "fragment": 0.0,
+		"extra_rarity": RARITY_RED, "extra_chance": 0.0},
+]
+
 ## 9 层定义。数组下标 0 = 第 1 层，下标 8 = 第 9 层（隐藏层）。
 ##
 ## 字段说明：
@@ -215,3 +266,28 @@ static func color_of(floor_num: int, key: String) -> Color:
 ## 是否隐藏层（第 9 层：需集齐钥匙碎片进入，不可回头）
 static func is_hidden(floor_num: int) -> bool:
 	return floor_num >= MAX_FLOOR
+
+
+## 本层 Boss 掉落标准（越界钳制到 1..9）。
+## 返回 {rarity, gold:[min,max], fragment, extra_rarity, extra_chance}
+static func boss_drop(floor_num: int) -> Dictionary:
+	var idx: int = clampi(floor_num - 1, 0, BOSS_DROPS.size() - 1)
+	return BOSS_DROPS[idx]
+
+
+## 本层 Boss 保底装备稀有度（1~5 层橙、6 层起红）
+static func boss_rarity(floor_num: int) -> int:
+	return int(boss_drop(floor_num).get("rarity", RARITY_ORANGE))
+
+
+## 本层 Boss 钥匙碎片掉落概率
+static func boss_fragment_chance(floor_num: int) -> float:
+	return float(boss_drop(floor_num).get("fragment", 0.0))
+
+
+## 本层 Boss 金币区间 Vector2(min, max)
+static func boss_gold_range(floor_num: int) -> Vector2:
+	var g: Array = boss_drop(floor_num).get("gold", [0, 0])
+	if g.size() < 2:
+		return Vector2.ZERO
+	return Vector2(float(g[0]), float(g[1]))
