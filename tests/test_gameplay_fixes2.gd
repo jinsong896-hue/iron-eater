@@ -428,7 +428,15 @@ func _check(c: bool, name: String) -> void:
 ## 改为预建整层，切房时只剩挂载。实测命中缓存 2.28ms vs 现建 10.48ms。
 func _test_room_preload(gr) -> void:
 	var stats: Dictionary = gr.preload_stats()
-	_check(int(stats.get("total", 0)) == 13, "本层 13 间房")
+	# 房间数按层取（FloorDefs），不再是固定的 13——
+	# 断言落在本层的策划区间内，而非某个具体数字
+	var total: int = int(stats.get("total", 0))
+	var floor_num: int = int(GameManager.run_info.get("floor", 1))
+	var d: Dictionary = FloorDefs.for_floor(floor_num)
+	var lo: int = int(d.get("rooms_min", 0))
+	var hi: int = int(d.get("rooms_max", lo))
+	_check(total >= lo and total <= hi,
+		"本层房间数在策划区间内（%d，第 %d 层应为 %d~%d）" % [total, floor_num, lo, hi])
 
 	# 开场批量预建（供开场动画/加载画面调用）。
 	# 注意：前面的测试已跑过很多帧，_process 的逐帧预建多半已完成，
@@ -436,8 +444,13 @@ func _test_room_preload(gr) -> void:
 	gr.preload_all()
 	_check(gr.preload_done(), "整层预建完成")
 	var after: Dictionary = gr.preload_stats()
-	_check(int(after.get("cached", 0)) >= 11,
-		"缓存了绝大多数房间（%d/%d）" % [after.get("cached"), after.get("total")])
+	# 断言"绝大多数"而非固定数字：房间数按层变化（12~28），
+	# 当前房不入缓存（已在场景里），故缓存数 = 总数 − 少量。
+	# 用比例门槛（≥ 总数 − 2）避免层规模变化导致误报。
+	var cached: int = int(after.get("cached", 0))
+	var total_after: int = int(after.get("total", 0))
+	_check(cached >= total_after - 2,
+		"缓存了绝大多数房间（%d/%d）" % [cached, total_after])
 	_check(int(after.get("built", 0)) > 0, "确有房间被预建（%d 间）" % after.get("built"))
 
 	# 幂等：再调一次不应重复建
@@ -461,7 +474,8 @@ func _test_room_preload(gr) -> void:
 			_check(rc != null, "缓存房间带 RoomController")
 
 	# 重建地牢必须清空缓存（否则会挂上上一层的房间）
-	gr.generate_dungeon(9999, 13)
+	# 不传 count → 走层级逻辑按当前层取规模（与生产路径一致）
+	gr.generate_dungeon(9999)
 	var fresh: Dictionary = gr.preload_stats()
 	_check(int(fresh.get("cached", 0)) == 0, "重建地牢后缓存已清空")
 	_check(gr.current_room_node != null, "重建后起始房已加载")

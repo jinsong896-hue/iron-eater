@@ -423,17 +423,25 @@ func _on_boss_died(world_position: Vector3) -> void:
 		_on_cleared()
 
 
-## 难度倍率
+## 难度倍率 = 玩家难度选择 × 层因子。
+##
+## **层因子是必须的**：怪物池虽然按 `PHASE_OF_LAYER` 换阶段（1~2 层阶段一、
+## 3~4 层阶段二…），但同阶段内 2 层共用一个池，若不给层因子，
+## 第 2 层与第 1 层强度完全相同、第 4 层与第 3 层相同——
+## 策划书 5.3 的「前慢后快」曲线就断了。
+## 层因子来自 FloorDefs（1.0 → 3.30，第 9 层最高）。
 func _difficulty_mult() -> float:
+	var layer_factor: float = FloorDefs.monster_mult(_current_layer())
 	var gm = _game_manager()
 	if gm == null:
-		return 1.0
+		return layer_factor
+	# 玩家难度选择与层因子**相乘**：easy/hard 是全局手感，层是进度曲线
 	match str(gm.run_info.get("difficulty", "normal")):
 		"easy":
-			return 0.8
+			return layer_factor * 0.8
 		"hard":
-			return 1.35
-	return 1.0
+			return layer_factor * 1.35
+	return layer_factor
 
 
 ## 生成下一层传送门（Boss 房清空后出现，触碰进入下一层）
@@ -499,10 +507,13 @@ func _on_portal_entered(body: Node3D) -> void:
 		var bus0 = _event_bus()
 		if bus0:
 			bus0.stats_changed.emit()
-	# 通知 GameRoot 重建地牢（下一层）
-	var room_root := get_parent()
-	var game_root := room_root.get_parent() if room_root else null
-	if game_root and game_root.has_method("next_floor"):
+	# 通知 GameRoot 重建地牢（下一层）。
+	# **必须用 _game_root() 而不是 get_parent().get_parent()**：
+	# 房间节点挂在 GameRoot/World 下，父节点是 World 而非 GameRoot，
+	# 原先这样取得的是 World → has_method("next_floor") 恒 false
+	# → 传送门只涨层数、地牢从不重建（玩家原地不动，以为传送没打通）。
+	var game_root: Node = _game_root()
+	if game_root != null and game_root.has_method("next_floor"):
 		game_root.call("next_floor")
 
 

@@ -10,6 +10,13 @@ var rng := RandomNumberGenerator.new()
 var min_rooms := 8
 var max_rooms := 15
 var room_size := 20.0   # 房间世界尺寸（米）
+## 生成安全下限：起始房 + Boss 房 + 至少 1 间普通房。
+## 低于此数时房型分配（特殊房/精英按距离门控）会因候选不足而退化。
+const MIN_SAFE_ROOMS := 4
+## 可用范围半边长（母网格约束）。0 = 不限制。
+## 策划书 2.1：每层在 14×14 → 30×30 的范围内生成，逐层扩张。
+## 给 1 层留出余量（房间坐标是曼哈顿扩展，range_half 太小时会提前填满）。
+var range_half := 0
 
 # 生成结果
 var rooms: Array[Dictionary] = []       # [{id, position: Vector2i, type, ...}]
@@ -40,6 +47,8 @@ func generate(seed_value: int = -1) -> void:
 
 
 ## 生成房间节点（简单路径扩展）
+## range_half > 0 时限制坐标在 ±range_half（母网格可用范围，策划书 2.1）；
+## 超出范围的方向直接放弃。实测各层房间数/范围组合都能放满（见测试）。
 func _generate_rooms(count: int) -> void:
 	rooms.append({
 		"id": "room_start",
@@ -56,13 +65,26 @@ func _generate_rooms(count: int) -> void:
 		var dir: Vector2i = directions[rng.randi() % directions.size()]
 		var new_pos: Vector2i = parent_pos + dir
 
+		# 越界 → 换方向（不直接 continue，否则贴着边界的房间会空转）
+		if not _in_range(new_pos):
+			var placed_edge := false
+			for d in directions:
+				var q: Vector2i = parent_pos + d
+				if _in_range(q) and not occupied.has(q):
+					new_pos = q
+					placed_edge = true
+					break
+			if not placed_edge:
+				continue
+
 		# 避免重叠
-		if occupied.has(new_pos):
+		elif occupied.has(new_pos):
 			# 尝试随机方向
 			var placed := false
 			for d in directions:
-				new_pos = parent_pos + d
-				if not occupied.has(new_pos):
+				var q2: Vector2i = parent_pos + d
+				if _in_range(q2) and not occupied.has(q2):
+					new_pos = q2
 					placed = true
 					break
 			if not placed:
@@ -74,6 +96,13 @@ func _generate_rooms(count: int) -> void:
 			"position": new_pos,
 			"type": "normal",
 		})
+
+
+## 坐标是否在可用范围内（range_half <= 0 表示不限制）
+func _in_range(p: Vector2i) -> bool:
+	if range_half <= 0:
+		return true
+	return absi(p.x) <= range_half and absi(p.y) <= range_half
 
 
 ## 生成连接（相邻房间自动连接）

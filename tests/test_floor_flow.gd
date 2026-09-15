@@ -77,7 +77,90 @@ func _ready() -> void:
 			var new_room: Node = game_root.get("current_room_node")
 			_check(new_room != null, "下一层房间已加载")
 
+			# 层主题与规模必须随层变化——这是层级系统的核心不变量。
+			# 回归：生产路径曾硬编码 generate_dungeon(seed, 13)，
+			# 绕过按层取数的逻辑，导致 9 层房间数/规模完全相同。
+			var graph_after: Array = game_root.get("dungeon_graph")
+			_check(_rooms_in_range(graph_after.size(), floor_after),
+				"第 %d 层房间数在策划区间内（实际 %d）" % [floor_after, graph_after.size()])
+			# 本层房间的地板材质必须是该层主题色（而非上一层残留）
+			_check(_floor_matches_theme(new_room, floor_after),
+				"第 %d 层房间使用本层主题配色%s" % [floor_after, _floor_color_diag(new_room, floor_after)])
+
+	# 逐层验证 2~5 层：主题色各不相同、房间数按层取
+	await _verify_floors_2_to_5(game_root)
+
 	_finish()
+
+
+## 逐层切到 2~5 层，验证主题配色与房间数随层变化
+func _verify_floors_2_to_5(game_root: Node) -> void:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm == null:
+		_check(false, "GameManager 可用")
+		return
+	var seen_themes := {}
+	for f in range(2, 6):
+		gm.run_info["floor"] = f
+		game_root.call("next_floor")
+		await get_tree().process_frame
+		await get_tree().process_frame
+
+		var g: Array = game_root.get("dungeon_graph")
+		_check(_rooms_in_range(g.size(), f),
+			"切到第 %d 层后房间数在策划区间内（实际 %d）" % [f, g.size()])
+		_check(_floor_matches_theme(game_root.get("current_room_node"), f),
+			"第 %d 层房间配色 = 本层主题（%s）" % [f, FloorDefs.theme_name(f)])
+		var tid := FloorDefs.theme_id(f)
+		_check(not seen_themes.has(tid), "第 %d 层主题 %s 未重复出现" % [f, tid])
+		seen_themes[tid] = true
+
+
+## 房间地板材质是否为该层主题色
+func _floor_matches_theme(room_node: Node, floor_num: int) -> bool:
+	if room_node == null:
+		return false
+	var fl: Node = room_node.get_node_or_null("Floor")
+	if fl == null or fl.get_child_count() == 0:
+		return false
+	var mi := fl.get_child(0) as MeshInstance3D
+	if mi == null:
+		return false
+	var mat := mi.material_override as StandardMaterial3D
+	if mat == null:
+		return false
+	var want := FloorDefs.color_of(floor_num, "floor")
+	var got := mat.albedo_color
+	return absf(got.r - want.r) < 0.05 and absf(got.g - want.g) < 0.05 and absf(got.b - want.b) < 0.05
+
+
+## 房间数是否落在该层的策划区间内（FloorDefs 的 rooms_min ~ rooms_max）
+## 注意不能跟 room_count() 的返回值比——那个在不传 rng 时给的是区间中点，
+## 而实际生成是按种子随机取的区间内值。
+func _rooms_in_range(count: int, floor_num: int) -> bool:
+	var d: Dictionary = FloorDefs.for_floor(floor_num)
+	var lo: int = int(d.get("rooms_min", 0))
+	var hi: int = int(d.get("rooms_max", lo))
+	return count >= lo and count <= hi
+
+
+## 诊断串：实际地板色 vs 期望主题色（断言失败时定位用）
+func _floor_color_diag(room_node: Node, floor_num: int) -> String:
+	if room_node == null:
+		return "（房间为空）"
+	var fl: Node = room_node.get_node_or_null("Floor")
+	if fl == null or fl.get_child_count() == 0:
+		return "（无 Floor 子节点）"
+	var mi := fl.get_child(0) as MeshInstance3D
+	if mi == null:
+		return "（首子节点非 MeshInstance3D）"
+	var mat := mi.material_override as StandardMaterial3D
+	if mat == null:
+		return "（无材质）"
+	var want := FloorDefs.color_of(floor_num, "floor")
+	var got := mat.albedo_color
+	return "（实际 %.2f,%.2f,%.2f / 期望 %.2f,%.2f,%.2f）" % [
+		got.r, got.g, got.b, want.r, want.g, want.b]
 
 
 ## 结束判定

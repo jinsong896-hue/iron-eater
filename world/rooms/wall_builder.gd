@@ -13,7 +13,10 @@ const CELL_SIZE := 1.0
 ## 每段墙原先是独立的 Node3D（MeshInstance3D + StaticBody3D + CollisionShape3D），
 ## 84 段即 84 个节点树；实测单次建房 45ms。位置/旋转直接烘焙进顶点，
 ## 碰撞体仍按段保留（StaticBody3D 下挂多个 CollisionShape3D），行为不变。
-static func build(parent: Node3D, data) -> void:
+## 生成房间墙体。
+## theme_color 为本层主题墙色（FloorDefs.color_of(floor, "wall")），
+## 传 Color.TRANSPARENT（默认）时回退旧配色，兼容既有调用与测试。
+static func build(parent: Node3D, data, theme_color: Color = Color.TRANSPARENT) -> void:
 	var walls: Array = data.get("walls", [])
 	if walls.is_empty():
 		walls = _boundary_walls(data)
@@ -44,7 +47,7 @@ static func build(parent: Node3D, data) -> void:
 	var mesh_node := MeshInstance3D.new()
 	mesh_node.name = "WallMesh"
 	mesh_node.mesh = _build_merged_wall_mesh(kept)
-	mesh_node.material_override = _wall_material()
+	mesh_node.material_override = _wall_material(theme_color)
 	parent.add_child(mesh_node)
 
 	var body := StaticBody3D.new()
@@ -144,15 +147,20 @@ static func _build_merged_wall_mesh(walls: Array) -> ArrayMesh:
 	return mesh
 
 
-## 墙材质（缓存复用）
-static var _wall_mat: StandardMaterial3D = null
+## 墙材质（按主题色缓存复用）。
+## 缓存键含主题色：同一墙在 9 层配色各异，只按单一变量缓存会让
+## 第 1 层的墙色泄漏给后续所有层。
+static var _wall_mat_cache := {}
 
-static func _wall_material() -> StandardMaterial3D:
-	if _wall_mat == null:
-		_wall_mat = StandardMaterial3D.new()
-		_wall_mat.albedo_color = Color(0.3, 0.3, 0.35)
-		_wall_mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
-	return _wall_mat
+static func _wall_material(theme_color: Color = Color.TRANSPARENT) -> StandardMaterial3D:
+	var key := "%.3f_%.3f_%.3f" % [theme_color.r, theme_color.g, theme_color.b]
+	if _wall_mat_cache.has(key):
+		return _wall_mat_cache[key]
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = theme_color if theme_color.a > 0.0 else Color(0.3, 0.3, 0.35)
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	_wall_mat_cache[key] = mat
+	return mat
 
 
 ## 门所占的「格+方向」集合（运行时防线，与 GameRoot._apply_topology_doors 同口径）

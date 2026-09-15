@@ -85,6 +85,10 @@ func _ready() -> void:
 	await test_room_template_pool()
 	await test_dungeon_template_coverage()
 
+	# 层级系统（9 层主题/范围/房间数/难度曲线）
+	await test_floor_defs()
+	await test_dungeon_range_fits()
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -1626,6 +1630,137 @@ func test_room_template_pool() -> void:
 	# 普通房应有多种布局（策划要求多种战斗房）
 	_check(int(by_type.get("normal", 0)) >= 4,
 		"普通房至少 4 种布局", [int(by_type.get("normal", 0))])
+
+
+## 层级系统（FloorDefs）：9 层定义完整、范围/房间数/难度逐层递增
+## 依据关卡设计分册 1.2（8+1 层结构）、2.1（范围 14→30）、5.3（难度曲线）
+func test_floor_defs() -> void:
+	_current_test = "FloorDefs"
+	print("\n--- %s ---" % _current_test)
+
+	_check(FloorDefs.FLOORS.size() == 9, "共 9 层定义",
+		["实际 %d" % FloorDefs.FLOORS.size()])
+	_check(FloorDefs.MAX_FLOOR == 9, "层数上限 = 9")
+
+	# 每层必须有完整字段且 id 唯一
+	var ids := {}
+	for i in FloorDefs.FLOORS.size():
+		var f: int = i + 1
+		var d: Dictionary = FloorDefs.FLOORS[i]
+		var id := str(d.get("id", ""))
+		_check(not id.is_empty(), "第 %d 层有主题 id" % f)
+		_check(not ids.has(id), "第 %d 层主题 id 唯一（%s）" % [f, id])
+		ids[id] = true
+		for key in ["name", "range_half", "rooms_min", "rooms_max",
+				"monster_mult", "boss_hp", "colors"]:
+			_check(d.has(key), "第 %d 层有字段 %s" % [f, key])
+		# 配色六键齐全（缺键会让 builder 拿到回退灰，层间无区分）
+		var colors: Dictionary = d.get("colors", {})
+		for ck in ["floor", "wall", "accent", "ambient", "fog", "light"]:
+			_check(colors.has(ck), "第 %d 层配色含 %s" % [f, ck])
+
+	# 可用范围逐层扩张（策划书 2.1：14×14 → 30×30）
+	var prev_half := 0
+	var range_ok := true
+	for f in range(1, 10):
+		var h := FloorDefs.range_half(f)
+		if h < prev_half:
+			range_ok = false
+		prev_half = h
+	_check(range_ok, "可用范围逐层不减")
+	_check(FloorDefs.range_half(1) == 7, "第 1 层范围 14×14（半边长 7）",
+		[FloorDefs.range_half(1)])
+	_check(FloorDefs.range_half(9) == 15, "第 9 层范围 30×30（半边长 15）",
+		[FloorDefs.range_half(9)])
+
+	# 难度（层因子）严格递增
+	var prev_mult := 0.0
+	var mult_ok := true
+	for f in range(1, 10):
+		var m := FloorDefs.monster_mult(f)
+		if m <= prev_mult:
+			mult_ok = false
+		prev_mult = m
+	_check(mult_ok, "怪物强度倍率逐层递增")
+	_check(absf(FloorDefs.monster_mult(1) - 1.0) < 0.001, "第 1 层倍率 1.0（基准）")
+	_check(FloorDefs.monster_mult(9) > 3.0, "第 9 层倍率 > 3.0（终极挑战）",
+		[FloorDefs.monster_mult(9)])
+
+	# Boss 血量基准递增（策划书 5.3）
+	_check(FloorDefs.boss_hp(1) < FloorDefs.boss_hp(3),
+		"Boss 血量随层提升（1层 < 3层）")
+	_check(FloorDefs.boss_hp(8) >= 5000.0, "第 8 层 Boss 血量 ≥ 5000",
+		[FloorDefs.boss_hp(8)])
+
+	# 第 9 层为隐藏层，固定 5 间房（策划书：奖励大厅 + Boss 连战×3 + 传送点）
+	_check(FloorDefs.is_hidden(9), "第 9 层标记为隐藏层")
+	_check(not FloorDefs.is_hidden(8), "第 8 层不是隐藏层")
+	_check(FloorDefs.room_count(9) == 5, "第 9 层固定 5 间房",
+		[FloorDefs.room_count(9)])
+
+	# 房间数随层递增（取区间中值比较，避开随机）
+	var prev_rooms := 0
+	var rooms_ok := true
+	for f in range(1, 9):
+		var rc := FloorDefs.room_count(f)
+		if rc < prev_rooms:
+			rooms_ok = false
+		prev_rooms = rc
+	_check(rooms_ok, "房间数随层不减（1~8 层）")
+	_check(FloorDefs.room_count(1) >= 12, "第 1 层至少 12 间房",
+		[FloorDefs.room_count(1)])
+	_check(FloorDefs.room_count(8) >= 20, "第 8 层至少 20 间房",
+		[FloorDefs.room_count(8)])
+
+	# 越界层数钳制（存档损坏 / 调试跳层不该崩）
+	_check(FloorDefs.theme_id(0) == FloorDefs.theme_id(1), "层数 0 钳制到第 1 层")
+	_check(FloorDefs.theme_id(99) == FloorDefs.theme_id(9), "层数 99 钳制到第 9 层")
+
+	# 主题两两不同（层间必须有视觉区分，这是本批次的核心目标）
+	var seen_colors := {}
+	var distinct := true
+	for f in range(1, 10):
+		var key := str(FloorDefs.color_of(f, "floor"))
+		if seen_colors.has(key):
+			distinct = false
+		seen_colors[key] = f
+	_check(distinct, "9 层地板配色两两不同（每层长得不一样）")
+
+
+## 生成器范围约束：各层房间数都能在范围内的网格放满（不会死循环/缺房）
+## 对照策划书 2.1 的「可用范围」与 1.2 的「总房间数」
+func test_dungeon_range_fits() -> void:
+	_current_test = "DungeonRangeFits"
+	print("\n--- %s ---" % _current_test)
+
+	for f in range(1, 10):
+		var half: int = FloorDefs.range_half(f)
+		var want: int = FloorDefs.room_count(f)
+		var gen := DungeonGenerator.new()
+		gen.rng.set_seed(12345 + f)
+		gen.min_rooms = want
+		gen.max_rooms = want
+		gen.range_half = half
+		gen.generate(12345 + f)
+		_check(gen.rooms.size() == want,
+			"第 %d 层生成 %d 间房（范围 ±%d）" % [f, want, half],
+			["实际 %d" % gen.rooms.size()])
+		# 全部房间必须在范围内
+		var oob := 0
+		for r in gen.rooms:
+			var p: Vector2i = r.get("position", Vector2i.ZERO)
+			if absi(p.x) > half or absi(p.y) > half:
+				oob += 1
+		_check(oob == 0, "第 %d 层无越界房间" % f, ["越界 %d 间" % oob])
+
+	# range_half <= 0 时不限制（兼容旧调用）
+	var gen2 := DungeonGenerator.new()
+	gen2.rng.set_seed(7)
+	gen2.min_rooms = 10
+	gen2.max_rooms = 10
+	gen2.range_half = 0
+	gen2.generate(7)
+	_check(gen2.rooms.size() == 10, "range_half=0 时不受范围限制", [gen2.rooms.size()])
 
 
 ## 地牢配置的模板池覆盖：生成器产出的房型都能在 data/rooms 找到模板

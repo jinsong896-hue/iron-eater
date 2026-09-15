@@ -50,8 +50,8 @@ func _init_dungeon() -> void:
 	# 遮罩淡出后立刻播入场动作（见 _play_entrance_after_load）。
 	if _cinematics_enabled():
 		await _begin_transition()
-	# generate_dungeon 内部已同步加载起始房并放置玩家（见其尾部）
-	generate_dungeon(randi(), 13)
+	# generate_dungeon 内部已按当前层取房间数与范围，并同步加载起始房、放置玩家
+	generate_dungeon(randi())
 	if _cinematics_enabled():
 		await _finish_transition()
 		_play_entrance_after_load()
@@ -126,8 +126,9 @@ func next_floor() -> void:
 	if gm and gm.rng:
 		seed_value = gm.rng.randi()
 
-	# generate_dungeon 内部已同步加载起始房、放置玩家、激活控制器
-	generate_dungeon(seed_value, 13)
+	# generate_dungeon 内部按**当前层**取房间数与可用范围（FloorDefs），
+	# 并同步加载起始房、放置玩家、激活控制器
+	generate_dungeon(seed_value)
 
 	if gm:
 		gm.set_state(GameManager.GamePhase.DUNGEON)
@@ -173,11 +174,27 @@ func _read_json_field(path: String, field: String) -> String:
 # 地下城生成
 # ============================================================
 
-func generate_dungeon(seed_value: int, count: int = 13) -> void:
+## 生成地牢。
+## count <= 0 时按**当前层**取房间数（FloorDefs：12~16 → 20~28 逐层递增，
+## 第 9 层固定 5 间）；显式传正数则用它（测试与调试跳层需要固定规模）。
+func generate_dungeon(seed_value: int, count: int = -1) -> void:
+	var floor_num: int = _current_floor_num()
+	# 按层取默认规模：rng 用本次种子，保证同种子同层结果可复现
+	var rng := RandomNumberGenerator.new()
+	rng.set_seed(seed_value)
+	if count <= 0:
+		count = FloorDefs.room_count(floor_num, rng)
+	elif count < DungeonGenerator.MIN_SAFE_ROOMS:
+		# 低于安全下限（起始房+Boss 房+至少一间普通房）会生成失败，
+		# 钳到下限而不是让调用方拿到空地牢
+		count = DungeonGenerator.MIN_SAFE_ROOMS
+
 	var gen := DungeonGenerator.new()
 	gen.rng.set_seed(seed_value)
 	gen.min_rooms = count
 	gen.max_rooms = count
+	# 本层可用范围（策划书 2.1：14×14 → 30×30 逐层扩张）
+	gen.range_half = FloorDefs.range_half(floor_num)
 	gen.generate(seed_value)
 
 	dungeon_graph = gen.rooms
@@ -192,11 +209,28 @@ func generate_dungeon(seed_value: int, count: int = 13) -> void:
 	for i in dungeon_graph.size():
 		room_state[i] = {"cleared": false, "visited": false}
 
+	# 本层主题环境（雾/环境光）——与房间地板墙配色一起构成该层视觉主题
+	_apply_floor_environment(floor_num)
+
 	# 起始房立刻需要（玩家马上就在里面），同步建好入树；
 	# 其余房间交给 _process 逐帧预建
 	load_current_room()
 	_place_player()
 	_activate_current_room()
+
+
+## 按当前层应用世界环境主题（雾色/环境光）。取不到 WorldEnvironment 时静默跳过。
+func _apply_floor_environment(floor_num: int) -> void:
+	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if we == null or we.environment == null:
+		return
+	var env := we.environment
+	env.fog_light_color = FloorDefs.color_of(floor_num, "fog")
+	env.ambient_light_color = FloorDefs.color_of(floor_num, "ambient")
+	# 环境光强度随主题明度走：偏暗的层（虚空/裂隙）压暗，明亮层（熔炉/王座）提亮
+	var amb := FloorDefs.color_of(floor_num, "ambient")
+	var lum := (amb.r + amb.g + amb.b) / 3.0
+	env.ambient_light_energy = clampf(0.4 + lum * 1.6, 0.3, 0.9)
 
 
 # ============================================================
@@ -348,8 +382,12 @@ func _build_room(idx: int) -> Node3D:
 		_apply_topology_doors(jd, idx)
 		var rd = RoomDataClass.new()
 		rd.load_from_dict(jd)
-		FloorBuilder.build(containers["Floor"], jd)
-		WallBuilder.build(containers["Walls"], jd)
+		# 本层主题配色（FloorDefs：9 层各不相同）
+		var floor_num: int = _current_floor_num()
+		var floor_col: Color = FloorDefs.color_of(floor_num, "floor")
+		var wall_col: Color = FloorDefs.color_of(floor_num, "wall")
+		FloorBuilder.build(containers["Floor"], jd, floor_col)
+		WallBuilder.build(containers["Walls"], jd, wall_col)
 		DoorBuilder.build(containers["Doors"], jd)
 		DecorationBuilder.build(containers["Props"], jd)
 		_build_spawn_markers(containers["SpawnPoints"], jd)
@@ -360,6 +398,18 @@ func _build_room(idx: int) -> Node3D:
 		room_node.add_child(controller)
 
 	return room_node
+
+
+## 当前层数（取不到时按第 1 层）。层数是主题/难度/规模的共同输入，
+## 统一在这里兜底，避免散落的 `run_info.get("floor", 1)` 各写各的。
+func _current_floor_num() -> int:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm == null:
+		return 1
+	var info = gm.get("run_info")
+	if info is Dictionary:
+		return int(info.get("floor", 1))
+	return 1
 
 
 ## 预加载统计（供调试面板/测试断言）

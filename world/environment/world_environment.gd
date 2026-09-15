@@ -52,7 +52,9 @@ func set_glow_intensity(intensity: float) -> void:
 		_environment.glow_intensity = intensity
 
 
-## 应用主题环境
+## 应用主题环境（按 ThemeLibrary 的 4 套通用主题）。
+## 注意：楼层系统用的是 FloorDefs 的 9 层主题，走 apply_floor()。
+## 本方法保留给非楼层场景（编辑器预览等）。
 func apply_theme(theme_id: String) -> void:
 	ThemeLibrary.set_theme(theme_id)
 	var theme := ThemeLibrary.get_current()
@@ -62,3 +64,17 @@ func apply_theme(theme_id: String) -> void:
 	if _environment:
 		_environment.fog_light_color = theme.get("fog_color", Color.WHITE)
 		_environment.ambient_light_color = theme.get("ambient_color", Color.WHITE)
+
+
+## 按**楼层**应用主题环境（FloorDefs 的 9 层配色）。
+## 由 GameRoot 在生成地牢时调用——每层雾色/环境光各不相同，
+## 配合房间地板墙配色一起构成该层的视觉主题。
+func apply_floor(floor_num: int) -> void:
+	if _environment == null:
+		return
+	_environment.fog_light_color = FloorDefs.color_of(floor_num, "fog")
+	_environment.ambient_light_color = FloorDefs.color_of(floor_num, "ambient")
+	# 环境光强度：偏暗的层（虚空/裂隙）压暗，明亮层（熔炉/王座）提亮
+	var amb := FloorDefs.color_of(floor_num, "ambient")
+	var lum := (amb.r + amb.g + amb.b) / 3.0
+	_environment.ambient_light_energy = clampf(0.4 + lum * 1.2, 0.3, 0.9)
