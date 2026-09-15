@@ -87,7 +87,8 @@ func _setup(env_id: String, data: Dictionary) -> void:
 		"mire":        _setup_mire(w, h)          # 4 层：泥潭（减速 + 伤害）
 		"lava":        _setup_lava(w, h)          # 5 层：熔岩 + 齿轮机关
 		"sulfur":      _setup_sulfur()            # 6 层：硫磺毒气（周期爆炸）
-		"low_gravity": _setup_void_warp()         # 7 层：随机传送
+		"void_warp":   _setup_void_warp()         # 7 层：随机传送
+		"low_gravity": _setup_void_warp()         # 7 层的旧标识（兼容旧存档；见 floor_defs 注释说明为何不叫重力）
 		"firestorm":   _setup_firestorm()         # 8 层：全屏火风暴
 		"chaos_warp":  _setup_chaos_warp()        # 9 层：强制传送
 

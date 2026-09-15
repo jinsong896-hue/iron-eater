@@ -163,7 +163,12 @@ const FLOORS := [
 	{
 		"id": "void", "name": "虚空回廊",
 		"range_half": 13, "rooms_min": 18, "rooms_max": 24,
-		"monster_mult": 2.45, "boss_hp": 2700, "env": "low_gravity",
+		"monster_mult": 2.45, "boss_hp": 2700,
+		# 策划 4 章第 7 层写的是「重力降低（跳跃高度翻倍）+ 随机传送」。
+		# **重力那半在本作不成立**：玩家是俯视角平面移动（只有 x/z），
+		# 没有重力场也没有可跳跃高度——"跳跃攻击"是三段脚本化位移。
+		# 故只实现能落地的那半（随机传送），环境标识据此取 void_warp。
+		"env": "void_warp",
 		"colors": {
 			"floor": Color(0.16, 0.16, 0.24),
 			"floor_alt": Color(0.20, 0.19, 0.30),
