@@ -104,6 +104,7 @@ func _ready() -> void:
 
 	# 批次 C：Boss 体系
 	await test_boss_db()
+	await test_boss_mechanic_wiring()
 
 	print("=".repeat(60))
 	if _failed == 0:
@@ -2238,6 +2239,90 @@ func test_boss_db() -> void:
 	# get_boss 按 id 精确取
 	_check(not BossDB.get_boss("3-1").is_empty(), "get_boss 能按 id 取到")
 	_check(BossDB.get_boss("nonexistent").is_empty(), "get_boss 未知 id 返回空")
+
+
+## Boss 机制参数接线：BossDB 声明的 params 必须真的到达 EnemyBase
+## 回归 P0 前的状态——当时 _special_of 只映射 3 个字段，
+## 大量 Boss 写了机制参数却毫无行为（静默失效，从数据层完全看不出来）。
+func test_boss_mechanic_wiring() -> void:
+	_current_test = "BossMechanicWiring"
+	print("\n--- %s ---" % _current_test)
+
+	# ① 每类机制至少有一个代表 Boss 的参数真的落到了 special 上
+	var cases := [
+		["1-1", "summon", "summon"],
+		["3-2", "split", "death_split"],
+		["2-7", "stealth", "stealth_always"],
+		["4-5", "stealth(ambush)", "ambush"],
+		["1-2", "charge", "dash_range"],
+		["3-4", "charge(knockback)", "knockback_on_hit"],
+		["7-2", "control(slow)", "slow_target_pct"],
+		["3-3", "control(healcut)", "healcut_on_hit"],
+		["1-6", "control(fear)", "aura_spec"],
+		["6-6", "ranged(teleport)", "teleport_after_shot"],
+		["5-5", "field(tar)", "zone_on_attack"],
+		["3-6", "stealth(disguise)", "ambush"],
+	]
+	for c in cases:
+		var boss := BossDB.get_boss(str(c[0]))
+		var cfg := BossDB.to_monster_config(boss, 3, 1000.0)
+		var special: Dictionary = cfg.get("special", {})
+		_check(special.has(str(c[2])),
+			"%s 的 %s 机制参数已接线（→ %s）" % [c[0], c[1], c[2]],
+			[special.keys()])
+
+	# ② 覆盖度：绝大多数 Boss 必须带至少一个可执行机制
+	var total := 0
+	var with_behavior := 0
+	for f in BossDB.BOSSES:
+		for b in BossDB.BOSSES[f]:
+			total += 1
+			var cfg := BossDB.to_monster_config(b, f, 1000.0)
+			var sp: Dictionary = cfg.get("special", {})
+			var mechs: Array = b.get("mechs", [])
+			# BossMechanics 接管的类（phase/shield/field）：声明即生效
+			var bm_handles := mechs.has(BossDB.M_PHASE) or mechs.has(BossDB.M_SHIELD) \
+				or mechs.has(BossDB.M_FIELD)
+			if not sp.is_empty() or bm_handles:
+				with_behavior += 1
+	_check(with_behavior == total,
+		"所有 Boss 都有可执行机制（%d/%d）" % [with_behavior, total])
+
+	# ③ 参数交代完整性：每个 params 键要么已接线、要么在 UNWIRED_PARAMS 登记。
+	# 这条防止后续加 Boss 时又出现「写了参数、没接线、也没登记」的静默遗漏。
+	var undoc := BossDB.undocumented_params()
+	_check(undoc.is_empty(),
+		"所有 params 键都有交代（已接线或已登记未实现）", [undoc])
+
+	# ④ 召唤 id 必须能在 MonsterDB 查到。
+	# **行为级断言，比字段级更靠得住**：策划写的是概念名（"zombie"），
+	# MonsterDB 存的是具体 id（"zombie_prison"），早期直接传概念名导致
+	# _do_summon 查不到怪、静默跳过——字段检查完全看不出（字段确实有值）。
+	MonsterDB.init()
+	var bad_summon: Array = []
+	for f in BossDB.BOSSES:
+		for b in BossDB.BOSSES[f]:
+			var cfg := BossDB.to_monster_config(b, f, 1000.0)
+			var s: Dictionary = cfg.get("special", {}).get("summon", {})
+			if s.is_empty():
+				continue
+			if MonsterDB.get_monster(str(s.get("id", ""))).is_empty():
+				bad_summon.append("%s → %s" % [b.get("id"), s.get("id")])
+	_check(bad_summon.is_empty(),
+		"所有 Boss 的召唤 id 都能在 MonsterDB 查到", [bad_summon])
+
+	# ⑤ BossMechanics 读到的 summon 必须是**已解析**的（与 to_monster_config 同源）。
+	# 回归：BossMechanics 曾直接读原始 params，绕过映射，
+	# 导致「配置检查通过、实际召唤失败」的两条路径不一致。
+	var b1 := BossDB.get_boss("1-4")
+	var bm := BossMechanics.attach(null, {})   # 空 attach 只为取静态解析路径
+	_check(bm == null, "空 boss_def 不产生机制实例")
+	var spec := BossDB._resolve_summon(b1.get("params", {}).get("summon", {}))
+	_check(str(spec.get("id", "")) != str(b1.get("params", {}).get("summon", {}).get("id", "")),
+		"1-4 的召唤 id 经解析后已换成真实怪物 id",
+		["%s → %s" % [b1.get("params", {}).get("summon", {}).get("id"), spec.get("id")]])
+	_check(not MonsterDB.get_monster(str(spec.get("id", ""))).is_empty(),
+		"1-4 解析后的召唤 id 可查")
 
 
 ## 地牢配置的模板池覆盖：生成器产出的房型都能在 data/rooms 找到模板

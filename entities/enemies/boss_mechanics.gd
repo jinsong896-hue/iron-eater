@@ -94,9 +94,19 @@ func _setup() -> void:
 		_field_type = str(params["field"])
 
 	# —— 召唤 ——
+	# —— 召唤 ——
+	# **必须走 BossDB 的解析**：params 里写的是策划概念名（"zombie"），
+	# 而 MonsterDB 查的是具体 id（"zombie_prison"）。早期版本直接读原始
+	# params，导致召唤配置是未映射的、查不到怪而静默失效——
+	# 而 to_monster_config 那条路径是映射过的，两边不一致、问题被掩盖。
 	if params.has("summon"):
-		_summon_spec = params["summon"]
+		_summon_spec = BossDB._resolve_summon(params["summon"])
 		_summon_interval = float(_summon_spec.get("interval", 8.0))
+		# **首次召唤要等一个完整周期**：_summon_timer 初值为 0 的话，
+		# 第一次 tick 会立即触发，Boss 一登场就凭空冒出小怪（实测开局
+		# 同帧就多出 2 只），既突兀又让「Boss 房应该有 1 个敌人」的
+		# 前置状态不成立。给整周期延迟，让玩家先看清 Boss。
+		_summon_timer = _summon_interval
 
 
 ## 每物理帧推进

@@ -52,12 +52,18 @@ func _ready() -> void:
 		var room_node: Node = game_root.get("current_room_node")
 		var controller = room_node.get_node_or_null("RoomController") if room_node else null
 		_check(controller != null and controller.is_boss_room, "进入 Boss 房")
-		_check(controller.enemies_alive == 1, "Boss 已刷出")
+		_check(controller.enemies_alive >= 1, "Boss 已刷出（enemies_alive=%d）" % controller.enemies_alive)
 
-		# 杀 Boss
+		# 杀 Boss（连同它的召唤物——Boss 带 summon 机制时会召小怪，
+		# 只要还有活的敌人，房间就不该清空，这是正确行为）
 		var boss = controller.get("_boss")
 		if boss:
 			boss.take_damage(999999.0)
+		await get_tree().process_frame
+		# 清掉残余召唤物，让房间真正满足清空条件
+		for e in controller.get("_living_enemies").duplicate():
+			if is_instance_valid(e) and e.get("_hp") != null and float(e.get("_hp")) > 0.0:
+				e.take_damage(999999.0)
 		await get_tree().process_frame
 		await get_tree().process_frame
 		_check(controller.is_cleared, "Boss 死后房间清空")

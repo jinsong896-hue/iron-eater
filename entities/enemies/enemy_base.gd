@@ -247,6 +247,40 @@ func apply_monster_config(m: Dictionary) -> void:
 	split_count = int(special.get("split_count", 2))
 	# 召唤小怪（僵尸各阶段）
 	summon_spec = special.get("summon", {})
+
+	# —— Boss 机制参数（BossDB 经 _special_of 映射而来）——
+	# 这些原语在普通怪上也有使用，此处按 special 键直接装配，
+	# 使「BossDB 声明机制」到「实际行为」的链路闭合。
+	if special.has("stealth_always"):
+		stealth_always = bool(special["stealth_always"])
+		# 隐身怪现身时给突袭加成（策划对"隐身突袭"的共性表达）
+		if stealth_always:
+			stealth_exit_bonus = 0.5
+	if special.has("ambush"):
+		ambush = bool(special["ambush"])
+		ambush_range = float(special.get("ambush_range", 3.0))
+		ambush_damage_pct = float(special.get("ambush_damage_pct", 2.0))
+	if special.has("slow_target_pct"):
+		slow_target_pct = float(special["slow_target_pct"])
+		slow_target_seconds = float(special.get("slow_target_seconds", 3.0))
+	if special.has("haste_self_pct"):
+		haste_self_pct = float(special["haste_self_pct"])
+		haste_self_seconds = float(special.get("haste_self_seconds", 3.0))
+	if special.has("healcut_on_hit"):
+		hit_healcut_seconds = float(special["healcut_on_hit"])
+	if special.has("knockback_on_hit"):
+		melee_knockback = float(special["knockback_on_hit"])
+	if special.has("aura_spec"):
+		aura_spec = special["aura_spec"]
+		aura_interval = float(special.get("aura_interval", 10.0))
+	if special.has("zone_on_attack"):
+		zone_on_attack = special["zone_on_attack"]
+	if special.has("teleport_after_shot"):
+		teleport_after_shot = float(special["teleport_after_shot"])
+	if special.has("shield_amount"):
+		shield_amount = float(special["shield_amount"])
+		shield_on_timer = float(special.get("shield_on_timer", 20.0))
+
 	# 词缀（分册第 7 章）：非数值型词缀已登记在 affixes，此处只记录供后续系统消费
 	affixes = m.get("affixes", [])
 
@@ -1494,6 +1528,11 @@ func _do_summon(spec: Dictionary) -> void:
 				},
 			}
 		if m.is_empty():
+			# **不静默跳过**：查不到 id 时召唤会无声失效，从数据层完全看不出来
+			# （BossDB 早期把策划概念名当 id 传，7 个 Boss 的召唤全因此失效）。
+			# 这里显式告警，让"配了召唤但没生效"立刻可见。
+			push_warning("[%s] 召唤失败：MonsterDB 查不到 id '%s'（检查 BossDB 的 SUMMON_ID_MAP）" % [
+				monster_name, str(spec.get("id", ""))])
 			continue
 		var minion := EnemyBase.new()
 		var ang := randf() * TAU

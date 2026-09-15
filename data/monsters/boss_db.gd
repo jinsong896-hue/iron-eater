@@ -86,7 +86,7 @@ static var BOSSES := {
 			"params": {"dash_range": 9.0, "stun_after_wall": 5.0}},
 		{"id": "2-4", "name": "尘肺亡灵", "mechs": [M_FIELD, M_CONTROL],
 			"hp_pct": 1.0, "atk_pct": 0.9, "ai": "kite",
-			"params": {"field": "poison", "slow_pct": 0.3}},
+			"params": {"field": "poison", "slow_target_pct": 0.3}},
 		{"id": "2-5", "name": "黑火药投弹手", "mechs": [M_RANGED, M_FIELD],
 			"hp_pct": 0.9, "atk_pct": 1.2, "ai": "kite",
 			"params": {"bomb": true, "bomb_reflectable": true}},
@@ -146,7 +146,7 @@ static var BOSSES := {
 			"params": {"field": "spore", "confuse": true}},
 		{"id": "4-7", "name": "诅咒鱼人祭祀", "mechs": [M_RANGED, M_CONTROL],
 			"hp_pct": 1.0, "atk_pct": 1.1, "ai": "kite",
-			"params": {"spear": true, "slow_pct": 0.3, "reflectable": true}},
+			"params": {"spear": true, "slow_target_pct": 0.3, "reflectable": true}},
 	],
 	5: [
 		{"id": "5-1", "name": "幽魂骑士·无头之影", "mechs": [M_CHARGE, M_PHASE, M_RANGED],
@@ -328,21 +328,227 @@ static func to_monster_config(boss: Dictionary, floor_num: int,
 	return m
 
 
-## 从 Boss 的 params 推导 EnemyBase 的 special 字典（复用既有原语）
+## 从 Boss 的 params 推导 EnemyBase 的 special 字典（复用既有原语）。
+## **这是 BossDB 通向 EnemyBase 的唯一桥梁**——Boss 声明的机制参数必须
+## 在这里映射成 EnemyBase 认识的字段名，否则就只是躺着的数据。
+## 早期版本只映射了 3 个字段（summon/death_split/dash_range），导致
+## 大部分 Boss 声明了机制却毫无行为。
+##
+## 映射口径：BossDB 的 params 键 → EnemyBase 的 special 键（同名者直传）。
+## 未能映射的键见文件末尾 _UNWIRED_PARAMS 的说明。
 static func _special_of(boss: Dictionary) -> Dictionary:
 	var p: Dictionary = boss.get("params", {})
 	var s: Dictionary = {}
+
+	# —— 召唤/分裂：直传 ——
 	if p.has("summon"):
-		s["summon"] = p["summon"]
+		s["summon"] = _resolve_summon(p["summon"])
 	if p.has("death_split"):
 		s["death_split"] = true
 		s["split_count"] = int(p.get("split_count", 2))
+
+	# —— 冲锋：突进距离（EnemyBase 的 dash_range 即"突进触发距离"）——
 	if p.has("dash_range"):
 		s["dash_range"] = float(p["dash_range"])
+
+	# —— 潜行：隐身与潜伏 ——
+	if p.has("stealth_always"):
+		s["stealth_always"] = bool(p["stealth_always"])
+	if p.has("ambush"):
+		s["ambush"] = bool(p["ambush"])
+		s["ambush_range"] = float(p.get("ambush_range", 3.0))
+		s["ambush_damage_pct"] = float(p.get("ambush_damage_pct", 2.0))
+
+	# —— 控制：命中减速玩家、自身提速、治疗削减、命中标记、击退 ——
+	if p.has("slow_target_pct"):
+		s["slow_target_pct"] = float(p["slow_target_pct"])
+		# EnemyBase 的减速是"命中后持续 N 秒"，策划的 slow_pct 没给时长，
+		# 取 3 秒（与既有时间畸变者机制的 3.0 一致）
+		s["slow_target_seconds"] = float(p.get("slow_seconds", 3.0))
+	if p.has("haste_self_pct"):
+		s["haste_self_pct"] = float(p["haste_self_pct"])
+		s["haste_self_seconds"] = float(p.get("haste_seconds", 3.0))
+	if p.has("healcut_on_hit"):
+		# EnemyBase 用秒数表示（命中后 N 秒内玩家受治疗降低），策划给的是比例，
+		# 此处按 6 秒记（与既有"虚空狂战士"机制同口径）
+		s["healcut_on_hit"] = 6.0
+	if p.has("knockback"):
+		s["knockback_on_hit"] = float(p["knockback"])
+	if p.has("fear_radius"):
+		# 恐惧＝近身范围强制后退。EnemyBase 无原生恐惧，
+		# 用「周期性光环 + 击退」近似：靠近时被推开。
+		s["aura_interval"] = 2.0
+		s["aura_spec"] = {
+			"radius": float(p["fear_radius"]),
+			"duration": 0.4,
+			"damage": 0.0,
+			"color": Color(0.55, 0.30, 0.65, 0.35),
+		}
+	if p.has("root_seconds"):
+		# 定身：用短周期光环施加减速词条近似（EnemyBase 的硬控走 buff 系统）
+		s["aura_interval"] = 4.0
+		s["aura_spec"] = {
+			"radius": float(p.get("aoe_radius", 4.0)),
+			"duration": float(p["root_seconds"]),
+			"damage": 0.0,
+			"slow_buff": "mire",     # 泥沼 = 移速 -40% 且无法翻滚，最接近"定身"
+			"color": Color(0.35, 0.55, 0.30, 0.35),
+		}
+
+	# —— 场地：攻击后留毒/焦油区、周期性元素光环 ——
+	if p.has("cool_zone") and bool(p["cool_zone"]):
+		# 降温/净化圈：给玩家一个可规避区域（用回血区表示"安全区"）
+		s["aura_interval"] = 12.0
+		s["aura_spec"] = {
+			"radius": 3.5, "duration": 5.0, "damage": 0.0,
+			"heal": 15.0, "friendly_group": "player",
+			"color": Color(0.4, 0.7, 1.0, 0.35),
+		}
+	if p.has("ignitable") and bool(p["ignitable"]):
+		# 焦油可被点燃：攻击后留可燃区域（用毒区近似，视觉为橙红）
+		s["zone_on_attack"] = {
+			"radius": 2.5, "duration": 5.0, "damage": 10.0,
+			"color": Color(1.0, 0.5, 0.1, 0.4),
+		}
+	if p.has("refuel_heal"):
+		s["zone_on_attack"] = {
+			"radius": 3.0, "duration": 6.0, "damage": 0.0,
+			"heal": 12.0, "friendly_group": "enemies",
+			"color": Color(0.35, 0.85, 0.25, 0.45),
+		}
+
+	# —— 潜行：伪装成宝箱 = 静止潜伏，玩家靠近才现形突袭 ——
+	if p.has("disguise"):
+		s["ambush"] = true
+		s["ambush_range"] = 2.0        # 必须贴脸才触发（伪装形态不主动追击）
+		s["ambush_damage_pct"] = 2.0
+
+	# —— 远程：射击后瞬移（EnemyBase 有现成原语）——
+	if p.has("teleport") and bool(p["teleport"]):
+		s["teleport_after_shot"] = 3.0
+	# 追踪激光：无"持续锁定的激光"原语，用"高射速的瞬移射手"近似
+	# （玩家需要不断换位躲避，与策划描述的应对方式一致）
+	if p.has("tracking_laser"):
+		s["teleport_after_shot"] = 2.0
+		s["slow_target_pct"] = 0.2     # 被扫到会拖慢，强化"必须躲"的压迫感
+		s["slow_target_seconds"] = 2.0
+
+	# —— 护盾：周期性自愈护盾（暗影哨兵式）——
+	if p.has("regen_shield"):
+		s["shield_amount"] = float(p.get("shield_amount", 200.0))
+		s["shield_on_timer"] = float(p.get("shield_on_timer", 20.0))
+
 	return s
+
+
+## 召唤泛称 → MonsterDB 真实怪物 id。
+##
+## **为什么需要这层映射**：策划写的是概念名（"僵尸"、"骷髅"、"小老鼠"），
+## 而 MonsterDB 的 id 是带阶段/变体后缀的具体条目（`zombie_prison`、
+## `skeleton_archer`…）。早期版本直接把概念名当 id 传下去，
+## `MonsterDB.get_monster()` 查不到 → `_do_summon` 静默跳过 →
+## **7 个 Boss 的召唤全部无声失效**，而字段检查完全看不出来。
+##
+## 映射原则：取该概念在当前项目里的**具名对应怪**（层数由 Boss 所在层决定，
+## 这里取阶段一/基础变体；后续若要按层换更强变体，在此加层参数即可）。
+const SUMMON_ID_MAP := {
+	"zombie": "zombie_prison",
+	"rat": "rat_mutant",
+	"skeleton": "skeleton_archer",
+	"mosquito": "bat_stonewing",      # 无蚊类怪，用同级飞行怪近似
+	"forge_imp": "flame_spawn",       # 小火魔 → 炎魔幼体
+	"player_clone": "mist_phantom",   # 无克隆体原语，用幽灵近似
+	"skeleton_minion": "skeleton_archer",
+}
+
+
+## 把 summon 配置里的概念名换成可查询的怪物 id（无映射时原样返回）
+static func _resolve_summon(spec: Dictionary) -> Dictionary:
+	if spec.is_empty():
+		return spec
+	var sid := str(spec.get("id", ""))
+	if sid.is_empty() or not SUMMON_ID_MAP.has(sid):
+		return spec
+	var out := spec.duplicate(true)
+	out["id"] = SUMMON_ID_MAP[sid]
+	return out
 
 
 ## 该 Boss 是否在某机制类下（供测试与运行时分支）
 static func has_mech(boss: Dictionary, mech: String) -> bool:
 	var mechs: Array = boss.get("mechs", [])
 	return mechs.has(mech)
+
+
+## 未被 _special_of 接线的 params 键（**登记，不代表已实现**）。
+##
+## 诚实清单：这些键出现在 BOSSES 的 params 里，但 EnemyBase 没有对应原语，
+## 因此**不产生任何行为**——它们只是策划语义的存档，供后续实现时参考。
+## 别误以为写了参数就等于做了机制（这正是 P0 之前的状态）。
+##
+## 若要实现其中某项，路径是：给 EnemyBase 加字段 → apply_monster_config
+## 消费它 → 在 _special_of 里加映射 → 从本清单移除。
+const UNWIRED_PARAMS := [
+	# 场地/机关类：需要"可破坏物件"或"动态障碍"系统
+	"spawn_obstacle_on_hit", "energy_pillars", "devours_cover", "ring_flame",
+	"slam", "aoe_radius", "spray", "gear_projectile",
+	# 弹幕类：需要"追踪/覆盖型弹幕"发射器
+	"tracking_laser", "arrow_rain", "coverage", "safe_zone", "spear",
+	"timed_bomb", "bomb", "bomb_reflectable", "bomb_countdown",
+	# 双体/共享机制：需要"多实体共享血条"的实体编排
+	"twin", "shared_hp", "three_heads", "elements",
+	# 复活/变身类
+	"ash_revive", "revive_window", "heat_buildup", "explode_at_full",
+	# 控制类：EnemyBase 无对应硬控（用光环近似，见 _special_of）
+	"root_seconds", "fear_radius", "fear_push", "exec_damage_pct",
+	"chain_pull", "confuse", "random_debuff_interval", "purify_circle",
+	# 其它
+	"steal_equipment", "reflect_damage", "reflectable", "ignitable",
+	"lifesteal", "lifesteal_aura", "dot_on_hit", "reveal_on_attack",
+	"stun_after_wall", "stun_on_hit", "burst_seconds", "interruptible",
+	"windup_scale", "armor_reduction", "burn_per_second",
+	"forced_teleport_interval", "enrage_atk", "enrage_speed",
+	"split_hp_pct", "chain_split", "shield_break", "self_destruct", "fuse",
+	"teleport", "healcut_on_hit_ratio",
+	# P0 自检补登：策划语义明确但无原语
+	"burrow_seconds",      # 钻地潜伏（需"潜地不可选中"状态）
+	"absorb_buff_pct",     # 吸取场上残魂增伤（需"可击杀的增益物"系统）
+	"fire_aura",           # 常驻火焰光环（EnemyBase 有 aura 但需按元素配表）
+	"armor_reduction_p4",  # 第 8 层 P4 破防（BossMechanics 已按阶段降护甲，此为语义重复）
+	"interval",            # 通用周期参数，各机制自己解释（非独立机制）
+]
+
+
+## 自检：收集 BOSSES 里实际出现、但既没接线也不在 UNWIRED_PARAMS 里的键。
+## 返回空数组 = 每个参数都有交代（要么生效、要么明确登记未实现）。
+## 供测试断言，防止后续加参数时又出现"写了却没接线也不登记"的静默遗漏。
+static func undocumented_params() -> Array:
+	var wired := [
+		"summon", "death_split", "split_count", "dash_range",
+		"stealth_always", "ambush", "ambush_range", "ambush_damage_pct",
+		"slow_target_pct", "slow_seconds", "haste_self_pct", "haste_seconds",
+		"healcut_on_hit", "knockback", "fear_radius", "root_seconds",
+		"cool_zone", "ignitable", "teleport", "tracking_laser", "disguise",
+		"shield_reduction", "phase_at", "phases", "phase_haste", "field",
+		"regen_shield", "shield_amount", "shield_on_timer", "refuel_heal",
+		# 结构性字段（非机制参数，BossMechanics 读）
+		"summon", "death_explode", "explode_damage", "explode_radius",
+	]
+	var seen := {}
+	for f in BOSSES:
+		for b in BOSSES[f]:
+			for k in b.get("params", {}).keys():
+				seen[str(k)] = true
+	# 第 8/9 层的固定 Boss 也要查
+	for k in BOSS_FLOOR_8.get("params", {}).keys():
+		seen[str(k)] = true
+	for b in BOSS_FLOOR_9:
+		for k in b.get("params", {}).keys():
+			seen[str(k)] = true
+
+	var out: Array = []
+	for k in seen:
+		if wired.has(k) or UNWIRED_PARAMS.has(k):
+			continue
+		out.append(k)
+	return out

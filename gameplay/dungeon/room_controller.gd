@@ -17,6 +17,9 @@ var _boss_spawn: Marker3D = null
 var _doors: Array[Node3D] = []
 var _living_enemies: Array[EnemyBase] = []
 var _boss: EnemyBase = null
+## Boss 击杀是否已计数。防止 _on_cleared 因「Boss 死后又刷新敌人」重复执行时
+## 把 boss_kills 累加多次（见 _on_boss_died 注释）
+var _boss_kill_counted := false
 var _portal: Area3D = null
 var _special_service
 var _special_used := false
@@ -197,9 +200,7 @@ func _on_cleared() -> void:
 	_mark_room_cleared()
 	_open_doors()
 	if is_boss_room and _boss != null:
-		var gm = _game_manager()
-		if gm:
-			gm.boss_kills += 1
+		# boss_kills 已在 _on_boss_died 结算（那里只记一次），此处只开门
 		_show_portal()
 	var bus = _event_bus()
 	if bus:
@@ -440,10 +441,20 @@ func _spawn_boss() -> void:
 ## Boss 死亡：必掉两件装备 + 房间清空
 func _on_boss_died(world_position: Vector3) -> void:
 	enemies_alive = maxf(enemies_alive - 1, 0)
+	# **Boss 击杀计数在 Boss 死时结算，不放 _on_cleared**：
+	# _on_cleared 可能因「Boss 死后分裂/召唤出新的敌人」而再次执行
+	# （register_summoned_enemy 会把 is_cleared 重置，见其注释），
+	# 挂在里面会让 boss_kills 重复累加（实测同一只 Boss 计了 2 次）。
+	if not _boss_kill_counted:
+		_boss_kill_counted = true
+		var gm_k = _game_manager()
+		if gm_k:
+			gm_k.boss_kills += 1
 	# 通知 HUD 隐藏顶部 Boss 血条栏
 	var bus_b = _event_bus()
 	if bus_b:
 		bus_b.boss_state_changed.emit(true)
+	_show_portal()
 	if enemies_alive <= 0:
 		_on_cleared()
 
