@@ -44,8 +44,69 @@ func _ready() -> void:
 
 
 func _init_dungeon() -> void:
+	# 进入场景的第一段过渡：盖住整屏 → 生成 → 等满最低时长 → 淡出。
+	# 时长锚定策划预算（总册 11.8：单房间加载 < 1 秒）。
+	# **初始房不放进度条**——玩家在这个阶段看到的是过渡遮罩，
+	# 遮罩淡出后立刻播入场动作（见 _play_entrance_after_load）。
+	if _cinematics_enabled():
+		await _begin_transition()
 	# generate_dungeon 内部已同步加载起始房并放置玩家（见其尾部）
 	generate_dungeon(randi(), 13)
+	if _cinematics_enabled():
+		await _finish_transition()
+		_play_entrance_after_load()
+
+
+## 演出（过渡遮罩 + 入场动作）是否启用。
+## **headless 下跳过**：测试/CI 跑的是无头模式，没有画面，
+## 而这些演出会锁输入、且最少占 2 秒，会让所有场景测试被迫等待。
+## 有窗口的真实游玩不受影响。
+##
+## 注意：判定必须用 DisplayServer.get_name()，
+## **`OS.has_feature("headless")` 在 --headless 下返回 false**（实测），
+## earlier 用它做闸门等于没关。
+func _cinematics_enabled() -> bool:
+	return DisplayServer.get_name() != "headless"
+
+
+## 取过渡屏（挂在 SceneManager autoload 下，跨场景存活）
+func _loading_screen():
+	var sm := get_node_or_null("/root/SceneManager")
+	if sm != null and sm.has_method("loading"):
+		return sm.call("loading")
+	return null
+
+
+## 盖上过渡遮罩
+func _begin_transition() -> void:
+	var ls = _loading_screen()
+	if ls == null:
+		return
+	await ls.begin(_load_budget(), "噬 铁 者", "正在进入地下城…")
+
+
+## 等满最低时长后淡出
+func _finish_transition() -> void:
+	var ls = _loading_screen()
+	if ls == null:
+		return
+	await ls.finish()
+
+
+func _load_budget() -> float:
+	var sm := get_node_or_null("/root/SceneManager")
+	if sm != null:
+		return float(sm.get("LOAD_BUDGET_SECONDS"))
+	return 1.0
+
+
+## 遮罩淡出后播主角入场动作。
+## 玩家的入场动画做好后，把 duration 改成动画长度即可（EntranceState 里换视觉）。
+func _play_entrance_after_load() -> void:
+	if player == null:
+		return
+	if player.has_method("play_entrance"):
+		player.call("play_entrance")
 
 
 ## 进入下一层：清空当前层 → 重生成地牢 → 回初始房
@@ -216,33 +277,6 @@ var _preload_usec := 0
 ## 首次由开场动画盖住（玩家看不到），之后在游玩过程中逐步补完。
 func _process(_delta: float) -> void:
 	_preload_step()
-	_update_in_game_progress()
-
-
-## 第二段：房内进度条。
-## 玩家已站在初始房里，把剩余房间的预建摊开；进度条不拦输入。
-func _update_in_game_progress() -> void:
-	var ls = _loading_screen()
-	if ls == null:
-		return
-	if preload_done():
-		if _in_game_progress_shown:
-			_in_game_progress_shown = false
-			ls.show_in_game_progress(false)
-		return
-	if not _in_game_progress_shown:
-		_in_game_progress_shown = true
-		ls.show_in_game_progress(true)
-	var total := maxi(dungeon_graph.size(), 1)
-	ls.set_progress(float(_preload_cursor) / float(total))
-
-
-## 取过渡屏（挂在 SceneManager autoload 下，跨场景存活）
-func _loading_screen():
-	var sm := get_node_or_null("/root/SceneManager")
-	if sm != null and sm.has_method("loading"):
-		return sm.call("loading")
-	return null
 
 
 ## 整层生成是否在策划预算内（总册 11.8：单房间加载 < 1 秒）
@@ -254,9 +288,6 @@ func preload_budget_check() -> Dictionary:
 		budget = float(sm.get("LOAD_BUDGET_SECONDS"))
 	var secs := float(_preload_usec) / 1000000.0
 	return {"ok": secs <= budget, "seconds": secs, "budget": budget}
-
-
-var _in_game_progress_shown := false
 
 
 func _preload_step() -> void:

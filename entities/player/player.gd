@@ -116,8 +116,9 @@ func _setup_state_machine() -> void:
 	var sprint_state = load("res://entities/player/states/sprint_attack_state.gd").new()
 	var jump_state = load("res://entities/player/states/jump_attack_state.gd").new()
 	var dead_state = load("res://entities/player/states/dead_state.gd").new()
+	var entrance_state = load("res://entities/player/states/entrance_state.gd").new()
 
-	for s in [move_state, dodge_state, sprint_state, jump_state, dead_state]:
+	for s in [move_state, dodge_state, sprint_state, jump_state, dead_state, entrance_state]:
 		s.setup(self)
 
 	_state_machine.add_state("MoveState", move_state)
@@ -125,7 +126,18 @@ func _setup_state_machine() -> void:
 	_state_machine.add_state("SprintAttackState", sprint_state)
 	_state_machine.add_state("JumpAttackState", jump_state)
 	_state_machine.add_state("DeadState", dead_state)
+	_state_machine.add_state("EntranceState", entrance_state)
 	_state_machine.set_initial("MoveState")
+
+
+## 播放入场动作（进入初始房间时由 GameRoot 调用）。
+## 期间玩家原地不动、不接受任何操作；播完自动回 MoveState。
+## duration <= 0 时用 EntranceState 的默认时长。
+func play_entrance(duration: float = -1.0) -> void:
+	if _state_machine == null:
+		return
+	var data := {} if duration <= 0.0 else {"duration": duration}
+	_state_machine.transition_to("EntranceState", data)
 
 
 ## 当前状态名（供调试/测试观察）

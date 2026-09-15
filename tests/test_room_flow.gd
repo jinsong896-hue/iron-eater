@@ -171,7 +171,8 @@ func _test_special_room(gr) -> void:
 		# 正是「穿过门又连锁触发一次」的表现。这里显式断言，让连锁失败可定位。
 		_check(gr.current_room_index == idx,
 			"[%s] 切房后停在目标房（期望 %d 实际 %d）" % [special_type, idx, gr.current_room_index])
-		await _check_one_special_room(gr, special_type)
+		# 该函数内部没有 await，本身不是协程——await 它是多余的（编辑器报 REDUNDANT_AWAIT）
+		_check_one_special_room(gr, special_type)
 
 
 ## 单个特殊房的闭环断言
@@ -260,12 +261,14 @@ func _special_state(gm, with_type: String):
 			return true
 	return null
 
-func _check(c: bool, name: String) -> void:
+## label 而非 name——Node 基类已有 name 属性，同名参数会触发
+## SHADOWED_VARIABLE_BASE_CLASS 警告
+func _check(c: bool, label: String) -> void:
 	if c:
-		print("  [OK] %s" % name)
+		print("  [OK] %s" % label)
 	else:
 		failed += 1
-		print("  [FAIL] %s" % name)
+		print("  [FAIL] %s" % label)
 
 func _finish() -> void:
 	if failed == 0:
