@@ -103,6 +103,10 @@ func activate() -> void:
 		return
 
 	if is_boss_room:
+		# 策划 5.3：「进入 Boss 房时自动存档（仅记录本局进度，死亡后不可读档）」。
+		# 这是本作唯一的存档时机——此前只在"开局那一刻"写一次存档，
+		# 玩家玩到第 5 层捡满装备，存档里还是开局状态。
+		_autosave_before_boss()
 		_spawn_boss()
 	else:
 		_spawn_enemies()
@@ -462,6 +466,17 @@ func _on_boss_died(world_position: Vector3) -> void:
 	_show_portal()
 	if enemies_alive <= 0:
 		_on_cleared()
+
+
+## 进入 Boss 房前自动存档（策划 5.3）。取不到存档系统时静默跳过（测试/无头环境）。
+func _autosave_before_boss() -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return
+	var sm := tree.root.get_node_or_null("SaveManager")
+	if sm == null or not sm.has_method("save"):
+		return
+	sm.call("save", int(sm.get("current_slot")))
 
 
 ## 读生成阶段预抽的 Boss 定义（房间数据里的 boss_def）。

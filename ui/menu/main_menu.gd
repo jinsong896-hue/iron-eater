@@ -328,15 +328,23 @@ func _on_continue_pressed() -> void:
 	var result: Dictionary = sm.load_slot(current_save_slot)
 	if result.get("ok", false):
 		var data: Dictionary = result.get("data", {})
-		var gm := get_node_or_null("/root/GameManager")
-		if gm and gm.has_method("start_new_run"):
-			gm.start_new_run({
-				"character": data.get("character", "warrior"),
-				"mode": data.get("mode", "dungeon"),
-				"difficulty": data.get("difficulty", "normal"),
-				"floor": data.get("floor", 1),
-				"seed": data.get("seed", 0),
-			})
+		# **用 restore_run 而非 start_new_run**：后者是全新开局，
+		# 会把存档里的金币/击杀/装备/吞噬全部清零——玩家读档后发现
+		# 自己光着身子、金币归零，而存档文件本身看起来完全正常
+		# （写进去了，只是从来没人读）。
+		if sm.has_method("restore_run"):
+			sm.call("restore_run", data)
+		else:
+			# 兜底：老版本 SaveManager 没有 restore_run 时的降级路径
+			var gm := get_node_or_null("/root/GameManager")
+			if gm and gm.has_method("start_new_run"):
+				gm.start_new_run({
+					"character": data.get("character", "warrior"),
+					"mode": data.get("mode", "dungeon"),
+					"difficulty": data.get("difficulty", "normal"),
+					"floor": data.get("floor", 1),
+					"seed": data.get("seed", 0),
+				})
 		var sm2 := get_node_or_null("/root/SceneManager")
 		if sm2 and sm2.has_method("change_scene"):
 			sm2.change_scene("res://scenes/main.tscn")

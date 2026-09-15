@@ -93,6 +93,7 @@ func _ready() -> void:
 	await test_boss_drop_table()
 	await test_red_rarity_pool_not_empty()
 	await test_layer9_structure()
+	await test_equipment_save_roundtrip()
 	await test_key_fragments()
 
 	# 批次 D：楼层环境机制
@@ -1981,6 +1982,93 @@ func test_layer9_structure() -> void:
 
 
 ## 钥匙碎片：局内计数、集齐判定、局外累积
+## 存档往返：装备/背包/融合/强化/吞噬加成必须完整保真
+## 回归：SaveManager 此前**只有写没有读**——`_collect_save_data` 存数据，
+## 但没有任何恢复函数，`_on_continue_pressed` 直接 start_new_run（全新开局），
+## 玩家读档后发现装备全丢、金币归零，而存档文件看起来完全正常。
+func test_equipment_save_roundtrip() -> void:
+	_current_test = "EquipmentSaveRoundtrip"
+	print("\n--- %s ---" % _current_test)
+
+	var EM = _require_script("res://gameplay/inventory/equipment_manager.gd")
+	var EI = _require_script("res://data/equipment/equipment_instance.gd")
+	EquipmentDB.init_equipment_db()
+	if EM == null or EI == null:
+		return
+
+	var em = EM.new()
+	var tpl = EquipmentDB.get_template(&"W06")
+	_check(tpl != null, "测试模板 W06 存在")
+	if tpl == null:
+		return
+
+	# 造一份"有进度"的状态：已装备武器（融合 6 次 + 强化 3 级）+ 背包 4 件 + 吞噬 1 件
+	var wp = EI.create(tpl)
+	wp.fusion_count = 6
+	wp.enhancement_level = 3
+	em.add_item(wp)
+	em.equip(EquipmentDefs.Slot.WEAPON_1, wp)
+	for tid in [&"W11", &"A03", &"A16", &"J03"]:
+		var t = EquipmentDB.get_template(tid)
+		if t != null:
+			em.add_item(EI.create(t))
+	var dv = EI.create(tpl)
+	em.add_item(dv)
+	em.devour(dv)
+
+	var snap: Dictionary = em.to_dict()
+	_check(snap["equipped"].size() == 1, "快照含 1 件已装备", [snap["equipped"].size()])
+	_check(snap["inventory"].size() == 4, "快照含 4 件背包物品", [snap["inventory"].size()])
+	# 吞噬的那件已从背包移除（背包从 5 减到 4），但有 1 条吞噬记录
+	_check(snap["devour_modifiers"].size() == 1, "快照含 1 条吞噬加成记录",
+		[snap["devour_modifiers"].size()])
+
+	# 恢复到一个全新的空 manager（模拟读档）
+	var em2 = EM.new()
+	em2.from_dict(snap)
+	var eq2: Dictionary = em2.get_equipped()
+	var w2 = eq2.get(EquipmentDefs.Slot.WEAPON_1)
+	_check(eq2.size() == 1, "恢复后 1 件已装备", [eq2.size()])
+	_check(em2.get_inventory().size() == 4, "恢复后 4 件背包物品",
+		[em2.get_inventory().size()])
+	_check(w2 != null, "恢复后武器槽非空")
+	if w2 != null:
+		# 槽位键必须是 int——JSON 会把 int 键转成字符串，
+		# 不转回来的话按 int 查槽位全部落空（装备"存了但取不到"）
+		_check(w2.fusion_count == 6, "融合次数保真", [w2.fusion_count])
+		_check(w2.enhancement_level == 3, "强化等级保真", [w2.enhancement_level])
+		_check(w2.template_id == tpl.id, "模板 id 保真", [w2.template_id])
+	_check(absf(em2.fusion_attack_bonus() - em.fusion_attack_bonus()) < 0.001,
+		"融合攻击加成保真",
+		["%.4f vs %.4f" % [em2.fusion_attack_bonus(), em.fusion_attack_bonus()]])
+	_check(em2.to_dict()["devour_modifiers"].size() == 1, "吞噬加成记录保真")
+
+	# 幂等：存 → 读 → 再存，两次数值一致
+	var snap2: Dictionary = em2.to_dict()
+	_check(snap2["equipped"].size() == snap["equipped"].size()
+		and snap2["inventory"].size() == snap["inventory"].size(),
+		"存→读→存 幂等")
+
+	# 空字典不炸（存档缺失/损坏的容错）
+	var em3 = EM.new()
+	em3.from_dict({})
+	_check(em3.get_equipped().is_empty() and em3.get_inventory().is_empty(),
+		"空存档数据不产生物品（容错）")
+
+	# 消耗品背包也有序列化
+	var ConsInv = _require_script("res://data/consumables/consumable_inventory.gd")
+	if ConsInv != null:
+		var ci = ConsInv.new()
+		ci.add_health_potion(2)
+		var cd: Dictionary = ci.to_dict()
+		_check(int(cd.get("quantities", {}).get("health_potion", 0)) == 2,
+			"消耗品背包序列化含药水数", [cd])
+		var ci2 = ConsInv.new()
+		ci2.from_dict(cd)
+		_check(ci2.count("health_potion") == 2, "消耗品背包恢复药水数",
+			[ci2.count("health_potion")])
+
+
 func test_key_fragments() -> void:
 	_current_test = "KeyFragments"
 	print("\n--- %s ---" % _current_test)

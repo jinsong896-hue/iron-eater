@@ -34,3 +34,23 @@ func use_health_potion(attributes, amount: float) -> Dictionary:
 ## 返回指定消耗品数量。
 func count(item_id: String) -> int:
 	return int(quantities.get(item_id, 0))
+
+
+# ============================================================
+# 序列化（存档用）
+# ============================================================
+
+## 导出状态。药水是"本局资源"，读档必须恢复——否则玩家花金币买的药水白买。
+func to_dict() -> Dictionary:
+	return {
+		"capacity": capacity,
+		"quantities": quantities.duplicate(),
+	}
+
+
+## 从存档恢复
+func from_dict(d: Dictionary) -> void:
+	if d.is_empty():
+		return
+	capacity = int(d.get("capacity", DEFAULT_CAPACITY))
+	quantities = d.get("quantities", {}).duplicate()

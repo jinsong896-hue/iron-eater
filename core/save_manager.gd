@@ -165,6 +165,15 @@ func _collect_save_data() -> Dictionary:
 		data["play_time"] = _format_time(gm._run_start_ms)
 		if "meta_key_fragments" in gm:
 			data["meta_key_fragments"] = int(gm.meta_key_fragments)
+		# 装备全量（已装备 + 背包 + 吞噬加成）。
+		# **必须存**：这些实例（融合次数/强化等级/锁定）只活在内存里，
+		# 而读档会重建 manager——不存的话玩家的装备全丢，
+		# 但存档文件里"融合次数"这种计数还在，看起来一切正常。
+		if gm.equipment_manager != null and gm.equipment_manager.has_method("to_dict"):
+			data["equipment"] = gm.equipment_manager.call("to_dict")
+		# 消耗品背包
+		if gm.consumable_inventory != null and gm.consumable_inventory.has_method("to_dict"):
+			data["consumables"] = gm.consumable_inventory.call("to_dict")
 		# 仅当局内属性已初始化（DUNGEON/BOSS 阶段）才视为进行中
 		if gm.attributes != null:
 			data["has_active_run"] = true
@@ -174,6 +183,55 @@ func _collect_save_data() -> Dictionary:
 ## 读出存档里的局外碎片数（读档后由调用方写回 GameManager）
 static func read_meta_key_fragments(data: Dictionary) -> int:
 	return int(data.get("meta_key_fragments", 0))
+
+
+## 把存档数据**应用回游戏状态**（"继续游戏"用）。
+##
+## 这是存档链路的最后一米：`_collect_save_data` 负责写、本函数负责读，
+## 二者必须成对。**此前只有写没有读**——`_on_continue_pressed` 直接调
+## `start_new_run`（全新开局），存档里的金币/击杀/装备/吞噬全被清零，
+## 玩家读档后发现一切归零，而存档文件本身看起来完全正常。
+##
+## 调用顺序：先 start_new_run（建立干净的 manager 与属性系统），
+## 再调本函数覆盖。反过来会在恢复后又被 _reset_run 清掉。
+func restore_run(data: Dictionary) -> bool:
+	if data.is_empty():
+		return false
+	var gm := get_node_or_null("/root/GameManager")
+	if gm == null:
+		return false
+
+	# ① 先用存档的局信息开局（会重置一切，包括 manager）
+	gm.start_new_run({
+		"character": data.get("character", "warrior"),
+		"mode": data.get("mode", "dungeon"),
+		"difficulty": data.get("difficulty", "normal"),
+		"floor": data.get("floor", 1),
+		"seed": data.get("seed", 0),
+	})
+
+	# ② 覆盖回存档里的局内状态
+	gm.gold = int(data.get("gold", 0))
+	gm.kills = int(data.get("kills", 0))
+	gm.devoured_count = int(data.get("devoured_count", 0))
+	gm.fusion_count = int(data.get("fusion_count", 0))
+	if "meta_key_fragments" in gm:
+		gm.meta_key_fragments = int(data.get("meta_key_fragments", 0))
+
+	# ③ 装备全量恢复（已装备 + 背包 + 吞噬加成 + 词条重新挂载）
+	var eq = data.get("equipment", {})
+	if gm.equipment_manager != null and not eq.is_empty():
+		if gm.equipment_manager.has_method("from_dict"):
+			gm.equipment_manager.call("from_dict", eq)
+
+	# ④ 消耗品背包
+	var cons = data.get("consumables", {})
+	if gm.consumable_inventory != null and not cons.is_empty():
+		if gm.consumable_inventory.has_method("from_dict"):
+			gm.consumable_inventory.call("from_dict", cons)
+
+	EventBus.stats_changed.emit()
+	return true
 
 
 func _format_time(start_ms: int) -> String:

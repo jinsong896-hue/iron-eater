@@ -20,6 +20,13 @@ var _max_inventory_size := MAX_INVENTORY_SIZE
 # 融合攻击加成缓存
 var _fusion_attack_bonus: float = 0.0
 
+## 吞噬产生的永久属性加成（本局有效）。
+## 格式：{source_instance_id: {"stat": int, "flat": float, "percent": float}}
+## **必须存档**：这些加成是通过 AttributeSystem 的 modifier 生效的，
+## 而 modifier 只活在内存里——不存的话读档后玩家会凭空少一大截属性
+## （吞噬是"本局永久成长"，丢了等于白吞）。
+var _devour_modifiers: Dictionary = {}
+
 
 ## 添加装备到背包
 func add_item(inst: EquipmentInstance) -> bool:
@@ -89,20 +96,23 @@ func devour(item: EquipmentInstance) -> Dictionary:
 	# 应用吞噬词条
 	var affix := template.devour_affix
 	var gm = _game_manager()
+	var flat := 0.0
+	var percent := 0.0
+	if affix.operation == AffixData.Operation.PERCENT:
+		percent = affix.value
+	else:
+		flat = affix.value
 	if gm and gm.attributes:
-		if affix.operation == AffixData.Operation.PERCENT:
-			gm.attributes.add_modifier(
-				"devour_%s" % item.instance_id,
-				affix.stat,
-				0.0,
-				affix.value
-			)
-		else:
-			gm.attributes.add_modifier(
-				"devour_%s" % item.instance_id,
-				affix.stat,
-				affix.value
-			)
+		gm.attributes.add_modifier(
+			"devour_%s" % item.instance_id,
+			affix.stat,
+			flat,
+			percent
+		)
+	# 记进可存档的表——modifier 只活在内存，不记的话读档会丢
+	_devour_modifiers[item.instance_id] = {
+		"stat": affix.stat, "flat": flat, "percent": percent,
+	}
 
 	remove_item(item)
 	var bus = _event_bus()
@@ -329,3 +339,97 @@ func _recalc_fusion_bonus() -> void:
 		if inst == null:
 			continue
 		_fusion_attack_bonus += inst.fusion_bonus()
+
+# ============================================================
+# 序列化（存档用）
+# ============================================================
+
+## 导出完整状态（已装备 + 背包 + 吞噬加成）。
+##
+## **为什么要存这些**：装备实例（融合次数/强化等级/锁定）只活在内存里，
+## 而 `_reset_run()` 会把整个 manager 重建。不存的话读档后玩家光着身子、
+## 融合投入归零——但存档文件里"融合次数"计数还在，看起来一切正常。
+##
+## 槽位字典的键是 int 枚举，JSON 会转成字符串，故这里显式转 String 存储，
+## 读回时再转回 int（见 from_dict 注释）。
+func to_dict() -> Dictionary:
+	var equipped := {}
+	for slot in _equipped:
+		var inst: EquipmentInstance = _equipped[slot]
+		if inst != null:
+			equipped[str(int(slot))] = inst.to_dict()
+	var inv: Array = []
+	for inst in _inventory:
+		if inst != null:
+			inv.append(inst.to_dict())
+	return {
+		"equipped": equipped,
+		"inventory": inv,
+		"devour_modifiers": _devour_modifiers.duplicate(true),
+		"fusion_attack_bonus": _fusion_attack_bonus,
+	}
+
+
+## 从存档恢复状态。**会先把当前状态清空**（modifier 也一并撤掉），
+## 避免与 `_reset_run()` 刚建的空实例叠加出双倍属性。
+##
+## 恢复内容：已装备（含槽位）、背包、吞噬加成，并把词条重新挂进属性系统。
+func from_dict(d: Dictionary) -> void:
+	if d.is_empty():
+		return
+	# 清空当前状态（含属性系统里的 modifier）
+	for slot in _equipped.keys():
+		var old: EquipmentInstance = _equipped[slot]
+		if old != null:
+			_clear_all_modifiers(old)
+	_equipped.clear()
+	_inventory.clear()
+	# 撤掉旧的吞噬 modifier
+	var gm = _game_manager()
+	if gm and gm.attributes:
+		for iid in _devour_modifiers:
+			gm.attributes.remove_modifiers("devour_%s" % iid)
+	_devour_modifiers.clear()
+
+	# 恢复已装备
+	var equipped: Dictionary = d.get("equipped", {})
+	for slot_key in equipped:
+		var inst := EquipmentInstance.new()
+		inst.from_dict(equipped[slot_key])
+		# JSON 的键是字符串，槽位枚举是 int——必须转回来，
+		# 否则 `_equipped` 里会混入 "5" 这样的字符串键，
+		# 后续 get_equipped() / _recalc_fusion_bonus 按 int 查全都落空
+		_equipped[int(str(slot_key))] = inst
+
+	# 恢复背包
+	for entry in d.get("inventory", []):
+		var inst2 := EquipmentInstance.new()
+		inst2.from_dict(entry)
+		_inventory.append(inst2)
+
+	# 恢复吞噬加成（重新挂 modifier）
+	_devour_modifiers = d.get("devour_modifiers", {}).duplicate(true)
+	if gm and gm.attributes:
+		for iid in _devour_modifiers:
+			var m: Dictionary = _devour_modifiers[iid]
+			gm.attributes.add_modifier(
+				"devour_%s" % iid,
+				int(m.get("stat", 0)),
+				float(m.get("flat", 0.0)),
+				float(m.get("percent", 0.0))
+			)
+
+	# 已装备的词条重新生效（基础 + 融合）
+	for slot in _equipped:
+		var inst3: EquipmentInstance = _equipped[slot]
+		_apply_equipment_modifiers(inst3)
+		_apply_fusion_affix(inst3)
+
+	_recalc_fusion_bonus()
+	_emit_bus("inventory_changed")
+	_emit_bus("stats_changed")
+
+
+## 是否有任何装备状态（用于判断存档里是否真有东西可恢复）
+func has_any_items() -> bool:
+	return not _equipped.is_empty() or not _inventory.is_empty()

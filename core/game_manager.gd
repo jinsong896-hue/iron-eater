@@ -136,6 +136,15 @@ func finish_run(reason: String) -> Dictionary:
 		"play_seconds": play_seconds,
 	}
 	EventBus.run_finished.emit(result)
+	# 本局结束 → 作废存档的「进行中」标记（策划 5.3：死亡后不可读档）。
+	# 不置 false 的话主菜单的「继续游戏」仍然可点，玩家能读档复活，
+	# 与「每一战都是决赛、无原地复活」的设计相悖。
+	var sm := get_node_or_null("/root/SaveManager")
+	if sm != null:
+		if sm.has_method("save"):
+			sm.call("save", int(sm.get("current_slot")))   # 先落盘最终数据
+		if sm.has_method("set_active_run"):
+			sm.call("set_active_run", false)
 	set_state(GamePhase.DEAD)
 	return result
 
