@@ -546,22 +546,34 @@ func _create_health_bar() -> void:
 	_hp_bar.name = "HealthBar"
 	_hp_bar.position = Vector3(0, 2.15 * body_scale, 0)
 
-	# 底：深色背景 + 细黑边
-	_hp_bar_bg = _make_bar_quad(Vector3(BAR_WIDTH, BAR_HEIGHT, 0), Color(0.05, 0.05, 0.07, 0.9))
-	# 填充：红色（受击反馈里也用这个色系）
-	_hp_bar_fill = _make_bar_quad(Vector3(BAR_WIDTH, BAR_HEIGHT, 0), Color(0.85, 0.2, 0.2, 1.0))
+	# 底：深色背景 + 细黑边（优先级 0，排在填充之后画）
+	_hp_bar_bg = _make_bar_quad(Vector3(BAR_WIDTH, BAR_HEIGHT, 0), Color(0.05, 0.05, 0.07, 0.9), 0)
+	# 填充：红色（受击反馈里也用这个色系）；优先级 1 → 一定画在背景之上
+	_hp_bar_fill = _make_bar_quad(Vector3(BAR_WIDTH, BAR_HEIGHT, 0), Color(0.85, 0.2, 0.2, 1.0), 1)
 	# 填充略微前移，避免与底 z-fighting
 	_hp_bar_fill.position.z = 0.01
 
 	_hp_bar.add_child(_hp_bar_bg)
 	_hp_bar.add_child(_hp_bar_fill)
 	add_child(_hp_bar)
-	_hp_bar.visible = false
+	# 满血也显示（见 _update_health_bar 注释：懒显示是首击跳变误会的根源）
+	_hp_bar.visible = true
 	_update_health_bar()
 
 
-## 生成一个 billboard 四边形（始终面向相机）
-func _make_bar_quad(quad_size: Vector3, col: Color) -> MeshInstance3D:
+## 生成一个 billboard 四边形（始终面向相机）。
+## **收缩与左对齐一律在 mesh 顶点数据里做**（size + center_offset），
+## 不用节点 scale / position：
+##   · 节点 scale —— billboard 渲染时被忽略（实测改了屏幕像素宽纹丝不动）
+##   · 节点 position —— 世界空间偏移在俯视透视下投影成斜向位移（「血条往上跑」）
+## center_offset 的取值见 _update_health_bar（必须随 size 同步更新）。
+##
+## priority 显式指定透明渲染顺序：背景与填充是**同一位置的两个半透明 quad**，
+## 俯视相机下 z=0.01 的深度差小到不足以裁决先后，Godot 会退回按
+## 场景树顺序/实例 id 排——而这个顺序在 mesh 被重建（改 size）后会翻转，
+## 表现为「受击后整条血条变暗（暗色背景盖住了红色填充）」且不再复原。
+## 给填充更高优先级把顺序钉死，不再依赖深度平局裁决。
+func _make_bar_quad(quad_size: Vector3, col: Color, priority: int = 0) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	var q := QuadMesh.new()
 	q.size = Vector2(quad_size.x, quad_size.y)
@@ -572,20 +584,39 @@ func _make_bar_quad(quad_size: Vector3, col: Color) -> MeshInstance3D:
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.no_depth_test = true  # 不被墙体遮挡
+	mat.render_priority = priority  # 显式排序，见上方注释
 	mi.material_override = mat
 	return mi
 
 
-## 按当前血量刷新血条长度（从左向右收缩）与可见性
+## 按当前血量刷新血条长度（从左向右收缩）与可见性。
+##
+## 两个量必须**同时**改，缺一不可：
+##   size.x         = BAR_WIDTH × ratio        —— 可见长度
+##   center_offset.x = (size.x - BAR_WIDTH) / 2 —— 把左缘钉死在 -BAR_WIDTH/2
+##
+## **左对齐公式推导**（这是曾经的核心 bug）：
+##   顶点左缘 = center_offset.x - size.x / 2
+##   要求左缘恒等于 -BAR_WIDTH / 2 →
+##   center_offset.x = size.x / 2 - BAR_WIDTH / 2 = (size.x - BAR_WIDTH) / 2
+## 满血时该值为 0（与背景条天然重合）；只设 size 不设 offset 的话，
+## 填充会整体左移出背景条，玩家在暗条内只看到约一半长度——
+## 表现为「60% 血量看起来只有 30%」，且血量越低偏移越明显。
+##
+## 满血也显示（旧版「受伤后才显示」让血条在已失血状态下凭空出现，
+## 玩家看不到从 100% 掉下来的过程）。仅死亡隐藏。
 func _update_health_bar() -> void:
 	if _hp_bar == null or _hp_bar_fill == null:
 		return
 	var maxv: float = maxf(max_hp, 0.001)
 	var ratio := clampf(_hp / maxv, 0.0, 1.0)
-	_hp_bar.visible = _hp < max_hp - 0.001 and _hp > 0.0
-	_hp_bar_fill.scale.x = maxf(ratio, 0.001)
-	# 左对齐：中心左移半个被"吃掉"的长度
-	_hp_bar_fill.position.x = -BAR_WIDTH * (1.0 - ratio) * 0.5
+	_hp_bar.visible = _hp > 0.0
+	var q := _hp_bar_fill.mesh as QuadMesh
+	if q == null:
+		return
+	var w: float = maxf(BAR_WIDTH * ratio, 0.001)
+	q.size = Vector2(w, BAR_HEIGHT)
+	q.center_offset = Vector3((w - BAR_WIDTH) * 0.5, 0.0, 0.0)
 
 
 func _physics_process(delta: float) -> void:

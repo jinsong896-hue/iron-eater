@@ -95,11 +95,46 @@ func _ready() -> void:
 	get_tree().current_scene.add_child(e)
 	e.global_position = p.global_position + Vector3(2, 0, 0)
 	await get_tree().process_frame
+	# 满血也显示血条（旧版懒显示让首击血条「凭空出现在半血位」，
+	# 玩家看不到从 100% 掉下来的过程，被当成「血条不是实时血量」）
+	var full_mesh := e._hp_bar_fill.mesh as QuadMesh
+	_c(e._hp_bar != null and e._hp_bar.visible, "满血时血条已显示")
+	_c(full_mesh != null and absf(full_mesh.size.x - 1.1) < 0.01, "满血血条为满宽",
+		"size.x=%.2f" % (full_mesh.size.x if full_mesh else -1.0))
+	# **左缘必须落在背景条左端**（曾漏测位置只测宽度，导致「60% 血量看起来
+	# 只有 30%」的偏移 bug 一路放行——center_offset 未随 size 同步更新）
+	_c(absf(full_mesh.center_offset.x) < 0.01, "满血时填充与背景条对齐",
+		"center_offset.x=%.3f" % full_mesh.center_offset.x)
 	e.take_damage(10.0)
 	await get_tree().process_frame
 	_c(e._flash_timer > 0.0, "受击进入闪红状态")
-	_c(e._hp_bar != null and e._hp_bar.visible, "受伤后头顶血条显示")
-	_c(e._hp_bar_fill.scale.x < 0.99, "血条长度按血量收缩", "scale=%.2f" % e._hp_bar_fill.scale.x)
+	# 断言 **mesh.size.x**（真实渲染量）而非节点 scale：billboard 材质
+	# 渲染时忽略节点 scale（实测 scale 改了屏幕像素宽纹丝不动），
+	# 旧断言读 scale.x 时曾把这种视觉冻结放行成绿灯。
+	var fill_mesh := e._hp_bar_fill.mesh as QuadMesh
+	_c(fill_mesh != null and fill_mesh.size.x < 1.09, "血条长度按血量收缩（mesh.size）",
+		"size.x=%.2f" % (fill_mesh.size.x if fill_mesh else -1.0))
+	# 填充必须**压过背景条**（否则整条血条发暗、看不清血量）。
+	# 两个 quad 同位置、俯视下深度差不足以裁决先后 → 排序会翻转。
+	# 用 render_priority 钉死，这里断言它确实生效。
+	var fill_mat := e._hp_bar_fill.material_override as StandardMaterial3D
+	var bg_mat := e._hp_bar_bg.material_override as StandardMaterial3D
+	_c(fill_mat != null and bg_mat != null and fill_mat.render_priority > bg_mat.render_priority,
+		"填充渲染优先级高于背景（血条不发暗）",
+		"fill=%d bg=%d" % [
+			fill_mat.render_priority if fill_mat else -999,
+			bg_mat.render_priority if bg_mat else -999])
+	# 收缩后左缘仍须钉死（左对齐正确性）
+	var left_edge: float = fill_mesh.center_offset.x - fill_mesh.size.x * 0.5
+	_c(absf(left_edge - (-1.1 * 0.5)) < 0.02, "收缩后左缘仍对齐背景条左端",
+		"左缘=%.3f 期望=%.3f" % [left_edge, -0.55])
+	# 连续受击必须持续收缩（回归：曾出现首击后视觉冻结）
+	var size1: float = fill_mesh.size.x
+	e.take_damage(20.0)
+	await get_tree().process_frame
+	var fill_mesh2 := e._hp_bar_fill.mesh as QuadMesh
+	_c(fill_mesh2.size.x < size1 - 0.05, "再次受击血条继续收缩",
+		"%.2f → %.2f" % [size1, fill_mesh2.size.x])
 	e.take_damage(999999.0)
 	await get_tree().process_frame
 
