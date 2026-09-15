@@ -15,7 +15,7 @@ func enter(_previous: String, data: Dictionary = {}) -> void:
 	_direction = data.get("direction", p._facing)
 	p.velocity = _direction * p.dodge_speed
 	p._is_dodging = true
-	p._dodge_timer = p.dodge_duration
+	p.dodge_timer = p.dodge_duration
 	p._dodge_cooldown_timer = p.dodge_cooldown
 	EventBus.player_moved.emit(p.global_position, _direction)
 
@@ -26,8 +26,8 @@ func exit() -> void:
 
 func physics_update(delta: float) -> void:
 	var p := player
-	p._dodge_timer -= delta
-	if p._dodge_timer <= 0.0:
+	p.dodge_timer -= delta
+	if p.dodge_timer <= 0.0:
 		finished.emit("MoveState", {})
 		return
 	p.move_and_slide()

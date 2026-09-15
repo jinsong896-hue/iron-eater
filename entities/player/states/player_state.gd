@@ -5,6 +5,11 @@ extends State
 ## 分工对齐 GameDev.tv 课件：Player 存数据与共享动作，State 存行为。
 ## 状态通过 player.xxx 读写玩家的数据与方法。
 ##
+## 命名约定：会被状态类跨文件读写的字段**不加下划线前缀**。
+## 部分静态检查工具只做单文件作用域分析，下划线会被当成「私有」，
+## 于是把这些真实存在于状态类里的访问误报为 UNUSED_PRIVATE_CLASS_VARIABLE。
+## 典型：prev_raw_input / since_dir_press / sprint_hold / dodge_timer。
+##
 ## 注意：Player 上的 _start_sprint_attack / _start_jump_attack 等
 ## 仍是同步置位的公开入口（测试直接调用），状态只在 enter() 里调它们，
 ## 自己负责每帧推进。

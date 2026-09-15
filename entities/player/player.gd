@@ -20,16 +20,21 @@ var _attack_timer := 0.0          # 当前攻击冷却
 var _facing := Vector3.FORWARD
 var _is_sprinting := false
 var _is_dodging := false
-var _dodge_timer := 0.0
 var _dodge_cooldown_timer := 0.0
-var _last_input_dir := Vector3.ZERO
+
+# 以下四个字段由 entities/player/states/*.gd 通过 player.xxx 跨文件读写，
+# 故不加下划线前缀——加了会被单文件作用域分析的静态检查误判为「未使用」。
 ## 方向键「按下沿」的检测用：记录上一次见到的方向，方向变化时才算新按下沿。
 ## 不能靠每帧刷新的时间戳判定双击——那会让窗口退化成「任意两帧方向一致」。
-var _prev_raw_input := Vector3.ZERO
+var prev_raw_input := Vector3.ZERO
 ## 距离上一次「方向按下沿」的时长（秒），用于双击判定
-var _since_dir_press := 99.0
+var since_dir_press := 99.0
 ## 已持续奔跑的时长（秒）。冲撞需要它超过 SPRINT_ATTACK_MIN_HOLD。
-var _sprint_hold := 0.0
+var sprint_hold := 0.0
+
+# 翻滚状态用（dodge_state.gd 读写）
+## 翻滚无敌帧剩余时间（秒）
+var dodge_timer := 0.0
 
 # 连段状态机
 var _combo: AttackCombo = null
@@ -208,11 +213,6 @@ func _physics_process(delta: float) -> void:
 
 	# 具体行为交给当前状态（移动/翻滚/冲撞/跳跃/死亡）
 	_state_machine.physics_update(delta)
-
-
-func _move(delta: float) -> void:
-	# 已搬移至 states/move_state.gd（_core_movement）；保留空实现避免外部误调用
-	pass
 
 
 # ============================================================

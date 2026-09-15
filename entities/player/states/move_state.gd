@@ -39,17 +39,14 @@ func _core_movement(delta: float) -> void:
 	# 现在改为：方向从「无」变「有」（或换成不同方向）时才算一次按下沿，
 	# 记录该时刻，两次按下沿间隔小于窗口才算双击。
 	var raw := input_dir
-	var pressed_edge := raw != Vector3.ZERO and p._prev_raw_input == Vector3.ZERO
-	p._since_dir_press += delta
+	var pressed_edge := raw != Vector3.ZERO and p.prev_raw_input == Vector3.ZERO
+	p.since_dir_press += delta
 	if pressed_edge:
 		# 本次按下沿与上一次按下沿间隔够短 → 判定双击
-		if p._since_dir_press <= DOUBLE_TAP_WINDOW:
+		if p.since_dir_press <= DOUBLE_TAP_WINDOW:
 			p._is_sprinting = true
-		p._since_dir_press = 0.0
-	p._prev_raw_input = raw
-
-	if raw != Vector3.ZERO:
-		p._last_input_dir = raw
+		p.since_dir_press = 0.0
+	p.prev_raw_input = raw
 
 	# Shift 键奔跑（主动触发，与双击并行）
 	# 控制台打字时不响应（这处绕过了 InputManager 的闸门）
@@ -60,9 +57,9 @@ func _core_movement(delta: float) -> void:
 
 	# 奔跑持续计时：冲撞需要持续奔跑一段时间（见 SPRINT_ATTACK_MIN_HOLD）
 	if p._is_sprinting:
-		p._sprint_hold += delta
+		p.sprint_hold += delta
 	else:
-		p._sprint_hold = 0.0
+		p.sprint_hold = 0.0
 
 	var speed := p.sprint_speed if p._is_sprinting else p.move_speed
 
@@ -77,7 +74,7 @@ func _core_movement(delta: float) -> void:
 		p.velocity.x = move_toward(p.velocity.x, 0.0, p.deceleration * delta)
 		p.velocity.z = move_toward(p.velocity.z, 0.0, p.deceleration * delta)
 		p._is_sprinting = false
-		p._sprint_hold = 0.0
+		p.sprint_hold = 0.0
 
 	p.move_and_slide()
 
@@ -161,7 +158,7 @@ func _attack() -> void:
 	# 刚起步就按攻击走普攻——这就是「一边跑动一边普攻」的宽限：
 	# 玩家想普攻时不必先停下来，只要不是长期保持冲刺态即可。
 	# 同时避免误触冲撞白白消耗掉冲刺惯性。
-	if p._is_sprinting and p._sprint_hold >= GameBalance.SPRINT_ATTACK_MIN_HOLD:
+	if p._is_sprinting and p.sprint_hold >= GameBalance.SPRINT_ATTACK_MIN_HOLD:
 		if in_recovery:
 			p._cancel_current_attack()
 		finished.emit("SprintAttackState", {})
