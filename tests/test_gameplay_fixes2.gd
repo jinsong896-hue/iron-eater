@@ -490,7 +490,7 @@ func _test_loading_budget(gr) -> void:
 	# 整层预建必须在预算内
 	gr.preload_all()
 	var budget: Dictionary = gr.preload_budget_check()
-	_check(bool(budget.get("ok", false)),
-		"整层生成在 1 秒预算内（%.0f ms / 预算 %.0f ms）" % [
-			float(budget.get("seconds", 0.0)) * 1000.0,
-			float(budget.get("budget", 1.0)) * 1000.0])
+	var budget_msg: String = "整层生成在 1 秒预算内（%.0f ms / 预算 %.0f ms）" % [
+		float(budget.get("seconds", 0.0)) * 1000.0,
+		float(budget.get("budget", 1.0)) * 1000.0]
+	_check(bool(budget.get("ok", false)), budget_msg)
