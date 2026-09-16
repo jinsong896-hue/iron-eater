@@ -58,16 +58,31 @@ static func cell_for(direction: String, width: int, height: int) -> Vector2i:
 
 
 ## 为房间数据生成 doors 数组（覆盖模板里原有的门）
-## **隐藏房（hidden）不生成任何门**：它不在 connections 里，本来就没有邻居，
-## 而 directions_for 会对「无邻接」的房间补一扇回退门——那会让隐藏房
-## 出现一扇通向别处的门，直接暴露它的存在。
+##
+## **隐藏房只生成一扇「通往锚房间」的出口门**。
+## 背景：隐藏房刻意不在 connections 里（否则门会暴露它），但一开始
+## 完全不给门 → 玩家破墙进去后**出不来**（实测踩到）。
+## 那扇门不会暴露隐藏房：隐藏是「从锚房进不来」而不是「里面没有门」——
+## 锚房间的门由 directions_for 按 connections 算，不含这扇。
+## 出得去靠 `_find_room_in_direction`：它按**格子坐标**找邻房，与
+## connections 无关，故从隐藏房走这扇门能找到相邻的锚房间。
 static func build_doors(
 	rooms: Array, connections: Array, room_index: int,
 	start_index: int, back_index: int, width: int, height: int
 ) -> Array:
 	if room_index >= 0 and room_index < rooms.size():
 		if str(rooms[room_index].get("type", "")) == "hidden":
-			return []
+			# 出口方位 = 从隐藏房看锚房间的方向（与锚房记录的反向）
+			var out_dir := _hidden_exit_dir(rooms, room_index)
+			if out_dir.is_empty():
+				return []
+			var hcell := cell_for(out_dir, width, height)
+			return [{
+				"direction": out_dir,
+				"id": "exit_%s_%d_%d" % [out_dir, hcell.x, hcell.y],
+				"x": hcell.x,
+				"y": hcell.y,
+			}]
 	var doors: Array = []
 	for d in directions_for(rooms, connections, room_index, start_index, back_index):
 		var cell := cell_for(d, width, height)
@@ -78,6 +93,22 @@ static func build_doors(
 			"y": cell.y,
 		})
 	return doors
+
+
+## 隐藏房的出口方位：从隐藏房指向其锚房间。
+## 锚房间在生成隐藏房时记下了 anchor_dir（从锚房看隐藏房的方位），
+## 这里取反向。
+static func _hidden_exit_dir(rooms: Array, hidden_index: int) -> String:
+	if hidden_index < 0 or hidden_index >= rooms.size():
+		return ""
+	var r: Dictionary = rooms[hidden_index]
+	var adir := str(r.get("anchor_dir", ""))
+	match adir:
+		"north": return "south"
+		"south": return "north"
+		"west":  return "east"
+		"east":  return "west"
+	return ""
 
 
 ## 从起点做 BFS，返回每个房间的父节点（用于回退门）

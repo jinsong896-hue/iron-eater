@@ -34,9 +34,10 @@ func _ready() -> void:
 	set_process(true)
 
 
-## 每帧刷新连击数（轮询玩家，简单可靠）
+## 每帧刷新连击数（轮询玩家，简单可靠）+ 状态图标条
 func _process(_delta: float) -> void:
 	_update_boss_bar()
+	_update_buff_icons()
 	if combo_label == null:
 		return
 	var players := get_tree().get_nodes_in_group("player")
@@ -46,6 +47,147 @@ func _process(_delta: float) -> void:
 	if p and p.has_method("get_hit_combo"):
 		var count: int = p.get_hit_combo()
 		combo_label.text = "连击 x%d" % count if count >= 2 else ""
+
+
+# ============================================================
+# 状态图标条（BuffBar）
+# ============================================================
+## 每个图标节点复用的缓存：id -> {"root": Control, "label": Label, "bar": ColorRect, ...}
+##
+## **为什么每帧重建不可取**：状态会持续若干秒，每帧 new/free 节点会造成
+## 持续的 GC 压力与布局抖动。这里按 id 复用，只在状态增删时改节点数。
+var _buff_icons: Dictionary = {}
+## 图标尺寸（像素）。16×16 一屏能放下 20+ 个，不挡视野。
+const BUFF_ICON_SIZE := 30
+const BUFF_ICON_GAP := 4
+
+
+## 按玩家当前状态刷新图标条
+func _update_buff_icons() -> void:
+	if buff_bar == null:
+		return
+	var players := get_tree().get_nodes_in_group("player")
+	if players.is_empty():
+		return
+	var p = players[0]
+	var pb = p.get("buffs")
+	if pb == null or not pb.has_method("ui_snapshot"):
+		return
+	var snap: Array = pb.call("ui_snapshot")
+
+	# 收集本次出现的 id，用于回收消失的图标
+	var alive := {}
+	for info in snap:
+		var bid := str(info.get("id", ""))
+		if bid.is_empty():
+			continue
+		alive[bid] = true
+		var icon: Control = _buff_icons.get(bid)
+		if icon == null:
+			icon = _make_buff_icon()
+			_buff_icons[bid] = icon
+			buff_bar.add_child(icon)
+		_paint_buff_icon(icon, info)
+
+	# 回收：本次没出现的一律移除
+	for bid in _buff_icons.keys():
+		if alive.has(bid):
+			continue
+		var ic: Control = _buff_icons[bid]
+		if is_instance_valid(ic):
+			ic.queue_free()
+		_buff_icons.erase(bid)
+
+
+## 创建一个状态图标（方块底 + 名字首字 + 底部时间条）。
+## 纯程序化绘制——项目没有 buff 图标美术资源，用「首字 + 颜色」表达类型，
+## 与背包格子的做法一致（见 backpack_item.gd）。
+func _make_buff_icon() -> Control:
+	var root := Control.new()
+	root.custom_minimum_size = Vector2(BUFF_ICON_SIZE, BUFF_ICON_SIZE)
+
+	var bg := ColorRect.new()
+	bg.name = "Bg"
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(bg)
+
+	var txt := Label.new()
+	txt.name = "Glyph"
+	txt.set_anchors_preset(Control.PRESET_FULL_RECT)
+	txt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	txt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	txt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	txt.add_theme_font_size_override("font_size", 16)
+	root.add_child(txt)
+
+	# 剩余时间条：贴在图标底部（永久状态不显示）
+	var bar := ColorRect.new()
+	bar.name = "TimeBar"
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.color = Color(1, 1, 1, 0.85)
+	root.add_child(bar)
+
+	# 层数角标（右下角，仅叠层 > 1 时显示）
+	var stack := Label.new()
+	stack.name = "Stacks"
+	stack.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stack.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	stack.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	stack.add_theme_font_size_override("font_size", 12)
+	stack.add_theme_color_override("font_color", Color(1, 1, 0.6))
+	stack.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(stack)
+
+	# 悬停说明（把鼠标放在图标上能看到完整名称与剩余时间）
+	root.tooltip_text = ""
+	root.mouse_filter = Control.MOUSE_FILTER_PASS
+	return root
+
+
+## 把一份状态快照画到图标上
+func _paint_buff_icon(icon: Control, info: Dictionary) -> void:
+	var name_s := str(info.get("name", "?"))
+	var stacks := int(info.get("stacks", 1))
+	var permanent := bool(info.get("permanent", false))
+	var is_debuff := bool(info.get("is_debuff", true))
+	var remaining := float(info.get("remaining", 0.0))
+	var total := float(info.get("total", 0.0))
+
+	# 底色：负面红 / 正面绿（首字用名称第一个字，中文一格足矣）
+	var bg := icon.get_node_or_null("Bg") as ColorRect
+	if bg != null:
+		bg.color = (Color(0.55, 0.15, 0.15, 0.9) if is_debuff
+			else Color(0.15, 0.45, 0.20, 0.9))
+
+	var glyph := icon.get_node_or_null("Glyph") as Label
+	if glyph != null:
+		glyph.text = name_s.substr(0, 1)
+
+	# 底部时间条：永久状态画满条（表示"∞"），限时状态按剩余比例收缩
+	var bar := icon.get_node_or_null("TimeBar") as ColorRect
+	if bar != null:
+		var ratio := 1.0
+		if not permanent and total > 0.0:
+			ratio = clampf(remaining / total, 0.0, 1.0)
+		bar.size = Vector2(float(BUFF_ICON_SIZE) * ratio, 3.0)
+		bar.position = Vector2(0.0, float(BUFF_ICON_SIZE) - 3.0)
+		bar.color = (Color(0.6, 0.6, 0.6, 0.8) if permanent
+			else Color(1.0, 1.0, 1.0, 0.85))
+
+	var stk := icon.get_node_or_null("Stacks") as Label
+	if stk != null:
+		stk.text = ("x%d" % stacks) if stacks > 1 else ""
+
+	# 悬停提示：名称 + 层数 + 剩余时间
+	var tip := name_s
+	if stacks > 1:
+		tip += " ×%d" % stacks
+	if permanent:
+		tip += "（持续）"
+	elif total > 0.0:
+		tip += "（%.1fs）" % maxf(remaining, 0.0)
+	icon.tooltip_text = tip
 
 
 func _collect_skill_buttons() -> void:

@@ -2603,13 +2603,42 @@ func test_hidden_rooms() -> void:
 				"第 %d 层隐藏房有锚房间" % f, [anchor])
 			_check(adir in ["north", "south", "west", "east"],
 				"第 %d 层隐藏房有方位" % f, [adir])
+			if anchor < 0 or anchor >= gen.rooms.size() or adir.is_empty():
+				continue
 
-		# 隐藏房不生成门（DoorsByTopology 对 hidden 短路）
-		var hd := gen.rooms[hidden[0]]
-		var doors := DoorsByTopology.build_doors(
-			gen.rooms, gen.connections, hidden[0],
-			gen.start_room_index, gen.start_room_index, 20, 15)
-		_check(doors.is_empty(), "第 %d 层隐藏房不生成门" % f, [doors.size()])
+			# 隐藏房**恰好 1 扇出口门**，方向指向锚房间。
+			# 曾经这里是 `doors.is_empty()`——只验证了「没有门通向隐藏房」，
+			# 但没验证「进去之后出得来」，结果破墙进去就出不去（实测踩到）。
+			# 现在的口径：隐藏房有且只有一扇朝锚房的门；隐藏性由
+			# 「锚房那侧不生成门」保证，而不是靠「隐藏房没门」。
+			var hdoors := DoorsByTopology.build_doors(
+				gen.rooms, gen.connections, hi,
+				gen.start_room_index, gen.start_room_index, 20, 15)
+			_check(hdoors.size() == 1,
+				"第 %d 层隐藏房 %d 恰有 1 扇出口门" % [f, hi], [hdoors.size()])
+			if hdoors.size() == 1:
+				# 出口方向 = 「从隐藏房看锚房」= apos - hpos
+				# （anchor_dir 是「从锚房看隐藏房」，两者互为反向）
+				var hpos: Vector2i = gen.rooms[hi].get("position", Vector2i.ZERO)
+				var diff := Vector2i(gen.rooms[anchor].get("position", Vector2i.ZERO)) - hpos
+				var want := ""
+				if diff == Vector2i.UP: want = "north"
+				elif diff == Vector2i.DOWN: want = "south"
+				elif diff == Vector2i.LEFT: want = "west"
+				elif diff == Vector2i.RIGHT: want = "east"
+				_check(str(hdoors[0].get("direction", "")) == want,
+					"第 %d 层隐藏房出口朝锚房（%s）" % [f, want],
+					[str(hdoors[0].get("direction", ""))])
+
+			# **反向断言**：锚房间不得在朝隐藏房那侧生成门（否则隐藏房暴露）
+			var anchor_doors := DoorsByTopology.build_doors(
+				gen.rooms, gen.connections, anchor,
+				gen.start_room_index, gen.start_room_index, 20, 15)
+			var leak := false
+			for d in anchor_doors:
+				if str(d.get("direction", "")) == adir:
+					leak = true
+			_check(not leak, "第 %d 层锚房朝隐藏房那侧无门（未暴露）" % f)
 
 	# 第 9 层（纯 Boss 层）无隐藏房
 	var gen9 := DungeonGenerator.new()

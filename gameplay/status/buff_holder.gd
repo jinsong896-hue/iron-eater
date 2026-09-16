@@ -104,6 +104,56 @@ func active_ids() -> Array:
 	return _buffs.keys()
 
 
+## 供 UI 渲染的完整状态快照。
+## 返回 [{id, name, stacks, remaining, total, permanent, kind, is_debuff}, ...]
+## `remaining/total` 用于画剩余时间进度条；duration=0 的永久词条
+## remaining 恒为 0、permanent=true（UI 画成"∞"而不是空条）。
+## 元素层数（毒/火…）不在 _buffs 里，但玩家最需要看到它们，
+## 故一并输出为伪词条（id 形如 "elem:poison"）。
+func ui_snapshot() -> Array:
+	var out: Array = []
+	for id in _buffs:
+		var e: Dictionary = _buffs[id]
+		var row := BuffDefs.get_buff(id)
+		if row.is_empty():
+			continue
+		var total: float = float(row[3])
+		out.append({
+			"id": id,
+			"name": str(row[1]),
+			"stacks": int(e.get("stacks", 1)),
+			"remaining": float(e.get("remaining", 0.0)),
+			"total": total,
+			"permanent": total <= 0.0,
+			"kind": int(row[2]),
+			"is_debuff": _is_debuff_kind(int(row[2])),
+		})
+	# 元素层数（不走 _buffs，单独补进来）
+	for elem in _elem_stacks.keys():
+		var n := int(_elem_stacks[elem])
+		if n <= 0:
+			continue
+		var cfg := ElementDefs.get_element(elem)
+		var dur := float(cfg.get("duration", 0.0))
+		out.append({
+			"id": "elem:%d" % elem,
+			"name": str(cfg.get("stack_name", "元素")),
+			"stacks": n,
+			"remaining": 0.0,
+			"total": dur,
+			"permanent": dur <= 0.0,
+			"kind": -1,
+			"is_debuff": true,
+		})
+	return out
+
+
+## 是否负面词条（UI 用它决定配色：负面红、正面绿）
+func _is_debuff_kind(kind: int) -> bool:
+	return kind in [BuffDefs.Kind.DOT, BuffDefs.Kind.SLOW, BuffDefs.Kind.CONTROL,
+		BuffDefs.Kind.VULN, BuffDefs.Kind.WEAKEN, BuffDefs.Kind.DISPLACE]
+
+
 ## 累计「受到伤害提升%」（易伤类词条，按层数累加）
 func total_vulnerability() -> float:
 	var v := 0.0

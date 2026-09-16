@@ -44,16 +44,23 @@ func remove_item(inst: EquipmentInstance) -> void:
 
 
 ## 装备到槽位（物品从背包转入槽位，旧装备退回背包）
+##
+## **旧装备只退回一次**：`unequip()` 内部已经把旧装备放回背包，
+## 原先这里又 `_inventory.append(old)` 了一次 → 旧装备在背包里出现两份，
+## 连续替换会让背包无限膨胀（实测 5 次替换净增 10 件），
+## 且能突破容量上限（40 格塞进 41 件）。
+## 现改为：只调 unequip，退回动作由它独家负责。
 func equip(slot: int, inst: EquipmentInstance) -> void:
-	# 若已穿戴在其他槽位，先卸下
+	if inst == null:
+		return
+	# 若已穿戴在其他槽位，先卸下（unequip 会把它放回背包）
 	for s in _equipped.keys():
 		if _equipped[s] == inst:
 			unequip(s)
+			break
+	# 目标槽位有旧装备：卸下即可（退回背包由 unequip 负责，不要再 append）
 	if _equipped.has(slot):
-		var old: EquipmentInstance = _equipped[slot]
 		unequip(slot)
-		if old != inst:
-			_inventory.append(old)
 	_equipped[slot] = inst
 	_inventory.erase(inst)
 	_apply_equipment_modifiers(inst)
@@ -67,21 +74,28 @@ func equip(slot: int, inst: EquipmentInstance) -> void:
 
 
 ## 卸下装备（退回背包）
-func unequip(slot: int) -> void:
+##
+## **容量不足时不退回**（而不是丢弃或越界）：背包满了就拒绝卸下，
+## 否则装备会在"取下但无处可放"的过程中凭空消失。
+## 返回是否卸下成功。
+func unequip(slot: int) -> bool:
 	if not _equipped.has(slot):
-		return
+		return false
 	var inst: EquipmentInstance = _equipped[slot]
+	# 背包满 → 不卸下（调用方据返回值提示玩家）
+	if _inventory.size() >= _max_inventory_size:
+		return false
 	# 卸下要清**全部**词条（基础 + 融合）——装备离身，两者都不该继续生效
 	_clear_all_modifiers(inst)
 	_equipped.erase(slot)
-	if _inventory.size() < _max_inventory_size:
-		_inventory.append(inst)
+	_inventory.append(inst)
 	# 卸下同理：武器槽空了，融合加成要跟着降下来
 	_recalc_fusion_bonus()
 	var bus = _event_bus()
 	if bus:
 		bus.equipment_changed.emit(slot, "")
 		bus.stats_changed.emit()
+	return true
 
 
 ## 吞噬装备（本局永久成长）
@@ -285,11 +299,12 @@ func enhancement_cost(item: EquipmentInstance) -> int:
 
 
 ## 卸下装备（按实例查槽位）
-func unequip_item(item: EquipmentInstance) -> void:
+## 卸下装备（按实例查槽位）。返回是否成功（背包满时失败）
+func unequip_item(item: EquipmentInstance) -> bool:
 	for slot in _equipped.keys():
 		if _equipped[slot] == item:
-			unequip(slot)
-			return
+			return unequip(slot)
+	return false
 
 
 ## 获取融合攻击总加成

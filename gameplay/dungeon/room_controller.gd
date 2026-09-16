@@ -586,6 +586,12 @@ func _on_portal_entered(body: Node3D) -> void:
 		# 层间全恢复（满状态进新层）
 		if GameBalance.FLOOR_TRANSITION_FULL_HEAL and gm.attributes:
 			gm.attributes.hp = gm.attributes.max_hp
+		# 同时清空词条与元素叠层——「满状态」必须包含这一项。
+		# 毒蚀按策划「层数永不衰减、持续至目标死亡」，跨层不清的话
+		# 玩家会带着上层的毒层数与三层毒负面（侵蚀/衰弱/虚弱）进新层，
+		# 表现为「debuff 永远挂着、只有再吃一次才刷新」（实测报告）。
+		if GameBalance.FLOOR_TRANSITION_FULL_HEAL:
+			_clear_player_buffs()
 		# 超出层数上限即通关（第 9 层打完结算）
 		if next_floor > FloorDefs.MAX_FLOOR:
 			gm.finish_run("cleared")
@@ -601,6 +607,16 @@ func _on_portal_entered(body: Node3D) -> void:
 	var game_root: Node = _game_root()
 	if game_root != null and game_root.has_method("next_floor"):
 		game_root.call("next_floor")
+
+
+## 清空玩家身上的全部词条与元素叠层（换层"满状态"用）。
+## 取不到玩家或 buffs 时静默跳过。
+func _clear_player_buffs() -> void:
+	for p in get_tree().get_nodes_in_group("player"):
+		var pb = p.get("buffs")
+		if pb != null and pb.has_method("clear"):
+			pb.call("clear")
+			return
 
 
 ## 房间类型（兼容 Dictionary 与 RoomData）
