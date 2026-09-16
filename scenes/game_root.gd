@@ -400,8 +400,10 @@ func _build_room(idx: int) -> Node3D:
 		var floor_num: int = _current_floor_num()
 		var floor_col: Color = FloorDefs.color_of(floor_num, "floor")
 		var wall_col: Color = FloorDefs.color_of(floor_num, "wall")
-		FloorBuilder.build(containers["Floor"], jd, floor_col)
-		WallBuilder.build(containers["Walls"], jd, wall_col)
+		# 本层主题配色 + 主题 id（id 决定用图集里的哪块砖）
+		var theme_id: String = FloorDefs.theme_id(floor_num)
+		FloorBuilder.build(containers["Floor"], jd, floor_col, Color.TRANSPARENT, theme_id)
+		WallBuilder.build(containers["Walls"], jd, wall_col, theme_id)
 		DoorBuilder.build(containers["Doors"], jd)
 		DecorationBuilder.build(containers["Props"], jd)
 		_build_spawn_markers(containers["SpawnPoints"], jd)

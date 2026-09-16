@@ -16,7 +16,9 @@ const CELL_SIZE := 1.0
 ## 生成房间墙体。
 ## theme_color 为本层主题墙色（FloorDefs.color_of(floor, "wall")），
 ## 传 Color.TRANSPARENT（默认）时回退旧配色，兼容既有调用与测试。
-static func build(parent: Node3D, data, theme_color: Color = Color.TRANSPARENT) -> void:
+## theme_id 决定用图集里的哪块墙砖；空字符串则不贴图。
+static func build(parent: Node3D, data, theme_color: Color = Color.TRANSPARENT,
+		theme_id: String = "") -> void:
 	var walls: Array = data.get("walls", [])
 	if walls.is_empty():
 		walls = _boundary_walls(data)
@@ -44,10 +46,16 @@ static func build(parent: Node3D, data, theme_color: Color = Color.TRANSPARENT) 
 	if kept.is_empty():
 		return
 
+	# 本主题墙砖在图集里的 UV 范围（空 theme_id = 不贴图，退回纯色）
+	var uv_rect := Vector4(0.0, 0.0, 1.0, 1.0)
+	var has_tex := not theme_id.is_empty()
+	if has_tex:
+		uv_rect = AtlasDefs.tile_uv_rect(AtlasDefs.wall_tile(theme_id))
+
 	var mesh_node := MeshInstance3D.new()
 	mesh_node.name = "WallMesh"
-	mesh_node.mesh = _build_merged_wall_mesh(kept)
-	mesh_node.material_override = _wall_material(theme_color)
+	mesh_node.mesh = _build_merged_wall_mesh(kept, uv_rect)
+	mesh_node.material_override = _wall_material(theme_color, theme_id, has_tex)
 	parent.add_child(mesh_node)
 
 	var body := StaticBody3D.new()
@@ -84,9 +92,13 @@ static func _boundary_walls(data) -> Array:
 
 
 ## 所有墙段合并为一个网格（位置与旋转烘焙进顶点）
-static func _build_merged_wall_mesh(walls: Array) -> ArrayMesh:
+## uv_rect：本主题墙砖在图集里的 UV 范围（Vector4: u0,v0,u1,v1）。
+## 墙体此前**完全没有 UV**（纯色材质），接贴图必须先补上——
+## 每个面四个角按 0/1 铺满该面，再映射到图集格。
+static func _build_merged_wall_mesh(walls: Array, uv_rect: Vector4) -> ArrayMesh:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
 	var hw := CELL_SIZE * 0.5
 	var hh := WALL_HEIGHT * 0.5
@@ -130,6 +142,11 @@ static func _build_merged_wall_mesh(walls: Array) -> ArrayMesh:
 				verts.push_back(pos + local)
 				var nn := Vector3(n.z, n.y, -n.x) if rotate else n
 				normals.push_back(nn)
+				# 面内四角铺满该面（0/1 对角），再线性映射到图集格
+				var corner_uv: Vector2 = CORNER_UVS[k]
+				uvs.push_back(Vector2(
+					lerpf(uv_rect.x, uv_rect.z, corner_uv.x),
+					lerpf(uv_rect.y, uv_rect.w, corner_uv.y)))
 			indices.push_back(base + 0)
 			indices.push_back(base + 1)
 			indices.push_back(base + 2)
@@ -141,6 +158,7 @@ static func _build_merged_wall_mesh(walls: Array) -> ArrayMesh:
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -152,11 +170,29 @@ static func _build_merged_wall_mesh(walls: Array) -> ArrayMesh:
 ## 第 1 层的墙色泄漏给后续所有层。
 static var _wall_mat_cache := {}
 
-static func _wall_material(theme_color: Color = Color.TRANSPARENT) -> StandardMaterial3D:
-	var key := "%.3f_%.3f_%.3f" % [theme_color.r, theme_color.g, theme_color.b]
+## 面内四角的 UV（与 corners/faces 的 0..3 顺序对应）
+const CORNER_UVS: Array[Vector2] = [
+	Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)
+]
+
+static func _wall_material(theme_color: Color = Color.TRANSPARENT,
+		theme_id: String = "", has_tex: bool = false) -> StandardMaterial3D:
+	var key := "%.3f_%.3f_%.3f|%s" % [theme_color.r, theme_color.g, theme_color.b, theme_id]
 	if _wall_mat_cache.has(key):
 		return _wall_mat_cache[key]
 	var mat := StandardMaterial3D.new()
+	if has_tex and ResourceLoader.exists(AtlasDefs.SHEET_PATH):
+		var tex := ResourceLoader.load(AtlasDefs.SHEET_PATH, "Texture2D",
+			ResourceLoader.CACHE_MODE_REUSE) as Texture2D
+		if tex != null:
+			mat.albedo_texture = tex
+			mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+			# 与地板同理：先量贴图该格亮度，再反解系数，让
+			# 「albedo_color × texture」的结果回到主题色亮度
+			mat.albedo_color = AtlasDefs.tint_for(theme_color,
+				AtlasDefs.wall_tile(theme_id))
+			_wall_mat_cache[key] = mat
+			return mat
 	mat.albedo_color = theme_color if theme_color.a > 0.0 else Color(0.3, 0.3, 0.35)
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	_wall_mat_cache[key] = mat

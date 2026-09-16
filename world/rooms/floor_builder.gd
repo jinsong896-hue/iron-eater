@@ -29,8 +29,9 @@ static var _material_cache := {}
 ## 生成地板到指定父节点。
 ## theme_color 为本层主题的地板底色（来自 FloorDefs.color_of(floor, "floor")），
 ## 传 Color.TRANSPARENT（默认）时回退到旧的无主题配色，兼容既有调用与测试。
+## theme_id（如 "prison"）决定用图集里的哪一块地砖；空字符串则退回纯色无贴图。
 static func build(parent: Node3D, data, theme_color: Color = Color.TRANSPARENT,
-		theme_alt: Color = Color.TRANSPARENT) -> void:
+		theme_alt: Color = Color.TRANSPARENT, theme_id: String = "") -> void:
 	var tiles: Array = data.get("floor", [])
 	if tiles.is_empty():
 		tiles = _default_tiles(data)
@@ -46,7 +47,7 @@ static func build(parent: Node3D, data, theme_color: Color = Color.TRANSPARENT,
 		groups[t].append(Vector2i(int(tile.get("x", 0)), int(tile.get("y", 0))))
 
 	for tile_type in groups:
-		_build_merged_mesh(parent, tile_type, groups[tile_type], theme_color, theme_alt)
+		_build_merged_mesh(parent, tile_type, groups[tile_type], theme_color, theme_alt, theme_id)
 
 
 ## 自动铺满默认地板（数据无 floor 时）
@@ -63,9 +64,15 @@ static func _default_tiles(data) -> Array:
 ## 把一组同材质地板格合并为一个 MeshInstance3D
 ## 直接用 ArrayMesh 的 surface 数组（比 SurfaceTool 逐顶点调用快得多）
 static func _build_merged_mesh(parent: Node3D, tile_type: String, cells: Array,
-		theme_color: Color = Color.TRANSPARENT, theme_alt: Color = Color.TRANSPARENT) -> void:
+		theme_color: Color = Color.TRANSPARENT, theme_alt: Color = Color.TRANSPARENT,
+		theme_id: String = "") -> void:
 	if cells.is_empty():
 		return
+
+	# 本主题的地砖在图集里的 UV 范围（空 theme_id = 不贴图，退回纯色）
+	var uv_rect := Vector4(0.0, 0.0, 1.0, 1.0)
+	if not theme_id.is_empty():
+		uv_rect = AtlasDefs.tile_uv_rect(AtlasDefs.floor_tile(theme_id))
 
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
@@ -91,10 +98,13 @@ static func _build_merged_mesh(parent: Node3D, tile_type: String, cells: Array,
 		verts.push_back(Vector3(x1, FLOOR_Y, z0))
 		for _i in 4:
 			normals.push_back(Vector3.UP)
-		uvs.push_back(Vector2(0, 0))
-		uvs.push_back(Vector2(0, 1))
-		uvs.push_back(Vector2(1, 1))
-		uvs.push_back(Vector2(1, 0))
+		# UV 从「每格 0→1」改为「映射到图集里本主题那一格」。
+		# 贴图有 1px 间隔，AtlasDefs.tile_uv_rect 已做半像素内缩防渗色。
+		# 顺序对应上面四个顶点（z0,z1 是 v 轴，x0,x1 是 u 轴）。
+		uvs.push_back(Vector2(uv_rect.x, uv_rect.y))
+		uvs.push_back(Vector2(uv_rect.x, uv_rect.w))
+		uvs.push_back(Vector2(uv_rect.z, uv_rect.w))
+		uvs.push_back(Vector2(uv_rect.z, uv_rect.y))
 		indices.push_back(base + 0)
 		indices.push_back(base + 2)
 		indices.push_back(base + 1)
@@ -115,7 +125,7 @@ static func _build_merged_mesh(parent: Node3D, tile_type: String, cells: Array,
 	var node := MeshInstance3D.new()
 	node.name = "Floor_%s" % tile_type
 	node.mesh = mesh
-	node.material_override = _get_material_for_type(tile_type, theme_color)
+	node.material_override = _get_material_for_type(tile_type, theme_color, theme_id)
 	# 地板不投射阴影：它是场景最底层平面，投射只会自己遮自己。
 	# （合并成单网格后，整片地板同时作为投影面与接收面，
 	#   开着投影会让每个格子向邻居投影 → 地面全黑。）
@@ -126,15 +136,37 @@ static func _build_merged_mesh(parent: Node3D, tile_type: String, cells: Array,
 ## 取地板材质。
 ## **缓存键必须含主题色**：同一 tile_type 在不同层的底色不同，
 ## 只按 type 缓存会让第 1 层构建的材质泄漏给第 5 层（全层同色）。
-static func _get_material_for_type(type: String, theme_color: Color = Color.TRANSPARENT) -> Material:
-	var key := "%s|%.3f_%.3f_%.3f" % [type, theme_color.r, theme_color.g, theme_color.b]
+##
+## 贴图与配色**并存**：贴图提供纹理（砖缝/斑点），albedo_color 提供该层的色调。
+## 这样 Kenney 图集只有明亮自然色的限制不成问题——暗色层靠染色压暗。
+static func _get_material_for_type(type: String, theme_color: Color = Color.TRANSPARENT,
+		theme_id: String = "") -> Material:
+	var key := "%s|%.3f_%.3f_%.3f|%s" % [
+		type, theme_color.r, theme_color.g, theme_color.b, theme_id]
 	if _material_cache.has(key):
 		return _material_cache[key]
 
 	var mat := StandardMaterial3D.new()
-	if theme_color.a > 0.0:
-		# 主题模式：stone 用主题底色，其余类型按轻微明度差异派生，
-		# 保证同层内不同地面仍可区分（而非一片纯色）
+	var has_texture := false
+	# 图集贴图（有 theme_id 且文件存在时）
+	if not theme_id.is_empty() and ResourceLoader.exists(AtlasDefs.SHEET_PATH):
+		var tex := ResourceLoader.load(AtlasDefs.SHEET_PATH, "Texture2D",
+			ResourceLoader.CACHE_MODE_REUSE) as Texture2D
+		if tex != null:
+			mat.albedo_texture = tex
+			has_texture = true
+			# 像素风：最近邻采样，避免放大后糊成一团
+			mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	if has_texture:
+		# **贴图在场时不能直接乘主题色**：最终色 = albedo_color × texture，
+		# 贴图格自身有亮度（灰砖 0.8 / 暗木 0.48…），直接乘会让亮度失控
+		# （实测第 1 层从 0.30 涨到 0.95，画面洗白）。
+		# AtlasDefs.tint_for 先量出该格平均亮度，再反解出让结果回到主题色
+		# 亮度的那一个系数——纹理保留，明暗归位。
+		mat.albedo_color = AtlasDefs.tint_for(theme_color,
+			AtlasDefs.floor_tile(theme_id))
+	elif theme_color.a > 0.0:
+		# 无贴图 + 有主题色：退回纯色配色（保持既有行为）
 		match type:
 			"stone":
 				mat.albedo_color = theme_color

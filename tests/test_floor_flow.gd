@@ -122,7 +122,12 @@ func _verify_floors_2_to_5(game_root: Node) -> void:
 		seen_themes[tid] = true
 
 
-## 房间地板材质是否为该层主题色
+## 房间地板是否用了**该层主题的图集格**。
+##
+## 行为变更说明：地板从「纯色」改为「图集贴图 + 亮度调制」。原先这里比的是
+## albedo_color == FloorDefs 主题色；现在贴图提供纹理与材质色，
+## albedo_color 只承载该层的明暗调制，**层间差异体现在 UV（选了哪块砖）上**。
+## 故改为校验 mesh 的 UV 落在 AtlasDefs.floor_tile(theme) 对应的范围内。
 func _floor_matches_theme(room_node: Node, floor_num: int) -> bool:
 	if room_node == null:
 		return false
@@ -130,14 +135,24 @@ func _floor_matches_theme(room_node: Node, floor_num: int) -> bool:
 	if fl == null or fl.get_child_count() == 0:
 		return false
 	var mi := fl.get_child(0) as MeshInstance3D
-	if mi == null:
+	if mi == null or mi.mesh == null:
 		return false
 	var mat := mi.material_override as StandardMaterial3D
-	if mat == null:
+	if mat == null or mat.albedo_texture == null:
 		return false
-	var want := FloorDefs.color_of(floor_num, "floor")
-	var got := mat.albedo_color
-	return absf(got.r - want.r) < 0.05 and absf(got.g - want.g) < 0.05 and absf(got.b - want.b) < 0.05
+	var arrays: Array = (mi.mesh as ArrayMesh).surface_get_arrays(0)
+	if arrays.is_empty():
+		return false
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	if uvs.is_empty():
+		return false
+	var rect := AtlasDefs.tile_uv_rect(
+		AtlasDefs.floor_tile(FloorDefs.theme_id(floor_num)))
+	# 取第一个 UV 与其对角，应落在该格范围内（已在 AtlasDefs 里做过半像素内缩）
+	var u := uvs[0].x
+	var v := uvs[0].y
+	return u >= rect.x - 0.001 and u <= rect.z + 0.001 \
+		and v >= rect.y - 0.001 and v <= rect.w + 0.001
 
 
 ## 房间数是否落在该层的策划区间内（FloorDefs 的 rooms_min ~ rooms_max）
