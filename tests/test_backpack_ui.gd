@@ -30,6 +30,7 @@ func _ready() -> void:
 	await _test_equip_page()
 	await _test_filter()
 	await _test_multi_select()
+	await _test_button_reachability()
 
 	if failed == 0:
 		print("ALL BACKPACK UI TESTS PASSED")
@@ -199,6 +200,72 @@ func _test_multi_select() -> void:
 	_check(em.get_inventory().size() < before, "批量吞噬后背包减少",
 		"%d → %d" % [before, em.get_inventory().size()])
 	_check(ui._multi.is_empty(), "操作后多选已清空")
+
+
+## 按钮可达性 + 点击真实生效（实机问题 1：「强化/融合两个功能都无法使用」）。
+##
+## 管理器层逻辑早就跑通（`em.enhance`/`em.fuse` 单测覆盖），但玩家点按钮没用——
+## 断在 UI 层。故这里不测业务逻辑，只测两件事：
+##   ① 两页的每个按钮矩形都落在屏幕内（越界 = 被挤出视野，看得见点不到）
+##   ② 走**按钮路径**（_on_btn_pick → _on_btn_enhance/_on_btn_fuse）后，
+##      装备实例的强化等级/融合次数确实变化
+func _test_button_reachability() -> void:
+	ui.visible = true
+	await get_tree().process_frame
+	var view: Rect2 = ui.get_node("Root").get_global_rect()
+
+	ui._switch_page(ui.Page.EQUIP)
+	await get_tree().process_frame
+	for n in ["BtnEquip", "BtnDevour", "BtnDrop"]:
+		var b: Button = _find_button(ui._equip_page, n)
+		_check(b != null, "装备页按钮 %s 存在" % n)
+		if b != null:
+			_check(b.get_global_rect().intersection(view).get_area() > 1.0,
+				"装备页 %s 在屏内 %s" % [n, str(b.get_global_rect())])
+	_check(ui._equip_page.visible and not ui._craft_page.visible, "默认显示装备页")
+
+	ui._switch_page(ui.Page.CRAFT)
+	await get_tree().process_frame
+	_check(ui._craft_page.visible and not ui._equip_page.visible, "可切到强化·融合页")
+	for n in ["BtnPick", "BtnEnhance", "BtnFuse"]:
+		var b2: Button = _find_button(ui._craft_page, n)
+		_check(b2 != null, "强化页按钮 %s 存在" % n)
+		if b2 != null:
+			_check(b2.get_global_rect().intersection(view).get_area() > 1.0,
+				"强化页 %s 在屏内 %s" % [n, str(b2.get_global_rect())])
+
+	# —— 走按钮路径：强化 ——
+	var em = GameManager.equipment_manager
+	GameManager.gold = 2000
+	var a = _make_item("A05")
+	var b = _make_item("A05")
+	em.add_item(a)
+	em.add_item(b)
+	await get_tree().process_frame
+
+	ui._selected = a
+	ui._on_btn_pick()
+	_check(ui._fusion_source == a, "「设为主装备」按钮生效")
+	_check(not ui._btn_enhance.disabled, "选主装备后「强化」按钮解禁")
+	var lv: int = a.enhancement_level
+	ui._on_btn_enhance()
+	_check(a.enhancement_level == lv + 1,
+		"点「强化」后等级 %d → %d" % [lv, a.enhancement_level])
+
+	# —— 走按钮路径：融合（主装备吃同部位材料）——
+	_check(not ui._btn_fuse.disabled, "选主装备后「融合」按钮解禁")
+	var fc: int = a.fusion_count
+	ui._selected = b
+	ui._on_btn_fuse()
+	_check(a.fusion_count == fc + 1,
+		"点「融合」后融合数 %d → %d" % [fc, a.fusion_count])
+
+
+## 在子树里按名字找按钮（测试内辅助，不进生产代码）
+func _find_button(root: Node, btn_name: String) -> Button:
+	for n in root.find_children(btn_name, "Button", true, false):
+		return n as Button
+	return null
 
 
 ## 从白装池创建实例
