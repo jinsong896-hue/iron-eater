@@ -383,6 +383,10 @@ func _sync_modifier(buff_id: String) -> void:
 	_apply_stat(src, AttributeSystem.Stat.CRD, float(p.get("crd_up", 0.0)) * n, 0.0)
 	_apply_stat(src, AttributeSystem.Stat.CDR, float(p.get("cdr_up", 0.0)) * n, 0.0)
 	_apply_stat(src, AttributeSystem.Stat.RNG, float(p.get("rng_up", 0.0)) * n, 0.0)
+	# 生命上限：max_hp 由 Stat.HP 驱动（见 AttributeSystem._recalc_hp），
+	# 故挂到 HP 即可生效。此前 hp_up 标了 impl=stat 却漏在这张表外，
+	# 导致 gen_hp_up 等词条挂上也不涨血。
+	_apply_stat(src, AttributeSystem.Stat.HP, float(p.get("hp_up", 0.0)) * n, 0.0)
 
 
 ## 正负系数合并成一次 modifier（add_modifier 接受 flat/percent 两个槽）

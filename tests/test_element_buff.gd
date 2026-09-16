@@ -136,8 +136,13 @@ func _test_buff_defs() -> void:
 	print("\n--- %s ---" % _test)
 
 	var B = load("res://data/buffs/buff_defs.gd")
-	var ids: Array = B.all_ids()
-	_check(ids.size() == 81, "词条总数 81（负面 38 + 增益 22 + 通用 21）", [str(ids.size())])
+	# 用 doc_ids() 而非 all_ids()：技能专用词条（血怒/拉拽等）是《角色设计
+	# 分册》技能描述反推的扩展，不属于策划文档的 81 条体系，混进来会让
+	# 下面「表 == 文档」的双向覆盖校验失去意义。
+	var ids: Array = B.doc_ids()
+	_check(ids.size() == 81, "策划文档词条 81 条（负面 38 + 增益 22 + 通用 21）", [str(ids.size())])
+	_check(B.all_ids().size() == 81 + B.SKILL_ONLY_IDS.size(),
+		"总词条数 = 文档 81 + 技能 %d" % B.SKILL_ONLY_IDS.size(), [str(B.all_ids().size())])
 
 	# 分类计数按**文档分节**核对（与运行时 Kind 是两个维度，见 buff_defs 说明）
 	var sec := {

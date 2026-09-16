@@ -55,32 +55,32 @@ theme_override_constants/separation = 4
 
 [node name="Skill1" type="Button" parent="BottomBar/SkillBar"]
 custom_minimum_size = Vector2(52, 52)
-text = "Q"
+text = "1"
 flat = true
 
 [node name="Skill2" type="Button" parent="BottomBar/SkillBar"]
 custom_minimum_size = Vector2(52, 52)
-text = "E"
+text = "2"
 flat = true
 
 [node name="Skill3" type="Button" parent="BottomBar/SkillBar"]
 custom_minimum_size = Vector2(52, 52)
-text = "R"
+text = "3"
 flat = true
 
 [node name="Skill4" type="Button" parent="BottomBar/SkillBar"]
 custom_minimum_size = Vector2(52, 52)
-text = "F"
+text = "4"
 flat = true
 
 [node name="Skill5" type="Button" parent="BottomBar/SkillBar"]
 custom_minimum_size = Vector2(52, 52)
-text = "1"
+text = "5"
 flat = true
 
 [node name="Skill6" type="Button" parent="BottomBar/SkillBar"]
 custom_minimum_size = Vector2(52, 52)
-text = "2"
+text = "6"
 flat = true
 
 [node name="Separator2" type="Control" parent="BottomBar"]

@@ -104,6 +104,16 @@ const BUFFS := [
 	["arcane_echo", "奥术回响", Kind.RESOURCE, 6.0, 0, "技能有概率不消耗资源", "special", {"free_cast_chance": 0.30}],
 	["execute", "处决", Kind.RESOURCE, 5.0, 0, "对低血目标直接斩杀", "special", {"execute_threshold": 0.15}],
 
+	# ---------- 职业技能专用（挂在自己或敌人身上，来源为技能）
+	# **不属于策划文档的 81 条词条体系**：这些是《角色设计分册》里各职业技能
+	# 描述中明确点出的状态（如血怒的三项增益、拉拽的减速），文档只给了效果
+	# 描述、没有独立词条定义，故在此补充。见 SKILL_ONLY_IDS。
+	["rage_haste", "血怒·疾", Kind.ATTACK, 8.0, 0, "移速 +50%，攻速 +50%", "stat", {"spd_up": 0.50, "aspd_up": 0.50}],
+	["rage_fury", "血怒·狂", Kind.ATTACK, 8.0, 0, "攻击力 +30%", "stat", {"atk_up": 0.30}],
+	["rage_dance_aspd", "狂舞·疾", Kind.ATTACK, 6.0, 0, "攻速 +60%", "stat", {"aspd_up": 0.60}],
+	["rage_dance_true", "狂舞·真", Kind.ATTACK, 6.0, 0, "攻击附带真实伤害", "special", {"true_dmg_pct": 0.30}],
+	["chain_weak", "锁链缚", Kind.SLOW, 3.0, 0, "移速 -30%，攻速 -30%", "stat", {"slow": 0.30, "aspd_down": 0.30}],
+
 	# ---------- 第 5 章 通用词条池（21） ----------
 	["gen_atk_up", "属性增益·攻击", Kind.GENERIC, 8.0, 0, "攻击力提升", "stat", {"atk_up": 0.12}],
 	["gen_def_up", "属性增益·防御", Kind.GENERIC, 8.0, 0, "防御提升", "stat", {"def_up": 0.12}],
@@ -135,6 +145,12 @@ const KIND_NAMES := {
 	Kind.SHIELD: "护盾/防御", Kind.ATTACK: "攻击/输出", Kind.MOBILITY: "移动/机动",
 	Kind.RESOURCE: "资源/回复", Kind.GENERIC: "通用",
 }
+
+## **技能专用词条**：不属于策划文档的 81 条体系，由《角色设计分册》的
+## 职业技能描述反推而来（文档只给效果说明、未给独立词条定义）。
+## 单独列出是为了让「词条表 == 文档 81 条」这条不变量仍可被测试校验。
+const SKILL_ONLY_IDS := ["rage_haste", "rage_fury", "rage_dance_aspd",
+	"rage_dance_true", "chain_weak"]
 
 ## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
 ## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），
@@ -185,6 +201,17 @@ static func all_ids() -> Array:
 	if _cached.is_empty():
 		_cached = _index()
 	return _cached.keys()
+
+
+## 全部词条 id（**排除技能专用**）——即策划文档的 81 条体系。
+## 测试用它与 DOC_SECTIONS 做双向覆盖校验：技能词条不在文档里，
+## 混在一起会让「表 == 文档」这条不变量失去意义。
+static func doc_ids() -> Array:
+	var out: Array = []
+	for id in all_ids():
+		if not (id in SKILL_ONLY_IDS):
+			out.append(id)
+	return out
 
 ## 按分类取词条
 static func by_kind(kind: int) -> Array:

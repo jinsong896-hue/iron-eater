@@ -114,6 +114,10 @@ func _ready() -> void:
 	await _run_test(test_boss_mechanic_wiring)
 	await _run_test(test_boss_room_sizes)
 
+	# 批次 G：职业 / 形态 / 技能 / 资源
+	await _run_test(test_class_defs)
+	await _run_test(test_class_resource)
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -132,6 +136,157 @@ func _ready() -> void:
 ##
 ## 判据：正常跑完的测试**必然推进断言计数**（38 个测试每个都至少一条断言）。
 ## 计数没动 = 该测试被中断，计一次失败。
+## ---------- 职业 / 形态 / 技能数据（《角色设计分册》） ----------
+func test_class_defs() -> void:
+	_current_test = "ClassDefs"
+	print("\n--- %s ---" % _current_test)
+
+	# 5 职业齐备
+	var ids: Array = ClassDefs.class_ids()
+	_check(ids.size() == 5, "5 个职业", [str(ids.size())])
+	for cid in ["warrior", "mage", "hunter", "judge", "monk"]:
+		_check(cid in ids, "职业 %s 存在" % cid)
+		var c := ClassDefs.get_class_def(cid)
+		_check(not c.is_empty(), "职业 %s 有定义" % cid)
+		var forms: Array = c.get("forms", [])
+		_check(forms.size() == ClassDefs.FORM_SLOTS,
+			"职业 %s 有 5 形态" % cid, [str(forms.size())])
+
+	# 解锁阶梯（策划 2 章：默认 / 3层 / 6层 / 8层 / 9层）
+	_check(ClassDefs.unlock_floor_of(0) == 0, "初始形态默认解锁")
+	_check(ClassDefs.unlock_floor_of(1) == 3, "进阶1 通关第 3 层解锁")
+	_check(ClassDefs.unlock_floor_of(2) == 6, "进阶2 通关第 6 层解锁")
+	_check(ClassDefs.unlock_floor_of(3) == 8, "进阶3 通关第 8 层解锁")
+	_check(ClassDefs.unlock_floor_of(4) == 9, "终极形态通关第 9 层解锁")
+	_check(ClassDefs.max_available_form(0) == 0, "0 层只解锁初始形态")
+	_check(ClassDefs.max_available_form(3) == 1, "通关 3 层解锁到进阶1")
+	_check(ClassDefs.max_available_form(6) == 2, "通关 6 层解锁到进阶2")
+	_check(ClassDefs.max_available_form(8) == 3, "通关 8 层解锁到进阶3")
+	_check(ClassDefs.max_available_form(9) == 4, "通关 9 层解锁终极形态")
+	# 越界不崩
+	_check(ClassDefs.max_available_form(99) == 4, "通关 99 层仍是终极形态（不越界）")
+
+	# 战士 5 形态的技能（策划 3.2~3.6：初始无技能，4 个进阶各 2）
+	var total := 0
+	var kinds := {}
+	for slot in range(ClassDefs.FORM_SLOTS):
+		var f := ClassDefs.get_form("warrior", slot)
+		var sks: Array = f.get("skills", [])
+		total += sks.size()
+		for s in sks:
+			kinds[str(s.get("kind", ""))] = true
+	_check(total == 8, "战士共 8 个技能（初始形态无技能）", [str(total)])
+	_check(ClassDefs.skills_of("warrior", 0).is_empty(), "狂战士（初始）无专属技能")
+	_check(ClassDefs.skills_of("warrior", 1).size() == 2, "壁垒有 2 技能")
+	_check(ClassDefs.skills_of("warrior", 4).size() == 2, "解放者有 2 技能")
+
+	# 技能 kind 覆盖了预期的执行分派
+	for k in ["dash", "cone", "aoe", "buff", "pull"]:
+		_check(kinds.has(k), "战士技能用到了 kind=%s" % k)
+
+	# 每个技能数据完整（id/name/kind/cooldown 必备）
+	var bad: Array = []
+	for slot in range(ClassDefs.FORM_SLOTS):
+		for s in ClassDefs.skills_of("warrior", slot):
+			for key in ["id", "name", "kind", "cooldown"]:
+				if not s.has(key):
+					bad.append("%s 缺 %s" % [str(s.get("id", "?")), key])
+	_check(bad.is_empty(), "战士技能字段完整", [str(bad)])
+
+	# 全局检索
+	var found := ClassDefs.find_skill("stomp")
+	_check(not found.is_empty(), "find_skill 能查到跺脚")
+	_check(str(found.get("class_id", "")) == "warrior", "跺脚属于战士")
+	_check(ClassDefs.find_skill("nonexistent_skill_xyz").is_empty(),
+		"未知技能返回空")
+
+	# 待实装职业统计（其余 4 职业尚无技能）
+	var pending: Array = ClassDefs.pending_classes()
+	_check(pending.size() == 4, "还有 4 个职业待实装技能", [str(pending)])
+	_check(not ("warrior" in pending), "战士已实装（不在待办里）")
+
+	# 技能引用的词条 id 必须真实存在（否则运行时挂不上）
+	var missing: Array = []
+	for slot in range(ClassDefs.FORM_SLOTS):
+		var f := ClassDefs.get_form("warrior", slot)
+		for s in f.get("skills", []):
+			for b in s.get("self_buffs", []):
+				if BuffDefs.get_buff(str(b.get("id", ""))).is_empty():
+					missing.append(str(b.get("id")))
+			for b in s.get("target_buffs", []):
+				if BuffDefs.get_buff(str(b.get("id", ""))).is_empty():
+					missing.append(str(b.get("id")))
+	_check(missing.is_empty(), "技能引用的词条 id 均存在", [str(missing)])
+
+
+## ---------- 职业资源运行时 ----------
+func test_class_resource() -> void:
+	_current_test = "ClassResource"
+	print("\n--- %s ---" % _current_test)
+
+	# 5 职业各有资源定义
+	for cid in ["warrior", "mage", "hunter", "judge", "monk"]:
+		var r := ClassResource.create(cid)
+		_check(r.is_active(), "职业 %s 有资源系统" % cid)
+		_check(not r.res_name.is_empty(), "职业 %s 资源有名称" % cid)
+		_check(r.value == 0.0, "职业 %s 初始资源为 0" % cid)
+
+	# 未知职业 → 无资源，所有操作空转
+	var none := ClassResource.create("not_a_class")
+	_check(not none.is_active(), "未知职业无资源系统")
+	_check(none.gain(50.0) == 0.0, "无资源时 gain 无效")
+	_check(not none.spend(1.0), "无资源时 spend 失败")
+
+	# 战士怒气：命中 +5、受击按 10% 积攒、上限 100
+	var w := ClassResource.create("warrior")
+	w.on_hit(false)
+	_check(absf(w.value - 5.0) < 0.01, "普攻命中 +5 怒气", [str(w.value)])
+	w.on_damage_taken(100.0)
+	_check(absf(w.value - 15.0) < 0.01, "受击 100 按 10% 加 10", [str(w.value)])
+	w.gain(500.0)
+	_check(absf(w.value - w.max_value()) < 0.01, "资源封顶于上限", [str(w.value)])
+	_check(w.ratio() >= 0.99, "满资源比例为 1")
+
+	# 消耗：足量成功、不足失败且不扣
+	var w2 := ClassResource.create("warrior")
+	w2.gain(30.0)
+	_check(w2.spend(20.0), "足够时消耗成功")
+	_check(absf(w2.value - 10.0) < 0.01, "消耗后剩 10", [str(w2.value)])
+	_check(not w2.spend(50.0), "不足时消耗失败")
+	_check(absf(w2.value - 10.0) < 0.01, "失败不扣资源", [str(w2.value)])
+	_check(w2.has(10.0) and not w2.has(11.0), "has() 边界正确")
+
+	# 上限加成可加可清
+	var w3 := ClassResource.create("warrior")
+	w3.add_max_bonus(50.0)
+	_check(absf(w3.max_value() - 150.0) < 0.01, "上限加成生效", [str(w3.max_value())])
+	w3.clear_max_bonus()
+	_check(absf(w3.max_value() - 100.0) < 0.01, "上限加成可清除")
+
+	# 法师魔力：自然回复（tick 累积到整点才进 value）
+	var m := ClassResource.create("mage")
+	m.tick(1.0)
+	_check(absf(m.value - 6.0) < 0.01, "法师每秒回 6 点魔力", [str(m.value)])
+	m.reset()
+	_check(m.value == 0.0, "reset 清零资源")
+
+	# 猎人：暴击额外积攒
+	var h := ClassResource.create("hunter")
+	h.on_hit(false)
+	var normal_gain := h.value
+	h.reset()
+	h.on_hit(true)
+	_check(h.value > normal_gain, "猎人暴击积攒多于普通命中",
+		["普通%.0f 暴击%.0f" % [normal_gain, h.value]])
+
+	# 新局/新层重置
+	var r4 := ClassResource.create("warrior")
+	r4.gain(80.0)
+	r4.reset()
+	_check(r4.value == 0.0 and r4.max_value() == r4.base_max,
+		"reset 同时清空值与上限加成")
+
+
 func _run_test(fn: Callable) -> void:
 	var before := _passed + _failed
 	await fn.call()

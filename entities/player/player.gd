@@ -84,6 +84,7 @@ func _ready() -> void:
 	# 词条/元素容器：敌人的元素攻击会往这里叠层，控制/易伤也从这里读
 	if buffs == null:
 		buffs = BuffHolder.new(self)
+	_setup_class()
 	_setup_state_machine()
 	_setup_hit_model()
 	# 击杀回血（监听全局敌死信号）
@@ -94,6 +95,121 @@ func _ready() -> void:
 	if bus and bus.has_signal("equipment_changed"):
 		bus.equipment_changed.connect(func(_s, _i): _refresh_attack_element())
 	_refresh_attack_element()
+
+
+# ============================================================
+# 职业 / 形态 / 技能（策划《角色设计分册》）
+# ============================================================
+
+## 职业资源容器（怒气/魔力/专注/裁决/气劲）
+var class_resource: ClassResource = null
+## 技能执行器（冷却 + kind 分派）
+var _skills: SkillSystem = null
+## 当前职业 id（来自 GameManager.run_info["character"]）
+var class_id := ""
+## 当前形态槽位（0 初始 / 1~3 进阶 / 4 终极）
+var form_slot := 0
+
+
+## 装配职业与初始形态。取不到 run_info 时回退战士（保证任何场景都能玩）。
+func _setup_class() -> void:
+	var gm: Node = get_node_or_null("/root/GameManager")
+	if gm != null:
+		class_id = str(gm.run_info.get("character", "warrior"))
+	if class_id.is_empty():
+		class_id = "warrior"
+	class_resource = ClassResource.create(class_id)
+	_skills = SkillSystem.new()
+	form_slot = 0
+	_apply_form_modifiers()
+
+
+## 把当前形态的专属增益挂到属性系统上。
+## 先清旧的（source="form"）再加新的——切换形态时不会叠加残留。
+func _apply_form_modifiers() -> void:
+	var gm: Node = get_node_or_null("/root/GameManager")
+	if gm == null or gm.attributes == null:
+		return
+	gm.attributes.remove_modifiers("form")
+	gm.attributes.remove_modifiers("form_special")
+	# 形态若提高了资源上限，同样要清掉再加（见下）
+	if class_resource != null:
+		class_resource.clear_max_bonus()
+	var form := ClassDefs.get_form(class_id, form_slot)
+	if form.is_empty():
+		return
+	for m in form.get("mods", []):
+		var key := str(m.get("stat", ""))
+		var sid: int = int(AttributeSystem.STAT_BY_NAME.get(key, -1))
+		if sid < 0:
+			continue
+		gm.attributes.add_modifier("form", sid,
+			float(m.get("flat", 0.0)), float(m.get("percent", 0.0)))
+
+
+## 切换形态（策划：按通关层数解锁）。返回是否切换成功。
+func switch_form(slot: int) -> bool:
+	if slot == form_slot:
+		return false
+	var gm: Node = get_node_or_null("/root/GameManager")
+	var cleared := 0
+	if gm != null:
+		# 「通关 N 层」= 当前层数 - 1（打过的层）
+		cleared = maxi(int(gm.run_info.get("floor", 1)) - 1, 0)
+	if slot > ClassDefs.max_available_form(cleared):
+		return false
+	form_slot = clampi(slot, 0, ClassDefs.FORM_SLOTS - 1)
+	_apply_form_modifiers()
+	EventBus.message.emit("切换形态：%s" % str(ClassDefs.get_form(class_id, form_slot).get("name", "?")))
+	EventBus.stats_changed.emit()
+	return true
+
+
+## 当前形态的技能列表（HUD 技能条与输入派发共用）
+func current_skills() -> Array:
+	return ClassDefs.skills_of(class_id, form_slot)
+
+
+## 释放技能（对外入口：HUD 点击 / 测试直调）。
+## 返回 {ok, reason?}；方向缺省用面朝方向。
+func cast_skill(skill_id: String, direction: Vector3 = Vector3.ZERO) -> Dictionary:
+	if _skills == null:
+		return {"ok": false, "reason": "技能系统未初始化"}
+	var dir := direction
+	if dir.length_squared() < 0.001:
+		dir = InputManager.get_attack_direction_3d()
+	if dir.length_squared() < 0.001:
+		dir = _facing
+	var r: Dictionary = _skills.cast_skill(self, skill_id, dir, class_resource)
+	if bool(r.get("ok", false)):
+		EventBus.player_skill_cast.emit(skill_id, dir)
+	else:
+		EventBus.message.emit(str(r.get("reason", "无法施放")))
+	return r
+
+
+## 按槽位放技能（HUD 技能条 1~6 键）
+func cast_skill_slot(slot: int) -> Dictionary:
+	var list := current_skills()
+	if slot < 0 or slot >= list.size():
+		return {"ok": false, "reason": "该槽位无技能"}
+	return cast_skill(str(list[slot].get("id", "")))
+
+
+## 技能剩余冷却（HUD 冷却遮罩用）
+func skill_cooldown_left(skill_id: String) -> float:
+	return _skills.get_cooldown_remaining(skill_id) if _skills else 0.0
+
+
+## 冲刺类技能的位移执行（SkillSystem 判定完伤害后回调这里）。
+## 用速度脉冲而不是直接改位置——否则会穿过墙体。
+func apply_skill_dash(dir: Vector3, dist: float) -> void:
+	if dir.length_squared() < 0.001:
+		return
+	# 以固定速度冲刺：把速度设为 dir × (距离 / 假设冲刺时长)
+	var dur := 0.18
+	velocity.x = dir.normalized().x * (dist / dur)
+	velocity.z = dir.normalized().z * (dist / dur)
 
 
 ## 装配受击闪红用的模型引用。
@@ -170,6 +286,32 @@ func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 			bus.damage_popup.emit(global_position, healed, "heal")
 
 
+## 技能输入轮询：1~6 键 → 当前形态的技能槽。
+## 走轮询而非信号，与普攻派发（MoveState._attack）保持一致——
+## InputManager 的 pressed 标记在 _process 里置位、_physics_process 里消费，
+## 时间戳缓存已解决不同频问题。
+func _poll_skill_input() -> void:
+	for slot in range(6):
+		if not InputManager.skill_pressed(slot):
+			continue
+		# 先消费再施放：即使施放被拒（冷却/资源不足）也不该在同一缓冲窗口里
+		# 反复重试——那是「按一次放好几次」或「一直提示冷却中」的来源
+		InputManager.consume_skill(slot)
+		cast_skill_slot(slot)
+		return   # 一帧只放一个技能，避免多键同按时连放
+
+
+## 控制台是否正在接收文本（打字时不该触发放技能）
+func _typing_input() -> bool:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return false
+	var m := tree.root.get_node_or_null("DebugManager")
+	if m != null and m.has_method("is_text_input_active"):
+		return bool(m.call("is_text_input_active"))
+	return false
+
+
 func _physics_process(delta: float) -> void:
 	# 定时器无条件递减（在任何状态里都要走，移入状态会改变语义）
 	_attack_timer = maxf(_attack_timer - delta, 0.0)
@@ -182,6 +324,16 @@ func _physics_process(delta: float) -> void:
 		_update_flash()
 	# 自动拾取（设置开启时生效）
 	_update_auto_pickup(delta)
+
+	# 职业资源与技能（策划《角色设计分册》）
+	# 资源自然回复（法师回蓝）+ 技能冷却推进，都在这里无条件走
+	if class_resource != null:
+		class_resource.tick(delta)
+	if _skills != null:
+		_skills.update_cooldowns(delta)
+	# 技能输入：控制台打字时不响应（与其它输入一致）
+	if not _typing_input():
+		_poll_skill_input()
 
 	# 连击窗口推进 + 连击数计时
 	if _combo:
@@ -891,19 +1043,6 @@ func _register_hit_combo() -> void:
 ## 当前连击数（HUD 用）
 func get_hit_combo() -> int:
 	return _hit_combo_count
-
-
-func cast_skill(skill_id: String) -> Dictionary:
-	var skill_data := GameBalance.skill_by_id(skill_id)
-	if skill_data.is_empty():
-		return {"ok": false, "reason": "未知技能"}
-
-	var direction := InputManager.get_attack_direction_3d()
-	if direction == Vector3.ZERO:
-		direction = _facing
-
-	EventBus.player_skill_cast.emit(skill_id, direction)
-	return {"ok": true, "skill": skill_id, "direction": direction}
 
 
 ## 受击闪红：前 40% 全红，剩余时间线性退回本色（与敌人同款节奏）

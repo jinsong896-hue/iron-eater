@@ -38,6 +38,7 @@ func _ready() -> void:
 func _process(_delta: float) -> void:
 	_update_boss_bar()
 	_update_buff_icons()
+	_update_skill_bar()
 	if combo_label == null:
 		return
 	var players := get_tree().get_nodes_in_group("player")
@@ -192,9 +193,59 @@ func _paint_buff_icon(icon: Control, info: Dictionary) -> void:
 
 func _collect_skill_buttons() -> void:
 	var skill_bar := $BottomBar/SkillBar
+	var idx := 0
 	for child in skill_bar.get_children():
 		if child is Button:
-			skill_buttons.append(child as Button)
+			var btn := child as Button
+			skill_buttons.append(btn)
+			# 点击也能施放（鼠标玩家 / 触屏），与键盘 1~6 等价
+			btn.pressed.connect(_on_skill_button_pressed.bind(idx))
+			idx += 1
+
+
+## 点击技能槽 → 交给玩家施放
+func _on_skill_button_pressed(slot: int) -> void:
+	var p := _local_player()
+	if p != null and p.has_method("cast_skill_slot"):
+		p.call("cast_skill_slot", slot)
+
+
+## 刷新技能条：当前形态的技能名 + 冷却遮罩 + 无技能槽灰显。
+## 每帧调（冷却要连续衰减），但只在内容变化时改文字，避免每帧重排版。
+func _update_skill_bar() -> void:
+	if skill_buttons.is_empty():
+		return
+	var p := _local_player()
+	if p == null or not p.has_method("current_skills"):
+		for b in skill_buttons:
+			b.disabled = true
+		return
+	var list: Array = p.call("current_skills")
+	for i in range(skill_buttons.size()):
+		var btn := skill_buttons[i]
+		if i >= list.size():
+			# 该形态没有这么多技能：灰显 + 只留键位号
+			btn.disabled = true
+			btn.text = "%d" % (i + 1)
+			continue
+		var sd: Dictionary = list[i]
+		var sname := str(sd.get("name", ""))
+		var cd_left := float(p.call("skill_cooldown_left", str(sd.get("id", ""))))
+		btn.disabled = false
+		# 冷却中显示剩余秒数，否则显示「键位·技能名」
+		var label := "%d·%s" % [i + 1, sname]
+		if cd_left > 0.0:
+			label = "%s\n%.1fs" % [sname, cd_left]
+		if btn.text != label:
+			btn.text = label
+		# 冷却中调暗（TODO「冷却遮罩」的最简实现：整按钮 modulate）
+		btn.modulate = Color(0.55, 0.55, 0.6) if cd_left > 0.0 else Color.WHITE
+
+
+## 本场景的玩家（HUD 通常在 main.tscn 里与 Player 同级）
+func _local_player() -> Node:
+	var ps := get_tree().get_nodes_in_group("player")
+	return ps[0] if not ps.is_empty() else null
 
 
 func _collect_item_buttons() -> void:
@@ -295,31 +346,25 @@ func _update_display() -> void:
 	if health_label:
 		health_label.text = "%d" % int(hp)
 
-	# 连击伤害加成（原 MP 球——技能系统未实装前展示真实数据）
-	var combo_bonus := _combo_damage_bonus()
+	# 职业资源球（怒气/魔力/专注/裁决/气劲）
+	# 此前这里显示的是「连击伤害加成」——那是技能系统未实装时的临时占位
+	# （见旧注释「原 MP 球」）。技能与资源已实装，改回真实数据。
+	var p := _local_player()
+	var res = p.get("class_resource") if p != null else null
 	if mana_orb:
-		mana_orb.max_value = GameBalance.COMBO_DAMAGE_CAP * 100.0
-		mana_orb.value = combo_bonus * 100.0
+		if res != null:
+			mana_orb.max_value = float(res.max_value())
+			mana_orb.value = float(res.value)
+		else:
+			mana_orb.value = 0.0
 	if mana_label:
-		mana_label.text = "+%d%%" % int(combo_bonus * 100.0)
+		if res != null:
+			mana_label.text = "%d" % int(res.value)
+		else:
+			mana_label.text = ""
 
 	if gold_label:
 		gold_label.text = "金币: %d" % gm.get("gold")
-
-
-## 当前连击伤害加成（从玩家读连击数）
-func _combo_damage_bonus() -> float:
-	var players := get_tree().get_nodes_in_group("player")
-	if players.is_empty():
-		return 0.0
-	var p = players[0]
-	if p and p.has_method("get_hit_combo"):
-		var count: int = p.get_hit_combo()
-		return minf(
-			count * GameBalance.COMBO_DAMAGE_PER_HIT,
-			GameBalance.COMBO_DAMAGE_CAP
-		)
-	return 0.0
 
 
 func _on_gold_changed(amount: int) -> void:
@@ -402,10 +447,6 @@ func _refresh_floor_text() -> void:
 	set_floor(int(gm.run_info.get("floor", 1)))
 
 
-## 更新技能冷却
-func update_skill_cooldown(index: int, remaining: float, total: float) -> void:
-	if index < 0 or index >= skill_buttons.size():
-		return
-	var btn := skill_buttons[index]
-	# TODO: 实现冷却遮罩效果
-	btn.disabled = remaining > 0.0
+## 技能冷却由 _update_skill_bar 每帧统一刷新（含剩余秒数与调暗）。
+## 此处曾有一个 update_skill_cooldown(index, remaining, total) 接口，
+## 全项目零调用者且只做 btn.disabled = remaining > 0，已被取代删除。

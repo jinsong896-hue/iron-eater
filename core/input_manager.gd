@@ -25,6 +25,15 @@ var skill_2_pressed := false
 var skill_3_pressed := false
 var skill_4_pressed := false
 
+## 技能按下的时间戳（槽位 0~3）。
+## **不能只靠 skill_N_pressed 标记**：那个标记在 _process 每帧重写，
+## 而消费者（Player._physics_process）与它不同频，跨节点读取必然漏帧——
+## 这正是攻击输入曾经踩过的坑（见 has_pending_attack 的注释）。
+## 时间戳让任何调用时机都可靠，且能实现「输入缓冲」。
+var _skill_press_time := {0: -999.0, 1: -999.0, 2: -999.0, 3: -999.0}
+## 技能输入缓冲窗口（秒）：按下后这段时间内消费都算数
+const SKILL_INPUT_BUFFER := 0.25
+
 # 交互
 var interact_pressed := false
 var devour_pressed := false
@@ -69,6 +78,11 @@ func _process(_delta: float) -> void:
 	skill_2_pressed = Input.is_action_just_pressed("skill_2")
 	skill_3_pressed = Input.is_action_just_pressed("skill_3")
 	skill_4_pressed = Input.is_action_just_pressed("skill_4")
+	# 技能按下也要打时间戳：玩家在 _physics_process 消费，而本函数在 _process，
+	# 两者不同频会漏帧（与攻击输入同一个坑，见 has_pending_attack 的注释）。
+	for i in range(4):
+		if Input.is_action_just_pressed("skill_%d" % (i + 1)):
+			_skill_press_time[i] = Time.get_ticks_msec() / 1000.0
 
 	# 交互
 	interact_pressed = Input.is_action_just_pressed("interact")
@@ -105,6 +119,27 @@ func consume_attack() -> void:
 	_buffered_attack = Vector2.ZERO
 	_buffered_attack_time = -999.0
 	attack_direction = Vector2.ZERO
+
+
+# ============================================================
+# 技能输入（时间戳缓存，与攻击同一模式）
+# ============================================================
+
+## 该槽位是否有未消费的技能按下（缓冲窗口内）
+func skill_pressed(slot: int) -> bool:
+	var t := float(_skill_press_time.get(slot, -999.0))
+	return (Time.get_ticks_msec() / 1000.0) - t <= SKILL_INPUT_BUFFER
+
+
+## 消费技能输入（清除该槽位的时间戳，避免一次按键放两次）
+func consume_skill(slot: int) -> void:
+	_skill_press_time[slot] = -999.0
+
+
+## 清空全部技能输入缓存（切形态/打开面板时用）
+func clear_skill_inputs() -> void:
+	for k in _skill_press_time.keys():
+		_skill_press_time[k] = -999.0
 
 
 ## 攻击是否属于跳跃攻击组合（本次攻击按键落在空格后 DODGE_COMBO_WINDOW 内）
