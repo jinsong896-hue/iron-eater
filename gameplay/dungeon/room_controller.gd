@@ -792,9 +792,27 @@ func _event_rift(config: Dictionary) -> Dictionary:
 		states[target]["cleared"] = false
 	_special_used = true
 	_mark_special_used()
-	# 延迟一帧再传送：此刻还在交互面板里，立即切房会让 UI 悬空
-	gr.call_deferred("_transition_to_room", target)
+	# 延迟一帧再传送：此刻还在交互面板里，立即切房会让 UI 悬空。
+	#
+	# **延迟期间房间可能已经变了**（玩家/测试在这两帧内切了房）。
+	# 那时再执行就是从非预期位置把玩家拽走——实测表现为测试的特殊房遍历
+	# 断言「切房后停在目标房」偶发失败（期望 N 实际 = 裂隙传送目标）。
+	# 故把「发起传送时的房间索引」带过去，落地时校验。
+	gr.call_deferred("_deferred_rift_transition", target, cur)
 	return {"ok": true, "target_index": target}
+
+
+## 时空裂隙的延迟传送落地：仅在**发起房间仍是当前房间**时执行。
+## 这不是加闸而是补正确性——延迟回调本就该校验前置条件。
+func _deferred_rift_transition(target_idx: int, from_idx: int) -> void:
+	var gr = _game_root()
+	if gr == null:
+		return
+	var cur: int = int(gr.get("current_room_index"))
+	if cur != from_idx:
+		# 延迟期间房间已变，本次传送作废（奖励已发，不再把玩家拽走）
+		return
+	gr.call("_transition_to_room", target_idx)
 
 
 ## 属性键 → 中文名（提示文案用）
