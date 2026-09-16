@@ -25,94 +25,94 @@ func _ready() -> void:
 	print("=".repeat(60))
 
 	# 属性系统测试
-	await test_attribute_system()
+	await _run_test(test_attribute_system)
 
 	# 白装数据库测试（36 件 V1 基准池；先于通用装备测试，避免后者注册测试模板污染计数）
-	await test_white_equipment_db()
+	await _run_test(test_white_equipment_db)
 
 	# 装备系统测试
-	await test_equipment_system()
+	await _run_test(test_equipment_system)
 
 	# 装备通用词条池（名词分册第 5 章：21 种装备可附加词条）
-	await test_generic_affix_pool()
-	await test_generic_affix_attach()
+	await _run_test(test_generic_affix_pool)
+	await _run_test(test_generic_affix_attach)
 
 	# 伤害管线测试
-	await test_damage_pipeline()
+	await _run_test(test_damage_pipeline)
 
 	# 融合规则测试
-	await test_fusion_rules()
+	await _run_test(test_fusion_rules)
 
 	# 房间数据测试
-	await test_room_data()
+	await _run_test(test_room_data)
 
 	# 房间刷怪闭环集成测试
-	await test_room_combat_loop()
+	await _run_test(test_room_combat_loop)
 
 	# Boss 房闭环测试
-	await test_boss_room_loop()
+	await _run_test(test_boss_room_loop)
 
 	# 连段状态机测试
-	await test_attack_combo()
+	await _run_test(test_attack_combo)
 
 	# 状态机基类测试（注册/转移/转发/数据传递）
-	await test_state_machine()
+	await _run_test(test_state_machine)
 
 	# 房间编辑器核心测试（JSON 往返 + 矩形填充/围墙/校验）
-	await test_room_editor_core()
+	await _run_test(test_room_editor_core)
 
 	# 坐标放置测试（单点全元素/矩形墙圈/对角/钳制）
-	await test_coord_placement()
+	await _run_test(test_coord_placement)
 
 	# 第一层怪物数据库测试
-	await test_monster_db_layer1()
+	await _run_test(test_monster_db_layer1)
 
 	# 怪物池与词缀（全量 64 种、按层选池、词缀阶段分配）
-	await test_monster_pool()
+	await _run_test(test_monster_pool)
 
 	# 资源系统测试（宝箱/回血/层间恢复/金币产出）
-	await test_resource_system()
+	await _run_test(test_resource_system)
 
 	# 特殊房交互测试（商店/泉水/事件）
-	await test_special_room_interactions()
-	await test_event_room_pool()
-	await test_shop_consumption()
+	await _run_test(test_special_room_interactions)
+	await _run_test(test_event_room_pool)
+	await _run_test(test_shop_consumption)
 
 	# 门拓扑测试（按地牢连通关系算门，消除哑门）
-	await test_doors_by_topology()
+	await _run_test(test_doors_by_topology)
 
 	# 地牢生成规则测试（BFS 图距离 / 特殊房距离门控 / 房型配额）
-	await test_dungeon_generation_rules()
+	await _run_test(test_dungeon_generation_rules)
 
 	# 加权掉落测试（稀有度分布 / 逐层缩放 / Boss 保底 / 精英概率）
-	await test_weighted_loot()
+	await _run_test(test_weighted_loot)
 
 	# 房间模板池完整性（回归"normal/elite/treasure 无模板导致回退起始房"）
-	await test_room_template_pool()
-	await test_dungeon_template_coverage()
+	await _run_test(test_room_template_pool)
+	await _run_test(test_dungeon_template_coverage)
 
 	# 层级系统（9 层主题/范围/房间数/难度曲线）
-	await test_floor_defs()
-	await test_dungeon_range_fits()
+	await _run_test(test_floor_defs)
+	await _run_test(test_dungeon_range_fits)
 
 	# 批次 B：Boss 掉落表 / 红装池 / 隐藏层结构与碎片
-	await test_boss_drop_table()
-	await test_red_rarity_pool_not_empty()
-	await test_layer9_structure()
-	await test_equipment_save_roundtrip()
-	await test_key_fragments()
+	await _run_test(test_boss_drop_table)
+	await _run_test(test_red_rarity_pool_not_empty)
+	await _run_test(test_layer9_structure)
+	await _run_test(test_equipment_save_roundtrip)
+	await _run_test(test_key_fragments)
 
 	# 批次 D：楼层环境机制
-	await test_floor_environment()
-	await test_floor_environment_robustness()
+	await _run_test(test_floor_environment)
+	await _run_test(test_floor_environment_robustness)
 
 	# 批次 E：隐藏房
-	await test_hidden_rooms()
+	await _run_test(test_hidden_rooms)
 
 	# 批次 C：Boss 体系
-	await test_boss_db()
-	await test_boss_mechanic_wiring()
-	await test_boss_room_sizes()
+	await _run_test(test_boss_db)
+	await _run_test(test_boss_mechanic_wiring)
+	await _run_test(test_boss_room_sizes)
 
 	print("=".repeat(60))
 	if _failed == 0:
@@ -121,6 +121,24 @@ func _ready() -> void:
 		print("FAILED: %d / %d" % [_failed, _passed + _failed])
 	print("=".repeat(60))
 	quit(1 if _failed > 0 else 0)
+
+
+## 运行一个测试函数，并检测「协程被运行时错误静默中断」。
+##
+## **为什么需要这层守卫**：`_ready()` 逐个 await 测试函数，但若某个测试
+## 内部发生 runtime error（空引用、访问不存在的属性…），Godot 会**静默中断
+## 那个协程**——它后面的断言全不执行、`_failed` 不增加，而 `_ready` 照常继续，
+## 最后打印 "ALL N TESTS PASSED"。实测注入一个必然崩溃的语句，测试仍报通过。
+##
+## 判据：正常跑完的测试**必然推进断言计数**（38 个测试每个都至少一条断言）。
+## 计数没动 = 该测试被中断，计一次失败。
+func _run_test(fn: Callable) -> void:
+	var before := _passed + _failed
+	await fn.call()
+	if (_passed + _failed) == before:
+		_failed += 1
+		print("  FAIL [%s]: 测试中断——一条断言都没执行（协程被运行时错误打断？）"
+			% fn.get_method())
 
 
 ## 加载被测脚本；编译失败（load 返回 null）计入失败并返回 null
@@ -2456,15 +2474,19 @@ func test_floor_environment() -> void:
 	# 不用硬编码的 env 名列表——那样只能证明"名字在名单里"，
 	# 证明不了"真的有实现"（第 7 层曾登记 low_gravity 却被当成已实现，
 	# 实际落地的机制叫 void_warp，名实不符且从名单上看不出来）。
-	var bare := Node3D.new()
+	#
+	# **每层用独立宿主节点**：FloorEnvironment.apply 会往 room_node 上挂一个
+	# 同名子节点，复用同一个宿主会让第二次 add_child 触发 Godot 自动改名，
+	# 且 host.free() 时子节点仍持引用 → 整个测试协程被打断（实测：
+	# 该测试曾一条断言都没跑却算通过，正是本轮加守卫后才暴露出来）。
 	for f in range(2, 10):
-		var env_node := FloorEnvironment.apply(bare, f, {"width": 20, "height": 15})
-		var mech: Dictionary = env_node.mechanism()
+		var host := Node3D.new()
+		var env_node := FloorEnvironment.apply(host, f, {"width": 20, "height": 15})
+		var mech: Dictionary = env_node.mechanism() if env_node != null else {}
 		_check(not mech.is_empty(),
 			"第 %d 层 env '%s' 有实际机制装配" % [f, FloorDefs.env_id(f)],
 			[mech])
-		env_node.queue_free()
-	bare.free()
+		host.free()
 
 	# 造一个房间数据，验证危害区真的生成且避开安全点
 	var data := {
@@ -2516,18 +2538,27 @@ func test_floor_environment_robustness() -> void:
 	_current_test = "FloorEnvironmentRobust"
 	print("\n--- %s ---" % _current_test)
 
+	# **显式 load 拿类**：--script 模式下 class_name 全局符号可能未解析
+	# （实测这里直接写 FloorEnvironment 会报 "Nonexistent function 'apply'"，
+	# 导致整个测试协程被打断、一条断言都没跑——本轮加守卫后才暴露）。
+	var FE = _require_script("res://gameplay/dungeon/floor_environment.gd")
+	if FE == null:
+		return
+
 	# 极端房间数据：无 entities / 无 doors / 尺寸极小
 	var bare := {"width": 4, "height": 4}
 	for f in range(2, 10):
 		var room := Node3D.new()
-		var fe := FloorEnvironment.apply(room, f, bare)
+		var fe = FE.apply(room, f, bare)
 		# 不崩即通过；无出生点数据时应回退到房间中心作安全点
 		_check(true, "第 %d 层在缺数据房间下不崩" % f)
+		if fe != null:
+			fe.queue_free()
 		room.free()
 
 	# 越界层数钳制（存档损坏）
 	var room2 := Node3D.new()
-	FloorEnvironment.apply(room2, 99, bare)
+	FE.apply(room2, 99, bare)
 	_check(true, "越界层数不崩")
 	room2.free()
 

@@ -320,7 +320,13 @@ func _tick_warp(interval_key: String) -> void:
 	p.global_position = target
 	if "velocity" in p:
 		p.set("velocity", Vector3.ZERO)
-	EventBus.message.emit("空间扭曲——你被传送了")
+	# EventBus 运行时查找（**不能直接写 EventBus**：它是 autoload，
+	# --script 测试模式没有 autoload，直接引用会让整个脚本编译失败——
+	# 表现为调用方报 "Nonexistent function 'apply'"，实际是脚本根本没加载出来）
+	var tree := Engine.get_main_loop() as SceneTree
+	var bus = tree.root.get_node_or_null("EventBus") if tree and tree.root else null
+	if bus:
+		bus.message.emit("空间扭曲——你被传送了")
 
 
 ## 供测试读取机制配置

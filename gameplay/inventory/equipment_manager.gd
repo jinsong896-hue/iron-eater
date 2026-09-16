@@ -428,11 +428,18 @@ func _apply_equipment_modifiers(inst: EquipmentInstance) -> void:
 	var template := inst.get_template()
 	if template != null and template.base_affix != null:
 		var affix := template.base_affix
-		var value := inst.base_affix_value()
-		var percent := 0.0
+		# 按 operation 二选一：FLAT 走固定值、PERCENT 走百分比。
+		# **不能两个都传**——原实现无条件把 base_affix_value() 当 flat 传进去，
+		# PERCENT 型词条于是同时吃到了「固定值 + 百分比」两份加成
+		# （如「暴击率 +1%」实际变成 +1% 相对 且 再 +0.01 绝对值）。
+		# 表里的 is_percent 标记就是唯一口径，与此分支一致。
+		var val := 0.0
+		var pct := 0.0
 		if affix.operation == AffixData.Operation.PERCENT:
-			percent = affix.value * inst.enhancement_mult()
-		gm.attributes.add_modifier(src, affix.stat, value, percent)
+			pct = affix.value * inst.enhancement_mult()
+		else:
+			val = inst.base_affix_value()
+		gm.attributes.add_modifier(src, affix.stat, val, pct)
 
 	# 通用附加词条（同一 source，随装备一起挂/卸）
 	for a in inst.extra_affixes:
