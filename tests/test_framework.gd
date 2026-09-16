@@ -200,10 +200,13 @@ func test_class_defs() -> void:
 	_check(ClassDefs.find_skill("nonexistent_skill_xyz").is_empty(),
 		"未知技能返回空")
 
-	# 待实装职业统计（其余 4 职业尚无技能）
+	# 已实装职业不应出现在待办里。
+	# **不写死待办数量**——每完成一个职业都要改数字，是脆弱的断言；
+	# 改为校验「已完成的确实不在待办」，数量变化不影响。
 	var pending: Array = ClassDefs.pending_classes()
-	_check(pending.size() == 4, "还有 4 个职业待实装技能", [str(pending)])
 	_check(not ("warrior" in pending), "战士已实装（不在待办里）")
+	_check(not ("judge" in pending), "判官已实装（不在待办里）")
+	_check(pending.size() < 5, "至少有一个职业已实装", [str(pending)])
 
 	# 技能引用的词条 id 必须真实存在（否则运行时挂不上）
 	var missing: Array = []

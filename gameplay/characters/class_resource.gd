@@ -45,13 +45,16 @@ const DEFS := {
 	},
 	"judge": {
 		"name": "裁决", "max": 100.0,
-		"gain_on_hit": 6.0,
+		"gain_on_hit": 5.0,        # 策划 6.1：攻击命中 +5
+		"gain_on_crit_bonus": 8.0, # 暴击额外 +8
+		"gain_on_kill": 20.0,      # 击杀 +20
 		"gain_on_taken_pct": 0.0,
 		"regen_per_sec": 0.0,
 	},
 	"monk": {
 		"name": "气劲", "max": 100.0,
-		"gain_on_hit": 5.0,
+		"gain_on_hit": 3.0,        # 策划 7.2：命中 +3
+		"gain_on_crit_bonus": 3.0, # 暴击额外 +3
 		"gain_on_taken_pct": 0.0,
 		"regen_per_sec": 2.0,      # 连击续航的兜底回复
 	},
@@ -154,7 +157,7 @@ func tick(delta: float) -> void:
 
 
 ## 命中敌人时按职业规则积攒（普攻与技能命中都该调）
-## crit=true 时享受暴击额外积攒（猎人专注）
+## crit=true 时享受暴击额外积攒（猎人专注 / 判官裁决 / 武僧气劲）
 func on_hit(crit: bool = false) -> void:
 	if not is_active():
 		return
@@ -162,6 +165,13 @@ func on_hit(crit: bool = false) -> void:
 	gain(float(d.get("gain_on_hit", 0.0)))
 	if crit:
 		gain(float(d.get("gain_on_crit_bonus", 0.0)))
+
+
+## 击杀敌人时按职业规则积攒（策划 6.1：判官击杀 +20）
+func on_kill() -> void:
+	if not is_active():
+		return
+	gain(float(DEFS[class_id].get("gain_on_kill", 0.0)))
 
 
 ## 受到伤害时按比例积攒（战士怒气）

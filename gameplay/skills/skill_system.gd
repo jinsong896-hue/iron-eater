@@ -17,6 +17,10 @@ extends RefCounted
 ##   pull       拉拽：伤害首个目标 + 施加 debuff + 把自己拉过去
 ##   buff       纯增益：给自身挂词条（血怒 / 血刃狂舞）
 ##   projectile 投射物（法师/猎人用，走 Projectile）
+##   teleport   瞬移到目标位置或目标背后（影步 / 暗影突袭）
+##   multi_hit  对单目标连续 N 次伤害（疾风连打 / 影子风暴）
+##   detonate   引爆目标身上的某词条，按层数结算伤害（连锁引爆）
+##   spread     把某词条复制给范围内所有敌人（裁决锁链 / 共鸣引爆）
 
 var _cooldowns: Dictionary = {}   # skill_id -> remaining_time
 var _rng := RandomNumberGenerator.new()
@@ -60,6 +64,10 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 		"pull":       _cast_pull(caster, sd, dir)
 		"buff":       _cast_buff(caster, sd)
 		"projectile": _cast_projectile(caster, sd, dir)
+		"teleport":   _cast_teleport(caster, sd, dir)
+		"multi_hit":  _cast_multi_hit(caster, sd, dir)
+		"detonate":   _cast_detonate(caster, sd, dir)
+		"spread":     _cast_spread(caster, sd, dir)
 
 	# 自身增益：不分 kind，任何技能都能配 self_buffs
 	_apply_self_buffs(caster, sd)
@@ -191,16 +199,118 @@ func _cast_projectile(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 		proj.global_position = caster.global_position + dir * 0.6
 
 
+## 瞬移：去找 dir 方向上射程内最近的敌人，落到它的「背后」（反方向侧）。
+## `behind_offset` 决定站位距离；找不到目标时沿 dir 位移 `dash_dist` 兜底
+## （影步/暗影突袭要的是"位移能力"，不该因为没敌人就放空）。
+func _cast_teleport(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
+	var rng := float(sd.get("range", 6.0))
+	var offset := float(sd.get("behind_offset", 1.2))
+	var target := _nearest_enemy_in_cone(caster, dir, rng, 90.0)
+	if target != null:
+		# 「背后」= 目标当前朝向的反侧。敌人没有朝向字段时用我方来向兜底：
+		# 把落点放在"目标远离施法者"的那一侧背面
+		var from_caster: Vector3 = target.global_position - caster.global_position
+		from_caster.y = 0.0
+		if from_caster.length_squared() < 0.001:
+			from_caster = dir
+		var stop := target.global_position + from_caster.normalized() * offset
+		stop.y = caster.global_position.y
+		caster.global_position = stop
+		# 瞬移本身不造成伤害；伤害由 backstab 逻辑接管（见 _deal_damage 的 multiplier）
+		if float(sd.get("damage_mult", 0.0)) > 0.0:
+			_deal_damage(caster, target, float(sd["damage_mult"]), 0.0, true)
+		_apply_target_buffs(target, sd)
+		return
+	# 无目标：按冲刺位移兜底
+	var dist := float(sd.get("dash_dist", 3.0))
+	if caster.has_method("apply_skill_dash"):
+		caster.call("apply_skill_dash", dir, dist)
+
+
+## 多段伤害：对射程内最近的目标连打 N 次（疾风连打 10 次 / 影子风暴 5 次）。
+## 每次伤害单独结算与飘字——玩家要看到"哒哒哒"的连击感。
+func _cast_multi_hit(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
+	var rng := float(sd.get("range", 2.5))
+	var hits := maxi(int(sd.get("hit_count", 5)), 1)
+	var mult := float(sd.get("damage_mult", 0.4))
+	var target := _nearest_enemy_in_cone(caster, dir, rng, 90.0)
+	if target == null:
+		return
+	for i in range(hits):
+		if not is_instance_valid(target):
+			break
+		_deal_damage(caster, target, mult, 0.0)
+	_apply_target_buffs(target, sd)
+
+
+## 引爆：把目标身上 `detonate_buff` 声明的词条按层数结算伤害后清除。
+## 层数越高伤害越高（策划：连锁引爆每层法强×0.6，3 层时 ×1.8）。
+func _cast_detonate(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
+	var rng := float(sd.get("range", 8.0))
+	var buff_id := str(sd.get("detonate_buff", ""))
+	var per := float(sd.get("per_stack_mult", 0.6))
+	var full_bonus := float(sd.get("full_stack_mult", 1.8))
+	var full_at := maxi(int(sd.get("full_stack_count", 3)), 1)
+	# 引爆范围内**所有**带该词条的敌人（不止最近一个——"引爆所有印记"）
+	var any := false
+	for e in _enemies():
+		if e.global_position.distance_to(caster.global_position) > rng:
+			continue
+		var tb = e.get("buffs")
+		if tb == null:
+			continue
+		var n: int = int(tb.call("stacks_of", buff_id)) if tb.has_method("stacks_of") else 0
+		if n <= 0:
+			continue
+		var mult := per * float(n)
+		if n >= full_at:
+			mult = full_bonus
+		_deal_damage(caster, e, mult, 0.0)
+		tb.call("remove", buff_id)
+		any = true
+	if not any:
+		# 没有目标带印记：退化为普通范围伤害（避免技能完全空放）
+		_cast_aoe(caster, sd, dir)
+
+
+## 扩散：把源目标身上的 `spread_buff` 复制给范围内所有敌人（印记连锁）。
+func _cast_spread(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
+	var rng := float(sd.get("range", 8.0))
+	var radius := float(sd.get("radius", 3.0))
+	var buff_id := str(sd.get("spread_buff", ""))
+	var src := _nearest_enemy_in_cone(caster, dir, rng, 90.0)
+	if src == null:
+		return
+	_deal_damage(caster, src, float(sd.get("damage_mult", 1.0)), 0.0)
+	# 把源身上的层数复制给周围敌人
+	var src_tb = src.get("buffs")
+	var stacks := 1
+	if src_tb != null and src_tb.has_method("stacks_of"):
+		stacks = maxi(int(src_tb.call("stacks_of", buff_id)), 1)
+	for e in _enemies():
+		if e == src:
+			continue
+		if e.global_position.distance_to(src.global_position) > radius:
+			continue
+		var tb = e.get("buffs")
+		if tb != null:
+			tb.call("apply", buff_id, "skill", stacks)
+
+
 # ============================================================
 # 结算辅助
 # ============================================================
 
 ## 对单个敌人结算伤害（与 Player._apply_hit 同口径：面板 ATK × 倍率 × 护甲 × 暴击）
-func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float) -> void:
+## backstab=true 时套用形态的背刺倍率（策划 6.6 暗影主宰 ×2.5）。
+func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float,
+		backstab: bool = false) -> void:
 	if enemy == null or not is_instance_valid(enemy):
 		return
 	if not enemy.has_method("take_damage"):
 		return
+	if backstab:
+		mult *= _form_special_float(caster, "backstab_mult", 1.0)
 	var atk := _panel_atk(caster)
 	var target_def := float(enemy.get("defense")) if enemy.get("defense") != null else 0.0
 	var result := DamagePipeline.physical(atk, mult, 0.0, target_def)
@@ -329,6 +439,20 @@ func _stat(caster: Node3D, key: String, fallback: float) -> float:
 func _skill_element(caster: Node3D, _sd) -> int:
 	var e = caster.get("attack_element")
 	return int(e) if e != null else -1
+
+
+## 读施法者当前形态的 special 数值（如 backstab_mult）。
+## 取不到时返回 fallback——形态增益是"锦上添花"，缺失不该让技能失效。
+func _form_special_float(caster: Node3D, key: String, fallback: float) -> float:
+	var cid = caster.get("class_id")
+	var slot = caster.get("form_slot")
+	if cid == null or slot == null:
+		return fallback
+	var form := ClassDefs.get_form(str(cid), int(slot))
+	var sp: Dictionary = form.get("special", {})
+	if not sp.has(key):
+		return fallback
+	return float(sp[key])
 
 
 ## 命中攒职业资源（普攻与技能共用规则）

@@ -61,7 +61,7 @@ const CLASSES := {
 				"gain": "远程伤害 -50%；近战伤害 -20%",
 				"mods": [],
 				"special": {"ranged_dmg_pct": -0.50, "melee_dmg_pct": -0.20},
-				"start_gear": ["C01", "S01", "W01"],
+				"start_gear": ["A06", "W05", "W01"],
 				"skills": [
 					{
 						"id": "shield_charge", "name": "撞击", "kind": "dash",
@@ -85,7 +85,7 @@ const CLASSES := {
 				"gain": "武器攻速在按武器攻击力增加的基础上额外 +2；越残越疯",
 				"mods": [{"stat": "aspd", "flat": 2.0, "percent": 0.0}],
 				"special": {},
-				"start_gear": ["C02", "W06"],
+				"start_gear": ["A05", "W06"],
 				"skills": [
 					{
 						"id": "stomp", "name": "跺脚", "kind": "aoe",
@@ -117,7 +117,7 @@ const CLASSES := {
 					{"stat": "rng", "flat": 3.0, "percent": 0.0},
 				],
 				"special": {"armor_pierce": 0.50},
-				"start_gear": ["C03", "W13"],
+				"start_gear": ["A12", "W08"],
 				"skills": [
 					{
 						"id": "chain_pull", "name": "拉拽", "kind": "pull",
@@ -194,11 +194,110 @@ const CLASSES := {
 		"resource": "judge",
 		"desc": "攻击附加法术伤害；满裁决自动触发终局裁决。",
 		"forms": [
-			{"name": "渡鸦", "gain": "待实装", "mods": [], "special": {}, "start_gear": ["W01"], "skills": []},
-			{"name": "锁链判官", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "影子判官", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "暗影主宰", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "光暗审裁", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
+			# ---------- 初始：渡鸦 ----------
+			{
+				"name": "渡鸦",
+				"gain": "所有攻击额外附加（法强×0.2）法术伤害",
+				"mods": [],
+				"special": {"spell_on_hit_ap_pct": 0.20},
+				"start_gear": ["W01"],
+				"skills": [],
+			},
+			# ---------- 进阶1：锁链判官 ----------
+			{
+				"name": "锁链判官",
+				"gain": "攻击距离 +2 米；攻击挂审判印记（每层 +10% 法伤）；印记连锁传导 30% 法术伤害",
+				"mods": [{"stat": "rng", "flat": 2.0, "percent": 0.0}],
+				"special": {"mark_per_hit": true, "chain_30pct": true},
+				"start_gear": ["A04", "W12"],
+				"skills": [
+					{
+						"id": "verdict_chain", "name": "裁决锁链", "kind": "spread",
+						"cooldown": 5.0, "cost": 20.0,
+						"damage_mult": 1.0, "range": 8.0, "radius": 3.0,
+						"spread_buff": "judgement",
+						"desc": "投掷锁链造成（法强×1.0）伤害，将印记复制到周围 3 米所有敌人",
+					},
+					{
+						"id": "chain_detonate", "name": "连锁引爆", "kind": "detonate",
+						"cooldown": 8.0, "cost": 35.0,
+						"range": 8.0, "detonate_buff": "judgement",
+						"per_stack_mult": 0.6, "full_stack_mult": 1.8, "full_stack_count": 3,
+						"desc": "引爆所有印记，每层造成（法强×0.6）伤害，3 层时法强×1.8",
+					},
+				],
+			},
+			# ---------- 进阶2：影子判官 ----------
+			{
+				"name": "影子判官",
+				"gain": "攻速 +40%；每 4 次攻击触发影子攻击（法强×0.5，无视护甲）；影子攻击叠影痕",
+				"mods": [{"stat": "aspd", "flat": 0.0, "percent": 0.40}],
+				"special": {"shadow_every_4": true},
+				"start_gear": ["A05", "W02"],
+				"skills": [
+					{
+						"id": "shadow_step", "name": "影步", "kind": "teleport",
+						"cooldown": 3.0, "cost": 15.0,
+						"range": 8.0, "dash_dist": 3.0, "behind_offset": 1.0,
+						"self_buffs": [{"id": "gen_aspd_up", "stacks": 1}],
+						"desc": "瞬移 3 米，后 1 秒内攻速 +40%",
+					},
+					{
+						"id": "shadow_storm", "name": "影子风暴", "kind": "multi_hit",
+						"cooldown": 8.0, "cost": 40.0,
+						"range": 3.5, "hit_count": 5, "damage_mult": 0.5,
+						"desc": "召唤影子连续攻击，周围 3 米敌人受到 5 次伤害（每次物理×0.5 + 法强×0.2）",
+					},
+				],
+			},
+			# ---------- 进阶3：暗影主宰 ----------
+			{
+				"name": "暗影主宰",
+				"gain": "背刺伤害 ×2.5；击杀生成影子分身（30% 攻击，6 秒）；分身期间暴击率 +20%",
+				"mods": [],
+				"special": {"backstab_mult": 2.5},
+				"start_gear": ["A15", "W02"],
+				"skills": [
+					{
+						"id": "shadow_assault", "name": "暗影突袭", "kind": "teleport",
+						"cooldown": 5.0, "cost": 25.0,
+						"range": 8.0, "behind_offset": 1.1, "damage_mult": 2.0,
+						"target_buffs": [{"id": "bleed", "duration": 4.0}],
+						"desc": "瞬移至目标背后造成（物理×2.0 + 法强×1.0）伤害，目标生命＜40% 时 ×2.0",
+					},
+					{
+						"id": "shadow_burst", "name": "暗影爆发", "kind": "aoe",
+						"cooldown": 10.0, "cost": 45.0,
+						"damage_mult": 1.0, "radius": 4.0,
+						"target_buffs": [{"id": "dark_erosion", "duration": 5.0}],
+						"desc": "引爆所有分身造成（法强×1.0）范围伤害 + 暗影标记（受伤 +15%，5 秒）",
+					},
+				],
+			},
+			# ---------- 终极：光暗审裁 ----------
+			{
+				"name": "光暗审裁",
+				"gain": "光层（治疗/护盾积累）与暗层（施加负面积累）独立叠加；光≥暗附光系伤害并回血，暗＞光附暗蚀；均≥5 时全伤害 +40%、移速 +30%",
+				"mods": [],
+				"special": {"light_dark_layers": true, "verdict_at_5": 0.40},
+				"start_gear": [],
+				"skills": [
+					{
+						"id": "final_verdict", "name": "终末审判", "kind": "aoe",
+						"cooldown": 18.0, "cost": 60.0,
+						"damage_mult": 2.5, "radius": 6.0,
+						"target_buffs": [{"id": "brand", "duration": 8.0}],
+						"desc": "消耗所有层数，每层对全屏造成（法强×0.7）伤害，施加烙印（受伤 +35%，8 秒）",
+					},
+					{
+						"id": "balance_shift", "name": "天平倾斜", "kind": "buff",
+						"cooldown": 12.0, "cost": 20.0,
+						"duration": 6.0,
+						"self_buffs": [{"id": "gen_atk_up", "stacks": 1}],
+						"desc": "立即获得 3 光层 + 3 暗层并强化自身，用于快速推到裁决时刻",
+					},
+				],
+			},
 		],
 	},
 	"monk": {
