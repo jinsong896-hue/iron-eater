@@ -17,6 +17,90 @@ const RARITY_SUFFIX := ["", "·绿", "·蓝", "·紫", "·橙", "·红"]
 ## 各稀有度 id 后缀
 const RARITY_ID_SUFFIX := ["", "_G", "_B", "_P", "_O", "_R"]
 
+# ============================================================
+# 通用词条池（名词设计分册第 5 章「装备可附加，21 种」）
+# ============================================================
+#
+# 分两类：
+#   · **属性型**（12 种）——改面板或战斗管线上的修饰量。
+#     前 11 种的 stat 直接用 AttributeSystem.Stat；
+#     后 6 种（生命偷取/击退距离/负效时长/元素穿透/伤害反弹/处决线）
+#     不是面板属性，而是伤害结算时的修饰量，用下面的 SPECIAL_STAT 键。
+#   · **触发型**（9 种）——命中时按概率给目标施加 BuffDefs 词条。
+#     只有 5 种有实际语义（眩晕/破甲/致盲/缴械/范围伤害），
+#     其余 4 种（负面时长+/击退距离+ 等）是属性型，归入上表。
+#
+# 稀有度要求决定该词条**从哪一档开始可能出现**（见 TRIGGER_MIN_RARITY）。
+
+## 属性型通用词条：[id, 显示名, stat_key, 数值下限, 数值上限, 是否百分比, 最低稀有度]
+## stat_key 为字符串：AttributeSystem 的 11 项用其枚举名（"atk"/"crt"…），
+## 其余 6 项用 SPECIAL_STAT 的键（"lifesteal"/"knockback"/"debuff_dur"
+## /"elem_pen"/"reflect"/"execute_line"）。
+const GENERIC_STAT_POOL := [
+	["gc_crt",      "暴击率+",   "crt",         0.03, 0.10, true,  2],  # 蓝+
+	["gc_crd",      "暴击伤害+", "crd",         0.10, 0.30, true,  3],  # 紫+
+	["gc_atk",      "攻击力+",   "atk",         0.05, 0.15, true,  0],  # 白+
+	["gc_ap",       "法术强度+", "ap",          0.05, 0.15, true,  0],  # 白+
+	["gc_def",      "防御+",     "def",         0.05, 0.20, true,  0],  # 白+
+	["gc_hp",       "生命值+",   "hp",          0.05, 0.20, true,  0],  # 白+
+	["gc_aspd",     "攻速+",     "aspd",        0.05, 0.20, true,  2],  # 蓝+
+	["gc_spd",      "移速+",     "spd",         0.05, 0.15, true,  2],  # 蓝+
+	["gc_cdr",      "冷却缩减+", "cdr",         0.05, 0.15, true,  2],  # 蓝+
+	["gc_rng",      "射程+",     "rng",         0.05, 0.20, true,  3],  # 紫+
+	["gc_lifesteal","生命偷取",  "lifesteal",   0.05, 0.15, true,  2],  # 蓝+
+	["gc_knockback","击退距离+", "knockback",   0.20, 0.50, true,  2],  # 蓝+
+	["gc_debuffdur","负效时长+", "debuff_dur",  0.15, 0.40, true,  3],  # 紫+
+	["gc_elempen",  "元素穿透",  "elem_pen",    0.05, 0.15, true,  4],  # 橙+
+	["gc_reflect",  "伤害反弹",  "reflect",     0.05, 0.15, true,  2],  # 蓝+
+	["gc_execute",  "处决线",    "execute_line",0.15, 0.25, true,  3],  # 紫+
+]
+
+## 触发型通用词条：[id, 显示名, 施加的词条 id, 概率下限, 概率上限, 时长(0=用表定), 最低稀有度]
+const GENERIC_TRIGGER_POOL := [
+	["gt_stun",    "眩晕",     "stun",        0.03, 0.10, 1.0, 2],  # 蓝+
+	["gt_armor",   "破甲",     "armor_break", 0.05, 0.15, 4.0, 3],  # 紫+
+	["gt_blind",   "致盲",     "blind",       0.05, 0.10, 3.0, 3],  # 紫+
+	["gt_disarm",  "缴械",     "disarm",      0.03, 0.08, 3.0, 4],  # 橙+
+	["gt_splash",  "范围伤害", "splash",      1.00, 1.00, 0.0, 3],  # 紫+（必触发，见下）
+]
+
+## 非面板属性的修饰量键。**值域 100+ 开一个独立命名空间**：
+## AttributeSystem.Stat 只到 10，这些扩展量用 100 起，两者不会撞。
+## 这样 AffixData.stat 一个字段就能同时承载面板属性与扩展修饰量。
+const SPECIAL_STAT := {
+	"lifesteal":    {"enum": 100, "out": "life_steal"},      # 造成伤害的 N% 转回血
+	"knockback":    {"enum": 101, "out": "knockback_pct"},   # 击退距离 +N%
+	"debuff_dur":   {"enum": 102, "out": "debuff_dur_pct"},  # 施加的负面词条时长 +N%
+	"elem_pen":     {"enum": 103, "out": "elem_pen_pct"},    # 忽视目标 N% 元素抗性
+	"reflect":      {"enum": 104, "out": "reflect_pct"},     # 受近战伤害反弹 N%
+	"execute_line": {"enum": 105, "out": "execute_bonus"},   # 对低血目标增伤（分册 +30%）
+}
+
+## 扩展修饰量的枚举值 → 输出键（special_modifiers 用）
+static func special_out_key(enum_val: int) -> String:
+	for k in SPECIAL_STAT:
+		if int(SPECIAL_STAT[k]["enum"]) == enum_val:
+			return str(SPECIAL_STAT[k]["out"])
+	return ""
+
+## 扩展修饰量的键 → 枚举值（构造词条时用）
+static func special_enum_of(key: String) -> int:
+	if SPECIAL_STAT.has(key):
+		return int(SPECIAL_STAT[key]["enum"])
+	return -1
+
+## 范围伤害词条（gt_splash）的固定参数（分册：攻击力×0.1，2 米内）
+const SPLASH_RADIUS := 2.0
+const SPLASH_ATK_RATIO := 0.1
+
+## 属性型 stat_key → AttributeSystem.Stat 枚举值（找不到返回 -1）
+static func stat_enum_of(key: String) -> int:
+	for name in AttributeSystem.STAT_BY_NAME:
+		if name == key:
+			return int(AttributeSystem.STAT_BY_NAME[name])
+	return -1
+
+
 ## 元素武器（**占位设计，待策划替换**）
 ##
 ## ⚠ 策划《武器设计分册》18 种白装**未给任何武器指定元素**——原文里元素机制
@@ -289,11 +373,61 @@ static func _scale_affix(affix: Array, scale: float) -> Array:
 	return [affix[0], affix[1] * scale, affix[2]]
 
 
+## 按稀有度生成**触发型通用词条**（分册第 5 章的 9 种触发型）。
+##
+## 数量随稀有度递增（白装没有、橙装 2 条），概率在策划区间内按稀有度取档：
+## 稀有度越高越接近区间上限（蓝装取下限、橙装取上限）。
+## rng 用固定种子（按 id 派生），保证同一件装备每次都生成相同的词条——
+## 否则每次查表都换一套，背包里的装备词条会"漂移"。
+static func _generate_trigger_affixes(rarity: int, id_seed: String) -> Array[AffixData]:
+	var out: Array[AffixData] = []
+	if rarity <= EquipmentDefs.Rarity.GREEN:
+		return out   # 白/绿装无触发词条
+
+	# 可选池：稀有度达到门槛的才进池
+	var pool: Array = []
+	for row in GENERIC_TRIGGER_POOL:
+		if rarity >= int(row[6]):
+			pool.append(row)
+	if pool.is_empty():
+		return out
+
+	# 条数：蓝 1 / 紫 1 / 橙 2 / 红 2
+	var count: int = 2 if rarity >= EquipmentDefs.Rarity.ORANGE else 1
+	count = mini(count, pool.size())
+
+	# 用 id 派生的确定性 rng 挑词条（同 id 每次结果一致）
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(id_seed)
+
+	var picked: Array = []
+	var avail: Array = pool.duplicate()
+	for _i in count:
+		if avail.is_empty():
+			break
+		var idx: int = rng.randi() % avail.size()
+		picked.append(avail[idx])
+		avail.remove_at(idx)
+
+	for row in picked:
+		var lo: float = float(row[3])
+		var hi: float = float(row[4])
+		# 稀有度在 [蓝..红] 上的插值：蓝取下限、红取上限
+		var t: float = clampf(
+			float(rarity - EquipmentDefs.Rarity.BLUE) /
+			float(maxi(EquipmentDefs.Rarity.RED - EquipmentDefs.Rarity.BLUE, 1)),
+			0.0, 1.0)
+		var chance: float = lerpf(lo, hi, t)
+		out.append(AffixData.make_trigger(str(row[2]), chance, float(row[5])))
+	return out
+
+
 ## 应用三词条到模板
 static func _apply_affixes(t: EquipmentTemplate, base: Array, devour: Array, fusion: Array) -> void:
 	t.base_affix = _make_affix(base)
 	t.devour_affix = _make_affix(devour)
 	t.fusion_affix = _make_affix(fusion)
+	t.trigger_affixes = _generate_trigger_affixes(t.rarity, str(t.id))
 
 
 ## 构建词条数据

@@ -33,6 +33,9 @@ func _ready() -> void:
 	# 装备系统测试
 	await test_equipment_system()
 
+	# 装备通用词条池（名词分册第 5 章：21 种装备可附加词条）
+	await test_generic_affix_pool()
+
 	# 伤害管线测试
 	await test_damage_pipeline()
 
@@ -2042,6 +2045,84 @@ func test_boss_drop_table() -> void:
 
 
 ## 红装池非空：第 6 层起 Boss 保底红装，池空会回退白装（回归此 bug）
+## 装备通用词条池（名词设计分册第 5 章「装备可附加，21 种」）
+## 这批词条此前**完全没有承载**：AffixData 只有 Stat+value，没有「概率触发」形态，
+## 导致分册的 9 种触发型词条（眩晕/破甲/致盲/缴械/范围伤害…）无法落地。
+func test_generic_affix_pool() -> void:
+	_current_test = "GenericAffixPool"
+	print("\n--- %s ---" % _current_test)
+
+	EquipmentDB.init_equipment_db()
+
+	# 池表规模与分册口径（16 属性型 + 5 触发型；分册共 21 种，
+	# 其中 4 种「负面时长+/击退距离+」等已并入属性型表）
+	_check(EquipmentDB.GENERIC_STAT_POOL.size() == 16,
+		"属性型通用词条 16 种", [EquipmentDB.GENERIC_STAT_POOL.size()])
+	_check(EquipmentDB.GENERIC_TRIGGER_POOL.size() == 5,
+		"触发型通用词条 5 种", [EquipmentDB.GENERIC_TRIGGER_POOL.size()])
+
+	# 触发型施加的词条 id 必须在 BuffDefs 里真实存在（否则触发了也没效果）
+	for row in EquipmentDB.GENERIC_TRIGGER_POOL:
+		var bid := str(row[2])
+		if bid == "splash":
+			continue   # 范围伤害是直接结算，不施加词条
+		_check(not BuffDefs.get_buff(bid).is_empty(),
+			"触发词条 %s 在 BuffDefs 中存在" % bid)
+		# 概率区间合法
+		_check(float(row[3]) > 0.0 and float(row[4]) >= float(row[3]),
+			"触发词条 %s 概率区间合法（%.2f~%.2f）" % [bid, row[3], row[4]])
+
+	# 属性型的 stat 键可解析（面板属性走 AttributeSystem，其余走 SPECIAL_STAT）
+	for row in EquipmentDB.GENERIC_STAT_POOL:
+		var key := str(row[2])
+		var ok := EquipmentDB.stat_enum_of(key) >= 0 \
+			or EquipmentDB.special_enum_of(key) >= 0
+		_check(ok, "属性词条 %s 的 stat 键可解析（%s）" % [row[0], key])
+
+	# AffixData 的触发型构造
+	var t := AffixData.make_trigger("stun", 0.05, 1.0)
+	_check(t.is_trigger(), "make_trigger 构造的是触发型")
+	_check(not t.is_stat(), "触发型不被当作属性型（不会误挂 AttributeSystem）")
+	_check(t.trigger_buff == "stun" and absf(t.trigger_chance - 0.05) < 0.001,
+		"触发型字段正确")
+	_check(t.description().contains("眩晕"), "触发型描述含词条名（%s）" % t.description())
+
+	# 稀有度递进：白/绿无触发词条，蓝起有，橙有 2 条
+	var white_pool: Array = EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.WHITE)
+	if not white_pool.is_empty():
+		_check(white_pool[0].trigger_affixes.is_empty(),
+			"白装无触发型词条")
+	var blue_pool: Array = EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.BLUE)
+	if not blue_pool.is_empty():
+		var any_blue := false
+		for tpl in blue_pool:
+			if not tpl.trigger_affixes.is_empty():
+				any_blue = true
+		_check(any_blue, "蓝装开始出现触发型词条")
+	var orange_pool: Array = EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.ORANGE)
+	if not orange_pool.is_empty():
+		var max_cnt := 0
+		for tpl in orange_pool:
+			max_cnt = maxi(max_cnt, tpl.trigger_affixes.size())
+		_check(max_cnt == 2, "橙装最多 2 条触发型词条", [max_cnt])
+
+	# 确定性：同一件装备多次查表词条一致（否则背包里的词条会"漂移"）
+	if not orange_pool.is_empty():
+		var a: EquipmentTemplate = orange_pool[0]
+		var tpl2: EquipmentTemplate = EquipmentDB.get_template(a.id)
+		var same := tpl2 != null and tpl2.trigger_affixes.size() == a.trigger_affixes.size()
+		if same:
+			for i in a.trigger_affixes.size():
+				if a.trigger_affixes[i].trigger_buff != tpl2.trigger_affixes[i].trigger_buff:
+					same = false
+		_check(same, "同 id 装备的触发词条稳定（不随查询变化）")
+
+	# 特殊修饰量的枚举值不撞面板属性（AttributeSystem.Stat 只到 10）
+	for key in EquipmentDB.SPECIAL_STAT:
+		var ev := int(EquipmentDB.SPECIAL_STAT[key]["enum"])
+		_check(ev >= 100, "特殊修饰量 %s 的枚举值 %d 避开面板属性域" % [key, ev])
+
+
 func test_red_rarity_pool_not_empty() -> void:
 	_current_test = "RedRarityPool"
 	print("\n--- %s ---" % _current_test)

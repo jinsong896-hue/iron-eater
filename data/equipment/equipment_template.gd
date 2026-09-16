@@ -16,6 +16,12 @@ extends Resource
 @export var devour_affix: AffixData = null
 @export var fusion_affix: AffixData = null
 
+## 触发型词条（名词分册第 5 章「通用词条池（装备可附加）」的 9 种触发型）。
+## 与上面三条数值型词条并列：那些改面板属性，这些在**命中时按概率施加词条**
+## （眩晕/破甲/致盲/缴械/范围伤害）。数量与概率档位由稀有度决定
+## （见 EquipmentDB.TRIGGER_POOL_BY_RARITY），白装没有、橙装才有 2 条。
+@export var trigger_affixes: Array[AffixData] = []
+
 @export var icon_path: String = ""
 @export var scene_path: String = ""
 

@@ -200,6 +200,67 @@ func fusion_attack_bonus() -> float:
 	return _fusion_attack_bonus
 
 
+## 汇总已装备的**触发型词条**（名词分册第 5 章装备可附加词条）。
+## 返回 [{buff, chance, duration}, ...]，同名词条的**概率累加**——
+## 两件装备各带 5% 眩晕就是 10%，与「同类词条可叠加」的分册口径一致。
+## 命中链路（player._apply_hit）拿到后逐条 roll。
+func equipped_trigger_affixes() -> Array:
+	var merged := {}   # buff_id -> {chance, duration}
+	for slot in _equipped:
+		var inst = _equipped[slot]
+		if inst == null:
+			continue
+		var tpl: EquipmentTemplate = inst.get_template()
+		if tpl == null:
+			continue
+		for affix in tpl.trigger_affixes:
+			if affix == null or not affix.is_trigger():
+				continue
+			var bid: String = affix.trigger_buff
+			if bid.is_empty():
+				continue
+			if not merged.has(bid):
+				merged[bid] = {"chance": 0.0, "duration": affix.trigger_duration}
+			var e: Dictionary = merged[bid]
+			e["chance"] = float(e["chance"]) + affix.trigger_chance
+			# 时长取更长的那个（多件叠加时不缩短）
+			e["duration"] = maxf(float(e["duration"]), affix.trigger_duration)
+	var out: Array = []
+	for bid in merged:
+		out.append({
+			"buff": bid,
+			"chance": minf(float(merged[bid]["chance"]), 1.0),
+			"duration": float(merged[bid]["duration"]),
+		})
+	return out
+
+
+## 汇总已装备的**特殊修饰量**（非面板属性的那 6 种通用词条）。
+## 返回 {life_steal, knockback_pct, debuff_dur_pct, elem_pen_pct,
+##       reflect_pct, execute_bonus}，缺省 0.0。
+## 这些不走 AttributeSystem（不是面板属性），由伤害结算自行读取。
+func special_modifiers() -> Dictionary:
+	var out := {
+		"life_steal": 0.0, "knockback_pct": 0.0, "debuff_dur_pct": 0.0,
+		"elem_pen_pct": 0.0, "reflect_pct": 0.0, "execute_bonus": 0.0,
+	}
+	for slot in _equipped:
+		var inst = _equipped[slot]
+		if inst == null:
+			continue
+		var tpl: EquipmentTemplate = inst.get_template()
+		if tpl == null:
+			continue
+		for affix in [tpl.base_affix, tpl.devour_affix, tpl.fusion_affix]:
+			if affix == null or not affix.is_stat():
+				continue
+			var out_key: String = EquipmentDB.special_out_key(affix.stat)
+			if out_key.is_empty():
+				continue
+			out[out_key] = float(out[out_key]) + affix.value * inst.enhancement_mult()
+	return out
+
+
 ## 获取 GameManager autoload（--script 测试模式下不存在，返回 null）
 func _game_manager():
 	var tree := Engine.get_main_loop() as SceneTree

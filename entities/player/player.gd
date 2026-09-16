@@ -446,18 +446,37 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	# 调试伤害倍率加在**出手侧**（面板上的"伤害倍率"惯例指"我打出去的伤害"）
 	total *= _damage_multiplier
 
+	# —— 装备通用词条（名词分册第 5 章）——
+	# 这些不是面板属性，只在命中结算时读一次，故不挂 AttributeSystem。
+	var sp: Dictionary = _equip_special_mods()
+
+	# 处决线：对生命低于阈值的敌人伤害 +30%（分册「处决线」）
+	var exec_line: float = float(sp.get("execute_line", 0.0))
+	if exec_line > 0.0 and enemy.has_method("hp_ratio") and float(enemy.call("hp_ratio")) <= exec_line:
+		total *= 1.3
+
+	# 击退距离 +N%：直接放大本次击退
+	var kb_pct: float = float(sp.get("knockback_pct", 0.0))
+	var kb: float = knockback * (1.0 + kb_pct)
+
 	# 击退向量（EnemyBase 硬直期间消费）
 	var push: Vector3 = Vector3.ZERO
-	if knockback > 0.0:
+	if kb > 0.0:
 		push = (enemy.global_position - global_position)
 		push.y = 0.0
 		if push.length_squared() > 0.001:
-			push = push.normalized() * knockback
+			push = push.normalized() * kb
 		else:
-			push = _facing * knockback
+			push = _facing * kb
 	enemy.call("take_damage", total, crit, push)
+	# 生命偷取：造成伤害的 N% 转回血
+	var ls: float = float(sp.get("life_steal", 0.0))
+	if ls > 0.0:
+		_lifesteal_heal(total * ls)
 	# 元素攻击：给目标叠层，并把阈值事件转成控制词条（冰冻/麻痹）
 	_apply_element_to(enemy)
+	# 装备触发型词条：按概率给目标施加状态（眩晕/破甲/致盲/缴械/范围伤害）
+	_apply_trigger_affixes(enemy, total)
 	EventBus.damage_popup.emit(enemy.global_position, total, "crit" if crit else "normal")
 	# 暴击/终结技 hitstop 顿帧。
 	# 阈值必须是「罕见时刻」而非常规段位——旧值 1.5 把普攻4（1.8）、
@@ -469,8 +488,102 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 		_screen_shake(0.1)
 
 
-## 把本次攻击的元素叠到目标身上，并处理阈值触发（冰冻/雷暴）
-## 攻击元素来源：已装备武器的 element 字段；未赋予则为纯物理，不叠层。
+## 取已装备的特殊修饰量汇总（生命偷取/击退加成/负效时长/元素穿透/
+## 反弹/处决线）。装备管理器不可用时返回全 0，调用方无需判空。
+func _equip_special_mods() -> Dictionary:
+	var em = GameManager.equipment_manager
+	if em == null or not em.has_method("special_modifiers"):
+		return {}
+	return em.special_modifiers()
+
+
+## 生命偷取回血（分册第 5 章通用词条）。治疗量受「受到治疗 -%」影响。
+func _lifesteal_heal(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	if GameManager.attributes == null or GameManager.attributes.is_dead():
+		return
+	var heal_down: float = 0.0
+	if buffs != null:
+		heal_down = buffs.total_heal_reduction()
+	var healed: float = GameManager.attributes.heal(amount * (1.0 - clampf(heal_down, 0.0, 1.0)))
+	if healed > 0.0:
+		EventBus.damage_popup.emit(global_position, healed, "heal")
+
+
+## 装备触发型词条：命中时按概率给目标施加状态（名词分册第 5 章）。
+##
+## 与元素控制的关系：元素走「叠层到阈值」（冰冻/麻痹），
+## 这里是装备直接的概率触发，两条链路独立判定、可叠加。
+## 概率在 EquipmentManager 侧已按同名词条累加（两件 5% = 10%）。
+func _apply_trigger_affixes(enemy: Node3D, damage: float) -> void:
+	var em = GameManager.equipment_manager
+	if em == null or not em.has_method("equipped_trigger_affixes"):
+		return
+	var triggers: Array = em.equipped_trigger_affixes()
+	if triggers.is_empty():
+		return
+	var tgt_buffs = enemy.get("buffs")
+	if tgt_buffs == null:
+		return
+	# 负效时长 +N%（分册通用词条）放大本次施加的持续时间
+	var dur_bonus: float = float(_equip_special_mods().get("debuff_dur_pct", 0.0))
+
+	for t in triggers:
+		if randf() > float(t.get("chance", 0.0)):
+			continue
+		var bid: String = str(t.get("buff", ""))
+		if bid.is_empty():
+			continue
+		# 范围伤害是特殊项：不是施加词条，而是对周围造成溅射
+		if bid == "splash":
+			_apply_splash_damage(enemy, damage)
+			continue
+		# 时长：词条自带时长 ×(1+负效加成)；<=0 表示用表定值
+		var dur: float = float(t.get("duration", 0.0))
+		tgt_buffs.apply(bid, "equip")
+		# 施加后按加成延长（BuffHolder 记录的是表定 remaining，这里补差）
+		if dur_bonus > 0.0:
+			_extend_buff_duration(tgt_buffs, bid, dur_bonus)
+		EventBus.message.emit("触发【%s】" % _buff_name(bid))
+
+
+## 延长目标身上某词条的剩余时长（负效时长 +N%）。
+func _extend_buff_duration(tgt_buffs, buff_id: String, bonus: float) -> void:
+	if tgt_buffs == null or not tgt_buffs.has(buff_id):
+		return
+	var e = tgt_buffs.get("_buffs")
+	if e is Dictionary and (e as Dictionary).has(buff_id):
+		var rec: Dictionary = (e as Dictionary)[buff_id]
+		var cur: float = float(rec.get("remaining", 0.0))
+		if cur > 0.0:
+			rec["remaining"] = cur * (1.0 + bonus)
+
+
+## 词条显示名（取不到时回退 id）
+func _buff_name(buff_id: String) -> String:
+	var row: Array = BuffDefs.get_buff(buff_id)
+	if row.is_empty():
+		return buff_id
+	return str(row[1])
+
+
+## 范围伤害（分册通用词条「攻击附带 攻击力×0.1 范围伤害（2 米内）」）。
+## 只伤害目标周围**其它**敌人——主目标已经在本次命中里结算过了。
+func _apply_splash_damage(center: Node3D, _base_damage: float) -> void:
+	var atk: float = GameManager.stat_value("atk")
+	var splash: float = atk * EquipmentDB.SPLASH_ATK_RATIO
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if e == center or not _is_valid_enemy(e):
+			continue
+		var d: float = (e as Node3D).global_position.distance_to(center.global_position)
+		if d > EquipmentDB.SPLASH_RADIUS:
+			continue
+		(e as Node3D).call("take_damage", splash, false, Vector3.ZERO)
+		EventBus.damage_popup.emit((e as Node3D).global_position, splash, "aoe")
+
+
+## 把本次攻击的元素叠到目标身上，并处理阈值触发（冰冻/雷暴）## 攻击元素来源：已装备武器的 element 字段；未赋予则为纯物理，不叠层。
 func _apply_element_to(enemy: Node3D) -> void:
 	if attack_element < 0:
 		return
