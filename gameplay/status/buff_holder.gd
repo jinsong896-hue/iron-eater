@@ -59,6 +59,10 @@ func apply(buff_id: String, source: String = "buff", stacks: int = 1) -> Diction
 	# 刷新时长（永久词条 duration=0 不设剩余时间）
 	if float(row[3]) > 0.0:
 		e["remaining"] = float(row[3])
+	# 记录**最近一次**施加者：remove_from_source 靠它判断
+	# 「这个词条现在还是我施加的吗」。区域陷阱每 tick 重刷，故施法者
+	# 离开后若被别的来源接管，source 会随之更新，区域不会误删。
+	e["source"] = source
 	_sync_modifier(buff_id)
 	return {"ok": true, "stacks": e["stacks"]}
 
@@ -69,6 +73,20 @@ func remove(buff_id: String) -> void:
 		return
 	_clear_modifier(buff_id)
 	_buffs.erase(buff_id)
+
+
+## 按来源移除词条：仅当**当前记录的最后施加者**是 source 时才移除。
+## 用于「区域内持续施加、离开区域撤销」的陷阱型词条（见 DamageZone）。
+## 若期间被其它来源重新施加（source 已变），说明该词条另有出处，
+## 不能由本来源撤销——否则会误删别人挂的效果。
+## 返回是否真的移除了。
+func remove_from_source(buff_id: String, source: String) -> bool:
+	if not _buffs.has(buff_id):
+		return false
+	if str(_buffs[buff_id].get("source", "")) != source:
+		return false
+	remove(buff_id)
+	return true
 
 
 ## 是否持有

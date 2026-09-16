@@ -126,13 +126,23 @@ func _apply_tick() -> void:
 				if n.has_method("_update_health_bar"):
 					n.call("_update_health_bar")
 
-	# 减速陷阱（骸骨猎犬）：区域内目标挂减速词条
+	# 减速陷阱（骸骨猎犬 / 第 2 层坍方区）：区域内目标挂减速词条。
+	#
+	# **必须成对：进区施加、出区移除。** 原先只有施加没有移除，而这里用的
+	# thorn_slow 是 duration=0 的永久词条（策划口径「移速 -50%（踏入期间）」，
+	# 靠离开时撤掉）——于是玩家一旦踩进第 2 层的坍方区，-50% 移速就永久挂着，
+	# 后续无论走到哪都脱不掉（实测踩到）。
+	# 移除只针对**本区域施加的**（用本区域实例 id 作 source），
+	# 避免误删同一词条的其它来源（怪物命中减速等）。
 	if slow_buff != "":
+		var my_source := "zone_%d" % get_instance_id()
 		for n in get_tree().get_nodes_in_group(target_group):
 			if not (n is Node3D):
 				continue
-			if global_position.distance_to((n as Node3D).global_position) > radius:
-				continue
 			var tb = n.get("buffs")
-			if tb != null:
-				tb.apply(slow_buff, "zone")
+			if tb == null:
+				continue
+			if global_position.distance_to((n as Node3D).global_position) <= radius:
+				tb.apply(slow_buff, my_source)
+			else:
+				tb.remove_from_source(slow_buff, my_source)

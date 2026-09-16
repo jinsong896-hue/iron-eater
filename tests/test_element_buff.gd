@@ -34,6 +34,7 @@ func _ready() -> void:
 	_test_mechanic_buff_ids()
 	_test_teleport_stealth_mechanics()
 	_test_summon_and_variants()
+	_test_zone_slow_lifecycle()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -1109,6 +1110,53 @@ func _test_summon_and_variants() -> void:
 		ep.apply_monster_config(ph4)
 		_check(ep.dodge_teleport, "虚空魅影闪避后瞬移")
 		ep.queue_free()
+
+
+## 区域减速词条的生命周期：进区施加 / 出区移除。
+## 回归 bug：DamageZone 只施加不移除，而 thorn_slow 是 duration=0 的永久词条
+## （策划口径「踏入期间」），导致玩家踩一次第 2 层坍方区就永久 -50% 移速。
+func _test_zone_slow_lifecycle() -> void:
+	_test = "ZoneSlowLifecycle"
+	print("\n--- %s ---" % _test)
+
+	var BH = load("res://gameplay/status/buff_holder.gd")
+	var holder = BH.new(null)
+	var zone_source := "zone_12345"
+
+	# thorn_slow 确实是永久词条（duration=0）——这是必须成对移除的前提
+	var row: Array = BuffDefs.get_buff("thorn_slow")
+	_check(not row.is_empty() and float(row[3]) == 0.0,
+		"thorn_slow 是 duration=0 的永久词条（离开时必须显式移除）")
+
+	# 进区：施加后应有减速
+	holder.apply("thorn_slow", zone_source)
+	_check(holder.has("thorn_slow"), "进区后挂上减速")
+	_check(holder.total_slow() > 0.4, "减速生效（%.2f）" % holder.total_slow())
+
+	# 出区：按来源移除
+	var removed: bool = holder.remove_from_source("thorn_slow", zone_source)
+	_check(removed, "出区时按来源移除成功")
+	_check(not holder.has("thorn_slow"), "出区后减速已清除")
+	_check(holder.total_slow() == 0.0, "出区后移速恢复正常（slow=%.2f）" % holder.total_slow())
+
+	# 来源不匹配时不误删（该词条另有出处 → 不能由本区域撤销）
+	holder.apply("thorn_slow", "monster_hit")
+	var wrong: bool = holder.remove_from_source("thorn_slow", zone_source)
+	_check(not wrong, "来源不匹配时不移除（不误删其它来源的效果）")
+	_check(holder.has("thorn_slow"), "被怪物施加的减速仍在")
+
+	# 被其它来源接管后，原来源也不该撤销它
+	holder.apply("thorn_slow", zone_source)
+	holder.apply("thorn_slow", "monster_hit")   # monster 后施加 → source 变为 monster
+	var taken_over: bool = holder.remove_from_source("thorn_slow", zone_source)
+	_check(not taken_over, "词条已被其它来源接管时，原来源不撤销")
+
+	# 反复进出不残留（区域每 tick 重刷的真实节奏）
+	holder.remove("thorn_slow")
+	for i in 5:
+		holder.apply("thorn_slow", zone_source)
+		holder.remove_from_source("thorn_slow", zone_source)
+	_check(not holder.has("thorn_slow"), "反复进出区域不残留减速")
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:
