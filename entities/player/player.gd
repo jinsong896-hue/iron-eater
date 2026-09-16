@@ -432,7 +432,7 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 		taken_down = (tgt_buffs as BuffHolder).total_damage_reduction()
 	var result := DamagePipeline.elemental_attack(
 		atk, multiplier, fusion_bonus + combo_bonus, target_def, attack_element,
-		0.0, vuln, taken_down)
+		_target_elem_resist(enemy), vuln, taken_down)
 	# 元素亲和：元素伤害 +15%（分册 4.x 词条）
 	if attack_element >= 0:
 		result.damage = result.damage * (1.0 + _element_affinity_bonus())
@@ -486,6 +486,26 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	if crit or _current_combo_stage == combo_stages_size():
 		_hitstop(0.06)
 		_screen_shake(0.1)
+
+
+## 目标对本元素的**实际抗性** = 怪物自带抗性 − 玩家的元素穿透。
+## 分册 7.10：「法术伤害仅受极少数怪物自带抗性减免」，
+## 而通用词条「元素穿透：忽视目标 5%~15% 元素抗性」正是拿来削它的。
+## 结果钳到 [0, 0.9]——穿透可以完全抵掉抗性，但不该变成负抗性（反而增伤）。
+func _target_elem_resist(enemy: Node3D) -> float:
+	if attack_element < 0:
+		return 0.0
+	var raw = enemy.get("elem_resist")
+	if raw == null or not (raw is Dictionary):
+		return 0.0
+	var key := ElementDamage.key_from_elem(attack_element)
+	if key.is_empty():
+		return 0.0
+	var base_resist: float = float((raw as Dictionary).get(key, 0.0))
+	if base_resist <= 0.0:
+		return 0.0
+	var pen: float = float(_equip_special_mods().get("elem_pen_pct", 0.0))
+	return clampf(base_resist - pen, 0.0, 0.9)
 
 
 ## 取已装备的特殊修饰量汇总（生命偷取/击退加成/负效时长/元素穿透/
@@ -901,7 +921,11 @@ func _update_flash() -> void:
 	mat.albedo_color = Color(1.0, 0.15, 0.15).lerp(_base_color, 1.0 - blend)
 
 
-func take_damage(amount: float) -> void:
+## 玩家受击。
+## from：攻击者（可选）。仅用于**伤害反弹**词条（分册限定「受到近战伤害时」），
+## 传 null 表示无来源（区域伤害/DOT 等），不触发反弹。
+## 保持默认值以兼容既有调用（敌人 AI、DamageZone、测试）。
+func take_damage(amount: float, from: Node3D = null) -> void:
 	# 翻滚/俯冲无敌帧
 	if _is_dodging or _jump_phase == JumpPhase.DIVE:
 		return
@@ -926,9 +950,28 @@ func take_damage(amount: float) -> void:
 	_update_flash()
 	# HUD 血量刷新：玩家受伤不发 stats_changed，HUD 数值不会变
 	EventBus.stats_changed.emit()
+	# 伤害反弹（分册第 5 章通用词条「受到近战伤害时反弹 5%~15%」）。
+	# 只在**近战来源**下触发——分册明确限定近战；远程/区域伤害不反弹。
+	if from != null and is_instance_valid(from) and amount > 0.0:
+		_reflect_damage(from, amount)
 
 	if GameManager.attributes.is_dead():
 		die()
+
+
+## 伤害反弹：把本次受到伤害的 N% 打回攻击者。
+## 用 take_damage 回流，故对方的护甲/减伤照常参与结算——反弹是「以对方的
+## 规则打对方」，不是真实伤害。
+func _reflect_damage(attacker: Node3D, amount: float) -> void:
+	var pct: float = float(_equip_special_mods().get("reflect_pct", 0.0))
+	if pct <= 0.0:
+		return
+	var back: float = amount * pct
+	if back <= 0.0:
+		return
+	if attacker.has_method("take_damage"):
+		attacker.call("take_damage", back, false, Vector3.ZERO)
+		EventBus.damage_popup.emit(attacker.global_position, back, "aoe")
 
 
 ## 受击击退（石翼蝙蝠等怪物机制调用）

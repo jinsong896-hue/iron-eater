@@ -67,6 +67,10 @@ var summon_spec: Dictionary = {}   ## 召唤配置 {id,count,chance}
 var affixes: Array = []       ## 词缀 id 列表（数值型已作用到属性，其余待后续系统）
 var buffs = null              ## BuffHolder：词条与元素叠层容器（_ready 创建）
 var attack_element := -1      ## 攻击附带的元素（ElementDefs.Elem；-1 = 纯物理）
+## 元素抗性（分册 7.10：「法术伤害仅受极少数怪物自带抗性减免」）。
+## 格式 {"fire": 0.6, "frost": 0.35}，键为 ElementDefs 的 key。
+## 玩家侧「元素穿透」词条就是拿来削这个值的（见 DamagePipeline.elemental_attack）。
+var elem_resist: Dictionary = {}
 
 # —— 分册第 5/6 章专属机制（本轮落地「状态/属性类」8 个）——
 var mech := ""                ## 本怪的机制标记（来自 MonsterDB 的 special 标记名）
@@ -219,6 +223,9 @@ func apply_monster_config(m: Dictionary) -> void:
 	# 攻击元素（分册 7.x）：该怪的攻击会给目标叠对应元素层数。
 	# 表里用字符串键（"fire"/"poison"…），未标则为纯物理。
 	attack_element = ElementDamage.elem_from_key(str(m.get("element", "")))
+	# 元素抗性（稀疏表，多数怪为空）
+	var er = m.get("elem_resist", {})
+	elem_resist = er if er is Dictionary else {}
 	attack_interval = float(m.get("attack_interval", 3.0))
 	_base_attack_interval = attack_interval
 	dodge_pct = float(m.get("dodge_pct", 0.0))
@@ -397,8 +404,12 @@ func _apply_mechanic(m: String) -> void:
 			hit_dodge_bonus = 0.40
 			hit_dodge_seconds = 3.0
 		# 4.8 硫磺幽魂：命中后减速玩家 40%，3 秒
+		# **必须用有时效的词条**：thorn_slow 是 duration=0 的永久词条
+		# （它靠「离开区域时移除」生效，见 DamageZone），
+		# 拿来当命中减速会让玩家被永久 -50% 移速且无法解除。
+		# mire 的 slow=0.40 / 3 秒 与这里的策划口径一致。
 		"slow_on_hit":
-			hit_slow_buff = "thorn_slow"
+			hit_slow_buff = "mire"
 		# 4.9 墓穴巨鼠：每 10 秒恐惧吼叫（玩家移速 -30%，3 秒）
 		"fear_roar":
 			aura_interval = 10.0
@@ -1043,7 +1054,7 @@ func _try_ambush() -> bool:
 	# 突袭伤害：高倍率
 	var dmg := atk * ambush_damage_pct
 	if (_player as Node3D).has_method("take_damage"):
-		(_player as Node3D).call("take_damage", dmg)
+		(_player as Node3D).call("take_damage", dmg, self)
 	var bus = _event_bus()
 	if bus:
 		bus.damage_popup.emit((_player as Node3D).global_position, dmg, "crit")
@@ -1109,7 +1120,8 @@ func _perform_attack() -> void:
 	# 按攻击元素走对应伤害类型：火/冰/雷/毒 无视护甲（分册 7.1），
 	# 土/风 各半，无元素为纯物理
 	var result = DamagePipeline.elemental_attack(atk, 1.0, 0.0, player_def, attack_element)
-	_player.take_damage(result.damage)
+	# 传自身为来源：玩家侧「伤害反弹」词条据此把伤害打回来（分册限定近战）
+	_player.take_damage(result.damage, self)
 	_apply_element_to_player()
 	_apply_melee_mechanics()
 	# 毒腺蛙：攻击后在原地留下毒液区

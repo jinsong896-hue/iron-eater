@@ -165,7 +165,11 @@ const ELITE_ATK_MAX := 1.5
 ## 元素攻击（分册 7.x）：**只有部分怪带元素**，其余为纯物理。
 ## 稀疏表 —— 未列出的怪物不带元素（绝不臆造）。
 ## 依据：分册第 4/5 章的怪物命名与主题（毒瘴系=毒、硫磺/熔岩/炎/鬼火系=火、
-## 石翼/矿晶=土）。冰与雷在怪物侧没有自然来源，需靠装备赋予（登记待办）。
+## 石翼/矿晶=土、冰霜系=冰、静电/混沌系=雷）。
+##
+## 冰与雷的来源按**主题语义**补（与火/毒/土同一套推导口径）：
+##   冰 —— 地下沼泽（荧光真菌/泥潭寒气）、熵能浮体（虚空低温）
+##   雷 —— 静电/混沌/裂隙主题（混沌裂隙层、熵能系、时空扰动系）
 const ELEMENT_BY_ID := {
 	# 毒系
 	"zombie_miasma": "poison", "miasma_p2": "poison", "miasma_p4": "poison",
@@ -183,7 +187,43 @@ const ELEMENT_BY_ID := {
 	"ash_walker": "fire", "flame_spawn": "fire",
 	# 土系（石/矿晶）
 	"bat_stonewing": "earth", "crystal_beetle": "earth",
+	# 冰系（沼泽寒气 / 虚空低温 / 死亡区域的凛冬主题）
+	"wetland_ambusher": "frost", "swamp_giant": "frost",
+	"miasma_frost": "frost", "phantom_p4": "frost",
+	# 雷系（静电 / 混沌裂隙 / 时空扰动）
+	"chaos_blade": "static", "entropy_float": "static",
+	"time_warp": "static", "void_hunter": "static",
 }
+
+## 元素抗性（分册 7.10：「法术伤害仅受极少数怪物自带抗性减免」）。
+## 稀疏表 —— 未列出的怪抗性为 0。
+## 玩家侧「元素穿透」词条就是拿来削这个值的。
+## 键 → {元素 id: 抗性 0~0.6}；同一只怪可对多种元素有不同抗性。
+const ELEM_RESIST_BY_ID := {
+	# 熔岩/硫磺系：抗火
+	"forge_core":      {"fire": 0.60},
+	"flame_spawn":     {"fire": 0.50},
+	"sulfur_elemental":{"fire": 0.45},
+	"ash_walker":      {"fire": 0.40},
+	# 冰霜系：抗冰
+	"wetland_ambusher":{"frost": 0.45},
+	"swamp_giant":     {"frost": 0.35},
+	# 矿晶/石翼：抗土（岩石本体）
+	"crystal_beetle":  {"earth": 0.50},
+	"bat_stonewing":   {"earth": 0.30},
+	# 毒瘴系：抗毒
+	"zombie_miasma":   {"poison": 0.40},
+	"miasma_p2":       {"poison": 0.40},
+	"miasma_p3":       {"poison": 0.35},
+	"miasma_p4":       {"poison": 0.35},
+	# 虚空/混沌系：抗雷（能量体质）
+	"void_guard":      {"static": 0.40},
+	"chaos_blade":     {"static": 0.35},
+	"entropy_float":   {"static": 0.45},
+	# Boss 级：多抗性
+	"rat_mutant":      {"fire": 0.20},
+}
+
 
 
 ## 初始化（幂等）
@@ -237,6 +277,7 @@ static func _build_base_monsters() -> void:
 				"special": _special_for(str(st[5])),
 				"mech": str(st[5]),
 				"element": str(ELEMENT_BY_ID.get(id, "")),
+				"elem_resist": ELEM_RESIST_BY_ID.get(id, {}),
 				"phase": phase,
 				"base_key": key,
 				"is_elite": false,
@@ -280,6 +321,7 @@ static func _build_unique_monsters() -> void:
 			"special": _special_for(mech),
 			"mech": mech,
 			"element": str(ELEMENT_BY_ID.get(id, "")),
+				"elem_resist": ELEM_RESIST_BY_ID.get(id, {}),
 			"phase": PHASE_OF_LAYER.get(layer, 1),
 			"base_key": proto,
 			"appears_layer": layer,      # 只在本层及相邻层出现
@@ -312,6 +354,7 @@ static func _build_layer9_monsters() -> void:
 			"special": _special_for(str(row[6])),
 			"mech": str(row[6]),
 			"element": str(ELEMENT_BY_ID.get(id, "")),
+				"elem_resist": ELEM_RESIST_BY_ID.get(id, {}),
 			"phase": 5,
 			"base_key": proto,
 			"appears_layer": 9,

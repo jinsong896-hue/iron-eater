@@ -35,6 +35,7 @@ func _ready() -> void:
 	_test_teleport_stealth_mechanics()
 	_test_summon_and_variants()
 	_test_zone_slow_lifecycle()
+	_test_elem_resist_and_penetration()
 
 	if failed == 0:
 		print("ALL ELEMENT BUFF TESTS PASSED")
@@ -1157,6 +1158,93 @@ func _test_zone_slow_lifecycle() -> void:
 		holder.apply("thorn_slow", zone_source)
 		holder.remove_from_source("thorn_slow", zone_source)
 	_check(not holder.has("thorn_slow"), "反复进出区域不残留减速")
+
+
+## 元素抗性与穿透（分册 7.10：「法术伤害仅受极少数怪物自带抗性减免」
+## + 通用词条「元素穿透：忽视目标 5%~15% 元素抗性」）
+func _test_elem_resist_and_penetration() -> void:
+	_test = "ElemResistPenetration"
+	print("\n--- %s ---" % _test)
+
+	var MDB = load("res://data/monsters/monster_db.gd")
+	MDB.init()
+
+	# ① 六元素在怪物侧都要有来源（此前冰/雷为 0，元素系统半边是死的）
+	var by_elem := {}
+	for m in MDB.all_monsters():
+		var e := str(m.get("element", ""))
+		if not e.is_empty():
+			by_elem[e] = int(by_elem.get(e, 0)) + 1
+	for need in ["fire", "frost", "static", "earth", "poison"]:
+		_check(int(by_elem.get(need, 0)) > 0,
+			"怪物侧有 %s 元素来源（%d 只）" % [need, int(by_elem.get(need, 0))])
+
+	# ② 抗性稀疏表：只有少数怪有，且值域合法
+	var with_resist := 0
+	for m in MDB.all_monsters():
+		var r = m.get("elem_resist", {})
+		if r is Dictionary and not (r as Dictionary).is_empty():
+			with_resist += 1
+			for k in r:
+				var v := float(r[k])
+				_check(v > 0.0 and v <= 0.9,
+					"%s 的 %s 抗性值域合法（%.2f）" % [str(m.get("id")), k, v])
+	_check(with_resist > 0, "存在自带元素抗性的怪（%d 只）" % with_resist)
+	# 分册口径「极少数」——不该大面积铺满
+	_check(with_resist < MDB.all_monsters().size(),
+		"抗性是少数派（%d / %d）" % [with_resist, MDB.all_monsters().size()])
+
+	# ③ 元素枚举 ↔ 键 互逆（抗性表以字符串为键，必须能双向转换）
+	for k in ["fire", "frost", "static", "earth", "wind", "poison"]:
+		var e := ElementDamage.elem_from_key(k)
+		_check(ElementDamage.key_from_elem(e) == k,
+			"元素键 %s 双向转换一致" % k)
+	_check(ElementDamage.key_from_elem(999) == "", "未知元素返回空串")
+
+	# ④ 抗性参与伤害结算：抗性越高伤害越低
+	var no_res := DamagePipeline.elemental_attack(100.0, 1.0, 0.0, 0.0,
+		ElementDefs.Elem.FIRE, 0.0)
+	var half := DamagePipeline.elemental_attack(100.0, 1.0, 0.0, 0.0,
+		ElementDefs.Elem.FIRE, 0.5)
+	_check(float(half.damage) < float(no_res.damage),
+		"抗性降低元素伤害（无抗 %.1f → 抗50%% %.1f）" % [
+			float(no_res.damage), float(half.damage)])
+
+	# ⑤ 穿透削抗：抗 0.6 的怪，穿透 0.15 后应等价于抗 0.45 的伤害
+	var r60 := DamagePipeline.elemental_attack(100.0, 1.0, 0.0, 0.0,
+		ElementDefs.Elem.FIRE, 0.6)
+	var pen := DamagePipeline.elemental_attack(100.0, 1.0, 0.0, 0.0,
+		ElementDefs.Elem.FIRE, 0.6 - 0.15)
+	var r45 := DamagePipeline.elemental_attack(100.0, 1.0, 0.0, 0.0,
+		ElementDefs.Elem.FIRE, 0.45)
+	_check(absf(float(pen.damage) - float(r45.damage)) < 0.01,
+		"穿透 15%% 等价于抗性 -15%%（%.1f == %.1f）" % [
+			float(pen.damage), float(r45.damage)])
+	_check(float(pen.damage) > float(r60.damage),
+		"穿透后伤害高于未穿透（%.1f > %.1f）" % [
+			float(pen.damage), float(r60.damage)])
+
+	# ⑥ 命中减速用的词条必须**有时效**（thorn_slow 是区域专用永久词条，
+	#    拿来当命中减速会让玩家永久被减速且无法解除）。
+	#    走真实数据路径：取带 slow_on_hit 机制的怪，看它解析出的词条。
+	var EB = load("res://entities/enemies/enemy_base.gd")
+	var slow_ids: Array[String] = []
+	for m in MDB.all_monsters():
+		if str(m.get("mech", "")) != "slow_on_hit":
+			continue
+		var e2 = EB.new()
+		add_child(e2)
+		e2.apply_monster_config(m)
+		var bid: String = str(e2.get("hit_slow_buff"))
+		if not bid.is_empty() and not slow_ids.has(bid):
+			slow_ids.append(bid)
+		e2.queue_free()
+	_check(not slow_ids.is_empty(), "存在 slow_on_hit 机制的怪（%d 种词条）" % slow_ids.size())
+	for bid in slow_ids:
+		var row: Array = BuffDefs.get_buff(bid)
+		_check(not row.is_empty(), "命中减速词条 %s 存在" % bid)
+		_check(float(row[3]) > 0.0,
+			"命中减速词条 %s 有时效（%.1fs）——不能是永久词条" % [bid, row[3]])
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:

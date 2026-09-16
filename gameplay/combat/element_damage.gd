@@ -30,6 +30,15 @@ static func elem_from_key(key: String) -> int:
 	return int(ELEM_BY_KEY.get(key, NO_ELEMENT))
 
 
+## 元素枚举 → 字符串键（未知返回空串）。
+## 与 elem_from_key 互逆，用于「按元素枚举查怪物抗性表」这类以字符串为键的场景。
+static func key_from_elem(elem: int) -> String:
+	for k in ELEM_BY_KEY:
+		if int(ELEM_BY_KEY[k]) == elem:
+			return str(k)
+	return ""
+
+
 ## 执行一次元素攻击结算。
 ##
 ## attacker_buffs / target_buffs : BuffHolder（可为 null，表示该方无状态容器）
