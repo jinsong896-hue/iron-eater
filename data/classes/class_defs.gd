@@ -170,11 +170,116 @@ const CLASSES := {
 		"resource": "mage",
 		"desc": "自动回蓝。远程风筝，技能爆发。",
 		"forms": [
-			{"name": "元素使", "gain": "待实装", "mods": [], "special": {}, "start_gear": ["W11"], "skills": []},
-			{"name": "咒术师", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "咒焰使", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "咒术共鸣", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "虚空古神化身", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
+			# ---------- 初始：元素使 ----------
+			{
+				"name": "元素使",
+				"gain": "技能范围 +15%",
+				"mods": [],
+				"special": {"skill_range_pct": 0.15},
+				"start_gear": ["W11"],
+				"skills": [],
+			},
+			# ---------- 进阶1：咒术师 ----------
+			{
+				"name": "咒术师",
+				"gain": "每次施法后回蓝速度 +20%（可叠 3 层，最高 +60%）；施法命中返还 15% 消耗",
+				"mods": [],
+				"special": {"mana_regen_stack": 0.20, "cast_refund_pct": 0.15},
+				"start_gear": ["A04", "W02"],
+				"skills": [
+					{
+						"id": "arcane_siphon", "name": "奥术汲取", "kind": "projectile",
+						"cooldown": 3.0, "cost": 20.0,
+						"damage_mult": 0.8, "speed": 14.0, "lifetime": 1.6,
+						"element": "fire", "restore_resource": 10.0,
+						"desc": "造成（法强×0.8）伤害，恢复 10 点魔力，目标有负面状态额外 +5 点",
+					},
+					{
+						"id": "mana_convert", "name": "灵能转换", "kind": "buff",
+						"cooldown": 8.0, "cost": 0.0,
+						"hp_cost_pct": 0.10, "restore_resource": 30.0,
+						"duration": 3.0,
+						"self_buffs": [{"id": "gen_aspd_up", "stacks": 1}],
+						"desc": "消耗 10% 当前生命，立即恢复 30 点魔力，3 秒内施法速度 +25%",
+					},
+				],
+			},
+			# ---------- 进阶2：咒焰使 ----------
+			{
+				"name": "咒焰使",
+				"gain": "每次施法 +1 层咒焰（每层 +8% 伤害、+5% 施法速度，最多 6 层，持续 5 秒）",
+				"mods": [],
+				"special": {"flame_stack_per_cast": true},
+				"start_gear": ["A05", "W11"],
+				"skills": [
+					{
+						"id": "flame_burst", "name": "咒焰冲击", "kind": "detonate",
+						"cooldown": 6.0, "cost": 25.0,
+						"range": 12.0, "detonate_buff": "flame_mark",
+						"per_stack_mult": 1.2, "full_stack_mult": 2.4, "full_stack_count": 4,
+						"stack_buff_per_cast": "flame_mark",
+						"desc": "清空所有层数，造成（法强×1.2 + 层数×法强×0.4）伤害，层数≥4 时额外范围爆炸",
+					},
+					{
+						"id": "flame_infuse", "name": "咒焰灌注", "kind": "buff",
+						"cooldown": 10.0, "cost": 30.0,
+						"duration": 6.0, "stack_buff_per_cast": "flame_mark",
+						"self_buffs": [{"id": "gen_ap_up", "stacks": 1}],
+						"desc": "消耗所有层数，使下一次法术伤害 ×（1.5 + 层数×0.1），最高 ×2.1",
+					},
+				],
+			},
+			# ---------- 进阶3：咒术共鸣 ----------
+			{
+				"name": "咒术共鸣",
+				"gain": "法术范围 +30%；20% 概率触发法术共鸣（对周围 4 米敌人造成 50% 伤害副本）",
+				"mods": [],
+				"special": {"skill_range_pct": 0.30, "resonance_chance": 0.20},
+				"start_gear": ["A07", "W11"],
+				"skills": [
+					{
+						"id": "resonance_burst", "name": "共鸣引爆", "kind": "aoe",
+						"cooldown": 8.0, "cost": 30.0,
+						"damage_mult": 1.4, "radius": 4.5,
+						"target_buffs": [{"id": "brand", "duration": 4.0}],
+						"desc": "标记目标 4 秒，期间对其造成的所有法术伤害复制 40% 扩散至周围 3 米",
+					},
+					{
+						"id": "range_overload", "name": "范围过载", "kind": "buff",
+						"cooldown": 12.0, "cost": 0.0,
+						"hp_cost_pct": 0.0, "duration": 6.0,
+						"self_buffs": [{"id": "gen_rng_up", "stacks": 1},
+							{"id": "gen_ap_up", "stacks": 1}],
+						"desc": "消耗 30% 当前魔力，使下一次法术范围 ×2.0、伤害 ×1.3，命中≥3 敌时返还 50% 消耗",
+					},
+				],
+			},
+			# ---------- 终极：虚空古神化身 ----------
+			{
+				"name": "虚空古神化身",
+				"gain": "每次施法给目标叠 1 层虚空印记（最多 5 层，受伤 +10%/层）；技能冷却 -30%、魔力回复 +150%",
+				"mods": [{"stat": "cdr", "flat": 0.30, "percent": 0.0}],
+				"special": {"void_stigma_per_cast": true, "mana_regen_up": 1.5},
+				"start_gear": [],
+				"skills": [
+					{
+						"id": "void_annihilate", "name": "虚空湮灭", "kind": "detonate",
+						"cooldown": 15.0, "cost": 50.0,
+						"range": 14.0, "detonate_buff": "void_stigma",
+						"per_stack_mult": 3.5, "full_stack_mult": 3.5, "full_stack_count": 5,
+						"target_buffs": [{"id": "silence", "duration": 4.0}],
+						"stack_buff_per_cast": "void_stigma",
+						"desc": "引爆所有裂隙，每道造成（法强×3.5）范围伤害，沉默 4 秒",
+					},
+					{
+						"id": "abyss_whisper", "name": "深渊低语", "kind": "aoe",
+						"cooldown": 9.0, "cost": 40.0,
+						"damage_mult": 2.0, "radius": 4.5,
+						"stack_buff_per_cast": "void_stigma",
+						"desc": "以虚空之力冲击周围，施加印记并造成（法强×2.0）伤害",
+					},
+				],
+			},
 		],
 	},
 	"hunter": {
@@ -182,11 +287,113 @@ const CLASSES := {
 		"resource": "hunter",
 		"desc": "连击/暴击积攒专注。走 A 拉扯，暴击压制。",
 		"forms": [
-			{"name": "追猎者", "gain": "待实装", "mods": [], "special": {}, "start_gear": ["W09"], "skills": []},
-			{"name": "斥候", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "暗刃", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "鹰眼", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "森之选召", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
+			# ---------- 初始：追猎者 ----------
+			{
+				"name": "追猎者",
+				"gain": "远近切换无冷却；切换后移速 +10%（持续 2 秒）",
+				"mods": [],
+				"special": {"free_weapon_swap": true},
+				"start_gear": ["W09", "W02"],
+				"skills": [],
+			},
+			# ---------- 进阶1：斥候 ----------
+			{
+				"name": "斥候",
+				"gain": "移动射击移速惩罚取消；脱战 3 秒后移速 +30%；翻滚后免疫下一次攻击",
+				"mods": [{"stat": "spd", "flat": 0.0, "percent": 0.30}],
+				"special": {"out_of_combat_spd": 0.30, "dodge_immune_next": true},
+				"start_gear": ["A01", "W09"],
+				"skills": [
+					{
+						"id": "scout_dash", "name": "疾步", "kind": "dash",
+						"cooldown": 4.0, "cost": 20.0,
+						"damage_mult": 1.0, "dash_dist": 4.0, "reach": 1.8,
+						"target_buffs": [{"id": "thorn_slow", "duration": 3.0}],
+						"desc": "向前滑铲 4 米，无敌帧 0.25 秒，结束时扇形伤害 + 减速 50%（3 秒）",
+					},
+					{
+						"id": "survival_instinct", "name": "生存本能", "kind": "buff",
+						"cooldown": 12.0, "cost": 30.0,
+						"duration": 4.0,
+						"heal_pct_max": 0.20,
+						"self_buffs": [{"id": "gale", "stacks": 1}],
+						"desc": "立即恢复 20% 最大生命值 + 移速 40%（4 秒）；生命＜40% 时被动自动触发（每局限 1 次）",
+					},
+				],
+			},
+			# ---------- 进阶2：暗刃 ----------
+			{
+				"name": "暗刃",
+				"gain": "所有攻速 +30%；背刺伤害 ×2.0；暴击额外 +2 专注",
+				"mods": [{"stat": "aspd", "flat": 0.0, "percent": 0.30}],
+				"special": {"backstab_mult": 2.0},
+				"start_gear": ["A05", "W02"],
+				"skills": [
+					{
+						"id": "shadow_assault_h", "name": "暗影突袭", "kind": "teleport",
+						"cooldown": 4.0, "cost": 25.0,
+						"range": 8.0, "behind_offset": 1.1, "damage_mult": 1.2,
+						"target_buffs": [{"id": "tear", "duration": 4.0}],
+						"desc": "突进 4 米，120% 伤害，从背后命中时伤害 ×2.5 并施加撕裂（15/秒，4 秒）",
+					},
+					{
+						"id": "blade_storm", "name": "旋刃风暴", "kind": "multi_hit",
+						"cooldown": 6.0, "cost": 35.0,
+						"range": 3.0, "hit_count": 2, "damage_mult": 0.75,
+						"desc": "旋转双匕，周围 3 米敌人受到 2 次伤害（每次普攻 75%），可移动",
+					},
+				],
+			},
+			# ---------- 进阶3：鹰眼 ----------
+			{
+				"name": "鹰眼",
+				"gain": "所有武器射程 +60%；所有攻击附带范围穿透（身后 2 米直线 40% 伤害）",
+				"mods": [{"stat": "rng", "flat": 0.0, "percent": 0.60}],
+				"special": {"pierce_line": 0.40},
+				"start_gear": ["A02", "W09"],
+				"skills": [
+					{
+						"id": "heartseeker", "name": "穿心箭", "kind": "projectile",
+						"cooldown": 5.0, "cost": 35.0,
+						"damage_mult": 3.0, "speed": 24.0, "lifetime": 2.4,
+						"pierce_count": 3, "windup": 0.8,
+						"desc": "蓄力 0.8 秒，300% 伤害，无视 40% 护甲，穿透≥2 敌时冷却 -2 秒",
+					},
+					{
+						"id": "eagle_vision", "name": "鹰眼视野", "kind": "buff",
+						"cooldown": 10.0, "cost": 30.0,
+						"duration": 8.0,
+						"self_buffs": [{"id": "gen_rng_up", "stacks": 1},
+							{"id": "focus", "stacks": 1}],
+						"desc": "激活 8 秒，视野 +50%，全屏敌人标记（受伤 +20%，10 秒）",
+					},
+				],
+			},
+			# ---------- 终极：森之选召 ----------
+			{
+				"name": "森之选召",
+				"gain": "命中生成森之领域（6 秒、4 米）：领域内敌人移速 -40%、受伤 +25%，猎人在领域内攻速 +40%、暴击 +30%",
+				"mods": [],
+				"special": {"forest_domain": true},
+				"start_gear": [],
+				"skills": [
+					{
+						"id": "forest_rush", "name": "万木奔袭", "kind": "aoe",
+						"cooldown": 10.0, "cost": 45.0,
+						"damage_mult": 2.0, "radius": 6.0,
+						"target_buffs": [{"id": "entangle", "duration": 1.5}],
+						"self_buffs": [{"id": "wind_step", "stacks": 1}],
+						"desc": "引爆所有领域，每个对全屏造成（攻击力×2.0）伤害，施加 3 层缠绕，移速 +80% 持续 6 秒",
+					},
+					{
+						"id": "thorn_ground", "name": "荆棘地", "kind": "aoe",
+						"cooldown": 8.0, "cost": 35.0,
+						"damage_mult": 1.2, "radius": 4.0,
+						"target_buffs": [{"id": "thorn_slow", "duration": 8.0}],
+						"desc": "生成荆棘地（8 秒）：踏入者每秒受攻击力×0.6 伤害、减速 50%",
+					},
+				],
+			},
 		],
 	},
 	"judge": {
@@ -305,11 +512,116 @@ const CLASSES := {
 		"resource": "monk",
 		"desc": "不装备武器，连击体系驱动。连击续航，极限爆发。",
 		"forms": [
-			{"name": "拳师", "gain": "待实装", "mods": [], "special": {"no_weapon": true}, "start_gear": [], "skills": []},
-			{"name": "铁身", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "疾风", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "破极", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
-			{"name": "无我极境", "gain": "待实装", "mods": [], "special": {}, "start_gear": [], "skills": []},
+			# ---------- 初始：拳师 ----------
+			{
+				"name": "拳师",
+				"gain": "不可装备武器；空手攻击射程 +0.5 米、无视 5% 护甲；基础攻速 +30%；连击中断后保留 50% 连击数",
+				"mods": [{"stat": "aspd", "flat": 0.0, "percent": 0.30}],
+				"special": {"no_weapon": true, "fist_reach": 0.5, "fist_armor_pierce": 0.05},
+				"start_gear": [],
+				"skills": [],
+			},
+			# ---------- 进阶1：铁身 ----------
+			{
+				"name": "铁身",
+				"gain": "生命 +40%；受伤自动反击（下次攻击 ×2.0）；连击≥10 时减伤 25% 且反击翻倍",
+				"mods": [{"stat": "hp", "flat": 0.0, "percent": 0.40}],
+				"special": {"no_weapon": true, "counter_on_hit": 2.0},
+				"start_gear": [],
+				"skills": [
+					{
+						"id": "adamant_body", "name": "金刚体", "kind": "aoe",
+						"cooldown": 6.0, "cost": 25.0,
+						"damage_mult": 0.8, "radius": 3.5,
+						"target_buffs": [{"id": "taunt", "duration": 2.0}],
+						"self_buffs": [{"id": "adamant", "stacks": 1}],
+						"desc": "4 秒霸体 + 减伤 30%，移速 -30%，开启瞬间范围伤害（攻击×0.8）+ 嘲讽 2 秒",
+					},
+					{
+						"id": "iron_counter", "name": "铁壁反击", "kind": "cone",
+						"cooldown": 5.0, "cost": 20.0,
+						"damage_mult": 2.5, "reach": 2.6, "half_angle": 70.0,
+						"knockback": 4.0,
+						"self_buffs": [{"id": "adamant", "stacks": 1}],
+						"desc": "防御姿态 1.5 秒（不可移动/攻击），受击时反击（攻击×2.5）+ 击退，触发后重置冷却",
+					},
+				],
+			},
+			# ---------- 进阶2：疾风 ----------
+			{
+				"name": "疾风",
+				"gain": "攻速 +30%；连击≥10 时每次攻击恢复 2% 已损生命；连击≥20 时攻速额外 +30%；断连每秒 -5",
+				"mods": [{"stat": "aspd", "flat": 0.0, "percent": 0.60}],
+				"special": {"no_weapon": true, "combo_heal": 0.02, "slow_combo_decay": true},
+				"start_gear": [],
+				"skills": [
+					{
+						"id": "gale_flurry", "name": "疾风连打", "kind": "multi_hit",
+						"cooldown": 5.0, "cost": 25.0,
+						"range": 2.5, "hit_count": 10, "damage_mult": 0.40,
+						"combo_gain": 10,
+						"desc": "1.5 秒内对单目标造成 10 次伤害（每次 40%），连击计数翻倍增长",
+					},
+					{
+						"id": "wind_step_m", "name": "风之步", "kind": "teleport",
+						"cooldown": 2.0, "cost": 15.0,
+						"range": 6.0, "dash_dist": 2.5, "behind_offset": 1.0,
+						"combo_gain": 3,
+						"self_buffs": [{"id": "gen_aspd_up", "stacks": 1}],
+						"desc": "瞬移 2.5 米，后 1 秒攻速 +50%，连击计数 +3",
+					},
+				],
+			},
+			# ---------- 进阶3：破极 ----------
+			{
+				"name": "破极",
+				"gain": "可装备武器（突破限制）；连击无上限；每 25 连击触发破极状态 6 秒（攻击 +70%、攻速 +50%、真伤 ×0.15、防御归零）",
+				"mods": [],
+				"special": {"can_equip_weapon": true, "break_limit_at": 25},
+				"start_gear": [],
+				"skills": [
+					{
+						"id": "breaker_fist", "name": "破极拳", "kind": "cone",
+						"cooldown": 4.0, "cost": 30.0,
+						"damage_mult": 3.5, "reach": 3.0, "half_angle": 55.0,
+						"knockback": 5.0, "combo_scaled": true,
+						"desc": "蓄力 0.5~2 秒，造成（物理×1.5~3.5）伤害，破极状态下必暴且 ×1.5",
+					},
+					{
+						"id": "last_stand", "name": "背水一战", "kind": "buff",
+						"cooldown": 12.0, "cost": 40.0,
+						"duration": 8.0,
+						"heal_lost_pct": 0.20,
+						"self_buffs": [{"id": "break_limit", "stacks": 1},
+							{"id": "war_cry", "stacks": 1}],
+						"desc": "立即进入破极状态 8 秒（即使连击不足 25），受击 +150%，开启瞬间恢复 20% 已损生命",
+					},
+				],
+			},
+			# ---------- 终极：无我极境 ----------
+			{
+				"name": "无我极境",
+				"gain": "万象连击随连击数自动演进：连击>10 附范围冲击波；>25 发射 5 颗气功弹；>40 改为龙型气功波激光",
+				"mods": [],
+				"special": {"no_weapon": true, "myriad_combo": true},
+				"start_gear": [],
+				"skills": [
+					{
+						"id": "myriad_fist", "name": "万象连击", "kind": "multi_hit",
+						"cooldown": 8.0, "cost": 40.0,
+						"range": 3.0, "hit_count": 8, "damage_mult": 0.70,
+						"combo_scaled": true, "combo_gain": 8,
+						"desc": "连续不断的万象拳，随连击数提升段数与伤害",
+					},
+					{
+						"id": "void_palm", "name": "虚空掌", "kind": "aoe",
+						"cooldown": 10.0, "cost": 45.0,
+						"damage_mult": 2.5, "radius": 5.0, "knockback": 3.0,
+						"combo_scaled": true,
+						"desc": "一掌震开周围敌人，伤害随连击数放大",
+					},
+				],
+			},
 		],
 	},
 }

@@ -1045,6 +1045,15 @@ func get_hit_combo() -> int:
 	return _hit_combo_count
 
 
+## 主动加连击数（武僧技能用：疾风连打「连击翻倍」/ 风之步「+3」）。
+## 同时刷新连击计时窗口，否则加完立刻因超时清零。
+func add_hit_combo(n: int) -> void:
+	if n <= 0:
+		return
+	_hit_combo_count += n
+	_hit_combo_time = 2.0
+
+
 ## 受击闪红：前 40% 全红，剩余时间线性退回本色（与敌人同款节奏）
 func _update_flash() -> void:
 	if _model == null or _model.material_override == null:

@@ -113,6 +113,10 @@ const BUFFS := [
 	["rage_dance_aspd", "狂舞·疾", Kind.ATTACK, 6.0, 0, "攻速 +60%", "stat", {"aspd_up": 0.60}],
 	["rage_dance_true", "狂舞·真", Kind.ATTACK, 6.0, 0, "攻击附带真实伤害", "special", {"true_dmg_pct": 0.30}],
 	["chain_weak", "锁链缚", Kind.SLOW, 3.0, 0, "移速 -30%，攻速 -30%", "stat", {"slow": 0.30, "aspd_down": 0.30}],
+	# 策划 4.4 咒焰使：每次施法 +1 层，每层 +8% 伤害、+5% 施法速度（最多 6 层）
+	["flame_mark", "咒焰", Kind.ATTACK, 5.0, 6, "每层法强 +8%、攻速 +5%", "stat", {"ap_up": 0.08, "aspd_up": 0.05}],
+	# 策划 4.6 虚空古神化身：目标受伤 +10%/层（最多 5 层）
+	["void_stigma", "虚空印记", Kind.VULN, 8.0, 5, "每层受到伤害 +10%", "stat", {"vuln": 0.10}],
 
 	# ---------- 第 5 章 通用词条池（21） ----------
 	["gen_atk_up", "属性增益·攻击", Kind.GENERIC, 8.0, 0, "攻击力提升", "stat", {"atk_up": 0.12}],
@@ -150,7 +154,7 @@ const KIND_NAMES := {
 ## 职业技能描述反推而来（文档只给效果说明、未给独立词条定义）。
 ## 单独列出是为了让「词条表 == 文档 81 条」这条不变量仍可被测试校验。
 const SKILL_ONLY_IDS := ["rage_haste", "rage_fury", "rage_dance_aspd",
-	"rage_dance_true", "chain_weak"]
+	"rage_dance_true", "chain_weak", "flame_mark", "void_stigma"]
 
 ## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
 ## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），

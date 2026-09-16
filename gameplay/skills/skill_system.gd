@@ -57,6 +57,15 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 	if dir.length_squared() < 0.001:
 		dir = Vector3.FORWARD
 
+	# 连击缩放（策划 7.6 武僧破极：「连击无上限」「破极拳蓄力 1.5~3.5 倍」）。
+	# combo_scaled 的技能伤害随当前连击数放大：每 10 连击 +10%，
+	# 上限 +100%——不设上限会让武僧在长连击下数值失控。
+	if bool(sd.get("combo_scaled", false)):
+		var combo := _combo_count(caster)
+		var bonus: float = minf(float(combo) / 10.0 * 0.10, 1.0)
+		sd = sd.duplicate()
+		sd["damage_mult"] = float(sd.get("damage_mult", 1.0)) * (1.0 + bonus)
+
 	match str(sd.get("kind", "aoe")):
 		"aoe":        _cast_aoe(caster, sd, dir)
 		"cone":       _cast_cone(caster, sd, dir)
@@ -71,6 +80,23 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 
 	# 自身增益：不分 kind，任何技能都能配 self_buffs
 	_apply_self_buffs(caster, sd)
+	# 施法后回资源（策划 4.3 奥术汲取「恢复 10 点魔力」等）。
+	# 放在扣费之后：否则「消耗 30 回 10」会被算成净消耗 20 的假象——
+	# 实际是先扣后回，玩家看到的是净变化。
+	var restore := float(sd.get("restore_resource", 0.0))
+	if restore > 0.0 and resource != null:
+		resource.gain(restore)
+	# 「每次施法叠 1 层」的形态被动（策划 4.4 咒焰使：每次施法 +1 层咒焰）。
+	# 与 self_buffs 的区别：那个是固定挂一次，这个是可累积的层数上限词条。
+	var stack_buff := str(sd.get("stack_buff_per_cast", ""))
+	if not stack_buff.is_empty():
+		var pb = caster.get("buffs")
+		if pb != null:
+			pb.call("apply", stack_buff, "skill")
+	# 施放后加连击数（策划 7.5 疾风连打「连击计数翻倍增长」/ 风之步「连击 +3」）
+	var cg := int(sd.get("combo_gain", 0))
+	if cg > 0 and caster.has_method("add_hit_combo"):
+		caster.call("add_hit_combo", cg)
 	return {"ok": true, "skill": skill_id, "name": str(sd.get("name", skill_id))}
 
 
@@ -439,6 +465,13 @@ func _stat(caster: Node3D, key: String, fallback: float) -> float:
 func _skill_element(caster: Node3D, _sd) -> int:
 	var e = caster.get("attack_element")
 	return int(e) if e != null else -1
+
+
+## 读施法者当前连击数（武僧技能缩放用；取不到按 0）
+func _combo_count(caster: Node3D) -> int:
+	if caster.has_method("get_hit_combo"):
+		return int(caster.call("get_hit_combo"))
+	return 0
 
 
 ## 读施法者当前形态的 special 数值（如 backstab_mult）。

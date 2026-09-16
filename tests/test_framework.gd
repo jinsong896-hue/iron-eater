@@ -206,7 +206,14 @@ func test_class_defs() -> void:
 	var pending: Array = ClassDefs.pending_classes()
 	_check(not ("warrior" in pending), "战士已实装（不在待办里）")
 	_check(not ("judge" in pending), "判官已实装（不在待办里）")
-	_check(pending.size() < 5, "至少有一个职业已实装", [str(pending)])
+	# 5 职业已全部实装（策划 25 形态）
+	_check(pending.is_empty(), "5 职业全部实装（无待办）", [str(pending)])
+	# 技能总数：每职业 4 个进阶形态 × 2 = 8（初始与终极各 2）
+	var total_skills := 0
+	for cid in ClassDefs.class_ids():
+		for slot in range(ClassDefs.FORM_SLOTS):
+			total_skills += ClassDefs.skills_of(cid, slot).size()
+	_check(total_skills == 40, "5 职业共 40 个技能（各 8）", [str(total_skills)])
 
 	# 技能引用的词条 id 必须真实存在（否则运行时挂不上）
 	var missing: Array = []
