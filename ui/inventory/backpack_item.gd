@@ -16,8 +16,18 @@ var item: EquipmentInstance = null:
 
 var index: int = -1
 
+## 装备槽名称（仅"装备栏"里的格子设置；空槽时显示它，
+## 让玩家一眼看出这格该放什么，而不是一片空白）。
+var _slot_name: String = ""
+
 @onready var _color_rect: ColorRect = $ColorRect
 @onready var _name_label: Label = $NameLabel
+
+
+## 标记本格为装备槽（显示槽位名）
+func set_slot_label(slot_label: String) -> void:
+	_slot_name = slot_label
+	_update_display()
 
 
 func _ready() -> void:
@@ -41,14 +51,23 @@ func clear() -> void:
 	item = null
 
 
-## 更新显示（稀有度颜色块 + 装备名首字）
+## 更新显示（稀有度颜色块 + 装备名首字；装备槽空置时显示槽位名）
 func _update_display() -> void:
 	if _color_rect == null or _name_label == null:
 		return
 	if item == null:
-		_color_rect.color = Color(0.15, 0.15, 0.18, 1)
-		_name_label.text = ""
+		_name_label.text = _slot_name
+		# 装备槽空置：暗底色 + 槽名用灰字提示"这里该放什么"
+		if _slot_name.is_empty():
+			_color_rect.color = Color(0.15, 0.15, 0.18, 1)
+		else:
+			_color_rect.color = Color(0.13, 0.13, 0.16, 1)
+			_name_label.add_theme_font_size_override("font_size", 10)
+			_name_label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.55))
 		return
+	# 有物品：恢复常规字号/字色（可能被上面的空槽分支改过）
+	_name_label.add_theme_font_size_override("font_size", 18)
+	_name_label.add_theme_color_override("font_color", Color.WHITE)
 	# 稀有度颜色
 	var template := item.get_template()
 	var color := Color(0.5, 0.5, 0.5)

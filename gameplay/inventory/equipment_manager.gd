@@ -312,6 +312,12 @@ func fusion_attack_bonus() -> float:
 	return _fusion_attack_bonus
 
 
+## 吞噬产生的永久属性加成（只读拷贝），供 UI 汇总展示。
+## 返回 {source_instance_id: {"stat": int, "flat": float, "percent": float}}
+func devour_modifiers() -> Dictionary:
+	return _devour_modifiers.duplicate(true)
+
+
 ## 汇总已装备的**触发型词条**（名词分册第 5 章装备可附加词条）。
 ## 返回 [{buff, chance, duration}, ...]，同名词条的**概率累加**——
 ## 两件装备各带 5% 眩晕就是 10%，与「同类词条可叠加」的分册口径一致。

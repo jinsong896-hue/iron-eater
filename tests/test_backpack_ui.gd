@@ -28,6 +28,8 @@ func _ready() -> void:
 	await _test_fusion_flow()
 	await _test_devour_flow()
 	await _test_equip_page()
+	await _test_filter()
+	await _test_devour_summary()
 
 	if failed == 0:
 		print("ALL BACKPACK UI TESTS PASSED")
@@ -37,13 +39,13 @@ func _ready() -> void:
 		get_tree().quit(1)
 
 
-## 初始状态：默认背包页，空背包
+## 初始状态：左栏装备槽常驻、右栏背包网格、详情占位
 func _test_initial_state() -> void:
-	ui._switch_page(ui.Page.BAG)
 	await get_tree().process_frame
-	_check(ui._tab_bag.button_pressed, "默认背包页高亮")
-	_check(not ui.visible or true, "UI 可用")
 	_check(ui._detail_name.text == "选择装备查看详情", "详情面板初始占位")
+	# 装备槽常驻（左右分栏：左装备右背包，无需切页）
+	_check(ui._slot_grid.get_child_count() == 10, "装备槽常驻 10 格")
+	_check(ui._grids.size() > 0, "背包网格已构建")
 
 
 ## 装备流程：加装备 → 左键选中详情 → 穿戴
@@ -125,18 +127,61 @@ func _test_devour_flow() -> void:
 	_check(GameManager.devoured_count == 1, "吞噬计数 +1")
 
 
-## 装备页：槽位总览文本
+## 装备槽：已穿戴装备出现在左栏，且可点开详情
 func _test_equip_page() -> void:
-	ui._switch_page(ui.Page.EQUIP)
 	await get_tree().process_frame
-	_check(ui._tab_equip.button_pressed, "装备页高亮")
-	_check(ui._slot_panel.visible, "装备页显示槽位面板")
-	var found := false
-	for child in ui._slot_panel.get_children():
-		for label in child.get_children():
-			if label is Label and label.text.contains("铁制单手剑"):
-				found = true
-	_check(found, "装备页显示已穿戴武器")
+	# 左栏装备槽显示已穿戴武器（不再需要切页）
+	var w1 := int(EquipmentDefs.Slot.WEAPON_1)
+	var slot_node: BackpackItem = ui._slot_grids.get(w1)
+	_check(slot_node != null and slot_node.has_item(), "装备槽显示已穿戴武器")
+	if slot_node != null and slot_node.has_item():
+		_check(slot_node.item.display_name() == "铁制单手剑",
+			"槽内是铁制单手剑", slot_node.item.display_name())
+		# 点装备槽 → 详情（这是"免切页"的关键路径）
+		ui._on_slot_clicked(ui.SLOT_INDEX_BASE + w1)
+		_check(ui._detail_name.text == "铁制单手剑", "点装备槽可看详情")
+		# 角色属性已拆到独立的常驻面板（不随选中变化、不会被词条挤出视野）
+		_check(ui._stats.text.contains("攻击力"), "常驻面板显示角色属性",
+			ui._stats.text.substr(0, 40))
+	# 卸下（走左栏按钮路径）
+	ui._on_slot_clicked(ui.SLOT_INDEX_BASE + w1)
+	ui._on_btn_equip()   # 已穿戴 → 按钮为"卸下"
+	await get_tree().process_frame
+	_check(ui._btn_equip.text == "穿戴", "卸下后按钮回到「穿戴」")
+
+
+## 分类筛选：切到武器后，非武器格被清空
+func _test_filter() -> void:
+	var em = GameManager.equipment_manager
+	# 背包里放一件护甲，确保有可筛掉的目标
+	var armor = _make_item("A03")
+	em.add_item(armor)
+	await get_tree().process_frame
+
+	ui._on_filter_weapon()
+	await get_tree().process_frame
+	var has_armor := false
+	for g in ui._grids:
+		if g.has_item():
+			var t = g.item.get_template()
+			if t != null and t.category != EquipmentDefs.Category.WEAPON:
+				has_armor = true
+	_check(not has_armor, "武器筛选后不显示非武器")
+
+	ui._on_filter_all()
+	await get_tree().process_frame
+	var any := false
+	for g in ui._grids:
+		if g.has_item():
+			any = true
+	_check(any, "切回全部后有物品显示")
+
+
+## 吞噬汇总：吞噬后左栏汇总出现该词条
+func _test_devour_summary() -> void:
+	await get_tree().process_frame
+	_check(ui._devour_summary.text.contains("已吞噬"),
+		"吞噬汇总显示累计", ui._devour_summary.text)
 
 
 ## 从白装池创建实例
