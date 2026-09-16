@@ -172,6 +172,11 @@ var _player  # Player（动态类型：避免 --script 测试模式下 class_nam
 var _visual_color := Color(0.8, 0.2, 0.2)
 var _model: MeshInstance3D = null          # 模型引用（受击闪红/血条用）
 var _flash_timer := 0.0                    # 受击闪红剩余时间
+## 贴图模式下的两套材质：常态（角色贴图）与闪红（纯红）。
+## 闪红改的是 material_override 整体，而不是染 albedo_color——
+## 后者会与贴图相乘变成暗红糊块。
+var _visual_mat_tex: StandardMaterial3D = null
+var _visual_mat_red: StandardMaterial3D = null
 
 # 头顶血条（受伤后显示）
 var _hp_bar: Node3D = null
@@ -561,32 +566,48 @@ func _tick_trail(delta: float) -> void:
 func _create_visual() -> void:
 	var model := MeshInstance3D.new()
 	model.name = "Model"
-	var capsule := CapsuleMesh.new()
-	capsule.radius = 0.4 * body_scale
-	capsule.height = 1.8 * body_scale
-	model.mesh = capsule
-	model.position = Vector3(0, 0.9 * body_scale, 0)
-	var mat := StandardMaterial3D.new()
-	match behavior:
-		AIBehavior.MELEE_CHASE:
-			mat.albedo_color = Color(0.8, 0.2, 0.2)  # 红色近战
-		AIBehavior.RANGED_KITE:
-			mat.albedo_color = Color(0.2, 0.2, 0.8)  # 蓝色远程
-		AIBehavior.SENTRY:
-			mat.albedo_color = Color(0.2, 0.6, 0.6)  # 青色哨兵
-		AIBehavior.RUSHER:
-			mat.albedo_color = Color(0.85, 0.5, 0.1)  # 橙色突进
-		_:
-			mat.albedo_color = Color(0.5, 0.3, 0.7)  # 紫色特殊
-	mat.emission_enabled = death_poison  # 毒怪发光提示
-	if death_poison:
-		mat.emission = Color(0.2, 0.8, 0.2)
-		mat.emission_energy_multiplier = 0.4
-	model.material_override = mat
+	# **保持 1:1**：贴图格是 16×16 正方形，改成长方形会拉伸变形。
+	# 原先写成 (s, s*2.0) 让角色看起来又高又扁。
+	# 尺寸随 body_scale 缩放（巨型怪/Boss 更大），底边贴地。
+	var side := 1.1 * body_scale
+	var quad := QuadMesh.new()
+	quad.size = Vector2(side, side)
+	model.mesh = quad
+	model.position = Vector3(0, side * 0.5, 0)
+	# 贴图按行为分类（近战/远程/精英…各一种外观）
+	var cell: Vector2i = CharacterAtlas.enemy_cell(_behavior_key())
+	model.material_override = CharacterAtlas.make_billboard_material(cell)
 	add_child(model)
 	_model = model
-	_visual_color = mat.albedo_color  # 记录本色，闪红后还原用
+	# 闪红用：贴图在场时不能直接把 albedo_color 染红（会与贴图相乘，
+	# 变成暗红糊块）。改为**切换材质**——闪红期间换纯红材质，
+	# 结束后换回贴图材质。两者都静态缓存，不重复创建。
+	_visual_mat_tex = model.material_override
+	_visual_mat_red = _make_flash_material()
+	_visual_color = Color.WHITE
 	_create_health_bar()
+
+
+## 按 AI 行为取外观分类键（供 CharacterAtlas 查格）
+func _behavior_key() -> String:
+	match behavior:
+		AIBehavior.MELEE_CHASE: return "melee"
+		AIBehavior.RANGED_KITE: return "ranged"
+		AIBehavior.SENTRY:    return "caster"
+		AIBehavior.RUSHER:    return "tank"
+	return "elite"
+
+
+## 受击闪红材质（静态复用；纯红不受贴图影响）
+static var _flash_mat: StandardMaterial3D = null
+
+static func _make_flash_material() -> StandardMaterial3D:
+	if _flash_mat == null:
+		_flash_mat = StandardMaterial3D.new()
+		_flash_mat.albedo_color = Color(1.0, 0.15, 0.15)
+		_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_flash_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	return _flash_mat
 
 
 ## 敌人头顶血条（billboard 四边形，纯脚本图元，无贴图依赖）
@@ -1285,6 +1306,26 @@ func _fire_projectile() -> void:
 		_blink_after_shot(teleport_after_shot)
 
 
+# ============================================================
+# 属性接口（BuffHolder 消费）
+# ============================================================
+## 敌人**没有 AttributeSystem**（属性系统是玩家专有，见 data/attributes）。
+## 但 BuffHolder 会用这两个方法读宿主的攻/法强来结算 DOT——
+## 不提供的话 DOT 恒为 0（实测：给敌人叠 20 层毒蚀，每秒伤害为 0）。
+##
+## 敌人不受 stat 型词条影响（没有属性层可挂），这是**有意的**：
+## 敌人强度由 MonsterDB 数值 + 难度倍率决定，不该被词条二次改写。
+## 故这里只补「读」的接口，不提供 add_modifier——`_sync_modifier` 会
+## 因此早退，与既有行为一致。
+
+func eff_atk() -> float:
+	return atk
+
+
+func eff_ap() -> float:
+	return atk * 0.5   # 敌人无独立法强字段，按攻击力折半近似
+
+
 func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vector3.ZERO) -> void:
 	# 熔炉核心：脉冲期间自身无敌
 	if _pulse_timer > 0.0:
@@ -1365,23 +1406,41 @@ func _flash_hit() -> void:
 	_update_flash()
 
 
-## 按剩余时间推进闪红（前段全红，后段渐隐）
+## 按剩余时间推进闪红。
+##
+## **贴图模式下改用「切材质」而非染 albedo_color**：albedo_color 与
+## albedo_texture 是相乘关系，把贴图染红会得到暗红糊块（地板那边踩过同一个坑）。
+## 闪红期间整体换到纯红材质，结束后换回贴图材质——两者都静态缓存。
+## 渐隐仍保留：靠调整红材质的明度模拟（共享材质会互相干扰，故用
+## MeshInstance3D 独占的副本）。
 func _update_flash() -> void:
-	if _model == null or _model.material_override == null:
-		return
-	var mat := _model.material_override as StandardMaterial3D
-	if mat == null:
+	if _model == null:
 		return
 	if _flash_timer <= 0.0:
-		mat.albedo_color = _visual_color
+		# 恢复贴图材质
+		if _visual_mat_tex != null:
+			_model.material_override = _visual_mat_tex
 		return
-	# 前 40% 全红，剩余时间线性退回本色
+	# 前 40% 全红，剩余时间线性提亮回本色方向
 	var t := _flash_timer / HIT_FLASH_DURATION
 	var blend := clampf(t / 0.4, 0.0, 1.0)
-	mat.albedo_color = Color(1.0, 0.15, 0.15).lerp(_visual_color, 1.0 - blend)
+	var red := Color(1.0, 0.15, 0.15).lerp(Color.WHITE, 1.0 - blend)
+	if _visual_mat_red != null:
+		# 复用同一个红材质会被多只怪共享导致串色，故每次闪红建一个轻量副本
+		# （StandardMaterial3D 的 duplicate 很便宜，且闪红不频繁）
+		var m := _visual_mat_red.duplicate() as StandardMaterial3D
+		m.albedo_color = red
+		_model.material_override = m
 
 
 func die() -> void:
+	# **重入保护**：同一帧内可能有多个来源同时打死敌人——DOT 结算 + 普攻、
+	# AOE + 投射物、自爆连锁等。没有这道闸门时 die() 会跑多次：
+	# kills 重复计数、掉落重复生成（实测双致命伤 → kills 0→2）。
+	# 层数越高、伤害来源越多，撞上同帧双杀的概率越大，
+	# 表现就是「后期经常一次掉一堆装备」。
+	if _current_state == EnemyState.DEAD:
+		return
 	_current_state = EnemyState.DEAD
 	var gm = _game_manager()
 	if gm:

@@ -128,7 +128,23 @@ func devour(item: EquipmentInstance) -> Dictionary:
 		"stat": affix.stat, "flat": flat, "percent": percent,
 	}
 
+	# **若装备正穿在身上，必须先摘下来**。
+	# 原先只调 remove_item()（仅从背包 erase），已穿戴的装备不在背包里，
+	# 于是「吞噬成功、装备还在身上」——实测复现。
+	# 用 _clear_all_modifiers 而不是 unequip()：unequip 会把装备**退回背包**，
+	# 而吞噬是要它消失，退回去就白吞了。
+	for slot in _equipped.keys():
+		if _equipped[slot] == item:
+			_clear_all_modifiers(item)
+			_equipped.erase(slot)
+			var bus_eq = _event_bus()
+			if bus_eq:
+				bus_eq.equipment_changed.emit(slot, "")
+			break
+
 	remove_item(item)
+	# 卸下装备会改变武器构成 → 融合加成需重算
+	_recalc_fusion_bonus()
 	var bus = _event_bus()
 	if bus:
 		bus.item_devoured.emit(item.instance_id, item.display_name())

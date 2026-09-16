@@ -65,7 +65,11 @@ var _state_machine: StateMachine = null
 # 受击闪红（与敌人同款反馈；玩家此前完全没有任何受击视觉）
 var _model: MeshInstance3D = null       # 模型节点（player.tscn 的 Model）
 var _flash_timer := 0.0                 # 闪红剩余时间
-var _base_color := Color.WHITE          # 模型本色（闪红退回用）
+## 贴图模式下的两套材质：常态（职业贴图）与闪红（纯红）。
+## 闪红改的是 material_override 整体，而不是染 albedo_color——
+## 后者会与贴图相乘变成暗红糊块（与敌人同款处理）。
+var _visual_mat_tex: StandardMaterial3D = null
+var _visual_mat_red: StandardMaterial3D = null
 ## 受击闪红时长（秒）
 const HIT_FLASH_DURATION := 0.18
 
@@ -215,16 +219,83 @@ func apply_skill_dash(dir: Vector3, dist: float) -> void:
 ## 装配受击闪红用的模型引用。
 ## 复制一份材质再挂到模型上——直接改 scene 里的共享材质会让
 ## 同场景的多个玩家实例（或复用的资源）互相影响。
+## 装配模型与受击闪红用的材质。
+##
+## **模型从胶囊换成 billboard 四边形 + 职业贴图**：HD-2D 的做法是 2D 像素图
+## 贴在朝相机的平面上（与敌人同一套方案，见 enemy_base._create_visual）。
+## 这里在运行时重建 mesh 而不改 .tscn——逻辑集中在一处，且贴图格依赖
+## class_id（_setup_class 已先跑，见 _ready 顺序）。
+# ============================================================
+# 属性接口（BuffHolder 消费）—— 转发到 GameManager.attributes
+# ============================================================
+## **为什么必须加这几个转发**：BuffHolder 通过 `_target.call("add_modifier", …)`
+## 给宿主挂属性修正，通过 `_target.call("stat_value"/"eff_atk"/"eff_ap")` 读宿主
+## 的攻击/法强来结算 DOT。但这两个方法只存在于 AttributeSystem，
+## 而 BuffHolder 的 target 是 **Player 节点**——方法查找失败后
+## `_sync_modifier` 静默早退，于是**所有 stat 型词条（攻击+25%、生命+12%…）
+## 与元素/词条 DOT 从未生效过**（实测：挂 war_cry 后 ATK 35→35）。
+##
+## 这几个方法把调用转发到真正持有属性的 AttributeSystem。
+
+func add_modifier(source: String, stat: int, flat: float = 0.0, percent: float = 0.0) -> void:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm != null and gm.attributes != null:
+		gm.attributes.add_modifier(source, stat, flat, percent)
+
+
+func remove_modifiers(source: String) -> void:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm != null and gm.attributes != null:
+		gm.attributes.remove_modifiers(source)
+
+
+## 按属性名读最终值（BuffHolder 的 DOT 结算用）
+func stat_value(stat_name: String) -> float:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm != null and gm.has_method("stat_value"):
+		return float(gm.call("stat_value", stat_name))
+	return 0.0
+
+
+## 有效攻击力（DOT 用 dot_atk 系数乘它）
+func eff_atk() -> float:
+	return stat_value("atk")
+
+
+## 有效法术强度（DOT 用 dot_pct 系数乘它）
+func eff_ap() -> float:
+	return stat_value("ap")
+
+
 func _setup_hit_model() -> void:
 	_model = get_node_or_null("Model") as MeshInstance3D
 	if _model == null:
 		return
-	var src := _model.get_active_material(0) as StandardMaterial3D
-	var mat := StandardMaterial3D.new()
-	if src != null:
-		mat = src.duplicate() as StandardMaterial3D
-	_base_color = mat.albedo_color
-	_model.material_override = mat
+	# 四边形：**保持 1:1**（贴图格是 16×16 正方形，改成长方形会拉伸变形）。
+	# 尺寸 1.1 米 ≈ 略大于一个地砖格（CELL_SIZE=1.0），视觉上够醒目又不遮视野。
+	# 位置 y = 半高，让**底边贴地**（原先 y=1.0 会让方块悬在半空）。
+	var side := 1.1
+	var quad := QuadMesh.new()
+	quad.size = Vector2(side, side)
+	_model.mesh = quad
+	_model.position = Vector3(0, side * 0.5, 0)
+	# 职业对应贴图（不同职业不同外观）
+	var cell := CharacterAtlas.class_cell(class_id)
+	_visual_mat_tex = CharacterAtlas.make_billboard_material(cell)
+	_visual_mat_red = _make_player_flash_material()
+	_model.material_override = _visual_mat_tex
+
+
+## 玩家的受击闪红材质（与敌人同款：纯红不受贴图影响）
+static var _player_flash_mat: StandardMaterial3D = null
+
+static func _make_player_flash_material() -> StandardMaterial3D:
+	if _player_flash_mat == null:
+		_player_flash_mat = StandardMaterial3D.new()
+		_player_flash_mat.albedo_color = Color(1.0, 0.15, 0.15)
+		_player_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_player_flash_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	return _player_flash_mat
 
 
 ## 装配状态机：注册五个状态并进入默认的 MoveState
@@ -1055,18 +1126,24 @@ func add_hit_combo(n: int) -> void:
 
 
 ## 受击闪红：前 40% 全红，剩余时间线性退回本色（与敌人同款节奏）
+## 按剩余时间推进闪红。
+## 与敌人同款：贴图在场时**切材质**而不是染 albedo_color——
+## 后者会与贴图相乘变成暗红糊块。
 func _update_flash() -> void:
-	if _model == null or _model.material_override == null:
-		return
-	var mat := _model.material_override as StandardMaterial3D
-	if mat == null:
+	if _model == null:
 		return
 	if _flash_timer <= 0.0:
-		mat.albedo_color = _base_color
+		if _visual_mat_tex != null:
+			_model.material_override = _visual_mat_tex
 		return
 	var t := _flash_timer / HIT_FLASH_DURATION
 	var blend := clampf(t / 0.4, 0.0, 1.0)
-	mat.albedo_color = Color(1.0, 0.15, 0.15).lerp(_base_color, 1.0 - blend)
+	var red := Color(1.0, 0.15, 0.15).lerp(Color.WHITE, 1.0 - blend)
+	if _visual_mat_red != null:
+		# 每次闪红用独占副本，避免多实例共享同一材质互相串色
+		var m := _visual_mat_red.duplicate() as StandardMaterial3D
+		m.albedo_color = red
+		_model.material_override = m
 
 
 ## 玩家受击。
