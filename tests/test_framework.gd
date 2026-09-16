@@ -102,6 +102,9 @@ func _ready() -> void:
 	await _run_test(test_equipment_save_roundtrip)
 	await _run_test(test_key_fragments)
 
+	# 生命上限不变量（实机「受伤掉上限 / 血瓶泉水回不上血」防回归）
+	await _run_test(_test_max_hp_balance)
+
 	# 批次 D：楼层环境机制
 	await _run_test(test_floor_environment)
 	await _run_test(test_floor_environment_robustness)
@@ -2000,6 +2003,20 @@ func test_weighted_loot() -> void:
 	_check(w1[0] == w9[0], "白装权重不随层数变化")
 	_check(w9[4] > w1[4], "橙装权重随层数增长")
 
+	# --- 掉落率随层递减（数量侧收紧，稀有度侧提升）---
+	# 症状：后期"击杀一个敌人就掉落过量装备"。层数越高房间/怪密度越大，
+	# 恒定掉落率的乘积会让每层到手装备量随层数膨胀，背包长期爆满。
+	# 不变量：掉落概率必须随层数单调不增，且有下限防止后期完全断供。
+	var c1: float = loot._floor_decayed_chance(GameBalance.BASE_DROP_CHANCE, 1)
+	var c5: float = loot._floor_decayed_chance(GameBalance.BASE_DROP_CHANCE, 5)
+	var c9: float = loot._floor_decayed_chance(GameBalance.BASE_DROP_CHANCE, 9)
+	_check(absf(c1 - GameBalance.BASE_DROP_CHANCE) < 0.0001,
+		"第 1 层掉落率不衰减（%.3f）" % c1)
+	_check(c5 < c1 and c9 < c5, "掉落率随层单调递减（%.3f → %.3f → %.3f）" % [c1, c5, c9])
+	_check(c9 >= GameBalance.DROP_CHANCE_MIN, "掉落率不低于下限（%.3f）" % c9)
+	var ce9: float = loot._floor_decayed_chance(GameBalance.ELITE_DROP_CHANCE, 9)
+	_check(ce9 > c9, "精英掉落率仍高于杂兵（%.3f > %.3f）" % [ce9, c9])
+
 	# --- Boss 保底 ---
 	_check(loot._boss_pity_rarity(1) == ED.Rarity.ORANGE, "第 1 层 Boss 保底橙装")
 	_check(loot._boss_pity_rarity(5) == ED.Rarity.ORANGE, "第 5 层 Boss 保底橙装")
@@ -2502,7 +2519,78 @@ func test_layer9_structure() -> void:
 	_check(b1 == 1, "第 1 层仍是 1 间 Boss 房", [b1])
 
 
-## 钥匙碎片：局内计数、集齐判定、局外累积
+## 生命上限收支平衡（防"受伤掉上限 / 血瓶泉水回不上血"回归）。
+##
+## 实机症状：「角色受到伤害的时候有概率会直接降低生命上限，用血瓶和泉水
+## 无法恢复生命值」。此前的探查结论（2026-09-17）：
+##   · 40 秒持续受击下 max_hp 恒定，伤害路径不会改上限；
+##   · 瘟疫之泉的诅咒池是 atk/def/spd，明确排除生命；
+##   · 全代码库中玩家侧 max_hp 的唯一写者是 AttributeSystem._recalc_hp
+##     （由 Stat.HP 的 modifier 驱动），没有第二处。
+## 但以上是**当时**的结论，代码会变。故这里固化不变量：
+## 任何"穿上再卸下 / 挂上再清除"的循环都必须让 max_hp 精确回到基线，
+## 且不允许出现同一源名的重复 modifier（重复 = 加了没减，正是慢慢压低
+## 上限的机制）。
+func _test_max_hp_balance() -> void:
+	var EI = _require_script("res://data/equipment/equipment_instance.gd")
+	if EI == null:
+		return
+	var attrs := AttributeSystem.new()
+	var baseline: float = attrs.max_hp
+	_check(absf(baseline - AttributeSystem.DEFAULT_BASE[AttributeSystem.Stat.HP]) < 0.001,
+		"基线 max_hp = 默认生命值（%.0f）" % baseline)
+
+	# 装备循环：同一槽位穿卸 5 次，上限必须回到基线
+	var em := EquipmentManager.new()
+	em.rng = RandomNumberGenerator.new()
+	var tpl = EquipmentDB.get_template(&"A05")
+	if tpl != null:
+		for i in 5:
+			var inst = EI.create(tpl)
+			em.add_item(inst)
+			em.equip(EquipmentDefs.Slot.CHEST, inst)
+			var worn: float = attrs.max_hp
+			em.unequip(EquipmentDefs.Slot.CHEST)
+			_check(absf(attrs.max_hp - baseline) < 0.01,
+				"装备循环第 %d 次卸下后 max_hp 回基线（穿着时 %.0f）" % [i + 1, worn])
+			if absf(attrs.max_hp - baseline) >= 0.01:
+				break
+	else:
+		_check(false, "A05 模板存在（皮革胸甲，带生命词条）")
+	_check(_has_duplicate_source(attrs) == "",
+		"装备循环后无重复 modifier 源 %s" % _has_duplicate_source(attrs))
+
+	# 融合/强化后同样不得留下重复源（enhance 会重挂基础词条）
+	if tpl != null:
+		var inst2 = EI.create(tpl)
+		em.add_item(inst2)
+		em.enhance(inst2)
+		em.enhance(inst2)
+		_check(_has_duplicate_source(attrs) == "",
+			"强化 ×2 后无重复 modifier 源 %s" % _has_duplicate_source(attrs))
+
+	# hp_up buff：挂上要涨，清除要精确回落
+	var holder := BuffHolder.new()
+	holder._target = null   # 无宿主的 holder 只验账本，不验 modifier 同步
+	_check(holder.apply("gen_hp_up", "test", 1).get("ok", false), "gen_hp_up 可施加")
+	_check(holder.stacks_of("gen_hp_up") == 1, "gen_hp_up 叠 1 层")
+	holder.clear()
+	_check(not holder.has("gen_hp_up"), "clear() 后词条已移除")
+
+
+## 返回第一个"同一源名挂了多条 modifier"的源名（无则空串）。
+## 源名天然唯一（equip_<id> / fusion_<id> / devour_<id> / buff:<id>），
+## 重复即代表"加了没减"的泄漏。
+func _has_duplicate_source(attrs) -> String:
+	var counts := {}
+	for m in attrs._modifiers:
+		var src := str(m.get("source", "?"))
+		counts[src] = int(counts.get(src, 0)) + 1
+		if int(counts[src]) > 1:
+			return "%s（%d 条）" % [src, int(counts[src])]
+	return ""
+
+
 ## 存档往返：装备/背包/融合/强化/吞噬加成必须完整保真
 ## 回归：SaveManager 此前**只有写没有读**——`_collect_save_data` 存数据，
 ## 但没有任何恢复函数，`_on_continue_pressed` 直接 start_new_run（全新开局），

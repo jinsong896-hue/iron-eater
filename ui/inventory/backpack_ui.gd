@@ -1,35 +1,33 @@
 class_name BackpackUI
 extends CanvasLayer
-## 背包主界面 —— 左右分栏常驻版
+## 背包主界面 —— 双页签（装备 / 强化·融合）
 ##
-## 布局（用户要求：免去频繁切页）：
-##   左侧 = 装备栏 + 角色属性 + 选中详情 + 操作按钮 + 吞噬累积
-##   右侧 = 背包网格 + 分类筛选（全部/武器/护甲/饰品）
+## ## 为什么是双页签而不是全都堆在一屏
+## 上一版把「装备槽 + 详情 + 属性 + 操作按钮 + 吞噬汇总 + 背包网格」全塞进
+## 左右分栏。720p 窗口装不下：按钮被挤出可视区、内容溢出到屏幕外，
+## 玩家报告「强化/融合按钮点了没反应」——实际是**根本看不到按钮**。
+## 现在按用途分成两页，每页只留该做的事：
 ##
-## 旧版是四个页签（装备/背包/强化/吞噬）来回切——操作一件装备要跳好几次页。
-## 现在所有功能同屏常驻：选中任意物品（背包格或装备槽）→ 左侧直接操作。
+##   装备页  左=装备槽（可拖入） / 中=背包网格（可多选） / 右=选中详情+角色属性
+##   强化页  左=主装备 + 融合材料 / 中=材料候选 / 右=词条预览
 ##
-## 数据源：GameManager.equipment_manager 的 EquipmentInstance 列表。
-## ESC 开关，EventBus.inventory_changed 驱动刷新。
+## ## 三个交互
+##  拖拽      背包格拖到装备槽 → 直接穿戴（暗黑式）。用 Godot 的
+##            Control._get_drag_data/_drop_data 实现。
+##  多选      Ctrl+左键切换选中；批量吞噬/融合一次处理多件。
+##  右键      保留原有菜单（单件操作）。
 
 const ITEM_SCENE := preload("res://ui/inventory/backpack_item.tscn")
-## 背包格子数。**以逻辑层为准**（EquipmentManager.MAX_INVENTORY_SIZE），
-## 此常量只是 GameManager 未就绪时的兜底——两者不一致会让玩家
-## 「看到空格却放不进去」。
 const DEFAULT_CAPACITY := 40
 const COLUMNS := 8
-## 模态面板组：打开时入组，暂停菜单据此让位（避免 Esc 叠加）
 const MODAL_GROUP := "modal_ui"
 
-## 装备槽的 index 基准：背包格用 0..capacity-1，装备槽用 1000+slot_id。
-## 两者共用 BackpackItem 控件，靠 index 区间区分来源
-## （见 _on_item_clicked / _on_menu_requested 的分支）。
+## 装备槽的 index 基准（与背包格 0..capacity-1 区分）
 const SLOT_INDEX_BASE := 1000
 
-## 背包分类筛选
+enum Page { EQUIP, CRAFT }
 enum Filter { ALL, WEAPON, ARMOR, ACCESSORY }
 
-## 装备槽顺序（界面从左到右、从上到下）
 const SLOT_ORDER := [
 	EquipmentDefs.Slot.HEAD, EquipmentDefs.Slot.CHEST, EquipmentDefs.Slot.SHOULDERS,
 	EquipmentDefs.Slot.HANDS, EquipmentDefs.Slot.LEGS, EquipmentDefs.Slot.FEET,
@@ -40,23 +38,40 @@ const SLOT_ORDER := [
 var _grids: Array[BackpackItem] = []
 var _slot_grids: Dictionary = {}          # slot_id -> BackpackItem
 var _menu: BackpackMenu
+var _page: int = Page.EQUIP
 var _selected: EquipmentInstance = null   # 详情面板当前选中
-var _fusion_source: EquipmentInstance = null  # 融合流程：已选主装备待选材料
+var _fusion_source: EquipmentInstance = null  # 融合主装备
 var _filter: int = Filter.ALL
+## 批量选中集合（instance -> true）。用实例做键而不是格子下标——
+## 拖拽/排序会改下标，实例身份才稳定。
+var _multi: Dictionary = {}
 
-@onready var _gold_label: Label = $SafeZone/Panel/Margin/VBox/Header/GoldLabel
-@onready var _hint: Label = $SafeZone/Panel/Margin/VBox/Hint
-@onready var _slot_grid: GridContainer = $SafeZone/Panel/Margin/VBox/Content/Left/SlotPanel/SlotMargin/SlotGrid
-@onready var _detail_name: Label = $SafeZone/Panel/Margin/VBox/Content/Left/Detail/DetailMargin/DetailScroll/DetailVBox/DetailName
-@onready var _detail_meta: Label = $SafeZone/Panel/Margin/VBox/Content/Left/Detail/DetailMargin/DetailScroll/DetailVBox/DetailMeta
-@onready var _detail_affix: Label = $SafeZone/Panel/Margin/VBox/Content/Left/Detail/DetailMargin/DetailScroll/DetailVBox/DetailAffix
-@onready var _devour_summary: Label = $SafeZone/Panel/Margin/VBox/Content/Left/DevourSummary
-@onready var _stats: Label = $SafeZone/Panel/Margin/VBox/Content/Left/StatPanel/StatMargin/Stats
-@onready var _filter_label: Label = $SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters/FilterLabel
-@onready var _btn_equip: Button = $SafeZone/Panel/Margin/VBox/Content/Left/Actions/BtnEquip
-@onready var _btn_enhance: Button = $SafeZone/Panel/Margin/VBox/Content/Left/Actions/BtnEnhance
-@onready var _btn_fuse: Button = $SafeZone/Panel/Margin/VBox/Content/Left/Actions/BtnFuse
-@onready var _btn_devour: Button = $SafeZone/Panel/Margin/VBox/Content/Left/Actions/BtnDevour
+# —— 装备页 ——
+@onready var _gold_label: Label = $Root/Panel/Margin/VBox/Header/GoldLabel
+@onready var _hint: Label = $Root/Panel/Margin/VBox/Hint
+@onready var _slot_grid: GridContainer = $Root/Panel/Margin/VBox/Pages/EquipPage/Left/SlotPanel/SlotMargin/SlotGrid
+@onready var _stats: Label = $Root/Panel/Margin/VBox/Pages/EquipPage/Left/StatPanel/StatMargin/Stats
+@onready var _detail_name: Label = $Root/Panel/Margin/VBox/Pages/EquipPage/Right/DetailMargin/DetailScroll/DetailVBox/DetailName
+@onready var _detail_meta: Label = $Root/Panel/Margin/VBox/Pages/EquipPage/Right/DetailMargin/DetailScroll/DetailVBox/DetailMeta
+@onready var _detail_affix: Label = $Root/Panel/Margin/VBox/Pages/EquipPage/Right/DetailMargin/DetailScroll/DetailVBox/DetailAffix
+@onready var _filter_label: Label = $Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/FilterLabel
+@onready var _btn_equip: Button = $Root/Panel/Margin/VBox/Pages/EquipPage/Left/Actions/BtnEquip
+@onready var _btn_devour: Button = $Root/Panel/Margin/VBox/Pages/EquipPage/Left/Actions/BtnDevour
+@onready var _btn_drop: Button = $Root/Panel/Margin/VBox/Pages/EquipPage/Left/Actions/BtnDrop
+@onready var _multi_label: Label = $Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/MultiLabel
+@onready var _equip_page: Control = $Root/Panel/Margin/VBox/Pages/EquipPage
+@onready var _craft_page: Control = $Root/Panel/Margin/VBox/Pages/CraftPage
+
+# —— 强化页 ——
+@onready var _craft_main_name: Label = $Root/Panel/Margin/VBox/Pages/CraftPage/Main/MainMargin/V/Name
+@onready var _craft_main_info: Label = $Root/Panel/Margin/VBox/Pages/CraftPage/Main/MainMargin/V/Info
+@onready var _craft_mat_name: Label = $Root/Panel/Margin/VBox/Pages/CraftPage/Mat/MatMargin/V/Name
+@onready var _craft_hint: Label = $Root/Panel/Margin/VBox/Pages/CraftPage/Hint
+@onready var _btn_enhance: Button = $Root/Panel/Margin/VBox/Pages/CraftPage/Actions/BtnEnhance
+@onready var _btn_fuse: Button = $Root/Panel/Margin/VBox/Pages/CraftPage/Actions/BtnFuse
+@onready var _btn_craft_pick: Button = $Root/Panel/Margin/VBox/Pages/CraftPage/Actions/BtnPick
+@onready var _tab_equip: Button = $Root/Panel/Margin/VBox/Tabs/TabEquip
+@onready var _tab_craft: Button = $Root/Panel/Margin/VBox/Tabs/TabCraft
 
 
 func _ready() -> void:
@@ -68,12 +83,12 @@ func _ready() -> void:
 		bus.inventory_changed.connect(_refresh)
 		bus.equipment_changed.connect(func(_s, _i): _refresh())
 		bus.gold_changed.connect(func(_g): _refresh())
-		_refresh()
+	_switch_page(Page.EQUIP)
 
 
 ## 构建背包格子网格
 func _build_bag_grid() -> void:
-	var grid := $SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Scroll/Grid
+	var grid := $Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Scroll/Grid
 	grid.columns = COLUMNS
 	for i in range(_capacity()):
 		var n := ITEM_SCENE.instantiate() as BackpackItem
@@ -85,21 +100,35 @@ func _build_bag_grid() -> void:
 		grid.add_child(n)
 
 
-## 构建装备槽（10 格，常驻左栏）。每格也是一个 BackpackItem，
-## index 用 SLOT_INDEX_BASE 区间，便于统一处理点击/右键。
+## 构建装备槽（10 格）。每格也是 BackpackItem，index 用 SLOT_INDEX_BASE 区间
 func _build_slot_grid() -> void:
 	for slot_id in SLOT_ORDER:
 		var n := ITEM_SCENE.instantiate() as BackpackItem
 		n.index = SLOT_INDEX_BASE + int(slot_id)
 		n.menu_requested.connect(_on_slot_menu_requested)
 		n.item_clicked.connect(_on_slot_clicked)
+		# 暗黑式拖拽：背包物品拖到槽位即穿戴
+		n.equip_drop_requested.connect(_on_equip_drop)
 		_slot_grids[int(slot_id)] = n
 		_slot_grid.add_child(n)
 
 
-## 背包格子数：从逻辑层取（单一真相源），取不到时用常量兜底。
+## 拖到装备槽 → 直接穿到该槽位（暗黑式）
+func _on_equip_drop(inst: EquipmentInstance, slot_id: int) -> void:
+	if inst == null:
+		return
+	var em = _equipment_manager()
+	if em == null:
+		return
+	em.equip(slot_id, inst)
+	_notify({"ok": true}, "已装备到 %s：%s" % [
+		EquipmentDefs.slot_name(slot_id), inst.display_name()])
+	_selected = inst
+	_refresh()
+
+
 func _capacity() -> int:
-	var gm := _game_manager()
+	var gm: Node = _game_manager()
 	if gm != null and gm.equipment_manager != null:
 		if gm.equipment_manager.has_method("get_capacity"):
 			return int(gm.equipment_manager.call("get_capacity"))
@@ -107,29 +136,46 @@ func _capacity() -> int:
 
 
 # ============================================================
+# 页签
+# ============================================================
+
+func _switch_page(page: int) -> void:
+	_page = page
+	_equip_page.visible = page == Page.EQUIP
+	_craft_page.visible = page == Page.CRAFT
+	_tab_equip.button_pressed = page == Page.EQUIP
+	_tab_craft.button_pressed = page == Page.CRAFT
+	_hint.text = ("左键选中 · Ctrl+左键多选 · 拖到左侧装备槽穿戴 · 右键操作"
+		if page == Page.EQUIP else
+		"左键选主装备 → 右键同部位装备作为材料（或点「选为材料」）")
+	_refresh()
+
+
+func _on_tab_equip() -> void:
+	_switch_page(Page.EQUIP)
+
+
+func _on_tab_craft() -> void:
+	_switch_page(Page.CRAFT)
+
+
+# ============================================================
 # 刷新
 # ============================================================
 
-## 从装备管理器刷新全部显示
 func _refresh() -> void:
 	if not is_inside_tree():
 		return
-	_refresh_gold()
+	var gm: Node = _game_manager()
+	_gold_label.text = "金币 %d" % (gm.gold if gm else 0)
 	_refresh_slots()
 	_refresh_bag()
 	_refresh_detail()
 	_refresh_role_stats()
-	_refresh_devour_summary()
 	_refresh_action_buttons()
+	_refresh_craft_page()
 
 
-## 刷新金币显示
-func _refresh_gold() -> void:
-	var gm = _game_manager()
-	_gold_label.text = "金币 %d" % (gm.gold if gm else 0)
-
-
-## 刷新装备栏（已穿戴的 10 个槽）
 func _refresh_slots() -> void:
 	var em = _equipment_manager()
 	var equipped: Dictionary = em.get_equipped() if em else {}
@@ -143,12 +189,10 @@ func _refresh_slots() -> void:
 			node.clear()
 
 
-## 刷新背包格（含分类筛选）
 func _refresh_bag() -> void:
 	var em = _equipment_manager()
 	var inventory: Array = em.get_inventory() if em else []
 	var shown := 0
-	var total := inventory.size()
 	for i in range(_grids.size()):
 		if i < inventory.size():
 			var inst: EquipmentInstance = inventory[i]
@@ -156,15 +200,24 @@ func _refresh_bag() -> void:
 				_grids[i].item = inst
 				shown += 1
 			else:
-				# 被筛掉的格子**保留原物品的索引语义**：
-				# 这里只是不显示，拖拽仍按真实索引工作
 				_grids[i].clear()
 		else:
 			_grids[i].clear()
 	_filter_label.text = "%d/%d" % [shown, _capacity()]
+	# 清理已不在背包的选中项
+	for inst in _multi.keys():
+		if not inventory.has(inst):
+			_multi.erase(inst)
+	_update_multi_label()
 
 
-## 该物品是否通过当前分类筛选
+func _update_multi_label() -> void:
+	if _multi.is_empty():
+		_multi_label.text = ""
+	else:
+		_multi_label.text = "已选 %d 件" % _multi.size()
+
+
 func _matches_filter(inst: EquipmentInstance) -> bool:
 	if _filter == Filter.ALL:
 		return true
@@ -172,18 +225,12 @@ func _matches_filter(inst: EquipmentInstance) -> bool:
 	if t == null:
 		return false
 	match _filter:
-		Filter.WEAPON:
-			return t.category == EquipmentDefs.Category.WEAPON
-		Filter.ARMOR:
-			return t.category == EquipmentDefs.Category.ARMOR
-		Filter.ACCESSORY:
-			return t.category == EquipmentDefs.Category.ACCESSORY
+		Filter.WEAPON: return t.category == EquipmentDefs.Category.WEAPON
+		Filter.ARMOR: return t.category == EquipmentDefs.Category.ARMOR
+		Filter.ACCESSORY: return t.category == EquipmentDefs.Category.ACCESSORY
 	return true
 
 
-## 详情面板：选中装备的词条
-## （角色属性已拆到独立的「角色属性」常驻面板，不再混在这里——
-##   放在滚动区里会被长词条挤出视野，而用户明确要求它能随时看到）
 func _refresh_detail() -> void:
 	if _selected == null or not _selected.get_template():
 		_detail_name.text = "选择装备查看详情"
@@ -193,7 +240,6 @@ func _refresh_detail() -> void:
 	var t := _selected.get_template()
 	_detail_name.text = t.display_name
 	_detail_name.add_theme_color_override("font_color", t.rarity_color())
-
 	var meta_parts := [
 		"%s · %s" % [EquipmentDefs.rarity_name(t.rarity), EquipmentDefs.category_name(t.category)],
 	]
@@ -215,30 +261,22 @@ func _refresh_detail() -> void:
 		"",
 		"[融合词条·作材料贡献]", _affix_text(t.fusion_affix, 0),
 	]
-	# 附魔附加的通用词条（名词分册第 5 章）
 	if not _selected.extra_affixes.is_empty():
 		lines.append("")
 		lines.append("[附魔词条]")
 		for a in _selected.extra_affixes:
 			if a != null:
 				lines.append("  " + a.description())
-	if _fusion_source != null and _fusion_source != _selected:
-		lines.append("")
-		lines.append("→ 再次点「融合」将作为材料")
 	_detail_affix.text = "\n".join(lines)
 
 
-## 角色当前面板属性（常驻显示，不随选中变化）。
-## 用户要求「装备页面要给出角色属性数值」——放在独立面板而非详情滚动区。
 func _refresh_role_stats() -> void:
-	if _stats == null:
-		return
-	_stats.text = _role_stats_text()
+	if _stats != null:
+		_stats.text = _role_stats_text()
 
 
-## 角色当前面板属性文本（供详情面板与常驻面板复用）
 func _role_stats_text() -> String:
-	var gm = _game_manager()
+	var gm: Node = _game_manager()
 	if gm == null or gm.attributes == null:
 		return "（属性不可用）"
 	var parts: Array[String] = []
@@ -246,16 +284,14 @@ func _role_stats_text() -> String:
 		var stat_id: int = int(AttributeSystem.STAT_BY_NAME.get(key, -1))
 		if stat_id < 0:
 			continue
-		var v: float = float(gm.stat_value(key))
+		var v: float = float(gm.call("stat_value", key))
 		var name_s: String = str(AttributeSystem.STAT_NAMES.get(stat_id, key))
-		# 暴击/暴伤/冷却缩减是比例量，按百分比显示更直观
 		if key in ["crt", "crd", "cdr"]:
 			parts.append("%s %.1f%%" % [name_s, v * 100.0])
 		elif key == "spd":
 			parts.append("%s %.2f" % [name_s, v / 100.0])
 		else:
 			parts.append("%s %.0f" % [name_s, v])
-	# 每行 3 项，避免长行溢出面板
 	var rows: Array[String] = []
 	var i := 0
 	while i < parts.size():
@@ -264,42 +300,20 @@ func _role_stats_text() -> String:
 	return "\n".join(rows)
 
 
-## 吞噬累积效果汇总（用户要求）
-func _refresh_devour_summary() -> void:
-	var gm = _game_manager()
-	if gm == null:
-		_devour_summary.text = "尚无吞噬"
-		return
-	var em = _equipment_manager()
-	var mods: Dictionary = {}
-	if em != null and em.has_method("devour_modifiers"):
-		mods = em.call("devour_modifiers")
-	if mods.is_empty():
-		_devour_summary.text = "尚无吞噬（右键物品 → 吞噬，获得本局永久成长）"
-		return
-	# 按 stat 聚合
-	var agg := {}
-	for inst_id in mods:
-		var m: Dictionary = mods[inst_id]
-		var st: int = int(m.get("stat", 0))
-		agg[st] = float(agg.get(st, 0.0)) + float(m.get("flat", 0.0)) \
-			+ float(m.get("percent", 0.0))
-	var lines: Array[String] = []
-	for st in agg:
-		var name_s: String = str(AttributeSystem.STAT_NAMES.get(st, "属性"))
-		lines.append("%s +%.1f" % [name_s, float(agg[st])])
-	_devour_summary.text = "已吞噬 %d 件\n%s" % [mods.size(), "  ".join(lines)]
-
-
-## 操作按钮可用性：无选中时禁用，避免误点
+## 操作按钮可用性。**多选时优先对多选生效**（批量吞噬/丢弃）。
 func _refresh_action_buttons() -> void:
 	var has_sel := _selected != null
-	var t := _selected.get_template() if has_sel else null
+	var has_multi := not _multi.is_empty()
 	_btn_equip.disabled = not has_sel
-	_btn_enhance.disabled = not has_sel
-	_btn_fuse.disabled = not has_sel
-	_btn_devour.disabled = not has_sel
-	# 已穿戴的装备，"穿戴"按钮改叫"卸下"更贴切
+	_btn_devour.disabled = not (has_sel or has_multi)
+	_btn_drop.disabled = not (has_sel or has_multi)
+	if has_multi:
+		_btn_devour.text = "吞噬(%d)" % _multi.size()
+		_btn_drop.text = "丢弃(%d)" % _multi.size()
+	else:
+		_btn_devour.text = "吞噬"
+		_btn_drop.text = "丢弃"
+	# 已穿戴时「穿戴」变「卸下」
 	if has_sel:
 		var em = _equipment_manager()
 		var worn: bool = em != null and em.get_equipped().values().has(_selected)
@@ -308,7 +322,6 @@ func _refresh_action_buttons() -> void:
 		_btn_equip.text = "穿戴"
 
 
-## 词条文本（含强化倍率显示）
 func _affix_text(affix: AffixData, enhance_level: int) -> String:
 	if affix == null:
 		return "（无）"
@@ -324,49 +337,54 @@ func _affix_text(affix: AffixData, enhance_level: int) -> String:
 
 
 # ============================================================
-# 分类筛选
+# 强化页
 # ============================================================
 
-func _on_filter_all() -> void:
-	_set_filter(Filter.ALL, $SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters/FilterAll)
-
-func _on_filter_weapon() -> void:
-	_set_filter(Filter.WEAPON, $SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters/FilterWeapon)
-
-func _on_filter_armor() -> void:
-	_set_filter(Filter.ARMOR, $SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters/FilterArmor)
-
-func _on_filter_accessory() -> void:
-	_set_filter(Filter.ACCESSORY, $SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters/FilterAccessory)
-
-
-## 切换筛选并同步按钮的按下态（互斥）
-func _set_filter(f: int, btn: Button) -> void:
-	_filter = f
-	var filters := $SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters
-	for c in filters.get_children():
-		if c is Button:
-			(c as Button).button_pressed = (c == btn)
-	_refresh_bag()
+func _refresh_craft_page() -> void:
+	if _craft_main_name == null:
+		return
+	if _fusion_source == null:
+		_craft_main_name.text = "（未选主装备）"
+		_craft_main_info.text = "在左侧背包选一件装备，点「选为材料/主装备」"
+		_craft_hint.text = ""
+	else:
+		var t := _fusion_source.get_template()
+		_craft_main_name.text = _fusion_source.display_name()
+		_craft_main_name.add_theme_color_override("font_color",
+			t.rarity_color() if t else Color.WHITE)
+		_craft_main_info.text = "强化 +%d · 融合 %d（%s）" % [
+			_fusion_source.enhancement_level, _fusion_source.fusion_count,
+			_fusion_source.fusion_tier()]
+		var cost := FusionRules.fusion_cost(_fusion_source, _fusion_source)
+		var em := _equipment_manager()
+		var e_cost: int = em.enhancement_cost(_fusion_source) if em != null else 0
+		_craft_hint.text = "强化费用 %d 金 · 融合费用约 %d 金（同部位材料）" % [e_cost, cost]
+	_btn_enhance.disabled = _fusion_source == null
+	_btn_fuse.disabled = _fusion_source == null
+	_btn_craft_pick.disabled = _selected == null
+	if _selected != null:
+		_btn_craft_pick.text = ("已选：%s" % _selected.display_name()) \
+			if _fusion_source == _selected else "把当前选中设为主装备"
 
 
 # ============================================================
-# 交互
+# 选择
 # ============================================================
 
-## 背包格左键：更新详情
 func _on_item_clicked(idx: int) -> void:
 	if idx < 0 or idx >= _grids.size() or not _grids[idx].has_item():
 		_selected = null
-		_refresh_detail()
-		_refresh_action_buttons()
+		_refresh_detail(); _refresh_action_buttons(); _refresh_craft_page()
+		return
+	# Ctrl 按住 → 切换多选（批量操作）
+	if Input.is_key_pressed(KEY_CTRL):
+		_toggle_multi(_grids[idx].item)
+		_grids[idx].set_multi_selected(_multi.has(_grids[idx].item))
 		return
 	_selected = _grids[idx].item
-	_refresh_detail()
-	_refresh_action_buttons()
+	_refresh_detail(); _refresh_action_buttons(); _refresh_craft_page()
 
 
-## 装备槽左键：同样更新详情（这才是"不用切页"的关键）
 func _on_slot_clicked(idx: int) -> void:
 	var slot_id := idx - SLOT_INDEX_BASE
 	var node: BackpackItem = _slot_grids.get(slot_id)
@@ -374,45 +392,65 @@ func _on_slot_clicked(idx: int) -> void:
 		_selected = null
 	else:
 		_selected = node.item
-	_refresh_detail()
+	_refresh_detail(); _refresh_action_buttons(); _refresh_craft_page()
+
+
+func _toggle_multi(inst: EquipmentInstance) -> void:
+	if _multi.has(inst):
+		_multi.erase(inst)
+	else:
+		_multi[inst] = true
+	_update_multi_label()
 	_refresh_action_buttons()
 
 
-## 拖拽交换：交换两格物品
+## 清空多选（操作完成后调）
+func _clear_multi() -> void:
+	for inst in _multi.keys():
+		for g in _grids:
+			if g.item == inst:
+				g.set_multi_selected(false)
+	_multi.clear()
+	_update_multi_label()
+	_refresh_action_buttons()
+
+
+# ============================================================
+# 拖拽 / 交换
+# ============================================================
+
 func _on_swap_requested(from: int, to: int) -> void:
 	var em = _equipment_manager()
 	if em:
 		em.swap_items(from, to)
 
 
-## 背包格右键菜单
+# ============================================================
+# 右键菜单
+# ============================================================
+
 func _on_menu_requested(idx: int, screen_pos: Vector2) -> void:
 	if idx < 0 or idx >= _grids.size() or not _grids[idx].has_item():
 		return
 	var item: EquipmentInstance = _grids[idx].item
 	_selected = item
-	_refresh_detail()
-	_refresh_action_buttons()
+	_refresh_detail(); _refresh_action_buttons(); _refresh_craft_page()
 	_menu.show_actions(screen_pos, idx, ["equip", "enhance", "devour", "lock", "drop"])
 	_menu.set_lock_state(item.is_locked)
 
 
-## 装备槽右键菜单（已穿戴 → 只能卸下/强化/吞噬不可用）
 func _on_slot_menu_requested(idx: int, screen_pos: Vector2) -> void:
 	var slot_id := idx - SLOT_INDEX_BASE
 	var node: BackpackItem = _slot_grids.get(slot_id)
 	if node == null or not node.has_item():
 		return
 	_selected = node.item
-	_refresh_detail()
-	_refresh_action_buttons()
+	_refresh_detail(); _refresh_action_buttons()
 	_menu.show_actions(screen_pos, idx, ["unequip", "enhance", "lock"])
 	_menu.set_lock_state(node.item.is_locked)
 
 
-## 菜单操作分发
 func _on_action_requested(action: String, idx: int) -> void:
-	# 装备槽的菜单操作
 	if idx >= SLOT_INDEX_BASE:
 		_on_slot_action(action)
 		return
@@ -423,44 +461,20 @@ func _on_action_requested(action: String, idx: int) -> void:
 	if em == null:
 		return
 	var result: Dictionary
-
 	match action:
-		"equip":
-			_try_equip(item)
-		"unequip":
-			_unequip(item)
-		"enhance":
-			result = em.enhance(item)
-			_notify(result, "强化 +%d（花费 %d）" % [item.enhancement_level, result.get("cost", 0)])
-		"devour":
-			result = _devour(item)
-		"lock":
-			item.is_locked = not item.is_locked
-			_refresh()
+		"equip":      _try_equip(item)
+		"unequip":    _unequip(item)
+		"enhance":    result = em.enhance(item); _notify(result, "强化 +%d" % item.enhancement_level)
+		"devour":     result = _devour(item)
+		"lock":       item.is_locked = not item.is_locked; _refresh()
 		"drop":
 			if item.is_locked:
 				_notify({"ok": false, "reason": "已锁定，无法丢弃"}, "")
 			else:
-				em.remove_item(item)
-				_selected = null
-		"fusion_source":
-			_fusion_source = item
-			_notify({"ok": true}, "已选为主装备，请右键同部位材料")
-			_refresh_detail()
-		"fusion_cancel":
-			_fusion_source = null
-			_refresh_detail()
-		"fusion_material":
-			if _fusion_source == null:
-				return
-			result = em.fuse(_fusion_source, item)
-			if result.get("ok", false):
-				_fusion_source = null
-			_notify(result, "融合成功（%s · 花费 %d）" % [
-				result.get("new_tier", ""), result.get("cost", 0)])
+				em.remove_item(item); _selected = null
+	_refresh()
 
 
-## 装备槽上的菜单操作（目标是已穿戴的装备）
 func _on_slot_action(action: String) -> void:
 	if _selected == null:
 		return
@@ -468,18 +482,13 @@ func _on_slot_action(action: String) -> void:
 	if em == null:
 		return
 	match action:
-		"unequip":
-			_unequip(_selected)
+		"unequip": _unequip(_selected)
 		"enhance":
 			var r: Dictionary = em.enhance(_selected)
-			_notify(r, "强化 +%d（花费 %d）" % [
-				_selected.enhancement_level, r.get("cost", 0)])
-		"lock":
-			_selected.is_locked = not _selected.is_locked
-			_refresh()
+			_notify(r, "强化 +%d" % _selected.enhancement_level)
+		"lock": _selected.is_locked = not _selected.is_locked; _refresh()
 
 
-## 卸下已穿戴装备（背包满时会被拒——见 EquipmentManager.unequip 的返回值）
 func _unequip(item: EquipmentInstance) -> void:
 	var em = _equipment_manager()
 	if em == null:
@@ -505,63 +514,132 @@ func _on_btn_equip() -> void:
 	_refresh()
 
 
-func _on_btn_enhance() -> void:
-	if _selected == null:
-		return
-	var em = _equipment_manager()
-	if em == null:
-		return
-	var r: Dictionary = em.enhance(_selected)
-	_notify(r, "强化 +%d（花费 %d）" % [_selected.enhancement_level, r.get("cost", 0)])
-	_refresh()
-
-
-## 融合按钮：第一次点选主装备，第二次点材料自动融合（省去右键两步流程）
-func _on_btn_fuse() -> void:
-	if _selected == null:
-		return
-	var em = _equipment_manager()
-	if em == null:
-		return
-	if _fusion_source == null:
-		_fusion_source = _selected
-		_notify({"ok": true}, "已选为主装备，再选一件同部位装备点「融合」")
-		_refresh_detail()
-		return
-	if _fusion_source == _selected:
-		_fusion_source = null
-		_notify({"ok": true}, "已取消融合")
-		_refresh_detail()
-		return
-	var r: Dictionary = em.fuse(_fusion_source, _selected)
-	if r.get("ok", false):
-		_fusion_source = null
-	_notify(r, "融合成功（%s · 花费 %d）" % [r.get("new_tier", ""), r.get("cost", 0)])
-	_refresh()
-
-
+## 吞噬：多选优先（批量），否则单件
 func _on_btn_devour() -> void:
-	if _selected == null:
+	var em = _equipment_manager()
+	if em == null:
 		return
-	_devour(_selected)
+	var targets: Array = []
+	if not _multi.is_empty():
+		targets = _multi.keys()
+	elif _selected != null:
+		targets = [_selected]
+	if targets.is_empty():
+		return
+	var ok := 0
+	for inst in targets:
+		var r: Dictionary = _devour(inst)
+		if r.get("ok", false):
+			ok += 1
+	_clear_multi()
+	_selected = null
+	_notify({"ok": true}, "吞噬 %d/%d 件" % [ok, targets.size()])
 	_refresh()
 
 
+## 丢弃：多选优先
 func _on_btn_drop() -> void:
+	var em = _equipment_manager()
+	if em == null:
+		return
+	var targets: Array = []
+	if not _multi.is_empty():
+		targets = _multi.keys()
+	elif _selected != null:
+		targets = [_selected]
+	if targets.is_empty():
+		return
+	var n := 0
+	for inst in targets:
+		if not inst.is_locked:
+			em.remove_item(inst)
+			n += 1
+	_clear_multi()
+	_selected = null
+	_notify({"ok": true}, "丢弃 %d 件" % n)
+	_refresh()
+
+
+# —— 强化页按钮 ——
+
+func _on_btn_pick() -> void:
 	if _selected == null:
 		return
-	if _selected.is_locked:
-		_notify({"ok": false, "reason": "已锁定，无法丢弃"}, "")
+	_fusion_source = _selected
+	_notify({"ok": true}, "已选为主装备：%s" % _selected.display_name())
+	_refresh_craft_page()
+
+
+func _on_btn_enhance() -> void:
+	if _fusion_source == null:
 		return
 	var em = _equipment_manager()
 	if em == null:
 		return
-	em.remove_item(_selected)
-	_selected = null
+	var r: Dictionary = em.enhance(_fusion_source)
+	_notify(r, "强化 +%d（花费 %d）" % [_fusion_source.enhancement_level, r.get("cost", 0)])
 	_refresh()
 
 
-## 尝试穿戴（按模板槽位；饰品/单手武器可选二号位）
+func _on_btn_fuse() -> void:
+	"""融合：主装备吃材料。材料来自多选（批量）或当前选中。"""
+	if _fusion_source == null:
+		return
+	var em = _equipment_manager()
+	if em == null:
+		return
+	var mats: Array = []
+	if not _multi.is_empty():
+		mats = _multi.keys()
+	elif _selected != null and _selected != _fusion_source:
+		mats = [_selected]
+	if mats.is_empty():
+		_notify({"ok": false, "reason": "请先选材料（Ctrl+左键多选）"}, "")
+		return
+	var ok := 0
+	var fail_reason := ""
+	for m in mats:
+		if m == _fusion_source:
+			continue
+		var r: Dictionary = em.fuse(_fusion_source, m)
+		if r.get("ok", false):
+			ok += 1
+		elif fail_reason.is_empty():
+			fail_reason = str(r.get("reason", ""))
+	_clear_multi()
+	if ok > 0:
+		_notify({"ok": true}, "融合 %d 件材料（当前融合数 %d）" % [ok, _fusion_source.fusion_count])
+	else:
+		_notify({"ok": false, "reason": fail_reason if fail_reason else "融合失败"}, "")
+	_refresh()
+
+
+# —— 筛选 ——
+
+func _on_filter_all() -> void:
+	_set_filter(Filter.ALL, $Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/FilterAll)
+
+func _on_filter_weapon() -> void:
+	_set_filter(Filter.WEAPON, $Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/FilterWeapon)
+
+func _on_filter_armor() -> void:
+	_set_filter(Filter.ARMOR, $Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/FilterArmor)
+
+func _on_filter_accessory() -> void:
+	_set_filter(Filter.ACCESSORY, $Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/FilterAccessory)
+
+
+func _set_filter(f: int, btn: Button) -> void:
+	_filter = f
+	var filters := $Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters
+	for c in filters.get_children():
+		if c is Button:
+			(c as Button).button_pressed = (c == btn)
+	_refresh_bag()
+
+
+# —— 穿戴/吞噬 ——
+
 func _try_equip(item: EquipmentInstance) -> void:
 	var template := item.get_template()
 	if template == null:
@@ -570,7 +648,6 @@ func _try_equip(item: EquipmentInstance) -> void:
 	if em == null:
 		return
 	var slot := template.slot
-	# 饰品/单手武器：一号位被占时穿二号位
 	var defs := EquipmentDefs
 	if slot in [defs.Slot.ACCESSORY_1, defs.Slot.WEAPON_1]:
 		var equipped: Dictionary = em.get_equipped()
@@ -580,19 +657,13 @@ func _try_equip(item: EquipmentInstance) -> void:
 	_notify({"ok": true}, "已装备：%s" % item.display_name())
 
 
-## 吞噬（走 GameManager 计数）
 func _devour(item: EquipmentInstance) -> Dictionary:
-	var gm = _game_manager()
+	var gm: Node = _game_manager()
 	if gm == null:
 		return {"ok": false, "reason": "GameManager 不可用"}
-	var result: Dictionary = gm.devour_item(item)
-	_notify(result, "吞噬成功：%s" % item.display_name())
-	if result.get("ok", false):
-		_selected = null
-	return result
+	return gm.call("devour_item", item)
 
 
-## 操作结果提示
 func _notify(result: Dictionary, ok_text: String) -> void:
 	var bus = _event_bus()
 	if bus == null:
@@ -603,17 +674,10 @@ func _notify(result: Dictionary, ok_text: String) -> void:
 		bus.message.emit(result.get("reason", "操作失败"))
 
 
-## 已穿戴装备的显示颜色（稀有度色）
-func _equipped_color(inst: EquipmentInstance) -> Color:
-	var t := inst.get_template()
-	return t.rarity_color() if t else Color.WHITE
-
-
 # ============================================================
 # 开关
 # ============================================================
 
-## ESC/Tab 开关
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_inventory") and not visible:
 		_open()
@@ -626,9 +690,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-## 打开背包
-## 加入 modal_ui 组：暂停菜单用 _input（早于 _unhandled_input），只认这个组。
-## 不入组的话，在背包里按 Esc 会被暂停菜单抢先打开（叠在背包上面）。
 func _open() -> void:
 	get_tree().paused = true
 	visible = true
@@ -636,10 +697,10 @@ func _open() -> void:
 	if not is_in_group(MODAL_GROUP):
 		add_to_group(MODAL_GROUP)
 	_fusion_source = null
+	_clear_multi()
 	_refresh()
 
 
-## 关闭背包
 func _close() -> void:
 	_menu.hide()
 	visible = false
@@ -651,7 +712,6 @@ func _close() -> void:
 # autoload 访问
 # ============================================================
 
-## 获取 GameManager autoload
 func _game_manager() -> Node:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree and tree.root:
@@ -659,7 +719,6 @@ func _game_manager() -> Node:
 	return null
 
 
-## 获取 EventBus autoload
 func _event_bus() -> Node:
 	var tree := Engine.get_main_loop() as SceneTree
 	if tree and tree.root:
@@ -667,7 +726,6 @@ func _event_bus() -> Node:
 	return null
 
 
-## 获取装备管理器
 func _equipment_manager() -> RefCounted:
-	var gm = _game_manager()
+	var gm: Node = _game_manager()
 	return gm.equipment_manager if gm else null

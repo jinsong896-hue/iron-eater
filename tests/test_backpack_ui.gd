@@ -29,7 +29,7 @@ func _ready() -> void:
 	await _test_devour_flow()
 	await _test_equip_page()
 	await _test_filter()
-	await _test_devour_summary()
+	await _test_multi_select()
 
 	if failed == 0:
 		print("ALL BACKPACK UI TESTS PASSED")
@@ -177,11 +177,28 @@ func _test_filter() -> void:
 	_check(any, "切回全部后有物品显示")
 
 
-## 吞噬汇总：吞噬后左栏汇总出现该词条
-func _test_devour_summary() -> void:
+## 批量多选：Ctrl+左键选中多件后可一次性处理
+func _test_multi_select() -> void:
+	var em = GameManager.equipment_manager
+	# 放三件到背包
+	for i in 3:
+		em.add_item(_make_item("A03"))
 	await get_tree().process_frame
-	_check(ui._devour_summary.text.contains("已吞噬"),
-		"吞噬汇总显示累计", ui._devour_summary.text)
+	ui._clear_multi()
+	# 模拟 Ctrl+左键：直接调 _toggle_multi
+	var inv: Array = em.get_inventory()
+	for idx in range(mini(3, inv.size())):
+		ui._toggle_multi(inv[idx])
+	_check(ui._multi.size() == 3, "多选 3 件", str(ui._multi.size()))
+	_check(ui._btn_devour.text.contains("3"), "吞噬按钮显示批量数量",
+		ui._btn_devour.text)
+	# 批量吞噬
+	var before: int = em.get_inventory().size()
+	ui._on_btn_devour()
+	await get_tree().process_frame
+	_check(em.get_inventory().size() < before, "批量吞噬后背包减少",
+		"%d → %d" % [before, em.get_inventory().size()])
+	_check(ui._multi.is_empty(), "操作后多选已清空")
 
 
 ## 从白装池创建实例

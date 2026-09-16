@@ -123,6 +123,14 @@ func on_enemy_died(_world_position: Vector3) -> void:
 	enemies_alive = maxf(enemies_alive - 1, 0)
 	if enemies_alive <= 0:
 		_on_cleared()
+	else:
+		# **锁门不变量**：还有敌人活着 → 门必须是锁的。
+		# 原先门只在 activate() 里锁一次，这里是唯一的「开门」反向操作，
+		# 于是任何绕过 activate() 的补刷路径（召唤/分裂/调试刷怪）都会留下
+		# 「房间里有怪、门却开着」的窗口——玩家清完原始怪前一脚踏出去，
+		# 门就再也不关了。锁门是幂等的（DoorTrigger.lock 只在缺阻挡体时新建），
+		# 每死一只补锁一次成本可忽略，换来的是不变量恒成立。
+		_lock_doors()
 
 
 ## 登记运行时生成的敌人（召唤物 / 死亡分裂的子体）
@@ -138,6 +146,11 @@ func register_summoned_enemy(enemy) -> void:
 		_living_enemies.append(enemy)
 		enemy.died.connect(on_enemy_died)
 		is_cleared = false    # 有活敌人时取消清空标记（防止边界情况误判）
+		# 与 on_enemy_died 互补的另一半不变量：只要有怪在场上，门就该锁着。
+		# 正常战斗流程里门本来就锁着（lock 幂等，重复调用不会叠加阻挡体），
+		# 但「已清空的房间被重新召唤出敌人」这条路径原先只重置了清空标记、
+		# 没补锁，门会一直敞着——玩家清完场再被召唤物缠住时就走出去了。
+		_lock_doors()
 
 
 # ============================================================

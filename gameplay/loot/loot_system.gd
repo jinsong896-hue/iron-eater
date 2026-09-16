@@ -153,10 +153,21 @@ func _roll_template(enemy_data) -> EquipmentTemplate:
 		return _random_template_of_rarity(_boss_pity_rarity(floor))
 
 	# 精英：走 ELITE_DROP_CHANCE（此前该常量定义但无人使用）
+	# 掉落率随层递减，避免后期"每房一地装备"淹没玩家（见 GameBalance 常量注释）
 	var chance := GameBalance.ELITE_DROP_CHANCE if _is_elite(enemy_data) else GameBalance.BASE_DROP_CHANCE
+	chance = _floor_decayed_chance(chance, floor)
 	if rng.randf() > chance:
 		return null
 	return _random_template_of_rarity(_roll_rarity(floor))
+
+
+## 按层数衰减掉落概率（向下取整到 DROP_CHANCE_MIN）。
+## 稀有度权重向高稀有度倾斜已经提供了"越深越强"的收益，
+## 数量侧必须反向收紧，否则后期刷怪密度 × 恒定掉落率的乘积会让背包长期爆满。
+func _floor_decayed_chance(base_chance: float, floor_num: int) -> float:
+	var f: int = maxi(floor_num, 1)
+	return maxf(GameBalance.DROP_CHANCE_MIN,
+		base_chance * pow(GameBalance.DROP_CHANCE_DECAY, f - 1))
 
 
 ## Boss 保底稀有度：由 FloorDefs 的掉落表给出（1~5 层橙、6 层起红）。

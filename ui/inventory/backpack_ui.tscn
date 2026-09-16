@@ -30,7 +30,7 @@ process_mode = 3
 visible = false
 script = ExtResource("1_ui")
 
-[node name="SafeZone" type="Control" parent="."]
+[node name="Root" type="Control" parent="."]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -38,74 +38,99 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Panel" type="Panel" parent="SafeZone"]
+[node name="Panel" type="Panel" parent="Root"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 40.0
-offset_top = 40.0
-offset_right = -40.0
-offset_bottom = -40.0
+offset_left = 30.0
+offset_top = 30.0
+offset_right = -30.0
+offset_bottom = -30.0
 theme = SubResource("Theme_panel")
 
-[node name="Margin" type="MarginContainer" parent="SafeZone/Panel"]
+[node name="Margin" type="MarginContainer" parent="Root/Panel"]
 layout_mode = 2
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 theme_override_constants/margin_left = 12
-theme_override_constants/margin_top = 12
+theme_override_constants/margin_top = 10
 theme_override_constants/margin_right = 12
-theme_override_constants/margin_bottom = 12
+theme_override_constants/margin_bottom = 10
 
-[node name="VBox" type="VBoxContainer" parent="SafeZone/Panel/Margin"]
+[node name="VBox" type="VBoxContainer" parent="Root/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Header" type="HBoxContainer" parent="Root/Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="Header" type="HBoxContainer" parent="SafeZone/Panel/Margin/VBox"]
-layout_mode = 2
-theme_override_constants/separation = 4
-
-[node name="Title" type="Label" parent="SafeZone/Panel/Margin/VBox/Header"]
+[node name="Title" type="Label" parent="Root/Panel/Margin/VBox/Header"]
 layout_mode = 2
 text = "背包"
 theme_override_font_sizes/font_size = 20
 
-[node name="GoldLabel" type="Label" parent="SafeZone/Panel/Margin/VBox/Header"]
+[node name="GoldLabel" type="Label" parent="Root/Panel/Margin/VBox/Header"]
 layout_mode = 2
 size_flags_horizontal = 10
 text = "金币 0"
 horizontal_alignment = 2
 
-[node name="Hint" type="Label" parent="SafeZone/Panel/Margin/VBox"]
+[node name="Tabs" type="HBoxContainer" parent="Root/Panel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="TabEquip" type="Button" parent="Root/Panel/Margin/VBox/Tabs"]
+custom_minimum_size = Vector2(140, 34)
+layout_mode = 2
+toggle_mode = true
+button_pressed = true
+text = "装备"
+
+[node name="TabCraft" type="Button" parent="Root/Panel/Margin/VBox/Tabs"]
+custom_minimum_size = Vector2(140, 34)
+layout_mode = 2
+toggle_mode = true
+text = "强化 · 融合"
+
+[node name="Hint" type="Label" parent="Root/Panel/Margin/VBox"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 12
-text = "左键查看详情 · 右键操作 · 拖拽排序 · ESC 关闭"
+text = ""
 horizontal_alignment = 1
 
-[node name="Content" type="HBoxContainer" parent="SafeZone/Panel/Margin/VBox"]
+[node name="Pages" type="Control" parent="Root/Panel/Margin/VBox"]
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_constants/separation = 10
 
-[node name="Left" type="VBoxContainer" parent="SafeZone/Panel/Margin/VBox/Content"]
-custom_minimum_size = Vector2(420, 0)
+[node name="EquipPage" type="HBoxContainer" parent="Root/Panel/Margin/VBox/Pages"]
 layout_mode = 2
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 theme_override_constants/separation = 8
 
-[node name="EquipTitle" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
+[node name="Left" type="VBoxContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage"]
+custom_minimum_size = Vector2(300, 0)
 layout_mode = 2
-text = "装备栏"
-theme_override_font_sizes/font_size = 15
+theme_override_constants/separation = 6
 
-[node name="SlotPanel" type="Panel" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
+[node name="EquipTitle" type="Label" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left"]
+layout_mode = 2
+text = "装备栏（把背包物品拖到槽位穿戴）"
+theme_override_font_sizes/font_size = 13
+
+[node name="SlotPanel" type="Panel" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 170)
+custom_minimum_size = Vector2(0, 150)
 layout_mode = 2
 theme = SubResource("Theme_detail")
 
-[node name="SlotMargin" type="MarginContainer" parent="SafeZone/Panel/Margin/VBox/Content/Left/SlotPanel"]
+[node name="SlotMargin" type="MarginContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left/SlotPanel"]
 layout_mode = 2
 anchors_preset = 15
 anchor_right = 1.0
@@ -115,70 +140,25 @@ theme_override_constants/margin_top = 6
 theme_override_constants/margin_right = 6
 theme_override_constants/margin_bottom = 6
 
-[node name="SlotGrid" type="GridContainer" parent="SafeZone/Panel/Margin/VBox/Content/Left/SlotPanel/SlotMargin"]
+[node name="SlotGrid" type="GridContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left/SlotPanel/SlotMargin"]
 unique_name_in_owner = true
 layout_mode = 2
 columns = 5
 theme_override_constants/h_separation = 4
 theme_override_constants/v_separation = 4
 
-[node name="DetailTitle" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
-layout_mode = 2
-text = "选中详情"
-theme_override_font_sizes/font_size = 15
-
-[node name="Detail" type="Panel" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
-unique_name_in_owner = true
-size_flags_vertical = 3
-layout_mode = 2
-theme = SubResource("Theme_detail")
-
-[node name="DetailMargin" type="MarginContainer" parent="SafeZone/Panel/Margin/VBox/Content/Left/Detail"]
-layout_mode = 2
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-theme_override_constants/margin_left = 10
-theme_override_constants/margin_top = 10
-theme_override_constants/margin_right = 10
-theme_override_constants/margin_bottom = 10
-
-[node name="DetailScroll" type="ScrollContainer" parent="SafeZone/Panel/Margin/VBox/Content/Left/Detail/DetailMargin"]
-layout_mode = 2
-
-[node name="DetailVBox" type="VBoxContainer" parent="SafeZone/Panel/Margin/VBox/Content/Left/Detail/DetailMargin/DetailScroll"]
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_constants/separation = 6
-
-[node name="DetailName" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left/Detail/DetailMargin/DetailScroll/DetailVBox"]
-layout_mode = 2
-text = "选择装备查看详情"
-theme_override_font_sizes/font_size = 17
-
-[node name="DetailMeta" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left/Detail/DetailMargin/DetailScroll/DetailVBox"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 12
-text = ""
-
-[node name="DetailAffix" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left/Detail/DetailMargin/DetailScroll/DetailVBox"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 13
-text = ""
-autowrap_mode = 3
-
-[node name="StatTitle" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
+[node name="StatTitle" type="Label" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left"]
 layout_mode = 2
 text = "角色属性"
-theme_override_font_sizes/font_size = 15
+theme_override_font_sizes/font_size = 13
 
-[node name="StatPanel" type="Panel" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
+[node name="StatPanel" type="Panel" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 86)
+custom_minimum_size = Vector2(0, 82)
 layout_mode = 2
 theme = SubResource("Theme_detail")
 
-[node name="StatMargin" type="MarginContainer" parent="SafeZone/Panel/Margin/VBox/Content/Left/StatPanel"]
+[node name="StatMargin" type="MarginContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left/StatPanel"]
 layout_mode = 2
 anchors_preset = 15
 anchor_right = 1.0
@@ -188,126 +168,238 @@ theme_override_constants/margin_top = 6
 theme_override_constants/margin_right = 8
 theme_override_constants/margin_bottom = 6
 
-[node name="Stats" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left/StatPanel/StatMargin"]
+[node name="Stats" type="Label" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left/StatPanel/StatMargin"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 12
 text = ""
 autowrap_mode = 3
 
-[node name="ActionTitle" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
-layout_mode = 2
-text = "操作"
-theme_override_font_sizes/font_size = 15
-
-[node name="Actions" type="HBoxContainer" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
+[node name="Actions" type="HBoxContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="BtnEquip" type="Button" parent="SafeZone/Panel/Margin/VBox/Content/Left/Actions"]
+[node name="BtnEquip" type="Button" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left/Actions"]
+custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "穿戴"
 
-[node name="BtnEnhance" type="Button" parent="SafeZone/Panel/Margin/VBox/Content/Left/Actions"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "强化"
-
-[node name="BtnFuse" type="Button" parent="SafeZone/Panel/Margin/VBox/Content/Left/Actions"]
-layout_mode = 2
-size_flags_horizontal = 3
-text = "融合"
-
-[node name="BtnDevour" type="Button" parent="SafeZone/Panel/Margin/VBox/Content/Left/Actions"]
+[node name="BtnDevour" type="Button" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left/Actions"]
+custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "吞噬"
 
-[node name="BtnDrop" type="Button" parent="SafeZone/Panel/Margin/VBox/Content/Left/Actions"]
+[node name="BtnDrop" type="Button" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Left/Actions"]
+custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 size_flags_horizontal = 3
 text = "丢弃"
 
-[node name="DevourTitle" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
-layout_mode = 2
-text = "吞噬累积（本局永久）"
-theme_override_font_sizes/font_size = 15
-
-[node name="DevourSummary" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/Left"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 12
-text = "尚无吞噬"
-autowrap_mode = 3
-
-[node name="BagPanel" type="Panel" parent="SafeZone/Panel/Margin/VBox/Content"]
+[node name="Mid" type="VBoxContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage"]
 size_flags_horizontal = 3
-layout_mode = 2
-theme = SubResource("Theme_detail")
-
-[node name="BagMargin" type="MarginContainer" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel"]
-layout_mode = 2
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-theme_override_constants/margin_left = 8
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 8
-theme_override_constants/margin_bottom = 8
-
-[node name="BagVBox" type="VBoxContainer" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="Filters" type="HBoxContainer" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox"]
+[node name="Filters" type="HBoxContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Mid"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="FilterAll" type="Button" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters"]
+[node name="FilterAll" type="Button" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters"]
 layout_mode = 2
 toggle_mode = true
 button_pressed = true
 text = "全部"
 
-[node name="FilterWeapon" type="Button" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters"]
+[node name="FilterWeapon" type="Button" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters"]
 layout_mode = 2
 toggle_mode = true
 text = "武器"
 
-[node name="FilterArmor" type="Button" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters"]
+[node name="FilterArmor" type="Button" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters"]
 layout_mode = 2
 toggle_mode = true
 text = "护甲"
 
-[node name="FilterAccessory" type="Button" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters"]
+[node name="FilterAccessory" type="Button" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters"]
 layout_mode = 2
 toggle_mode = true
 text = "饰品"
 
-[node name="FilterLabel" type="Label" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters"]
+[node name="MultiLabel" type="Label" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters"]
 layout_mode = 2
-size_flags_horizontal = 10
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 12
+text = ""
+horizontal_alignment = 2
+
+[node name="FilterLabel" type="Label" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
 text = "0/40"
 
-[node name="Scroll" type="ScrollContainer" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox"]
+[node name="Scroll" type="ScrollContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Mid"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="Grid" type="GridContainer" parent="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Scroll"]
+[node name="Grid" type="GridContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Scroll"]
 layout_mode = 2
 columns = 8
 theme_override_constants/h_separation = 4
 theme_override_constants/v_separation = 4
 
+[node name="Right" type="Panel" parent="Root/Panel/Margin/VBox/Pages/EquipPage"]
+custom_minimum_size = Vector2(340, 0)
+layout_mode = 2
+theme = SubResource("Theme_detail")
+
+[node name="DetailMargin" type="MarginContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Right"]
+layout_mode = 2
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="DetailScroll" type="ScrollContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Right/DetailMargin"]
+layout_mode = 2
+
+[node name="DetailVBox" type="VBoxContainer" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Right/DetailMargin/DetailScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="DetailName" type="Label" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Right/DetailMargin/DetailScroll/DetailVBox"]
+layout_mode = 2
+text = "选择装备查看详情"
+theme_override_font_sizes/font_size = 17
+
+[node name="DetailMeta" type="Label" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Right/DetailMargin/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = ""
+
+[node name="DetailAffix" type="Label" parent="Root/Panel/Margin/VBox/Pages/EquipPage/Right/DetailMargin/DetailScroll/DetailVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = ""
+autowrap_mode = 3
+
+[node name="CraftPage" type="VBoxContainer" parent="Root/Panel/Margin/VBox/Pages"]
+visible = false
+layout_mode = 2
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+
+[node name="Main" type="Panel" parent="Root/Panel/Margin/VBox/Pages/CraftPage"]
+custom_minimum_size = Vector2(0, 110)
+layout_mode = 2
+theme = SubResource("Theme_detail")
+
+[node name="MainMargin" type="MarginContainer" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Main"]
+layout_mode = 2
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="V" type="VBoxContainer" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Main/MainMargin"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Main/MainMargin/V"]
+layout_mode = 2
+text = "主装备"
+theme_override_font_sizes/font_size = 13
+
+[node name="Name" type="Label" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Main/MainMargin/V"]
+layout_mode = 2
+text = "（未选主装备）"
+theme_override_font_sizes/font_size = 18
+
+[node name="Info" type="Label" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Main/MainMargin/V"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = ""
+
+[node name="Mat" type="Panel" parent="Root/Panel/Margin/VBox/Pages/CraftPage"]
+custom_minimum_size = Vector2(0, 80)
+layout_mode = 2
+theme = SubResource("Theme_detail")
+
+[node name="MatMargin" type="MarginContainer" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Mat"]
+layout_mode = 2
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="V" type="VBoxContainer" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Mat/MatMargin"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Mat/MatMargin/V"]
+layout_mode = 2
+text = "材料（同部位装备；Ctrl+左键可多选批量融合）"
+theme_override_font_sizes/font_size = 13
+
+[node name="Name" type="Label" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Mat/MatMargin/V"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "在「装备」页选材料后回到本页操作"
+
+[node name="Hint" type="Label" parent="Root/Panel/Margin/VBox/Pages/CraftPage"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_font_sizes/font_size = 12
+text = ""
+autowrap_mode = 3
+
+[node name="Actions" type="HBoxContainer" parent="Root/Panel/Margin/VBox/Pages/CraftPage"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="BtnPick" type="Button" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Actions"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "把当前选中设为主装备"
+
+[node name="BtnEnhance" type="Button" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Actions"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "强化"
+
+[node name="BtnFuse" type="Button" parent="Root/Panel/Margin/VBox/Pages/CraftPage/Actions"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "融合"
+
 [node name="Menu" parent="." instance=ExtResource("2_menu")]
 
-[connection signal="pressed" from="SafeZone/Panel/Margin/VBox/Content/Left/Actions/BtnEquip" to="." method="_on_btn_equip"]
-[connection signal="pressed" from="SafeZone/Panel/Margin/VBox/Content/Left/Actions/BtnEnhance" to="." method="_on_btn_enhance"]
-[connection signal="pressed" from="SafeZone/Panel/Margin/VBox/Content/Left/Actions/BtnFuse" to="." method="_on_btn_fuse"]
-[connection signal="pressed" from="SafeZone/Panel/Margin/VBox/Content/Left/Actions/BtnDevour" to="." method="_on_btn_devour"]
-[connection signal="pressed" from="SafeZone/Panel/Margin/VBox/Content/Left/Actions/BtnDrop" to="." method="_on_btn_drop"]
-[connection signal="pressed" from="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters/FilterAll" to="." method="_on_filter_all"]
-[connection signal="pressed" from="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters/FilterWeapon" to="." method="_on_filter_weapon"]
-[connection signal="pressed" from="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters/FilterArmor" to="." method="_on_filter_armor"]
-[connection signal="pressed" from="SafeZone/Panel/Margin/VBox/Content/BagPanel/BagMargin/BagVBox/Filters/FilterAccessory" to="." method="_on_filter_accessory"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Tabs/TabEquip" to="." method="_on_tab_equip"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Tabs/TabCraft" to="." method="_on_tab_craft"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/EquipPage/Left/Actions/BtnEquip" to="." method="_on_btn_equip"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/EquipPage/Left/Actions/BtnDevour" to="." method="_on_btn_devour"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/EquipPage/Left/Actions/BtnDrop" to="." method="_on_btn_drop"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/FilterAll" to="." method="_on_filter_all"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/FilterWeapon" to="." method="_on_filter_weapon"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/FilterArmor" to="." method="_on_filter_armor"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/EquipPage/Mid/Filters/FilterAccessory" to="." method="_on_filter_accessory"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/CraftPage/Actions/BtnPick" to="." method="_on_btn_pick"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/CraftPage/Actions/BtnEnhance" to="." method="_on_btn_enhance"]
+[connection signal="pressed" from="Root/Panel/Margin/VBox/Pages/CraftPage/Actions/BtnFuse" to="." method="_on_btn_fuse"]
 [connection signal="action_requested" from="Menu" to="." method="_on_action_requested"]

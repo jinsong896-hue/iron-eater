@@ -101,6 +101,20 @@ const ELITE_DROP_CHANCE := 0.6
 const BOSS_DROP_CHANCE := 1.0
 const GOLD_DROP_RANGE := Vector2(5, 25)
 
+## 杂兵掉落率随层递减的系数：chance × (DECAY ** (floor - 1))，下限 DROP_CHANCE_MIN。
+##
+## 为什么要有这道衰减：层数越高，房间数、刷怪密度、召唤/分裂/自爆链都成倍上涨，
+## **每次击杀的掉落分量却一直不变**。于是"本层捡到的装备总量"随层数平方级膨胀，
+## 玩家背包在第 5 层前后就长期爆满，后期的装备拾取反而变成负担。
+## 稀有度权重随层向高稀有度倾斜（见 LootSystem.rarity_weights_for_floor），
+## 那才是策划要的"越深越好"；数量侧必须反向收紧，否则量变先于质变淹没玩家。
+##
+## 0.85 的含义：第 5 层约为开局的 52%，第 9 层约 27%——后期靠稀有度提升价值，
+## 不靠数量堆。
+const DROP_CHANCE_DECAY := 0.85
+const DROP_CHANCE_MIN := 0.06
+
+
 ## 稀有度基础权重，索引对应 EquipmentDefs.Rarity（白/绿/蓝/紫/橙/红）
 ## 合计 100，对应策划的期望分布：白 57 / 绿 26 / 蓝 11 / 紫 4 / 橙 2
 ## （依据 ai/基础装备相关.md 第 987 行的 100 次模拟期望）

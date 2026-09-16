@@ -80,6 +80,9 @@ func _ready() -> void:
 	# 清空状态跨房间重建保持（战斗房回访不得重新刷怪锁门）
 	await _test_cleared_state_persists(gr, target_idx)
 
+	# 补刷敌人必须重新锁门（有怪却开着门 = 实机「能带怪跑出去」）
+	await _test_respawn_relocks(gr, target_idx)
+
 	# 特殊房闭环验证
 	await _test_special_room(gr)
 
@@ -149,6 +152,54 @@ func _test_cleared_state_persists(gr, cleared_idx: int) -> void:
 		if trig and trig.is_locked:
 			any_locked = true
 	_check(not any_locked, "[回访] 不重新锁门")
+
+## 补刷敌人必须重新锁门。
+## 复现路径：先清空房间（门已开）→ 再调 debug_spawn 补怪 →
+## 若门仍开着，玩家就能带着满屋的怪走出房间。实机症状即「敌人还在却能离开」。
+## 不变量：只要 enemies_alive > 0，所有门就必须是锁定态。
+func _test_respawn_relocks(gr, idx: int) -> void:
+	gr._transition_to_room(idx)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
+	if ctrl == null:
+		_check(false, "[补刷] 控制器就绪")
+		return
+	# 借一只真实怪物 id，避免硬编码与 MonsterDB 脱节
+	var ids: Array = []
+	for m in MonsterDB.all_monsters():
+		ids.append(str(m.get("id", "")))
+	if ids.is_empty():
+		_check(false, "[补刷] MonsterDB 有怪物可刷")
+		return
+
+	var r: Dictionary = ctrl.debug_spawn(ids[0], 2, ctrl.global_position)
+	_check(r.get("spawned", 0) > 0, "[补刷] 刷出 %d 只" % r.get("spawned", 0))
+	await get_tree().process_frame
+
+	var locked_count := 0
+	for door in ctrl._doors:
+		var trig = door.get_node_or_null("DoorTrigger")
+		if trig and trig.is_locked:
+			locked_count += 1
+	_check(locked_count > 0, "[补刷] 有敌人时门重新锁死（%d/%d 扇）"
+		% [locked_count, ctrl._doors.size()])
+
+	# 再杀一只，只要还有活口，门不许开
+	if ctrl.debug_living_enemies().size() > 1:
+		ctrl.debug_living_enemies()[0].take_damage(999999.0)
+		await get_tree().process_frame
+		var still_locked := false
+		for door in ctrl._doors:
+			var trig = door.get_node_or_null("DoorTrigger")
+			if trig and trig.is_locked:
+				still_locked = true
+		_check(still_locked, "[补刷] 剩一只怪时门仍锁着")
+
+	ctrl.debug_clear_enemies()
+	await get_tree().process_frame
+
 
 ## 特殊房闭环：切到特殊房 → 有门有墙有实体 → 交互结算 → 开门
 ## 地牢种子随机，故遍历本层实际分配到的全部特殊房类型（shop/heal/event）

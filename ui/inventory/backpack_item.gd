@@ -7,12 +7,27 @@ extends Button
 signal swap_requested(from: int, to: int)
 signal menu_requested(index: int, screen_pos: Vector2)
 signal item_clicked(index: int)
+## 批量选择：Ctrl+左键切换本格选中态（供批量吞噬/融合）
+signal multi_toggled(index: int)
+## 拖到装备槽：请求把某件装备穿到指定槽位（暗黑式拖拽穿戴）
+signal equip_drop_requested(inst: EquipmentInstance, slot_id: int)
+
+## 装备槽 index 基准（与 backpack_ui.SLOT_INDEX_BASE 必须一致）
+const SLOT_INDEX_BASE_BACKPACK := 1000
 
 ## 当前格子的装备实例（null=空格）
 var item: EquipmentInstance = null:
 	set(value):
 		item = value
 		_update_display()
+		if not has_item():
+			set_multi_selected(false)   # 格子空了就取消选中，避免残留
+
+## 批量选中态（描边高亮）
+var multi_selected := false:
+	set(value):
+		multi_selected = value
+		_update_selection_visual()
 
 var index: int = -1
 
@@ -28,6 +43,21 @@ var _slot_name: String = ""
 func set_slot_label(slot_label: String) -> void:
 	_slot_name = slot_label
 	_update_display()
+
+
+## 切换批量选中态
+func set_multi_selected(on: bool) -> void:
+	multi_selected = on
+
+
+## 选中态视觉：给格子加一圈亮色描边
+func _update_selection_visual() -> void:
+	if _color_rect == null:
+		return
+	if multi_selected:
+		_color_rect.color = _color_rect.color.lightened(0.35)
+	else:
+		_update_display()   # 重画回本色
 
 
 func _ready() -> void:
@@ -76,6 +106,9 @@ func _update_display() -> void:
 	_color_rect.color = color
 	# 装备名首字
 	_name_label.text = item.display_name().substr(0, 1)
+	# 选中态的高亮要在重画后重新叠加（_update_display 会覆盖 color）
+	if multi_selected:
+		_color_rect.color = _color_rect.color.lightened(0.35)
 
 
 ## 右键弹菜单（左键走 pressed 信号）
@@ -106,8 +139,14 @@ func _can_drop_data(_at_position: Vector2, _data: Variant) -> bool:
 	return true
 
 
-## 放下：触发交换
+## 放下：**装备槽接收 → 直接穿戴**（暗黑式），普通格 → 交换。
+## 判据是本格是否装备槽（index 处于 SLOT_INDEX_BASE 区间）。
 func _drop_data(_at_position: Vector2, data: Variant) -> void:
 	var from := int(data["from_index"])
-	if from != index:
+	if from == index:
+		return
+	if index >= SLOT_INDEX_BASE_BACKPACK:
+		# 目标是装备槽：把拖来的装备穿到该槽位
+		equip_drop_requested.emit(int(data["from_item"]), index - SLOT_INDEX_BASE_BACKPACK)
+	else:
 		swap_requested.emit(from, index)
