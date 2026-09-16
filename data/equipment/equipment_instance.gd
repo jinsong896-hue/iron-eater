@@ -10,6 +10,17 @@ var enhancement_level: int = 0
 var is_locked: bool = false
 var created_at_usec: int = 0
 
+## 通用词条（名词分册第 5 章：装备可附加的 16 种属性型词条）。
+## **挂在实例而非模板**：同一模板的两件装备可以各自附魔不同词条，
+## 挂模板上会让全世界的「铁制单手剑」共享同一套附加词条。
+## 由融合/附魔/商店附加（见 EquipmentManager.attach_generic_affix）。
+var extra_affixes: Array[AffixData] = []
+
+## 附魔次数（策划 4.3.2：单件装备最多附魔 3 次，见
+## SpecialRoomService.ENCHANT_MAX_STACKS / can_enchant）。
+## 与 extra_affixes 分开记：融合附加的词条不计入附魔次数上限。
+var enchant_stacks: int = 0
+
 
 func _init() -> void:
 	created_at_usec = Time.get_ticks_usec()
@@ -61,6 +72,10 @@ func enhancement_mult() -> float:
 
 ## 序列化
 func to_dict() -> Dictionary:
+	var affixes: Array = []
+	for a in extra_affixes:
+		if a != null:
+			affixes.append(_affix_to_dict(a))
 	return {
 		"instance_id": instance_id,
 		"template_id": str(template_id),
@@ -69,7 +84,35 @@ func to_dict() -> Dictionary:
 		"enhancement_level": enhancement_level,
 		"is_locked": is_locked,
 		"created_at_usec": created_at_usec,
+		"extra_affixes": affixes,
+		"enchant_stacks": enchant_stacks,
 	}
+
+
+## 通用词条 → 纯字典（存档用）。
+## AffixData 是 Resource，直接塞进存档会写出资源路径；这里拍平成普通字典，
+## 读档时用 _affix_from_dict 还原。
+func _affix_to_dict(a: AffixData) -> Dictionary:
+	return {
+		"id": str(a.id),
+		"stat": a.stat,
+		"operation": a.operation,
+		"value": a.value,
+		"trigger_buff": a.trigger_buff,
+		"trigger_chance": a.trigger_chance,
+		"trigger_duration": a.trigger_duration,
+	}
+
+
+## 纯字典 → 通用词条（读档用）
+func _affix_from_dict(d: Dictionary) -> AffixData:
+	var a := AffixData.new(int(d.get("stat", 0)), float(d.get("value", 0.0)),
+		int(d.get("operation", AffixData.Operation.FLAT)))
+	a.id = StringName(d.get("id", ""))
+	a.trigger_buff = str(d.get("trigger_buff", ""))
+	a.trigger_chance = float(d.get("trigger_chance", 0.0))
+	a.trigger_duration = float(d.get("trigger_duration", 0.0))
+	return a
 
 
 ## 反序列化（实例方法：填充自身）
@@ -81,7 +124,24 @@ func from_dict(d: Dictionary) -> EquipmentInstance:
 	enhancement_level = d.get("enhancement_level", 0)
 	is_locked = d.get("is_locked", false)
 	created_at_usec = d.get("created_at_usec", 0)
+	enchant_stacks = int(d.get("enchant_stacks", 0))
+	extra_affixes.clear()
+	for ad in d.get("extra_affixes", []):
+		if ad is Dictionary:
+			extra_affixes.append(_affix_from_dict(ad))
 	return self
+
+
+## 附加一条通用词条（同 id 不重复附加，避免叠加刷属性）
+## 返回是否真的加上了。
+func add_extra_affix(a: AffixData) -> bool:
+	if a == null:
+		return false
+	for e in extra_affixes:
+		if e != null and e.id == a.id and not str(a.id).is_empty():
+			return false
+	extra_affixes.append(a)
+	return true
 
 
 ## 静态工厂：从模板创建实例

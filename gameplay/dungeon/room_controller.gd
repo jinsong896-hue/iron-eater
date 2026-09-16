@@ -968,6 +968,49 @@ func purchase_shop_upgrade() -> Dictionary:
 	return {"ok": true, "level": gm.shop_level, "cost": cost, "gold": int(gm.gold)}
 
 
+## 商店：附魔（策划 4.3.2，低级 800 / 中级 2,000 / 高级 5,000；单件限 3 次）。
+## 把一条通用词条（名词分册第 5 章）**附加到指定装备**上。
+##
+## 与 purchase_infusion 的区别：灌注给玩家加固定属性、与装备无关；
+## 附魔把词条挂在装备实例上，卸下/丢弃时词条一起走。
+##
+## slot 指定目标槽位；不传则挑**已穿戴**里附魔次数最少的一件
+## （避免连续附魔都堆在同一件上白撞 3 次上限）。
+func purchase_enchant(tier: String = "mid", slot: int = -1) -> Dictionary:
+	if _room_type() != "shop":
+		return {"ok": false, "reason": "此处不出售"}
+	var gm = _game_manager()
+	if gm == null or gm.equipment_manager == null:
+		return {"ok": false, "reason": "状态不可用"}
+	var em = gm.equipment_manager
+
+	var target: EquipmentInstance = null
+	if slot >= 0:
+		target = em.get_equipped().get(slot)
+	else:
+		for s in em.get_equipped().values():
+			if s == null:
+				continue
+			if not SpecialRoomService.can_enchant(s.enchant_stacks):
+				continue
+			if target == null or s.enchant_stacks < target.enchant_stacks:
+				target = s
+	if target == null:
+		return {"ok": false, "reason": "没有可附魔的已穿戴装备（需先穿戴，且未达 3 次上限）"}
+
+	var r: Dictionary = em.enchant(target, tier)
+	if not r.get("ok", false):
+		return r
+	_emit_gold_changed()
+	var bus = _event_bus()
+	if bus:
+		bus.stats_changed.emit()
+		bus.message.emit("附魔成功：%s → %s" % [target.display_name(), str(r.get("text", ""))])
+	return {"ok": true, "tier": tier, "cost": int(r.get("cost", 0)),
+		"text": str(r.get("text", "")), "item": target.display_name(),
+		"gold": int(gm.gold)}
+
+
 ## 商店：贷款（策划 4.3.2，借 2000 还 4000，结算时扣）。
 func purchase_loan() -> Dictionary:
 	if _room_type() != "shop":

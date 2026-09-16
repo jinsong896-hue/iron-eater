@@ -156,6 +156,13 @@ func _build_shop_choices() -> void:
 					int(up.get("cost", 0)), int(up.get("level", 1)),
 					"（解锁全店 9 折）" if int(up.get("level", 1)) >= SpecialRoomService.SHOP_MAX_LEVEL else ""],
 			})
+		# 装备附魔（策划 4.3.2：低级 800 / 中级 2,000 / 高级 5,000，单件限 3 次）
+		# 与「属性灌注」的区别：灌注给玩家加固定属性；附魔把词条附加到装备上
+		_choices_data.append({
+			"id": "buy_enchant",
+			"label": "装备附魔·中级（%d 金 · 随机附加一条词条到已穿戴装备，单件限 3 次）"
+				% int(SpecialRoomService.ENCHANT_COSTS.get("mid", 2000)),
+		})
 		# 贷款：高风险博弈
 		_choices_data.append({
 			"id": "buy_loan",
@@ -318,6 +325,13 @@ func _activate(id: String) -> void:
 		"buy_upgrade":
 			var r: Dictionary = _controller.purchase_shop_upgrade()
 			_notify(r, "商店升至 %d 级" % int(r.get("level", 0)))
+			refresh(_controller.get_special_context())
+		"buy_enchant":
+			var r: Dictionary = _controller.purchase_enchant("mid")
+			if r.get("ok", false):
+				_notify(r, "%s → %s" % [str(r.get("item", "")), str(r.get("text", ""))])
+			else:
+				_notify(r, "")
 			refresh(_controller.get_special_context())
 		"buy_loan":
 			var r: Dictionary = _controller.purchase_loan()

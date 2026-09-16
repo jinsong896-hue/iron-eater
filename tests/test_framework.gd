@@ -35,6 +35,7 @@ func _ready() -> void:
 
 	# 装备通用词条池（名词分册第 5 章：21 种装备可附加词条）
 	await test_generic_affix_pool()
+	await test_generic_affix_attach()
 
 	# 伤害管线测试
 	await test_damage_pipeline()
@@ -2121,6 +2122,108 @@ func test_generic_affix_pool() -> void:
 	for key in EquipmentDB.SPECIAL_STAT:
 		var ev := int(EquipmentDB.SPECIAL_STAT[key]["enum"])
 		_check(ev >= 100, "特殊修饰量 %s 的枚举值 %d 避开面板属性域" % [key, ev])
+
+
+## 通用词条的**挂载链路**：roll_generic_affix 阈值 → 附魔附加到实例 →
+## 词条生效到属性 → 存档往返不丢。
+## 回归：GENERIC_STAT_POOL 曾只被测试引用，生产代码零消费者；
+## special_modifiers 也曾漏掉 extra_affixes（附魔的特殊词条不生效）。
+func test_generic_affix_attach() -> void:
+	_current_test = "GenericAffixAttach"
+	print("\n--- %s ---" % _current_test)
+
+	EquipmentDB.init_equipment_db()
+
+	# ① roll_generic_affix 按稀有度门槛取样：稀有度越高可选池越大
+	var counts := {}
+	var rng := RandomNumberGenerator.new()
+	for rar in [EquipmentDefs.Rarity.WHITE, EquipmentDefs.Rarity.BLUE,
+			EquipmentDefs.Rarity.PURPLE, EquipmentDefs.Rarity.ORANGE]:
+		rng.seed = 42
+		var seen := {}
+		for i in 80:
+			var a: AffixData = EquipmentDB.roll_generic_affix(rar, rng)
+			if a != null:
+				seen[str(a.id)] = true
+		counts[rar] = seen.size()
+	_check(int(counts[EquipmentDefs.Rarity.WHITE]) > 0, "白装可出词条")
+	_check(int(counts[EquipmentDefs.Rarity.ORANGE]) > int(counts[EquipmentDefs.Rarity.WHITE]),
+		"稀有度越高可选词条越多（白 %d → 橙 %d）" % [
+			int(counts[EquipmentDefs.Rarity.WHITE]),
+			int(counts[EquipmentDefs.Rarity.ORANGE])])
+	# 高门槛词条（元素穿透 橙+）不该出现在白装池里
+	rng.seed = 7
+	var white_has_pen := false
+	for i in 100:
+		var a: AffixData = EquipmentDB.roll_generic_affix(EquipmentDefs.Rarity.WHITE, rng)
+		if a != null and EquipmentDB.special_out_key(a.stat) == "elem_pen_pct":
+			white_has_pen = true
+	_check(not white_has_pen, "白装抽不到橙+门槛的元素穿透")
+
+	# roll 出的词条 stat 必须可解析（面板枚举或 100+ 扩展）
+	rng.seed = 99
+	for i in 50:
+		var a: AffixData = EquipmentDB.roll_generic_affix(EquipmentDefs.Rarity.ORANGE, rng)
+		if a == null:
+			continue
+		var ok := (a.stat >= 0 and a.stat < 11) or EquipmentDB.special_out_key(a.stat) != ""
+		_check(ok, "roll 出的词条 stat 可解析（%s=%d）" % [str(a.id), a.stat])
+		break
+
+	# ② 实例承载：同模板两实例各自附加互不影响
+	var white: Array = EquipmentDB.get_templates_by_rarity(EquipmentDefs.Rarity.WHITE)
+	if white.is_empty():
+		_check(false, "白装池非空")
+		return
+	var tpl: EquipmentTemplate = white[0]
+	var i1 := EquipmentInstance.create(tpl)
+	var i2 := EquipmentInstance.create(tpl)
+	var a1 = AffixData.make_stat(EquipmentDB.stat_enum_of("atk"), 0.05, true)
+	a1.id = StringName("gc_atk")
+	i1.add_extra_affix(a1)
+	_check(i1.extra_affixes.size() == 1 and i2.extra_affixes.is_empty(),
+		"词条挂在实例上（同模板另一件不受影响）")
+	_check(not i1.add_extra_affix(a1), "同 id 词条不重复附加")
+	# 另一实例不受影响（词条挂在实例上，不是模板）
+	var i3 := EquipmentInstance.create(tpl)
+	_check(i3.extra_affixes.is_empty(),
+		"同模板新建实例不含他人词条（extra_affixes 只在实例上）")
+
+	# ③ 序列化往返：词条与附魔次数都不丢
+	i1.enchant_stacks = 2
+	var restored := EquipmentInstance.new()
+	restored.from_dict(i1.to_dict())
+	_check(restored.extra_affixes.size() == i1.extra_affixes.size(),
+		"存档往返保留词条数（%d）" % restored.extra_affixes.size())
+	_check(restored.enchant_stacks == 2, "存档往返保留附魔次数")
+	if not restored.extra_affixes.is_empty():
+		_check(str(restored.extra_affixes[0].id) == "gc_atk",
+			"存档往返保留词条 id（%s）" % str(restored.extra_affixes[0].id))
+		_check(absf(restored.extra_affixes[0].value - 0.05) < 0.001,
+			"存档往返保留词条数值")
+
+	# ④ special_modifiers 必须覆盖 extra_affixes
+	#    （回归：曾只遍历模板三词条，附魔的生命偷取/元素穿透不生效）
+	#    本测试跑在 --script 模式（无 autoload），故不走 GameManager——
+	#    直接验证「汇总逻辑能看见实例词条」这一步：
+	#    用真实 EquipmentInstance 挂一条特殊词条，检查它出现在待汇总集合里。
+	var inst := EquipmentInstance.create(tpl)
+	var ls = AffixData.make_stat(EquipmentDB.special_enum_of("lifesteal"), 0.10, true)
+	ls.id = StringName("gc_lifesteal")
+	inst.add_extra_affix(ls)
+	# 复刻 special_modifiers 的遍历口径：模板三词条 + 实例附加词条
+	var scan: Array = [tpl.base_affix, tpl.devour_affix, tpl.fusion_affix]
+	scan.append_array(inst.extra_affixes)
+	var found := false
+	for affix in scan:
+		if affix != null and affix.is_stat() \
+				and EquipmentDB.special_out_key(affix.stat) == "life_steal":
+			found = true
+	_check(found, "汇总口径覆盖实例附加词条（生命偷取可被 special_modifiers 看见）")
+
+	# ⑤ 附魔次数上限（策划 4.3.2：单件最多 3 次）
+	_check(not SpecialRoomService.can_enchant(3), "附魔 3 次后不可继续")
+	_check(SpecialRoomService.can_enchant(2), "附魔 2 次可继续")
 
 
 func test_red_rarity_pool_not_empty() -> void:

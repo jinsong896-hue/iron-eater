@@ -151,11 +151,108 @@ func fuse(main: EquipmentInstance, material: EquipmentInstance) -> Dictionary:
 		gm.fusion_count += 1
 	# 融合词条按新档位刷新（策划 3.2：品质随累计次数上涨）
 	_apply_fusion_affix(main)
+	# 通用属性词条：融合是分册明列的「附加到装备」的途径之一
+	var gained := _grant_fusion_generic_affix(main)
 	_recalc_fusion_bonus()
 	remove_item(material)
 	_emit_bus("inventory_changed")
 	_emit_bus("stats_changed")
-	return {"ok": true, "new_tier": main.fusion_tier(), "cost": cost}
+	return {"ok": true, "new_tier": main.fusion_tier(), "cost": cost,
+		"affix": gained}
+
+
+## 融合时按概率附加一条通用属性型词条（名词分册第 5 章）。
+## 概率随后续融合次数递减——首融最容易附加，越往后越难出新词条，
+## 避免一件装备融合 25 次就白拿 25 条词条（同 id 也不重复附加）。
+## 返回附加的词条（未附加返回 null）。
+func _grant_fusion_generic_affix(main: EquipmentInstance) -> AffixData:
+	if main == null:
+		return null
+	# 概率：首次 60%，此后每融一次 -5%，下限 10%
+	var chance: float = maxf(0.60 - 0.05 * float(main.fusion_count), 0.10)
+	if rng == null:
+		return null
+	if rng.randf() > chance:
+		return null
+	var a := EquipmentDB.roll_generic_affix(main.rarity, rng)
+	if a == null:
+		return null
+	if not main.add_extra_affix(a):
+		return null   # 同 id 已存在，本次不附加
+	# 已穿戴的话立刻生效（重挂 modifier）
+	if _equipped.values().has(main):
+		_remove_equipment_modifiers(main)
+		_apply_equipment_modifiers(main)
+	return a
+
+
+## 商店/附魔：给指定装备附加一条通用词条（用 attach_generic_affix 的底层入口）。
+## 该方法不带档位与次数校验——正式游戏流程走 enchant()，它按策划 4.3.2 计费。
+## 返回 {ok, affix?/reason?}。
+func attach_generic_affix(item: EquipmentInstance, rarity_bonus: int = 0) -> Dictionary:
+	if item == null:
+		return {"ok": false, "reason": "无效物品"}
+	var rar: int = clampi(item.rarity + rarity_bonus, 0, EquipmentDefs.Rarity.RED)
+	var a := EquipmentDB.roll_generic_affix(rar, rng)
+	if a == null:
+		return {"ok": false, "reason": "暂无可附加的词条"}
+	if not item.add_extra_affix(a):
+		return {"ok": false, "reason": "该装备已有同名同名词条"}
+	if _equipped.values().has(item):
+		_remove_equipment_modifiers(item)
+		_apply_equipment_modifiers(item)
+	_emit_bus("inventory_changed")
+	_emit_bus("stats_changed")
+	return {"ok": true, "affix": a, "text": a.description()}
+
+
+## 附魔装备（策划 4.3.2：低级 800 / 中级 2,000 / 高级 5,000；
+## 单件最多 3 次）。档位决定附加词条的稀有度门槛——
+## 低级只出白+ 词条，高级可出橙+（如元素穿透）。
+##
+## 与「属性灌注」（purchase_infusion）的区别：灌注给**玩家**加固定属性、
+## 与装备无关；附魔把词条**附加到装备**上，装备卸下/丢弃时词条一起走。
+## 返回 {ok, tier?, affix?, cost?, text?, reason?}。
+func enchant(item: EquipmentInstance, tier: String) -> Dictionary:
+	if item == null:
+		return {"ok": false, "reason": "无效物品"}
+	if not SpecialRoomService.can_enchant(item.enchant_stacks):
+		return {"ok": false, "reason": "该装备已附魔 %d 次（上限 %d）" % [
+			item.enchant_stacks, SpecialRoomService.ENCHANT_MAX_STACKS]}
+	var cost: int = int(SpecialRoomService.ENCHANT_COSTS.get(tier, 0))
+	if cost <= 0:
+		return {"ok": false, "reason": "未知附魔档位 %s" % tier}
+	var gm = _game_manager()
+	if gm and gm.gold < cost:
+		return {"ok": false, "reason": "金币不足（需要 %d）" % cost}
+
+	# 档位 → 词条稀有度门槛：低/中/高 对应 白/蓝/紫 起步
+	var rarity_floor := {
+		"low": EquipmentDefs.Rarity.WHITE,
+		"mid": EquipmentDefs.Rarity.BLUE,
+		"high": EquipmentDefs.Rarity.PURPLE,
+	}
+	var rar: int = maxi(int(rarity_floor.get(tier, 0)), item.rarity)
+	var a := EquipmentDB.roll_generic_affix(rar, rng)
+	if a == null:
+		return {"ok": false, "reason": "暂无可附加的词条"}
+
+	if gm:
+		gm.gold -= cost
+	item.enchant_stacks += 1
+	if not item.add_extra_affix(a):
+		# 同名词条已存在：退钱、不退次数
+		if gm:
+			gm.gold += cost
+		item.enchant_stacks -= 1
+		return {"ok": false, "reason": "该装备已有同名同名词条（本次不消耗）"}
+	if _equipped.values().has(item):
+		_remove_equipment_modifiers(item)
+		_apply_equipment_modifiers(item)
+	_emit_bus("inventory_changed")
+	_emit_bus("stats_changed")
+	return {"ok": true, "tier": tier, "affix": a, "cost": cost,
+		"text": a.description(), "stacks": item.enchant_stacks}
 
 
 ## 强化装备（只提升基础词条，固定 +5%/级，无失败）
@@ -251,7 +348,10 @@ func special_modifiers() -> Dictionary:
 		var tpl: EquipmentTemplate = inst.get_template()
 		if tpl == null:
 			continue
-		for affix in [tpl.base_affix, tpl.devour_affix, tpl.fusion_affix]:
+		# 模板三词条 + 实例的通用附加词条（附魔/融合附加的都在这）
+		var all_affixes: Array = [tpl.base_affix, tpl.devour_affix, tpl.fusion_affix]
+		all_affixes.append_array(inst.extra_affixes)
+		for affix in all_affixes:
 			if affix == null or not affix.is_stat():
 				continue
 			var out_key: String = EquipmentDB.special_out_key(affix.stat)
@@ -311,24 +411,42 @@ func get_equipped() -> Dictionary:
 	return _equipped.duplicate()
 
 
-## 应用装备基础词条到属性系统
+## 应用装备词条到属性系统。
+## 挂两类：模板的**基础词条**（穿戴自带）+ 实例的**通用附加词条**
+## （融合/附魔/商店附加，见 EquipmentInstance.extra_affixes）。
+##
+## 注意：**只有面板属性走 AttributeSystem**。像「生命偷取/击退距离/
+## 元素穿透」这类扩展修饰量（枚举值 100+）不在 AttributeSystem 的取值域里，
+## 挂进去不会生效也读不出来——它们由 special_modifiers() 汇总、
+## 由伤害结算自行消费，故这里跳过。
 func _apply_equipment_modifiers(inst: EquipmentInstance) -> void:
-	var template := inst.get_template()
-	if template == null or template.base_affix == null:
-		return
-	var affix := template.base_affix
-	var value := inst.base_affix_value()
-	var percent := 0.0
-	if affix.operation == AffixData.Operation.PERCENT:
-		percent = affix.value * inst.enhancement_mult()
 	var gm = _game_manager()
-	if gm and gm.attributes:
-		gm.attributes.add_modifier(
-			"equip_%s" % inst.instance_id,
-			affix.stat,
-			value,
-			percent
-		)
+	if gm == null or gm.attributes == null:
+		return
+	var src := "equip_%s" % inst.instance_id
+
+	var template := inst.get_template()
+	if template != null and template.base_affix != null:
+		var affix := template.base_affix
+		var value := inst.base_affix_value()
+		var percent := 0.0
+		if affix.operation == AffixData.Operation.PERCENT:
+			percent = affix.value * inst.enhancement_mult()
+		gm.attributes.add_modifier(src, affix.stat, value, percent)
+
+	# 通用附加词条（同一 source，随装备一起挂/卸）
+	for a in inst.extra_affixes:
+		if a == null or not a.is_stat():
+			continue
+		if int(a.stat) >= 100:
+			continue   # 扩展修饰量：走 special_modifiers，不挂面板
+		var val := 0.0
+		var pct := 0.0
+		if a.operation == AffixData.Operation.PERCENT:
+			pct = a.value * inst.enhancement_mult()
+		else:
+			val = a.value * inst.enhancement_mult()
+		gm.attributes.add_modifier(src, a.stat, val, pct)
 
 
 ## 移除装备**基础词条**。

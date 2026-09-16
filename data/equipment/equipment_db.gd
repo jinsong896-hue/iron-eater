@@ -101,6 +101,37 @@ static func stat_enum_of(key: String) -> int:
 	return -1
 
 
+## 抽样一条**通用属性型词条**（分册第 5 章），用于融合/附魔/商店附加。
+##
+## 门槛：只从「最低稀有度 ≤ 传入稀有度」的行里抽（策划的稀有度要求：
+## 攻击力+ 白+、攻速+ 蓝+、射程+ 紫+、元素穿透 橙+）。
+## 数值在策划区间内按稀有度插值——越高级的装备附到越强的词条。
+## rng 为空时取区间中点（供测试/无随机源场景），保证不返回 0 值词条。
+static func roll_generic_affix(rarity: int, rng: RandomNumberGenerator = null) -> AffixData:
+	var pool: Array = []
+	for row in GENERIC_STAT_POOL:
+		if rarity >= int(row[6]):
+			pool.append(row)
+	if pool.is_empty():
+		return null
+	var row: Array = pool[0] if rng == null else pool[rng.randi() % pool.size()]
+	var lo: float = float(row[3])
+	var hi: float = float(row[4])
+	# 稀有度在 [白..红] 上插值：白取下限、红取上限
+	var t: float = clampf(
+		float(rarity) / float(maxi(EquipmentDefs.Rarity.RED, 1)), 0.0, 1.0)
+	var value: float = (lo + hi) / 2.0 if rng == null else lerpf(lo, hi, t)
+
+	var key := str(row[2])
+	# 面板属性走 AttributeSystem 枚举；其余（生命偷取等）走 100+ 扩展命名空间
+	var stat_id: int = stat_enum_of(key)
+	if stat_id < 0:
+		stat_id = special_enum_of(key)
+	var a := AffixData.make_stat(stat_id, value, bool(row[5]))
+	a.id = StringName(str(row[0]))   # 记住池 id，用于去重与展示
+	return a
+
+
 ## 元素武器（**占位设计，待策划替换**）
 ##
 ## ⚠ 策划《武器设计分册》18 种白装**未给任何武器指定元素**——原文里元素机制
