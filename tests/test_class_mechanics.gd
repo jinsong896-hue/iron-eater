@@ -537,11 +537,11 @@ func _test_resource_system() -> void:
 	_check(r5.value >= 20.0, "法师 5 秒自然回蓝（0 → %.0f）" % r5.value)
 
 
-## 敌人必须有碰撞体：投射物（Area3D）靠它命中。
+## 敌人碰撞：必须与墙、与同类碰撞（用户明确的"关键机制"）。
 ##
 ## 这条断言来自实机问题「大部分技能没有实际效果」——EnemyBase 是
 ## CharacterBody3D 且每帧 move_and_slide()，但此前没有任何 CollisionShape3D，
-## 于是投射物的 body_entered 永远不触发、投射物类技能全废。
+## 于是投射物打不中、敌人能穿墙、怪与怪互相重叠。
 func _test_enemy_has_collision() -> void:
 	await _start("warrior", 0)
 	var p = _player()
@@ -550,8 +550,11 @@ func _test_enemy_has_collision() -> void:
 		_check(false, "成功刷出测试敌人"); return
 	var shapes := enemy.find_children("*", "CollisionShape3D", true, false)
 	_check(shapes.size() > 0, "敌人生成时带碰撞体（%d 个）" % shapes.size())
-	_check(int(enemy.get("collision_layer")) != 0,
-		"敌人在物理层上（layer=%d）" % int(enemy.get("collision_layer")))
+	var layer := int(enemy.get("collision_layer"))
+	var mask := int(enemy.get("collision_mask"))
+	_check(layer & 2 != 0, "敌人在第 2 层（layer=%d）" % layer)
+	_check(mask & 1 != 0, "敌人 mask 含第 1 层（世界/墙，mask=%d）" % mask)
+	_check(mask & 2 != 0, "敌人 mask 含第 2 层（同类，mask=%d）" % mask)
 
 	# 端到端：投射物必须真的打中
 	await _start("mage", 1)
@@ -571,6 +574,74 @@ func _test_enemy_has_collision() -> void:
 		await get_tree().process_frame
 	_check(float(e2.get("_hp")) < before,
 		"投射物命中敌人并造成伤害（%.0f → %.0f）" % [before, float(e2.get("_hp"))])
+
+	# 同类碰撞：把两只怪叠在一起，物理应把它们推开
+	var ctrl = _room_controller()
+	if ctrl == null:
+		_check(false, "RoomController 可用"); return
+	ctrl.debug_clear_enemies()
+	await get_tree().process_frame
+	var base: Vector3 = p.global_position + Vector3(5, 0, 0)
+	ctrl.debug_spawn(_first_monster_id(), 2, base)
+	await get_tree().process_frame
+	var living: Array = ctrl.debug_living_enemies()
+	if living.size() < 2:
+		_check(false, "刷出 2 只怪（实际 %d）" % living.size()); return
+	var a = living[0]
+	var b = living[1]
+	a.global_position = base
+	b.global_position = base + Vector3(0.05, 0, 0)
+	a.velocity = Vector3.ZERO
+	b.velocity = Vector3.ZERO
+	for _i in 40:
+		await get_tree().physics_frame
+	var sep: float = a.global_position.distance_to(b.global_position)
+	_check(sep > 0.3, "敌人相互碰撞被推开（重叠后间距 %.2f m）" % sep)
+
+	# 墙碰撞（决定性）：敌人朝墙追击，不得穿到墙另一侧
+	var wall := _raycast_wall(p.global_position)
+	if wall.is_empty():
+		_check(false, "射线找得到墙"); return
+	var wall_pos: Vector3 = wall["position"]
+	var wall_normal: Vector3 = wall["normal"]
+	var p_side: float = (p.global_position - wall_pos).dot(wall_normal)
+	var side_sign := 1.0 if p_side >= 0.0 else -1.0
+	p.global_position = wall_pos + wall_normal * (1.5 * side_sign)
+	a.global_position = wall_pos - wall_normal * (1.2 * side_sign)
+	a.velocity = Vector3.ZERO
+	var side_before: float = (a.global_position - wall_pos).dot(wall_normal)
+	for _i in 150:
+		await get_tree().physics_frame
+	var side_after: float = (a.global_position - wall_pos).dot(wall_normal)
+	_check(signf(side_before) == signf(side_after),
+		"敌人无法穿墙（同侧 %.2f → %.2f）" % [side_before, side_after])
+
+
+## 从某点朝各方向射线找最近的墙（第 1 层）。返回 {position, normal} 或空。
+func _raycast_wall(from: Vector3) -> Dictionary:
+	var space := get_viewport().world_3d.direct_space_state
+	var origin := from + Vector3(0, 0.5, 0)
+	for ang in range(0, 360, 15):
+		var d := Vector3(cos(deg_to_rad(ang)), 0, sin(deg_to_rad(ang)))
+		var q := PhysicsRayQueryParameters3D.create(origin, origin + d * 30.0)
+		q.collision_mask = 1
+		var hit: Dictionary = space.intersect_ray(q)
+		if not hit.is_empty():
+			return hit
+	return {}
+
+
+func _first_monster_id() -> String:
+	for m in MonsterDB.all_monsters():
+		return str(m.get("id", ""))
+	return ""
+
+
+func _room_controller():
+	var gr := get_tree().current_scene.get_node_or_null("MainScene")
+	if gr == null or gr.current_room_node == null:
+		return null
+	return gr.current_room_node.get_node_or_null("RoomController")
 
 
 # ============================================================

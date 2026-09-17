@@ -566,14 +566,20 @@ func _tick_trail(delta: float) -> void:
 ## 碰撞，于是三件事同时坏掉——
 ##   ① 投射物（Projectile 是 Area3D，靠 body_entered 命中）永远打不中敌人；
 ##   ② 敌人不与墙碰撞，能穿墙；
-##   ③ 玩家与敌人互不阻挡。
+##   ③ 敌人之间、敌人与玩家互不阻挡。
 ## 实测症状即用户报的「大部分技能使用后没有实际效果」（投射物类技能全废）。
 ##
-## 层位：**只占第 2 层（bit 2）**，且**不与第 1 层（墙/世界）互动**。
-## 理由：给敌人开物理碰撞会带来"怪物互相挤成一坨/被墙卡住"的连锁问题，
-## 那属于 AI 与寻路的范畴，超出本次修复范围；而投射物命中只要求
-## 敌人的**形状存在且在第 2 层**。玩家 mask 含第 2 层时会被敌人阻挡——
-## 这是"敌人是实体"的应有表现，且玩家能推开它们。
+## 层位：**占第 2 层（ENEMY_LAYER）**，mask 打开第 1 层（世界/墙）与
+## 第 2 层（同类）——策划要求"敌人相互碰撞并且和墙碰撞"。
+##
+## 玩家侧**刻意不动**：player.tscn 的 layer/mask 都是 Godot 默认的第 1 层，
+## 因此玩家与敌人**互不阻挡**（穿过去），这是本作有意的设计——
+## 贴脸时不会被怪堆卡住。要改成互相阻挡需同时改玩家的 mask，
+## 但那样会引出"玩家推不动怪、怪也推不动玩家"的顶死问题，需另开一轮。
+##
+## 已知限制：无寻路（敌人直线追击）。撞墙时 move_and_slide 会沿墙面滑动，
+## 一般能绕出去；但凹角处可能短暂顶住。这是"加碰撞"的固有代价，
+## 彻底解决要靠 NavigationAgent3D，不在本次范围。
 func _create_collision() -> void:
 	if _collision != null:
 		return
@@ -585,12 +591,13 @@ func _create_collision() -> void:
 	_collision.shape = shape
 	_collision.position = Vector3(0, 0.9 * body_scale, 0)
 	collision_layer = ENEMY_LAYER
-	# 不与环境层互动：见上方注释（避免把寻路问题引进来）
-	collision_mask = 0
+	collision_mask = WORLD_LAYER | ENEMY_LAYER
 	add_child(_collision)
 
 
-## 敌人占用的物理层（bit 2）。投射物靠这一层命中；玩家 mask 含它则会被阻挡。
+## 物理层：1 = 世界/墙（wall_builder 的 StaticBody3D 默认层），
+## 2 = 敌人。玩家自己占第 1 层（player.tscn 未改层，用 Godot 默认值）。
+const WORLD_LAYER := 1
 const ENEMY_LAYER := 2
 
 
