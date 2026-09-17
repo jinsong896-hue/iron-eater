@@ -86,7 +86,7 @@ func _setup(env_id: String, data: Dictionary) -> void:
 		"poison":      _setup_poison(w, h)        # 3 层：毒气区（持续掉血）
 		"mire":        _setup_mire(w, h)          # 4 层：泥潭（减速 + 伤害）
 		"lava":        _setup_lava(w, h)          # 5 层：熔岩 + 齿轮机关
-		"sulfur":      _setup_sulfur()            # 6 层：硫磺毒气（周期爆炸）
+		"sulfur":      _setup_sulfur(w, h)        # 6 层：硫磺雾区 + 间歇爆炸
 		"void_warp":   _setup_void_warp()         # 7 层：随机传送
 		"low_gravity": _setup_void_warp()         # 7 层的旧标识（兼容旧存档；见 floor_defs 注释说明为何不叫重力）
 		"firestorm":   _setup_firestorm(w, h)      # 8 层：全屏火风暴 + 掩体
@@ -479,12 +479,23 @@ func _spawn_burst_visual(center: Vector3, radius: float) -> void:
 ## Boss 战期间暂停层数累积。」
 ##
 ## **层数逻辑不在这里**——它是跨房间状态，住在 `FloorMechanic`。
-## 本函数只负责这一间房的**场地表达**：常驻硫磺雾区（视觉上让玩家
-## 感到"这层有毒"），以及间歇爆发的硫磺喷口。
-func _setup_sulfur() -> void:
+## 本函数只负责这一间房的**场地表达**，两件东西：
+##   ① 常驻硫磺雾区（视觉上让玩家立刻感到"这层有毒"，与 5/8 层区分开）
+##   ② 间歇性爆炸（策划表原文，随机位置喷发，需躲开）
+func _setup_sulfur(w: float, h: float) -> void:
+	# ① 常驻雾区：低伤害（每跳 3）但范围大，逼玩家持续走位
+	var mist := _scatter_zones(w, h, 5, 2.6)
+	for pos in mist:
+		DamageZone.spawn({
+			"position": pos, "radius": 2.6, "duration": -1.0,
+			"damage": 3.0, "tick_interval": 1.0,
+			"color": Color(0.85, 0.30, 0.25, 0.30),
+		}, self)
+	# ② 间歇性爆炸（保留原语：硫磺气体的"喷发"）
 	_mech = {
 		"kind": "sulfur",
 		"blast_interval": 4.5, "blast_damage": 25.0, "blast_radius": 2.6,
+		"mist_count": mist.size(),
 	}
 
 
