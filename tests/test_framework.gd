@@ -107,6 +107,7 @@ func _ready() -> void:
 
 	# 批次 D：楼层环境机制
 	await _run_test(test_floor_environment)
+	await _run_test(test_floor_mechanism_distinct)
 	await _run_test(test_floor_environment_robustness)
 
 	# 批次 E：隐藏房
@@ -2983,6 +2984,83 @@ func test_floor_environment() -> void:
 	var room1 := Node3D.new()
 	_check(FloorEnvironment.apply(room1, 1, data) == null, "第 1 层不装配环境机制")
 	room1.free()
+
+
+## 各层机制**互不相同**（反"换皮"回归）。
+##
+## 用户的原话是「所有关卡机制都是第二层的换皮」。审计发现整套只用了
+## 3 个原语（持久危害区 / 随机位置爆发 / 随机传送），只是参数不同。
+## 这条断言用「节点类型组合」当指纹——只要两层生成的东西一样就会失败，
+## 从而防止将来又把新层实现成旧层的参数变体。
+func test_floor_mechanism_distinct() -> void:
+	_current_test = "FloorMechanismDistinct"
+	print("\n--- %s ---" % _current_test)
+
+	var data := {
+		"width": 20, "height": 15,
+		"entities": [{"type": "player_spawn", "x": 10, "y": 12}],
+		"doors": [{"x": 10, "y": 14, "direction": "south"}],
+	}
+	var sigs := {}
+	var details: Array = []
+	for f in range(2, 10):
+		var room := Node3D.new()
+		var fe := FloorEnvironment.apply(room, f, data)
+		if fe != null:
+			var sig := _mechanism_signature(fe)
+			sigs[f] = sig
+			details.append("第%d层:%s" % [f, sig])
+		room.free()
+
+	var uniq := {}
+	for f in sigs:
+		uniq[sigs[f]] = true
+	_check(sigs.size() == 8, "2~9 层都装配了机制（实际 %d）" % sigs.size())
+	_check(uniq.size() >= 6,
+		"至少 6 种不同的机制构成（实际 %d）" % uniq.size(), [str(details)])
+
+	# 逐层的关键构件（证明每层有各自的东西，不是同一个圈）
+	# 用"装配后直接扫子节点"的方式，不挂到树上——本套件是 --script 模式
+	# （SceneTree），测试脚本不是 Node，没有 add_child。
+	_check(_floor_has_kind(3, data, "VentProp"), "第 3 层有可破坏通风口")
+	_check(_floor_has_kind(5, data, "FurnaceProp"), "第 5 层有符文熔炉")
+	_check(_floor_has_kind(8, data, "CoverProp"), "第 8 层有掩体")
+
+
+## 临时装配一层，检查是否含指定类型的子节点，然后销毁房间
+func _floor_has_kind(floor_num: int, data: Dictionary, cls: String) -> bool:
+	var room := Node3D.new()
+	var fe := FloorEnvironment.apply(room, floor_num, data)
+	var found := false
+	if fe != null:
+		for c in fe.get_children():
+			if c.get_script() != null \
+					and str(c.get_script().get_global_name()) == cls:
+				found = true
+				break
+	room.free()
+	return found
+
+
+## 机制指纹：本层生成的节点类型与数量 + 机制 kind
+func _mechanism_signature(fe: FloorEnvironment) -> String:
+	var counts := {"zone": 0, "vent": 0, "furnace": 0, "cover": 0}
+	for c in fe.get_children():
+		if c is DamageZone:
+			counts["zone"] += 1
+		elif c is VentProp:
+			counts["vent"] += 1
+		elif c is FurnaceProp:
+			counts["furnace"] += 1
+		elif c is CoverProp:
+			counts["cover"] += 1
+	var parts: Array = []
+	for k in counts:
+		if int(counts[k]) > 0:
+			parts.append("%s×%d" % [k, counts[k]])
+	var m: Dictionary = fe.mechanism()
+	parts.append("kind=%s" % str(m.get("kind", "")))
+	return ",".join(parts)
 
 
 ## 环境机制不会在没有房间控制器时崩溃（预建房间尚未接入控制器）
