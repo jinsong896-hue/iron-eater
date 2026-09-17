@@ -287,6 +287,8 @@ func _apply_mire_tier(p: Node, want: String) -> void:
 ## 策划：熔岩每秒 40 伤害（Boss 战口径，普通房按比例下调，
 ## 否则普通房走两圈就死了）；机关「范围提示 3 秒后爆发」
 func _setup_lava(w: float, h: float) -> void:
+	# 熔岩地面（灼烧）：策划原文是「熔岩地面（灼烧），齿轮机关（间歇性伤害）」
+	# ——两件东西并存，故熔岩区保留。
 	var zones := _scatter_zones(w, h, 4, 2.0)
 	for pos in zones:
 		DamageZone.spawn({
@@ -294,12 +296,179 @@ func _setup_lava(w: float, h: float) -> void:
 			"damage": 12.0, "tick_interval": 1.0,
 			"color": Color(0.95, 0.40, 0.10, 0.5),
 		}, self)
-	# 齿轮机关：周期性在随机安全位置爆发（预警 1 秒 → 30 伤害）
+	# 符文熔炉：4 个固定在房间四角（策划 6.6「房间四角/四边分布 4 个符文熔炉」）。
+	# **不再是"随机位置齿轮爆发"**——固定位置让玩家能规划站位，
+	# 且熔炉是可攻击物件（提前引爆 / 关闭 / 打爆）。
+	_spawn_furnaces(w, h)
 	_mech = {
 		"kind": "lava", "zone_count": zones.size(),
-		"gear_interval": 5.0, "gear_damage": 30.0, "gear_warn": 1.0,
-		"gear_radius": 2.0, "w": w, "h": h,
+		"furnace_count": _furnaces.size(),
+		"furnace_interval": FURNACE_INTERVAL,
+		"furnace_warn": FURNACE_WARN,
+		"furnace_damage": FURNACE_DAMAGE,
+		"furnace_radius": FURNACE_RADIUS,
+		"w": w, "h": h,
 	}
+
+
+## 熔炉喷发参数（策划 6.6：范围提示 3 秒后爆发，30 火焰伤害）
+const FURNACE_INTERVAL := 6.0   ## 每轮间隔（含 3 秒预警）
+const FURNACE_WARN := 3.0       ## 范围提示时长（策划明确 3 秒）
+const FURNACE_DAMAGE := 30.0    ## 爆发伤害（策划明确 30）
+const FURNACE_RADIUS := 2.2     ## 爆发半径
+
+## 本轮已生成的四角熔炉
+var _furnaces: Array[FurnaceProp] = []
+## 熔炉轮的计时（与 _periodic_timer 分开：预警阶段与冷却阶段语义不同）
+var _furnace_timer := 0.0
+## 当前是否处于预警阶段（预警圈已画、伤害未结算）
+var _furnace_warning := false
+## 预警圈节点（画给玩家看的范围提示）
+var _warn_ring: MeshInstance3D = null
+
+
+## 在房间四角生成 4 个熔炉（避开出生点与门——四角通常安全，
+## 但小房间/异形房间里角落也可能压到门上，故仍做一次安全剔除）
+func _spawn_furnaces(w: float, h: float) -> void:
+	var inset := 2.0
+	var corners := [
+		Vector3(inset, 0.0, inset),
+		Vector3(w - inset, 0.0, inset),
+		Vector3(inset, 0.0, h - inset),
+		Vector3(w - inset, 0.0, h - inset),
+	]
+	for i in corners.size():
+		var p: Vector3 = corners[i]
+		if not _is_safe(p):
+			# 角落压到出生点/门时内缩一格再试，仍不安全则跳过该角
+			p = Vector3(lerpf(p.x, w * 0.5, 0.35), 0.0, lerpf(p.z, h * 0.5, 0.35))
+			if not _is_safe(p):
+				continue
+		var f := FurnaceProp.new()
+		f.name = "Furnace_%d" % i
+		f.corner_index = i
+		f.position = p
+		add_child(f)
+		_furnaces.append(f)
+	if not _furnaces.is_empty():
+		_warn_ring = _make_warn_ring()
+
+
+## 预警圈：贴地的半透明橙环（每个熔炉共用同一个可视化的做法是错的——
+## 这里做成"跟随当前预警中的熔炉"的单个节点，同时只有一个在预警）
+func _make_warn_ring() -> MeshInstance3D:
+	var ring := MeshInstance3D.new()
+	ring.name = "FurnaceWarnRing"
+	var mesh := TorusMesh.new()
+	mesh.inner_radius = FURNACE_RADIUS - 0.15
+	mesh.outer_radius = FURNACE_RADIUS
+	ring.mesh = mesh
+	ring.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+	ring.position = Vector3(0, 0.06, 0)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.55, 0.15, 0.7)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	ring.material_override = mat
+	ring.visible = false
+	add_child(ring)
+	return ring
+
+
+## 熔炉轮驱动：预警 → 爆发 → 冷却。
+##
+## 与旧的"随机位置齿轮爆发"的本质区别：
+##   · 位置固定（玩家能记住并规划走位）
+##   · 有 3 秒可视预警（策划明确），不是突然出现
+##   · 玩家与敌人都挨烧（策划：机关是双刃剑）
+##   · 熔炉可被打爆（该角永久停喷）/ 可被攻击提前引爆
+func _tick_furnaces(delta: float) -> void:
+	if _furnaces.is_empty():
+		return
+	_furnace_timer += delta
+
+	# ① 收集"玩家要求提前引爆"的熔炉
+	for f in _furnaces:
+		if not is_instance_valid(f) or not f.is_alive():
+			continue
+		if f.force_ignite:
+			f.force_ignite = false
+			_burst_furnace(f)
+
+	if not _furnace_warning:
+		if _furnace_timer >= FURNACE_INTERVAL - FURNACE_WARN:
+			_furnace_timer = 0.0
+			_furnace_warning = true
+		return
+
+	# ② 预警阶段：把预警圈挪到"下一个要喷的熔炉"上
+	var target := _next_furnace()
+	if target == null:
+		_furnace_warning = false
+		return
+	if _warn_ring != null:
+		_warn_ring.global_position = target.global_position + Vector3(0, 0.06, 0)
+		_warn_ring.visible = true
+
+	if _furnace_timer >= FURNACE_WARN:
+		_furnace_timer = 0.0
+		_furnace_warning = false
+		if _warn_ring != null:
+			_warn_ring.visible = false
+		_burst_furnace(target)
+
+
+## 下一个要喷发的熔炉（还活着、且未被关闭的里取第一个）
+func _next_furnace() -> FurnaceProp:
+	for f in _furnaces:
+		if not is_instance_valid(f) or not f.is_alive():
+			continue
+		if f.skip_rounds > 0:
+			f.skip_rounds -= 1
+			continue
+		return f
+	return null
+
+
+## 某个熔炉爆发：范围内玩家与敌人**都**受伤（策划：机关是双刃剑）
+func _burst_furnace(f: FurnaceProp) -> void:
+	if f == null or not is_instance_valid(f):
+		return
+	var center := f.global_position
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return
+	# 玩家
+	for p in tree.get_nodes_in_group("player"):
+		if p is Node3D and (p as Node3D).global_position.distance_to(center) <= FURNACE_RADIUS:
+			if p.has_method("take_damage"):
+				p.call("take_damage", FURNACE_DAMAGE)
+	# 敌人（含其他可受击物件——破坏物也在 enemies 组里，符合"都会被烧"）
+	for e in tree.get_nodes_in_group("enemies"):
+		if e is Node3D and is_instance_valid(e) \
+				and (e as Node3D).global_position.distance_to(center) <= FURNACE_RADIUS:
+			if e.has_method("take_damage"):
+				e.call("take_damage", FURNACE_DAMAGE)
+	_spawn_burst_visual(center, FURNACE_RADIUS)
+
+
+## 爆发视觉：一个短暂的橙红球
+func _spawn_burst_visual(center: Vector3, radius: float) -> void:
+	var v := MeshInstance3D.new()
+	var mesh := SphereMesh.new()
+	mesh.radius = radius * 0.6
+	mesh.height = radius * 1.2
+	v.mesh = mesh
+	v.position = center + Vector3(0, 0.4, 0)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.45, 0.12, 0.55)
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	v.material_override = mat
+	add_child(v)
+	var tw := create_tween()
+	tw.tween_property(v, "scale", Vector3(1.6, 1.6, 1.6), 0.18)
+	tw.tween_callback(v.queue_free)
 
 
 ## 6 层「硫磺深渊」：硫磺气体（间歇性爆炸）。
@@ -374,7 +543,7 @@ func _process(delta: float) -> void:
 			# 泥潭的"越陷越深"需要每帧追踪停留时长，不走周期计时
 			_tick_mire(delta)
 		"lava":
-			_tick_gear()
+			_tick_furnaces(delta)
 		"sulfur":
 			_tick_blast("blast_interval", "blast_damage", "blast_radius", Color(0.9, 0.25, 0.2, 0.5))
 		"firestorm":
@@ -386,18 +555,6 @@ func _process(delta: float) -> void:
 
 
 ## 齿轮机关：在随机安全位爆发一次（策划：范围提示 3 秒后爆发 → 这里压缩到 1 秒）
-func _tick_gear() -> void:
-	var interval := float(_mech.get("gear_interval", 5.0))
-	if _periodic_timer < interval:
-		return
-	_periodic_timer = 0.0
-	var w := float(_mech.get("w", 20.0))
-	var h := float(_mech.get("h", 15.0))
-	var pos := Vector3(_randf_range(1.0, w - 1.0), 0.0, _randf_range(1.0, h - 1.0))
-	_spawn_burst(pos, float(_mech.get("gear_radius", 2.0)),
-		float(_mech.get("gear_damage", 30.0)), Color(1.0, 0.6, 0.2, 0.5))
-
-
 ## 间歇爆炸（硫磺 / 火风暴通用）：在随机位置爆一次
 func _tick_blast(interval_key: String, dmg_key: String, radius_key: String, color: Color) -> void:
 	var interval := float(_mech.get(interval_key, 5.0))

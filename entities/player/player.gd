@@ -922,6 +922,11 @@ func _on_basic_attack_landed(enemy: Node3D, damage: float) -> void:
 	# 7.4 破极「每 25 连击触发破极状态 6 秒」
 	_maybe_trigger_break_limit()
 
+	# 场上物件的"被攻击改变状态"（策划 6.6：玩家攻击熔炉可提前引爆）。
+	# 用 has_method 而非类型判断——玩家不该依赖 world/props 的具体类。
+	if enemy.has_method("request_ignite"):
+		enemy.call("request_ignite")
+
 
 ## 影子攻击的触发间隔（策划 8.3：每 4 次攻击）
 const SHADOW_ATTACK_EVERY := 4
