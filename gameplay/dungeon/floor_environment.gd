@@ -89,7 +89,7 @@ func _setup(env_id: String, data: Dictionary) -> void:
 		"sulfur":      _setup_sulfur()            # 6 层：硫磺毒气（周期爆炸）
 		"void_warp":   _setup_void_warp()         # 7 层：随机传送
 		"low_gravity": _setup_void_warp()         # 7 层的旧标识（兼容旧存档；见 floor_defs 注释说明为何不叫重力）
-		"firestorm":   _setup_firestorm()         # 8 层：全屏火风暴
+		"firestorm":   _setup_firestorm(w, h)      # 8 层：全屏火风暴 + 掩体
 		"chaos_warp":  _setup_chaos_warp()        # 9 层：强制传送
 
 
@@ -676,11 +676,126 @@ func _flash_vision_block() -> void:
 
 
 ## 8 层「地狱王座」：全屏间歇性火焰风暴（策划 6.9.2：每 15 秒安全区重置）
-func _setup_firestorm() -> void:
+## 8 层「地狱王座」：全屏间歇性火焰风暴。
+##
+## 策划 4 章表：「全屏间歇性火焰风暴（**需躲掩体**）」。
+## **与第 5/6 层的本质区别**：风暴是全屏的，**躲不开、只能找掩体**。
+## 旧实现是"随机位置爆炸"——那是第 5 层熔炉的玩法，不是风暴。
+##
+## 流程：预警 3 秒（全屏边缘红光）→ 风暴持续若干秒 →
+## 期间**不在任何掩体保护范围内的玩家持续受伤**。
+func _setup_firestorm(w: float, h: float) -> void:
+	_spawn_covers(w, h)
 	_mech = {
 		"kind": "firestorm",
-		"storm_interval": 10.0, "storm_damage": 35.0, "storm_radius": 3.2,
+		"storm_interval": STORM_INTERVAL,
+		"storm_warn": STORM_WARN,
+		"storm_duration": STORM_DURATION,
+		"storm_dps": STORM_DPS,
+		"cover_count": _covers.size(),
 	}
+
+
+## 风暴周期参数。策划只写了"全屏间歇"与"需躲掩体"，未给具体数值，
+## 按"有足够时间跑向掩体、但站着不动必死"取：预警 3 秒、风暴 4 秒、
+## 期间每秒 18 伤害（满血玩家裸奔 4 秒约掉 72，不致命但很痛）。
+const STORM_INTERVAL := 14.0
+const STORM_WARN := 3.0
+const STORM_DURATION := 4.0
+const STORM_DPS := 18.0
+
+var _covers: Array[CoverProp] = []
+var _storm_timer := 0.0
+var _storm_active := false
+var _storm_dps_accum := 0.0
+## 风暴预警/进行中的全屏遮罩
+var _storm_overlay: ColorRect = null
+
+
+## 生成掩体（3~4 个，避开出生点与门）
+func _spawn_covers(w: float, h: float) -> void:
+	var count := 3 if w * h < 220.0 else 4
+	var spots := _scatter_zones(w, h, count, 1.6)
+	for i in spots.size():
+		var c := CoverProp.new()
+		c.name = "Cover_%d" % i
+		c.position = spots[i]
+		add_child(c)
+		_covers.append(c)
+
+
+## 风暴驱动：预警 → 风暴 → 冷却
+func _tick_firestorm(delta: float) -> void:
+	if not _room_active():
+		return
+	_storm_timer += delta
+
+	if not _storm_active:
+		# 冷却 + 预警共用一条时间线：前 (interval - warn) 秒安静，
+		# 最后 warn 秒开始预警
+		var warn_at := STORM_INTERVAL - STORM_WARN
+		if _storm_timer >= warn_at:
+			_set_storm_overlay(0.28, Color(1.0, 0.3, 0.15))
+		if _storm_timer >= STORM_INTERVAL:
+			_storm_timer = 0.0
+			_storm_active = true
+			_set_storm_overlay(0.45, Color(1.0, 0.25, 0.10))
+			_emit_message("火焰风暴！快找掩体！")
+		return
+
+	# 风暴进行中：不在掩体后的玩家持续受伤
+	_apply_storm_damage(delta)
+	if _storm_timer >= STORM_DURATION:
+		_storm_timer = 0.0
+		_storm_active = false
+		_set_storm_overlay(0.0, Color(1.0, 0.25, 0.10))
+
+
+## 风暴伤害：**只要玩家在任一掩体的保护半径内就安全**
+func _apply_storm_damage(delta: float) -> void:
+	var p := _find_player()
+	if p == null or not (p is Node3D):
+		return
+	if _is_sheltered((p as Node3D).global_position):
+		_storm_dps_accum = 0.0
+		return
+	_storm_dps_accum += STORM_DPS * delta
+	var whole := floorf(_storm_dps_accum)
+	if whole < 1.0:
+		return
+	_storm_dps_accum -= whole
+	if p.has_method("take_damage"):
+		p.call("take_damage", whole)
+
+
+## 该点是否被掩体保护
+func _is_sheltered(pos: Vector3) -> bool:
+	for c in _covers:
+		if is_instance_valid(c) and c.covers(pos):
+			return true
+	return false
+
+
+## 全屏遮罩（预警红光 / 风暴橙光）
+func _set_storm_overlay(alpha: float, color: Color) -> void:
+	if _storm_overlay == null:
+		var layer := CanvasLayer.new()
+		layer.name = "StormOverlay"
+		layer.layer = 4
+		add_child(layer)
+		_storm_overlay = ColorRect.new()
+		_storm_overlay.anchor_right = 1.0
+		_storm_overlay.anchor_bottom = 1.0
+		_storm_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_storm_overlay.color = Color(color.r, color.g, color.b, 0.0)
+		layer.add_child(_storm_overlay)
+	if _storm_overlay != null:
+		_storm_overlay.color = Color(color.r, color.g, color.b, alpha)
+
+
+## 供测试读取掩体数量
+func cover_count() -> int:
+	return _covers.size()
 
 
 ## 9 层「混沌裂隙」：随机传送门，每 10 秒强制传送一次（策划 6.10 / 4 章）
@@ -734,7 +849,7 @@ func _process(delta: float) -> void:
 		"sulfur":
 			_tick_blast("blast_interval", "blast_damage", "blast_radius", Color(0.9, 0.25, 0.2, 0.5))
 		"firestorm":
-			_tick_blast("storm_interval", "storm_damage", "storm_radius", Color(1.0, 0.35, 0.15, 0.55))
+			_tick_firestorm(delta)
 		"void_warp":
 			_tick_void_warp(delta)
 		"chaos_warp":
