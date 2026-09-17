@@ -38,6 +38,11 @@ const BUFFS := [
 	["thorn_slow", "荆棘地减速", Kind.SLOW, 0.0, 0, "移速 -50%（踏入期间）", "stat", {"slow": 0.50}],
 	["dull", "迟钝", Kind.SLOW, 4.0, 0, "攻速 -25%，施法速度 -25%", "stat", {"aspd_down": 0.25}],
 	["mire", "泥沼", Kind.SLOW, 3.0, 0, "移速 -40%，无法翻滚", "stat", {"slow": 0.40, "no_dodge": true}],
+	# 第 4 层泥潭「越陷越深」的深层档位（策划：泥潭陷阱 = 减速 + 持续伤害）。
+	# 策划未给分档数值，按"踩一下代价小、站桩被困住"的意图取 3 档递进。
+	# 与上面的技能专用词条同性质：**不属于文档的 81 条**，见 SKILL_ONLY_IDS。
+	["mire_deep", "深陷", Kind.SLOW, 3.0, 0, "移速 -50%，无法翻滚", "stat", {"slow": 0.50, "no_dodge": true}],
+	["mire_deepest", "没顶", Kind.SLOW, 3.0, 0, "移速 -60%，无法翻滚", "stat", {"slow": 0.60, "no_dodge": true}],
 
 	# ---------- 3.3 硬控型（8） ----------
 	["freeze", "冰冻", Kind.CONTROL, 1.5, 0, "无法移动/攻击（冰裂可延长至 2.5 秒）", "control", {"stun": true}],
@@ -174,7 +179,8 @@ const KIND_NAMES := {
 const SKILL_ONLY_IDS := ["rage_haste", "rage_fury", "rage_dance_aspd",
 	"rage_dance_true", "chain_weak", "flame_mark", "void_stigma",
 	"break_limit_state", "forest_domain_self", "forest_domain_foe",
-	"judge_mark", "light_layer", "dark_layer", "verdict_balance"]
+	"judge_mark", "light_layer", "dark_layer", "verdict_balance",
+	"mire_deep", "mire_deepest"]
 
 ## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
 ## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），

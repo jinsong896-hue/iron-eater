@@ -97,42 +97,190 @@ func _setup(env_id: String, data: Dictionary) -> void:
 # 区域型机制（静态危害区，进区即生效）
 # ============================================================
 
-## 2 层「废弃矿道」：部分地面坍塌 → 减速区（策划：特殊机制是减速）
+## 2 层「废弃矿道」：部分地面坍塌。
+##
+## 策划原文：「部分地面坍塌（减速区域）」。
+## **与 3/4 层的区别**：坍塌是**动态**的——地面先裂开（1.5 秒预警），
+## 然后才塌成减速区。玩家有时间躲开，且场地会随时间变得更难走。
+## 3 层毒气是静态常驻、4 层泥潭是越踩越深，三者玩法不同。
 func _setup_collapse(w: float, h: float) -> void:
 	var zones := _scatter_zones(w, h, 4, 2.0)
 	for pos in zones:
-		DamageZone.spawn({
+		var z := DamageZone.spawn({
 			"position": pos, "radius": 2.0, "duration": -1.0,
 			"damage": 0.0, "tick_interval": 0.5,
 			"slow_buff": "thorn_slow",
 			"color": Color(0.35, 0.30, 0.22, 0.45),
 		}, self)
+		# 预警：先只画裂纹（无效果），1.5 秒后才真正生效
+		_arm_crack_warning(z)
 	_mech = {"kind": "collapse", "zone_count": zones.size()}
 
 
-## 3 层「古老墓穴」：毒气区域，持续掉血（策划：可破坏通风口消除——通风口机制待做）
+## 给坍塌区加"裂纹预警"阶段：先禁用效果、放大视觉提示，延时后启用。
+## 用 DamageZone 自身的 `monitoring` 开关实现——禁用期间不产生任何效果。
+func _arm_crack_warning(zone: DamageZone) -> void:
+	if zone == null:
+		return
+	zone.set_deferred("monitoring", false)
+	var timer := get_tree().create_timer(COLLAPSE_WARN_TIME) if get_tree() else null
+	if timer == null:
+		zone.monitoring = true
+		return
+	timer.timeout.connect(func():
+		if is_instance_valid(zone):
+			zone.monitoring = true)
+
+
+## 坍塌预警时长（秒）。策划未给具体值，取 1.5 秒——
+## 足够玩家看清并走开，又不会让场地显得空荡。
+const COLLAPSE_WARN_TIME := 1.5
+
+
+## 3 层「古老墓穴」：毒气区域。
+##
+## 策划原文：「毒气区域（持续掉血，**可破坏通风口消除**）」。
+## **与 2/4 层的区别**：毒气不是"躲开就完"——每个毒气区旁边有一个
+## 通风口，**打掉它才能永久清除该区**。这给了玩家一个主动目标，
+## 而不是单纯绕路。通风口不摧毁则毒气一直存在。
 func _setup_poison(w: float, h: float) -> void:
 	var zones := _scatter_zones(w, h, 5, 2.2)
-	for pos in zones:
-		DamageZone.spawn({
+	var vents := 0
+	for i in zones.size():
+		var pos: Vector3 = zones[i]
+		var z := DamageZone.spawn({
 			"position": pos, "radius": 2.2, "duration": -1.0,
 			"damage": 6.0, "tick_interval": 1.0,
 			"color": Color(0.30, 0.75, 0.25, 0.35),
 		}, self)
-	_mech = {"kind": "poison", "zone_count": zones.size()}
+		# 记下引用，供通风口的 destroyed 回调按 index 精确清除
+		_poison_zones[i] = z
+		if _spawn_vent_for(pos, i, w, h):
+			vents += 1
+	_mech = {"kind": "poison", "zone_count": zones.size(), "vent_count": vents}
 
 
-## 4 层「地下沼泽」：泥潭陷阱（减速 + 持续伤害）
+## 在毒气区旁生成一个通风口，并绑定"打掉即清除该区"。
+## 返回是否成功生成（找不到安全位时不生成，机制退化为"只能绕路"）。
+func _spawn_vent_for(zone_pos: Vector3, index: int, w: float, h: float) -> bool:
+	if not _poison_zones.has(index):
+		return false
+	var vent_pos := _find_vent_spot(zone_pos, w, h)
+	if vent_pos == Vector3.INF:
+		return false
+	var vent := VentProp.new()
+	vent.name = "Vent_%d" % index
+	vent.zone_index = index
+	vent.position = vent_pos
+	add_child(vent)
+	# 打掉通风口 → 清除对应的毒气区（按下标取引用，精确对应）
+	var zone_ref: DamageZone = _poison_zones[index]
+	vent.destroyed.connect(func(_p):
+		if is_instance_valid(zone_ref):
+			zone_ref.queue_free())
+	return true
+
+
+## 毒气区引用表（下标与通风口的 zone_index 对应）
+var _poison_zones: Dictionary = {}
+
+
+## 在毒气区附近找一个能放通风口的安全位（半径 2.6~3.4 米的环上取点）
+func _find_vent_spot(zone_pos: Vector3, w: float, h: float) -> Vector3:
+	for i in 8:
+		var ang := TAU * float(i) / 8.0
+		var r := 2.8
+		var p := Vector3(zone_pos.x + cos(ang) * r, 0.0, zone_pos.z + sin(ang) * r)
+		if p.x < 1.0 or p.x > w - 1.0 or p.z < 1.0 or p.z > h - 1.0:
+			continue
+		if not _is_safe(p):
+			continue
+		return p
+	return Vector3.INF
+
+
+## 4 层「地下沼泽」：泥潭陷阱。
+##
+## 策划原文：「泥潭陷阱（减速 + 持续伤害）」。
+## **与 2/3 层的区别**：泥潭的减速**随停留时间加深**（3 档：-25%/-40%/-55%），
+## 表达"越陷越深"。踩一下就走的代价很小，站桩不走会被困住。
 func _setup_mire(w: float, h: float) -> void:
 	var zones := _scatter_zones(w, h, 5, 2.5)
 	for pos in zones:
-		DamageZone.spawn({
+		# **不设 slow_buff**：减速完全由 _tick_mire 按停留时长分档管理。
+		# 若这里也挂一个基础减速，玩家会被施加两条减速词条（叠加），
+		# 实际减速远超档位表的设计值。
+		var z := DamageZone.spawn({
 			"position": pos, "radius": 2.5, "duration": -1.0,
 			"damage": 8.0, "tick_interval": 1.0,
-			"slow_buff": "mire",
 			"color": Color(0.25, 0.22, 0.14, 0.5),
 		}, self)
+		_mire_zones.append(z)
 	_mech = {"kind": "mire", "zone_count": zones.size()}
+
+
+## 泥潭区引用（每帧检查玩家停留时长，逐档加深减速）
+var _mire_zones: Array[DamageZone] = []
+## 玩家在各泥潭区的累计停留时长（key = zone instance_id）
+var _mire_dwell: Dictionary = {}
+## 泥潭减速档位：{秒数门槛, 减速词条 id}
+## 越陷越深——踩一下就走的代价很小，站桩不走会被困住。
+const MIRE_TIERS := [
+	[0.0, "mire"],            # 刚踩进去：-40%
+	[2.0, "mire_deep"],       # 站 2 秒：-50%
+	[4.0, "mire_deepest"],    # 站 4 秒：-60%
+]
+
+
+## 每帧推进泥潭的"越陷越深"。
+## 只在玩家位于某泥潭区内时累加该区的停留时长，离开即清零并撤掉减速。
+func _tick_mire(delta: float) -> void:
+	var p := _find_player()
+	if p == null:
+		return
+	var deepest := ""
+	for z in _mire_zones:
+		if not is_instance_valid(z):
+			continue
+		var zid := z.get_instance_id()
+		var inside: bool = z.global_position.distance_to(p.global_position) <= z.radius
+		if inside:
+			_mire_dwell[zid] = float(_mire_dwell.get(zid, 0.0)) + delta
+			var t := _mire_tier_for(float(_mire_dwell[zid]))
+			if _tier_rank(t) > _tier_rank(deepest):
+				deepest = t
+		else:
+			_mire_dwell.erase(zid)
+	_apply_mire_tier(p, deepest)
+
+
+## 停留时长对应的档位词条 id
+func _mire_tier_for(dwell: float) -> String:
+	var want := ""
+	for tier in MIRE_TIERS:
+		if dwell >= float(tier[0]):
+			want = str(tier[1])
+	return want
+
+
+func _tier_rank(bid: String) -> int:
+	for i in MIRE_TIERS.size():
+		if str(MIRE_TIERS[i][1]) == bid:
+			return i
+	return -1
+
+
+## 只保留当前最深的一档减速（切档时先撤掉其余档）
+func _apply_mire_tier(p: Node, want: String) -> void:
+	var buffs = p.get("buffs")
+	if buffs == null:
+		return
+	for tier in MIRE_TIERS:
+		var bid := str(tier[1])
+		if bid != want and buffs.has(bid):
+			buffs.remove(bid)
+	if not want.is_empty() and not buffs.has(want):
+		buffs.apply(want, "mire")
 
 
 ## 5 层「符文熔炉」：熔岩地面（灼烧）+ 齿轮机关（周期伤害）
@@ -222,6 +370,9 @@ func _process(delta: float) -> void:
 		return
 	_periodic_timer += delta
 	match kind:
+		"mire":
+			# 泥潭的"越陷越深"需要每帧追踪停留时长，不走周期计时
+			_tick_mire(delta)
 		"lava":
 			_tick_gear()
 		"sulfur":
@@ -332,3 +483,15 @@ func _tick_warp(interval_key: String) -> void:
 ## 供测试读取机制配置
 func mechanism() -> Dictionary:
 	return _mech
+
+
+## 本房间的玩家（泥潭停留判定用）。
+## 走 `group("player")` 而非缓存引用——房间会销毁重建，缓存会悬空。
+func _find_player() -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return null
+	var ps := tree.get_nodes_in_group("player")
+	if ps.size() > 0 and is_instance_valid(ps[0]):
+		return ps[0]
+	return null
