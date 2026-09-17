@@ -41,8 +41,11 @@ var current_save_slot := 0
 # 新游戏配置
 @onready var new_game_panel: Control = $NewGamePanel
 @onready var char_select: ItemList = $NewGamePanel/VBox/CharSelect
+@onready var form_select: ItemList = $NewGamePanel/VBox/FormSelect
 @onready var mode_select: ItemList = $NewGamePanel/VBox/ModeSelect
 @onready var difficulty_select: ItemList = $NewGamePanel/VBox/DifficultySelect
+## 当前选中的形态槽位（开局写入 run_info，整局固定）
+var selected_form := 0
 @onready var btn_start_game: Button = $NewGamePanel/VBox/BtnStartGame
 @onready var char_desc: Label = $NewGamePanel/VBox/CharDesc
 
@@ -359,15 +362,20 @@ func _on_upgrade_pressed() -> void:
 # ============================================================
 
 func _setup_new_game() -> void:
-	# 角色选择
+	# 职业选择（第一级）。职业名从 ClassDefs 取，避免与数据表两处硬编码打架。
 	if char_select:
-		char_select.add_item("战士 · 狂怒之刃")
-		char_select.add_item("法师 · 虚空织者")
-		char_select.add_item("猎人 · 铁血猎手")
-		char_select.add_item("判官 · 裁决之秤")
-		char_select.add_item("武僧 · 炼魂武者")
+		for cid in CLASS_ORDER:
+			char_select.add_item(ClassDefs.class_name_of(cid))
 		char_select.select(0)
 		char_select.item_selected.connect(_on_char_selected)
+
+	# 形态选择（第二级）。策划口径：形态是"衍生职业"，开局二选一即定，
+	# 整局不再变化——所以做成选人界面的一级，而不是局内可切换的按钮。
+	#
+	# **不做解锁门禁**（用户明确要求全部直接可选）。ClassDefs.UNLOCK_FLOOR
+	# 保留为设计意图记录，但不在这里拦。
+	if form_select:
+		form_select.item_selected.connect(_on_form_selected)
 
 	# 模式选择
 	if mode_select:
@@ -388,23 +396,60 @@ func _setup_new_game() -> void:
 
 
 func _refresh_new_game() -> void:
+	if char_select and char_select.item_count > 0:
+		char_select.select(0)
 	_on_char_selected(0)
 
 
-func _on_char_selected(index: int) -> void:
-	var descs := [
-		"近战 · 重装 · 怒气\n正面硬刚，通过攻击与受击积累怒气。\n操作难度：●●○○○\n★ 推荐首次使用",
-		"远程 · 法术 · 魔力\n操纵虚空能量进行远程打击。\n操作难度：●●●○○",
-		"远程 · 走A · 专注\n灵活走位，精准射击。\n操作难度：●●●○○",
-		"近战 · 审判 · 裁决\n以神圣力量审判邪恶。\n操作难度：●●●●○",
-		"近战 · 内功 · 气劲\n以武技和气劲战斗。\n操作难度：●●●●○",
-	]
-	if char_desc and index >= 0 and index < descs.size():
-		char_desc.text = descs[index]
+## 职业列表顺序（与 CharSelect 的项顺序一一对应）
+const CLASS_ORDER := ["warrior", "mage", "hunter", "judge", "monk"]
 
-	var chars := ["warrior", "mage", "hunter", "judge", "monk"]
-	if index >= 0 and index < chars.size():
-		selected_character = chars[index]
+
+## 选职业 → 重建形态列表 + 刷新描述
+func _on_char_selected(index: int) -> void:
+	if index < 0 or index >= CLASS_ORDER.size():
+		return
+	selected_character = CLASS_ORDER[index]
+	selected_form = 0
+	if form_select:
+		form_select.clear()
+		var forms: Array = ClassDefs.get_class_def(selected_character).get("forms", [])
+		for i in forms.size():
+			form_select.add_item(str(forms[i].get("name", "形态 %d" % (i + 1))))
+		if forms.size() > 0:
+			form_select.select(0)
+	_refresh_char_desc()
+
+
+## 选形态 → 刷新描述
+func _on_form_selected(index: int) -> void:
+	if index < 0:
+		return
+	selected_form = index
+	_refresh_char_desc()
+
+
+## 描述区：职业定位 + 该形态的专属增益（策划的 gain 原文）
+func _refresh_char_desc() -> void:
+	if char_desc == null:
+		return
+	var lines: Array[String] = []
+	lines.append("%s — %s" % [
+		ClassDefs.class_name_of(selected_character),
+		ClassBase.tagline(selected_character)])
+	var form := ClassDefs.get_form(selected_character, selected_form)
+	if not form.is_empty():
+		lines.append("【%s】%s" % [
+			str(form.get("name", "")), str(form.get("gain", ""))])
+		var sks: Array = form.get("skills", [])
+		if sks.is_empty():
+			lines.append("技能：无（依靠普攻与形态被动）")
+		else:
+			var names: Array[String] = []
+			for s in sks:
+				names.append(str(s.get("name", "")))
+			lines.append("技能：" + "、".join(names))
+	char_desc.text = "\n".join(lines)
 
 
 func _on_start_game_pressed() -> void:
@@ -417,6 +462,7 @@ func _on_start_game_pressed() -> void:
 	if gm and gm.has_method("start_new_run"):
 		gm.start_new_run({
 			"character": selected_character,
+			"form": selected_form,
 			"mode": selected_mode,
 			"difficulty": selected_difficulty,
 			"floor": 1,

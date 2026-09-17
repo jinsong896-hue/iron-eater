@@ -155,6 +155,9 @@ func _collect_save_data() -> Dictionary:
 	}
 	if gm:
 		data["character"] = gm.run_info.get("character", "warrior")
+		# 形态也进存档：职业+形态共同决定玩家数值。只存职业的话，
+		# 读档会静默回到形态 0——玩家选了"虚空古神化身"，读档变回"元素使"。
+		data["form"] = int(gm.run_info.get("form", 0))
 		data["floor"] = gm.run_info.get("floor", 1)
 		data["difficulty"] = gm.run_info.get("difficulty", "normal")
 		data["seed"] = gm.run_info.get("seed", 0)
@@ -204,6 +207,7 @@ func restore_run(data: Dictionary) -> bool:
 	# ① 先用存档的局信息开局（会重置一切，包括 manager）
 	gm.start_new_run({
 		"character": data.get("character", "warrior"),
+		"form": int(data.get("form", 0)),
 		"mode": data.get("mode", "dungeon"),
 		"difficulty": data.get("difficulty", "normal"),
 		"floor": data.get("floor", 1),

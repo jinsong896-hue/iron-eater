@@ -68,6 +68,7 @@ run_script_suite "iron_studio  (编辑器数据类)" "res://tests/test_iron_stud
 run_scene_suite  "menu         (主菜单交互)" "res://tests/test_menu_interaction_scene.tscn"
 run_scene_suite  "settings     (设置面板)" "res://tests/test_settings_panel.tscn"
 run_scene_suite  "backpack     (背包 UI)" "res://tests/test_backpack_ui.tscn"
+run_scene_suite  "class_mech   (职业/形态机制)" "res://tests/test_class_mechanics.tscn"
 run_scene_suite  "combat       (战斗系统)" "res://tests/test_combat_system.tscn"
 run_scene_suite  "room_flow    (房间流程+特殊房)" "res://tests/test_room_flow.tscn"
 run_scene_suite  "special_room (特殊房交互 UI)" "res://tests/test_special_room_ui.tscn"

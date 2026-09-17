@@ -648,6 +648,67 @@ static func unlock_floor_of(form_slot: int) -> int:
 	return int(UNLOCK_FLOOR[clampi(form_slot, 0, UNLOCK_FLOOR.size() - 1)])
 
 
+# ============================================================
+# 形态 special 字段的统一读取口
+# ============================================================
+# **为什么收口在这里**：`special` 是形态机制的唯一声明处（31 个字段），
+# 消费方却横跨 player（普攻）/ skill_system（技能）/ class_resource（资源）
+# 三处。此前 `skill_system._form_special_float` 是唯一实现，player 想读
+# 同一个字段只能再抄一份——重复实现迟早分叉（改了一处忘另一处，
+# 表现就是"同一个机制在普攻生效、在技能不生效"）。
+# 故所有读取统一走下面三个静态方法。
+
+## 某形态的 special 字典（取不到返回空字典）
+static func special_of(class_id: String, form_slot: int) -> Dictionary:
+	var f := get_form(class_id, form_slot)
+	return f.get("special", {})
+
+
+## 读形态 special 的数值项。缺项返回 fallback——
+## 形态增益是"锦上添花"，某个形态没声明该字段不该让整条链路失效。
+static func special_num(class_id: String, form_slot: int, key: String,
+		fallback: float = 0.0) -> float:
+	var sp := special_of(class_id, form_slot)
+	if not sp.has(key):
+		return fallback
+	return float(sp[key])
+
+
+## 读形态 special 的开关项（如 no_weapon / myriad_combo）。
+## 注意 bool 型字段转 float 会得到 1.0/0.0，故开关项必须走这里，
+## 不能靠 special_num 的返回值判断"是否有值"。
+static func special_flag(class_id: String, form_slot: int, key: String) -> bool:
+	var sp := special_of(class_id, form_slot)
+	if not sp.has(key):
+		return false
+	return bool(sp[key])
+
+
+## 该形态是否声明了某 special 字段（区分"声明为 0"与"没声明"）
+static func has_special(class_id: String, form_slot: int, key: String) -> bool:
+	return special_of(class_id, form_slot).has(key)
+
+
+## 「每次命中叠印记」的 flag → 印记 buff id。
+##
+## **普攻与技能共用**：咒焰使的技能是 `kind=detonate`（读目标身上的层数来引爆），
+## 它自己不产生层数——层数只能由**普攻**累积。若只在技能侧接，
+## 该形态会陷入"要引爆先得有层数、要有层数却只能靠引爆"的死循环。
+## 故普攻（player._apply_hit）与技能（skill_system._deal_damage）都要读这张表。
+const FORM_MARK_PAIRS := [
+	["flame_stack_per_cast", "flame_mark"],
+	["void_stigma_per_cast", "void_stigma"],
+]
+
+
+## 当前形态声明的印记 buff id（无则空串）
+static func form_mark_id(class_id: String, form_slot: int) -> String:
+	for p in FORM_MARK_PAIRS:
+		if special_flag(class_id, form_slot, str(p[0])):
+			return str(p[1])
+	return ""
+
+
 ## 玩家当前层数下，可用的最高形态槽位。
 ## 策划 2 章：初始默认；进阶 1 通关 3 层；进阶 2 第 6 层；进阶 3 第 8 层；终极第 9 层。
 ## 「通关 N 层」= 层数 > N，故 cleared_floor=3（已通关第 3 层）时解锁槽位 1。

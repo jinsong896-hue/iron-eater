@@ -218,6 +218,48 @@ static func get_templates_by_slot(slot: int) -> Array:
 	return result
 
 
+## 降级解析：先找精确 id，找不到就按该 id 的**槽位**回退到同槽位的白装。
+##
+## 为什么需要：`ClassDefs` 的 `start_gear` 是从**完整目录**（12 武器 +
+## 18 护甲）里挑的，但白装层只注册了 13 件基础款（每槽位 1 件，这是刻意的
+## 设计决定，见测试里"白装 = 基础款"的断言）。于是 11 个被策划点名的
+## 起始装备在白装层根本不存在，开局会静默少发装备。
+##
+## 降级后玩家拿到的仍是"这件装备该在的部位"，只是具体款式退到基础款——
+## 比"什么都不发"好，也比"悄悄把白装池扩成 36 件"（会改变掉落手感）克制。
+##
+## 返回 null 表示该 id 既不存在、其槽位也没有任何白装可回退。
+static func resolve_or_white_fallback(id: StringName) -> EquipmentTemplate:
+	var exact := get_template(id)
+	if exact != null:
+		return exact
+	var slot := _catalog_slot_of(String(id))
+	if slot < 0:
+		return null
+	var pool := get_templates_by_slot(slot)
+	# 只回退白装：起始装备是新手装，不该给绿装以上
+	for t in pool:
+		if t.rarity == EquipmentDefs.Rarity.WHITE:
+			return t
+	return pool[0] if pool.size() > 0 else null
+
+
+## 查完整目录里某 id 应属的槽位（白装层没有该 id 时用它定位部位）。
+## 返回 -1 表示完整目录里也没有这个 id（真·打错的模板 id）。
+static func _catalog_slot_of(id: String) -> int:
+	for row in FULL_WEAPON_TABLE:
+		if str(row[0]) == id:
+			# 单/双手武器在白装层统一注册在 WEAPON_1 槽（见 init_equipment_db）
+			return EquipmentDefs.Slot.WEAPON_1
+	for row in FULL_ARMOR_TABLE:
+		if str(row[0]) == id:
+			return int(row[2])
+	for row in FULL_ACCESSORY_TABLE:
+		if str(row[0]) == id:
+			return EquipmentDefs.Slot.ACCESSORY_1
+	return -1
+
+
 ## 模板总数
 static func template_count() -> int:
 	return _templates.size()

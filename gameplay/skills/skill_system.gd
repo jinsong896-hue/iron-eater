@@ -66,6 +66,17 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 		sd = sd.duplicate()
 		sd["damage_mult"] = float(sd.get("damage_mult", 1.0)) * (1.0 + bonus)
 
+	# 形态·技能范围（策划 4.1 元素使 +15%、4.5 共鸣师 +30%）。
+	# 在这一处统一放大几何参数，所有 _cast_* 自动受益，不必逐个改。
+	# **必须 duplicate 后再改**：sd 是 ClassDefs 常量表里的字典，
+	# 原地修改会永久污染全局表——放一次技能后所有后续施法都带着放大值。
+	var range_mult := _form_range_mult(caster)
+	if absf(range_mult - 1.0) > 0.0001:
+		sd = sd.duplicate()
+		for key in ["radius", "reach", "range", "dash_dist", "behind_offset"]:
+			if sd.has(key):
+				sd[key] = float(sd[key]) * range_mult
+
 	match str(sd.get("kind", "aoe")):
 		"aoe":        _cast_aoe(caster, sd, dir)
 		"cone":       _cast_cone(caster, sd, dir)
@@ -84,20 +95,71 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 	# 放在扣费之后：否则「消耗 30 回 10」会被算成净消耗 20 的假象——
 	# 实际是先扣后回，玩家看到的是净变化。
 	var restore := float(sd.get("restore_resource", 0.0))
+	# 形态·施法返还（策划 4.3 奥术师「15% 概率返还消耗」）。
+	# cast_refund_pct 是无条件返还比例，与下面的 resonance_chance（概率型）分开：
+	# 前者是"稳定回一点"，后者是"偶尔放个免费技能"。
+	var refund_pct := _form_special_float(caster, "cast_refund_pct", 0.0)
 	if restore > 0.0 and resource != null:
-		resource.gain(restore)
-	# 「每次施法叠 1 层」的形态被动（策划 4.4 咒焰使：每次施法 +1 层咒焰）。
-	# 与 self_buffs 的区别：那个是固定挂一次，这个是可累积的层数上限词条。
-	var stack_buff := str(sd.get("stack_buff_per_cast", ""))
-	if not stack_buff.is_empty():
-		var pb = caster.get("buffs")
-		if pb != null:
-			pb.call("apply", stack_buff, "skill")
+		resource.gain(restore * (1.0 + refund_pct))
+	if refund_pct > 0.0 and cost > 0.0 and resource != null:
+		resource.gain(cost * refund_pct)
+	# 「每次施法叠 1 层」的印记。
+	#
+	# **两个来源指向同一件事**：技能数据的 `stack_buff_per_cast`（策划在
+	# 咒焰冲击/虚空湮灭上写死的）与形态 special 的 `*_per_cast` 开关。
+	# 它们表达的都是"这个形态每次施法给命中目标叠 1 层印记"，同时生效会
+	# 让一次施法叠 2 层——层数上限被提前打满，引爆伤害翻倍。
+	# 故合并成一次：技能声明了就用技能声明的 id，否则查形态开关，
+	# 最终只叠 1 层，且**叠在被命中的敌人身上**（引爆读的是目标层数）。
+	var mark := str(sd.get("stack_buff_per_cast", ""))
+	if mark.is_empty():
+		mark = _form_mark_id(caster)
+	_pending_stack_marks = [mark] if (not mark.is_empty() and _skill_hits_enemies(sd)) else []
+	# 形态·共鸣（策划 4.5 共鸣师「20% 概率不消耗资源」）。
+	# 放在所有返还之后：它表达的是"这一次白放"，把消耗整体退回去最直观。
+	var resonance := _form_special_float(caster, "resonance_chance", 0.0)
+	if resonance > 0.0 and cost > 0.0 and resource != null and _rng.randf() < resonance:
+		resource.gain(cost)
 	# 施放后加连击数（策划 7.5 疾风连打「连击计数翻倍增长」/ 风之步「连击 +3」）
 	var cg := int(sd.get("combo_gain", 0))
 	if cg > 0 and caster.has_method("add_hit_combo"):
 		caster.call("add_hit_combo", cg)
 	return {"ok": true, "skill": skill_id, "name": str(sd.get("name", skill_id))}
+
+
+## 技能是否会对敌人造成命中（决定形态印记要不要生效）
+func _skill_hits_enemies(sd: Dictionary) -> bool:
+	var kind := str(sd.get("kind", "aoe"))
+	return kind in ["aoe", "cone", "dash", "pull", "projectile", "multi_hit",
+		"detonate", "spread"]
+
+
+## 本次施法要叠给命中目标的印记 id（施法开始时确定，_deal_damage 时消费）。
+## 必须是实例状态而非局部变量：`cast_skill` 与 `_deal_damage` 之间有
+## `_cast_*` 一层间接调用。
+var _pending_stack_marks: Array = []
+
+
+## 给刚被命中的那个敌人叠一层形态印记。
+## 在 `_deal_damage` 内调用，故只作用于**真正挨打**的敌人。
+func _stack_form_marks_on(caster: Node3D, enemy: Node3D) -> void:
+	if enemy == null or caster == null or _pending_stack_marks.is_empty():
+		return
+	var eb = enemy.get("buffs")
+	if eb == null or not eb.has_method("apply"):
+		return
+	for bid in _pending_stack_marks:
+		eb.call("apply", str(bid), "form")
+
+
+## 施法者当前形态声明的印记 id（无则空串）。
+## 映射表在 ClassDefs（普攻也要用同一张）。
+func _form_mark_id(caster: Node3D) -> String:
+	var cid = caster.get("class_id")
+	var slot = caster.get("form_slot")
+	if cid == null or slot == null:
+		return ""
+	return ClassDefs.form_mark_id(str(cid), int(slot))
 
 
 ## 每帧推进冷却（由 Player._physics_process 驱动）
@@ -210,11 +272,15 @@ func _cast_projectile(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	var parent := caster.get_parent()
 	if parent == null:
 		return
+	# 形态·远程伤害倍率（策划 3.2 壁垒「远程伤害 -50%」）。
+	# 只能在这里乘：投射物一旦生成就与施法者脱钩（ProjectileSystem.spawn
+	# 只拿到一个 damage 数值，没有 caster/form 引用），出去之后没法再按形态修正。
+	var ranged_mult := 1.0 + _form_special_float(caster, "ranged_dmg_pct", 0.0)
 	var data := {
 		"skill_id": sd.get("id", ""),
 		"direction": dir,
 		"speed": float(sd.get("speed", 12.0)),
-		"damage": _panel_atk(caster) * float(sd.get("damage_mult", 1.0)),
+		"damage": _panel_atk(caster) * float(sd.get("damage_mult", 1.0)) * ranged_mult,
 		"lifetime": float(sd.get("lifetime", 2.0)),
 		"element": str(sd.get("element", "")),
 		"pierce_count": int(sd.get("pierce_count", 0)),
@@ -339,6 +405,12 @@ func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float,
 		mult *= _form_special_float(caster, "backstab_mult", 1.0)
 	var atk := _panel_atk(caster)
 	var target_def := float(enemy.get("defense")) if enemy.get("defense") != null else 0.0
+	# 形态·护甲穿透（与普攻同口径，见 player._apply_hit）。
+	# 不在这里也做一遍的话，"锁链"形态的穿透只对普攻生效、对技能无效。
+	target_def *= 1.0 - clampf(
+		_form_special_float(caster, "armor_pierce", 0.0), 0.0, 1.0)
+	# 形态·近战伤害倍率。技能无远近之分，统一按近战口径结算。
+	mult *= 1.0 + _form_special_float(caster, "melee_dmg_pct", 0.0)
 	var result := DamagePipeline.physical(atk, mult, 0.0, target_def)
 	var crt := _stat(caster, "crt", 0.05)
 	var crd := _stat(caster, "crd", 0.5)
@@ -356,6 +428,9 @@ func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float,
 	# 技能也能叠元素（走与普攻相同的阈值/联动路径）。
 	# 元素来源：施法者的攻击元素（武器赋予）——技能自身若声明了 element
 	# 应在这里覆盖，目前战士技能全为物理，留待法系职业实装时扩展。
+	# 形态印记（咒焰/虚空印记）叠给**真正被命中的敌人**——放在这个漏斗里
+	# 而不是施法后遍历全场，才不会把没挨打的怪也标记上。
+	_stack_form_marks_on(caster, enemy)
 	ElementDamage.attack(enemy.get("buffs"), _skill_element(caster, null))
 	# 命中攒资源（策划各职业资源系统）
 	_gain_resource_on_hit(caster, crit)
@@ -476,16 +551,26 @@ func _combo_count(caster: Node3D) -> int:
 
 ## 读施法者当前形态的 special 数值（如 backstab_mult）。
 ## 取不到时返回 fallback——形态增益是"锦上添花"，缺失不该让技能失效。
+## 实现转发到 ClassDefs.special_num：player 的普攻链路读同一批字段，
+## 两处各写一份迟早分叉（见 ClassDefs 里的注释）。
 func _form_special_float(caster: Node3D, key: String, fallback: float) -> float:
 	var cid = caster.get("class_id")
 	var slot = caster.get("form_slot")
 	if cid == null or slot == null:
 		return fallback
-	var form := ClassDefs.get_form(str(cid), int(slot))
-	var sp: Dictionary = form.get("special", {})
-	if not sp.has(key):
-		return fallback
-	return float(sp[key])
+	return ClassDefs.special_num(str(cid), int(slot), key, fallback)
+
+
+## 施法者的技能范围乘区。优先问 caster 自己（Player 有缓存的 class/form），
+## 拿不到就退回按 cid+slot 查表。非玩家施法者（测试桩）返回 1.0。
+func _form_range_mult(caster: Node3D) -> float:
+	if caster != null and caster.has_method("skill_range_mult"):
+		return float(caster.call("skill_range_mult"))
+	var cid = caster.get("class_id") if caster != null else null
+	var slot = caster.get("form_slot") if caster != null else null
+	if cid == null or slot == null:
+		return 1.0
+	return 1.0 + ClassDefs.special_num(str(cid), int(slot), "skill_range_pct", 0.0)
 
 
 ## 命中攒职业资源（普攻与技能共用规则）

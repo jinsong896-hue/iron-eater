@@ -72,6 +72,9 @@ var _max_bonus := 0.0
 ## 累计小数部分：命中 +5 之类是整数，但每秒回复是小数，
 ## 攒够 1 点才进 value，避免 value 变成 12.333333 这种脏数
 var _regen_accum := 0.0
+## 自然回复速度乘区（形态增益用；1.0 = 无修正）。
+## 不改 DEFS 表值——那是被 UI/测试共读的静态常量。
+var regen_mult := 1.0
 
 
 ## 按职业初始化。未知职业 → 无资源（value 恒 0，所有操作空转）。
@@ -142,6 +145,10 @@ func has(amount: float) -> bool:
 
 ## 每帧推进自然回复（策划 4.1：法师自动回蓝）。
 ## 小数累积——每秒 +6 不等于每帧 +0.1，攒够整数点再进 value。
+##
+## `regen_mult` 是形态对回复速度的乘区（策划 4.3 奥术师「回蓝效率 +20%/层」、
+## 4.6 虚空化身「回蓝 +1.5」）。**必须走这个字段而不是改 DEFS 表值**：
+## DEFS 是纯静态常量表（还被 UI/测试共读），按形态改写它会污染全局。
 func tick(delta: float) -> void:
 	if not is_active():
 		return
@@ -149,11 +156,16 @@ func tick(delta: float) -> void:
 	var regen := float(d.get("regen_per_sec", 0.0))
 	if regen <= 0.0:
 		return
-	_regen_accum += regen * delta
+	_regen_accum += regen * maxf(regen_mult, 0.0) * delta
 	var whole := floorf(_regen_accum)
 	if whole >= 1.0:
 		_regen_accum -= whole
 		gain(whole)
+
+
+## 设置回复速度乘区（形态增益；1.0 = 无修正）
+func set_regen_mult(mult: float) -> void:
+	regen_mult = maxf(mult, 0.0)
 
 
 ## 命中敌人时按职业规则积攒（普攻与技能命中都该调）
@@ -189,3 +201,4 @@ func reset() -> void:
 	value = 0.0
 	_regen_accum = 0.0
 	_max_bonus = 0.0
+	regen_mult = 1.0

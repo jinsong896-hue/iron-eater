@@ -47,8 +47,12 @@ var has_fusion_coupon := false
 var loan_debt := 0
 
 # 本局配置
+## `form` 与 `character` 一起决定玩家数值（职业基础 + 形态 mods/机制），
+## 二者都在选人界面选定。缺 `form` 会让读取方拿到 null，
+## 故默认值里必须给全，不能靠调用方总是传。
 var run_info := {
 	"character": "warrior",
+	"form": 0,
 	"mode": "dungeon",
 	"difficulty": "normal",
 	"floor": 1,

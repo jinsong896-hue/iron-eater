@@ -119,6 +119,7 @@ func _ready() -> void:
 
 	# 批次 G：职业 / 形态 / 技能 / 资源
 	await _run_test(test_class_defs)
+	await _run_test(test_class_base_and_start_gear)
 	await _run_test(test_class_resource)
 
 	print("=".repeat(60))
@@ -230,6 +231,172 @@ func test_class_defs() -> void:
 				if BuffDefs.get_buff(str(b.get("id", ""))).is_empty():
 					missing.append(str(b.get("id")))
 	_check(missing.is_empty(), "技能引用的词条 id 均存在", [str(missing)])
+
+	# ---------- 形态机制「已接线」审计（反真空） ----------
+	# **为什么必须有这条**：`ClassDefs` 的 `special` 字段是形态机制的声明处，
+	# 但没有任何机制强制它被消费。上一轮的实况是——31 个字段里只有 2 个
+	# 真正被读，其余全是"录了数据、代码没读"的静默失效：
+	# 壁垒不减远程伤害、武僧照样拿武器打、猎人背刺没加成，
+	# 40 个形态玩起来是同一个角色。
+	#
+	# 做法：维护一份"已接线字段"清单，断言它 == 数据里实际出现的字段集合。
+	# 两条路都会让测试变红：
+	#   · 新增了 special 字段却没实现 → 出现在数据侧、不在清单里 → 失败
+	#   · 实现了新机制 → 清单落后 → 也失败（强制同步，状态永远显式）
+	var all_keys := {}
+	for cid in ClassDefs.class_ids():
+		for slot in range(ClassDefs.FORM_SLOTS):
+			for k in ClassDefs.special_of(cid, slot):
+				all_keys[k] = true
+	var unimplemented: Array = []
+	for k in all_keys:
+		if not (k in IMPLEMENTED_SPECIALS):
+			unimplemented.append(k)
+	unimplemented.sort()
+	var expected: Array = EXPECTED_UNIMPLEMENTED.duplicate()
+	expected.sort()
+	_check(unimplemented == expected,
+		"未接线的形态机制集合与预期一致（共 %d 个已接线 / %d 个待做）"
+			% [IMPLEMENTED_SPECIALS.size(), expected.size()],
+		["实际未接线：%s" % str(unimplemented), "预期未接线：%s" % str(expected)])
+
+	# 已接线的字段必须真的能被读到（不是清单里写了就算）
+	for probe in [
+		["warrior", 0, "melee_dmg_pct", 0.20],
+		["warrior", 3, "armor_pierce", 0.50],
+		["mage", 0, "skill_range_pct", 0.15],
+		["mage", 1, "cast_refund_pct", 0.15],
+	]:
+		var got: float = ClassDefs.special_num(str(probe[0]), int(probe[1]),
+			str(probe[2]), -1.0)
+		_check(absf(got - float(probe[3])) < 0.0001,
+			"ClassDefs.special_num 读 %s/%d.%s = %.2f" % [
+				str(probe[0]), int(probe[1]), str(probe[2]), float(probe[3])],
+			[str(got)])
+	_check(ClassDefs.special_flag("monk", 0, "no_weapon"), "special_flag 读开关项")
+	_check(not ClassDefs.special_flag("warrior", 0, "no_weapon"),
+		"special_flag 对未声明字段返回 false")
+	_check(ClassDefs.special_num("warrior", 0, "nonexistent", 7.5) == 7.5,
+		"special_num 缺项返回 fallback")
+
+
+## 已接线的形态机制字段（有一条明确的消费链路）。
+## **这不是"想做"的清单，是"代码里真的读了"的清单**——
+## 新增字段却没实现时，上面的断言会失败并把它列出来。
+const IMPLEMENTED_SPECIALS := [
+	"lifesteal",                  # player._lifesteal_heal / equipment 侧
+	"backstab_mult",              # skill_system._deal_damage
+	"melee_dmg_pct",              # player._apply_hit 倍率乘区
+	"ranged_dmg_pct",             # skill_system._cast_projectile
+	"armor_pierce",               # player._apply_hit 目标防御打折
+	"overflow_to_shield",         # player._lifesteal_heal → _add_shield
+	"skill_range_pct",            # skill_system.cast_skill 几何放大
+	"mana_regen_up",              # ClassResource.regen_mult
+	"mana_regen_stack",           # ClassResource.regen_mult
+	"cast_refund_pct",            # skill_system.cast_skill 消耗返还
+	"resonance_chance",           # skill_system.cast_skill 概率免费
+	"flame_stack_per_cast",       # skill_system._stack_form_marks_on
+	"void_stigma_per_cast",       # skill_system._stack_form_marks_on
+]
+
+## 仍未接线的字段（猎人/武僧/判官三职业，待后续轮次）。
+## 每完成一个就从这里删一个——测试会强制这份清单与代码同步。
+const EXPECTED_UNIMPLEMENTED := [
+	"break_limit_at", "can_equip_weapon", "chain_30pct", "combo_heal",
+	"counter_on_hit", "dodge_immune_next", "fist_armor_pierce", "fist_reach",
+	"forest_domain", "free_weapon_swap", "light_dark_layers", "mark_per_hit",
+	"myriad_combo", "no_weapon", "out_of_combat_spd", "pierce_line",
+	"shadow_every_4", "slow_combo_decay", "spell_on_hit_ap_pct", "verdict_at_5",
+]
+
+
+## ---------- 职业基础属性 + 初始装备 ----------
+func test_class_base_and_start_gear() -> void:
+	_current_test = "ClassBase"
+	print("\n--- %s ---" % _current_test)
+
+	# 5 职业基础属性必须互不相同——否则"选职业"没有意义
+	# （此前正是如此：AttributeSystem.DEFAULT_BASE 被所有职业共用，
+	#  选战士和选法师开局都是 500 血 / 35 攻）
+	var hps := {}
+	var atks := {}
+	for cid in ClassDefs.class_ids():
+		var t := ClassBase.full_table(cid)
+		hps[int(t[AttributeSystem.Stat.HP])] = true
+		atks[int(t[AttributeSystem.Stat.ATK])] = true
+	_check(hps.size() == ClassDefs.class_ids().size(),
+		"5 职业生命上限互不相同", [str(hps.keys())])
+	_check(atks.size() == ClassDefs.class_ids().size(),
+		"5 职业攻击力互不相同", [str(atks.keys())])
+
+	# 定位断言：战士血最厚、法师血最薄、猎人攻速最快、武僧射程最短
+	var hp_of := {}
+	var aspd_of := {}
+	var rng_of := {}
+	for cid in ClassDefs.class_ids():
+		var t := ClassBase.full_table(cid)
+		hp_of[cid] = float(t[AttributeSystem.Stat.HP])
+		aspd_of[cid] = float(t[AttributeSystem.Stat.ASPD])
+		rng_of[cid] = float(t[AttributeSystem.Stat.RNG])
+	_check(hp_of["warrior"] == hp_of.values().max(), "战士生命最高（重装定位）",
+		[("战 %.0f vs 最高 %.0f" % [hp_of["warrior"], hp_of.values().max()])])
+	_check(hp_of["mage"] == hp_of.values().min(), "法师生命最低（脆皮定位）")
+	_check(aspd_of["monk"] == aspd_of.values().max(), "武僧攻速最高（快拳定位）")
+	_check(rng_of["monk"] == rng_of.values().min(), "武僧射程最短（贴脸定位）")
+	_check(rng_of["hunter"] == rng_of.values().max(), "猎人射程最远（走A定位）")
+
+	# 未列出的项回落到 DEFAULT_BASE，不能变成 0
+	var warrior_table := ClassBase.full_table("warrior")
+	_check(warrior_table.size() == AttributeSystem.STAT_BY_NAME.size(),
+		"full_table 覆盖全部 11 项属性")
+	var zero: Array = []
+	for sid in warrior_table:
+		if float(warrior_table[sid]) <= 0.0 and sid != AttributeSystem.Stat.CDR:
+			zero.append(str(AttributeSystem.STAT_NAMES.get(sid, sid)))
+	_check(zero.is_empty(), "职业基础表无零值属性（CDR 除外）", [str(zero)])
+
+	# 未知职业回落（不能崩，也不能静默变 0）
+	_check(ClassBase.full_table("no_such_class").size() ==
+		AttributeSystem.STAT_BY_NAME.size(), "未知职业回落且不崩")
+	_check(ClassBase.value_of("no_such_class", "hp") ==
+		AttributeSystem.DEFAULT_BASE[AttributeSystem.Stat.HP],
+		"未知职业回落值为默认值")
+
+	# start_gear：策划点名的款式未必在白装层注册（白装是"每槽位 1 件"的
+	# 基础款）。所以断言"能解析出模板"而不是"id 精确存在"——
+	# `_grant_start_gear` 走的就是 resolve_or_white_fallback 这条降级路径，
+	# 测试必须与它同口径，否则会要求一个运行时不成立的保证。
+	#
+	# 但**完全查不到槽位**的 id 仍是真错误（打错字），必须抓到。
+	var unresolved: Array = []
+	var wrong_slot: Array = []
+	var gear_count := 0
+	for cid in ClassDefs.class_ids():
+		for slot in range(ClassDefs.FORM_SLOTS):
+			for tid in ClassDefs.get_form(cid, slot).get("start_gear", []):
+				gear_count += 1
+				var tpl = EquipmentDB.resolve_or_white_fallback(StringName(str(tid)))
+				if tpl == null:
+					unresolved.append("%s/%d:%s" % [cid, slot, str(tid)])
+				elif tpl.rarity != EquipmentDefs.Rarity.WHITE:
+					wrong_slot.append("%s:%s→%s" % [cid, str(tid), tpl.display_name])
+	_check(gear_count > 0, "形态声明了初始装备（共 %d 件）" % gear_count)
+	_check(unresolved.is_empty(), "初始装备 id 均能解析出模板（含白装降级）",
+		[str(unresolved)])
+	_check(wrong_slot.is_empty(), "初始装备只能是白装（不越级发绿装）",
+		[str(wrong_slot)])
+
+	# 降级路径本身：白装层没有的 id 要回退到**同槽位**白装，不能退回 null
+	var fb = EquipmentDB.resolve_or_white_fallback(&"A12")   # 铁制护手，白装层无
+	_check(fb != null, "白装层不存在的 id 能降级解析（A12）")
+	if fb != null:
+		_check(fb.slot == EquipmentDefs.Slot.HANDS,
+			"降级到同槽位（HANDS），而不是随便给一件", [str(fb.slot)])
+		_check(fb.rarity == EquipmentDefs.Rarity.WHITE, "降级结果为白装")
+	_check(EquipmentDB.resolve_or_white_fallback(&"ZZ99") == null,
+		"槽位都定位不到的 id 返回 null（真·打错字）")
+	var exact = EquipmentDB.resolve_or_white_fallback(&"W01")
+	_check(exact != null and exact.id == &"W01", "精确命中的 id 原样返回，不走降级")
 
 
 ## ---------- 职业资源运行时 ----------

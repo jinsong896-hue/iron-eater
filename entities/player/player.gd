@@ -99,6 +99,23 @@ func _ready() -> void:
 	if bus and bus.has_signal("equipment_changed"):
 		bus.equipment_changed.connect(func(_s, _i): _refresh_attack_element())
 	_refresh_attack_element()
+	# 开局重配：**必须在 start_new_run 之后**才能拿到玩家选的职业/形态。
+	#
+	# 时序陷阱：main.tscn 实例化时玩家节点的 _ready 先跑，此时
+	# GameManager.run_info 还是上一局/默认值；`start_new_run()` 是随后
+	# 由主菜单调用的。只靠 _ready 里的 _setup_class() 会导致
+	# **玩家选的职业/形态从未生效过**（选法师开局仍是战士的数值）。
+	# 故订阅 game_started，在真正的开局信息写进去之后再配一次。
+	if bus and bus.has_signal("game_started"):
+		bus.game_started.connect(_on_game_started)
+
+
+## 新一局开始：按 run_info 重新装配职业/形态/资源。
+func _on_game_started() -> void:
+	class_resource = null   # 换职业要换资源容器，不能沿用上一个职业的
+	_setup_class()
+	_refresh_attack_element()
+	EventBus.stats_changed.emit()
 
 
 # ============================================================
@@ -113,19 +130,70 @@ var _skills: SkillSystem = null
 var class_id := ""
 ## 当前形态槽位（0 初始 / 1~3 进阶 / 4 终极）
 var form_slot := 0
+## 护盾：在 hp 之前被消耗的临时生命（形态「溢出转护盾」等机制的载体）
+var temp_shield := 0.0
 
 
 ## 装配职业与初始形态。取不到 run_info 时回退战士（保证任何场景都能玩）。
+##
+## 职业与形态都在**选人界面**选定（策划口径：形态是衍生职业的说法），
+## 开局读取，整局固定——局内没有切换入口。
 func _setup_class() -> void:
 	var gm: Node = get_node_or_null("/root/GameManager")
 	if gm != null:
 		class_id = str(gm.run_info.get("character", "warrior"))
+		form_slot = int(gm.run_info.get("form", 0))
 	if class_id.is_empty():
 		class_id = "warrior"
 	class_resource = ClassResource.create(class_id)
 	_skills = SkillSystem.new()
-	form_slot = 0
+	form_slot = clampi(form_slot, 0, ClassDefs.FORM_SLOTS - 1)
+	_apply_class_base()
 	_apply_form_modifiers()
+	_grant_start_gear()
+
+
+## 把职业基础属性写进 AttributeSystem。
+##
+## 必须在 _apply_form_modifiers 之前跑：形态的 mods 是**在职业基础之上**
+## 的百分比修正（get_value = base + flat + base×percent），
+## 顺序反了会让百分比按旧的默认基础算，数值全错。
+##
+## 用 set_base 而不是 add_modifier：职业基础是"起点"不是"增益"，
+## 挂成 modifier 的话会被任何一次 remove_modifiers 连带清掉。
+func _apply_class_base() -> void:
+	var gm: Node = get_node_or_null("/root/GameManager")
+	if gm == null or gm.attributes == null:
+		return
+	var table := ClassBase.full_table(class_id)
+	for stat_id in table:
+		gm.attributes.set_base(int(stat_id), float(table[stat_id]))
+
+
+## 发放当前形态的初始装备（策划每个形态都列了 start_gear）。
+##
+## 时机：必须在 EquipmentManager 就绪之后，且用 `resolve_or_white_fallback`
+## 解析——策划点名的款式（如 A12 铁制护手）在白装层没有注册，
+## 直接 get_template 会拿到 null 并静默跳过，玩家开局少装备却看不出来。
+## 降级到同槽位白装后，"这个部位有装备"这件事仍然成立。
+##
+## 跳过已占用的槽位：切房重建玩家时会重跑本函数，不能反复塞装备。
+func _grant_start_gear() -> void:
+	var gm: Node = get_node_or_null("/root/GameManager")
+	if gm == null:
+		return
+	var em = gm.equipment_manager
+	if em == null:
+		return
+	var form := ClassDefs.get_form(class_id, form_slot)
+	for tid in form.get("start_gear", []):
+		var tpl := EquipmentDB.resolve_or_white_fallback(StringName(str(tid)))
+		if tpl == null:
+			continue   # 连槽位都定位不到 = 真的打错了 id，静默跳过
+		var slot_id: int = tpl.slot
+		if em.get_equipped().has(slot_id):
+			continue
+		em.equip(slot_id, EquipmentInstance.create(tpl))
 
 
 ## 把当前形态的专属增益挂到属性系统上。
@@ -149,6 +217,29 @@ func _apply_form_modifiers() -> void:
 			continue
 		gm.attributes.add_modifier("form", sid,
 			float(m.get("flat", 0.0)), float(m.get("percent", 0.0)))
+	_apply_form_resource()
+
+
+## 形态对职业资源的修正（回复速度 / 上限）。
+##
+## 单独一个函数而不是塞进上面的 mods 循环：资源不是 AttributeSystem 的属性，
+## 它有自己的容器（ClassResource）。策划里「回蓝效率 +20%」「魔力上限 +1.5」
+## 这类增益必须落在资源对象上，挂到属性系统是无效的。
+##
+## `mana_regen_up` / `mana_regen_stack` 都是"回复速度乘区"，语义相同
+##（前者是虚空化身的 +1.5 倍率，后者是奥术师的 +20%/层），合并累加。
+func _apply_form_resource() -> void:
+	if class_resource == null:
+		return
+	var regen := ClassDefs.special_num(class_id, form_slot, "mana_regen_up", 0.0)
+	regen += ClassDefs.special_num(class_id, form_slot, "mana_regen_stack", 0.0)
+	class_resource.set_regen_mult(1.0 + regen)
+
+
+## 当前形态的技能范围乘区（策划 4.1 元素使 +15%、4.5 共鸣师 +30%）。
+## SkillSystem 在施法前用它放大技能的 reach/radius/range/dash_dist。
+func skill_range_mult() -> float:
+	return 1.0 + ClassDefs.special_num(class_id, form_slot, "skill_range_pct", 0.0)
 
 
 ## 切换形态（策划：按通关层数解锁）。返回是否切换成功。
@@ -635,17 +726,28 @@ func _hit_enemies_in_cone(multiplier: float, reach: float, half_angle: float, kn
 
 
 ## 对单个敌人结算伤害与击退
+##
+## **这是普攻的唯一漏斗**：扇形横扫、冲撞、落地 AOE 三条路径全部汇入这里，
+## 所以「近战伤害 +N%」这类形态机制只需在这一处生效。
 func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	var atk := GameManager.stat_value("atk")
 	var crt := GameManager.stat_value("crt")
 	var crd := GameManager.stat_value("crd")
 	var fusion_bonus := GameManager.fusion_attack_bonus()
+	# 形态·近战伤害倍率（策划 3.2 狂战士「近战武器伤害 +20%」、
+	# 壁垒「近战 -20%」）。普攻全是近战，直接乘在倍率上。
+	multiplier *= 1.0 + ClassDefs.special_num(class_id, form_slot, "melee_dmg_pct", 0.0)
 	# 连击数伤害加成（每击 +2%，上限 +30%）
 	var combo_bonus: float = minf(
 		_hit_combo_count * GameBalance.COMBO_DAMAGE_PER_HIT,
 		GameBalance.COMBO_DAMAGE_CAP
 	)
 	var target_def: float = enemy.get("defense") if enemy.get("defense") != null else 0.0
+	# 形态·护甲穿透（策划 3.5 锁链「穿刺无视 50% 护甲」）。
+	# DamagePipeline 的护甲减伤是 def/(def+100)，没有穿透参数，
+	# 故在调用侧把防御打折——等效于穿透。下限 0：穿透不该变成负防御增伤。
+	target_def *= 1.0 - clampf(
+		ClassDefs.special_num(class_id, form_slot, "armor_pierce", 0.0), 0.0, 1.0)
 	# 目标身上的词条影响：易伤（毒蚀等）与减伤（护盾/防御型）
 	var vuln := 0.0
 	var taken_down := 0.0
@@ -692,6 +794,17 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 		else:
 			push = _facing * kb
 	enemy.call("take_damage", total, crit, push)
+	# 形态印记：普攻也要叠（策划 4.4 咒焰的层数来源）。
+	#
+	# **为什么普攻是必须的**：咒焰使的两个技能一个是 detonate（引爆目标身上
+	# 已有的 flame_mark 层数）、一个是 buff，没有任何一个技能能产生层数。
+	# 只在技能侧接的话，该形态会陷入"要引爆先得有层数、要有层数却只能引爆"
+	# 的死循环——实测症状正是"放完技能敌人身上 0 层"。
+	var mark := ClassDefs.form_mark_id(class_id, form_slot)
+	if not mark.is_empty():
+		var eb = enemy.get("buffs")
+		if eb != null and eb.has_method("apply"):
+			eb.call("apply", mark, "form")
 	# 生命偷取：造成伤害的 N% 转回血
 	var ls: float = float(sp.get("life_steal", 0.0))
 	if ls > 0.0:
@@ -752,6 +865,32 @@ func _lifesteal_heal(amount: float) -> void:
 	var healed: float = GameManager.attributes.heal(amount * (1.0 - clampf(heal_down, 0.0, 1.0)))
 	if healed > 0.0:
 		EventBus.damage_popup.emit(global_position, healed, "heal")
+	# 形态·溢出转护盾（策划 3.6 解放者「溢出的治疗量转化为护盾，上限 60% 最大生命」）。
+	# 满血时吸血本应完全浪费，这个形态把浪费掉的那部分变成有效生命。
+	var overflow := (amount * (1.0 - clampf(heal_down, 0.0, 1.0))) - healed
+	var shield_pct := ClassDefs.special_num(class_id, form_slot, "overflow_to_shield", 0.0)
+	if overflow > 0.0 and shield_pct > 0.0:
+		_add_shield(overflow, shield_pct)
+
+
+## 护盾吸收伤害，返回未被吸收完、仍需扣血的剩余量。
+## 护盾是"临时生命"，在 hp 之前消耗。
+func _absorb_with_shield(amount: float) -> float:
+	if temp_shield <= 0.0:
+		return amount
+	var used: float = minf(temp_shield, amount)
+	temp_shield -= used
+	if temp_shield <= 0.0:
+		temp_shield = 0.0
+	return amount - used
+
+
+## 加护盾，上限为 max_hp 的 cap_pct（防止无限叠成无敌）。
+func _add_shield(amount: float, cap_pct: float) -> void:
+	var cap: float = GameManager.attributes.max_hp * clampf(cap_pct, 0.0, 1.0)
+	temp_shield = minf(temp_shield + amount, cap)
+	EventBus.damage_popup.emit(global_position, amount, "armor")
+	EventBus.stats_changed.emit()
 
 
 ## 装备触发型词条：命中时按概率给目标施加状态（名词分册第 5 章）。
@@ -1166,6 +1305,10 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 		_flash_timer = HIT_FLASH_DURATION
 		_update_flash()
 		return
+	# 护盾先吃伤害（形态「溢出转护盾」产生）。全被护盾吸收时不掉血，
+	# 但仍照常走受击反馈——玩家要看得出"护盾挡了一下"。
+	var to_hp := _absorb_with_shield(amount)
+	amount = maxf(to_hp, 0.0)
 	GameManager.attributes.take_damage(amount)
 	EventBus.player_hit.emit(amount, global_position)
 	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")

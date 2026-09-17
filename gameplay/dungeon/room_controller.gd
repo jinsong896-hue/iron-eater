@@ -176,15 +176,23 @@ func debug_spawn(monster_id: String, count: int, at: Vector3) -> Dictionary:
 		return {"ok": false, "error": "未知怪物 id：%s%s（用 list monsters 查看全部）"
 			% [monster_id, hint]}
 	var spawned := 0
+	# 临时 Marker 必须**先挂进树**再用：_spawn_enemy_at 读的是
+	# `point.global_position`，节点不在树里时 Godot 直接报
+	# "!is_inside_tree()" 并返回原点——于是 debug_spawn 会把敌人
+	# 全部刷在世界原点，而不是调用方指定的位置。
+	var mk_holder := Marker3D.new()
+	mk_holder.position = at
+	add_child(mk_holder)
 	for i in count:
 		# 复用私有方法需要一个 Marker3D；造一个临时的，绕开它的定位逻辑
 		var mk := Marker3D.new()
-		mk.position = at + Vector3(cos(TAU * i / count), 0.0, sin(TAU * i / count)) * 1.5
+		mk.position = Vector3(cos(TAU * i / count), 0.0, sin(TAU * i / count)) * 1.5
+		mk_holder.add_child(mk)
 		var enemy := _spawn_enemy_at(mk, 1.0, m)
-		mk.free()
 		if enemy != null:
 			register_summoned_enemy(enemy)
 			spawned += 1
+	mk_holder.queue_free()
 	if spawned > 0:
 		_lock_doors()          # 关键副作用：补上正常刷怪流程里的锁门
 	return {"ok": true, "name": str(m.get("name", monster_id)), "spawned": spawned}
