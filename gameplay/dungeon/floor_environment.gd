@@ -491,8 +491,188 @@ func _setup_sulfur() -> void:
 ## 7 层「虚空回廊」：策划写的是「重力降低（跳跃高度翻倍）+ 随机传送」。
 ## **重力项在本项目不适用**——HD-2D 俯视角没有真正的跳跃/重力
 ## （"跳跃攻击"是三段脚本化位移），故只实现同时列出的**随机传送**。
+## 7 层「虚空回廊」：虚空扭曲（策划 6.8 明列三件套）。
+##
+## 策划原文：
+##   · 空间扭曲：每 15 秒随机交换玩家与 Boss 位置（瞬间传送，无前摇）。
+##   · 重力波动：每 10 秒切换一次重力方向（上/下/左/右），影响翻滚方向与弹道。
+##   · 视野遮蔽：屏幕边缘虚空裂缝闪烁，偶尔遮挡部分视野
+##     （约 2 秒一次，不影响中心区域）。
+##
+## **重力项的落地方式**（用户拍板）：本作是俯视角平面移动、没有真重力，
+## 故做成「方向牵引」——每 10 秒选一个方向持续把玩家往那边推（位移而非
+## 加速度），翻滚落点也偏向该方向。最接近"重力"的可感知手感。
 func _setup_void_warp() -> void:
-	_mech = {"kind": "void_warp", "warp_interval": 12.0}
+	_mech = {
+		"kind": "void_warp",
+		"warp_interval": VOID_WARP_INTERVAL,
+		"gravity_interval": VOID_GRAVITY_INTERVAL,
+		"vision_interval": VOID_VISION_INTERVAL,
+	}
+	_void_timer = 0.0
+	_gravity_timer = 0.0
+	_vision_timer = 0.0
+	_gravity_dir = Vector3.ZERO
+
+
+## 空间扭曲：每 15 秒（策划明确）
+const VOID_WARP_INTERVAL := 15.0
+## 重力波动：每 10 秒（策划明确）
+const VOID_GRAVITY_INTERVAL := 10.0
+## 视野遮蔽：约 2 秒一次（策划明确）
+const VOID_VISION_INTERVAL := 2.0
+## 方向牵引的推力强度（米/秒）。取 2.5——明显能感到被推，但不至于无法对抗。
+const VOID_PULL_SPEED := 2.5
+
+## 三个子机制各自的计时器（不能共用 _periodic_timer：间隔不同）
+var _void_timer := 0.0
+var _gravity_timer := 0.0
+var _vision_timer := 0.0
+## 当前"重力"方向（牵引方向；ZERO = 本轮无牵引）
+var _gravity_dir := Vector3.ZERO
+
+
+## 虚空扭曲三件套的驱动
+func _tick_void_warp(delta: float) -> void:
+	var p := _find_player()
+	# 未激活的房间（玩家不在此）不生效
+	if not _room_active():
+		return
+
+	# ① 空间扭曲：与 Boss（或最近的敌人）交换位置
+	_void_timer += delta
+	if _void_timer >= VOID_WARP_INTERVAL:
+		_void_timer = 0.0
+		_void_swap(p)
+
+	# ② 重力波动：每 10 秒换一个方向
+	_gravity_timer += delta
+	if _gravity_timer >= VOID_GRAVITY_INTERVAL:
+		_gravity_timer = 0.0
+		_gravity_dir = _pick_gravity_dir()
+
+	# 持续牵引（位移，不是加速度——俯视角下"被推着走"比"加速"更好感知）
+	if p != null and _gravity_dir != Vector3.ZERO:
+		_apply_gravity_pull(p, delta)
+
+	# ③ 视野遮蔽：屏幕边缘闪烁
+	_vision_timer += delta
+	if _vision_timer >= VOID_VISION_INTERVAL:
+		_vision_timer = 0.0
+		_flash_vision_block()
+
+
+## 房间是否处于激活态（玩家正在此房）
+func _room_active() -> bool:
+	var room_root := get_parent()
+	if room_root == null:
+		return false
+	var ctrl := room_root.get_node_or_null("RoomController")
+	return ctrl != null and bool(ctrl.get("is_active"))
+
+
+## 随机交换玩家与 Boss（无 Boss 时与最近的敌人交换）
+func _void_swap(p: Node3D) -> void:
+	if p == null:
+		return
+	var target := _pick_swap_target(p)
+	if target == null:
+		return
+	var a := p.global_position
+	var b := target.global_position
+	p.global_position = b
+	target.global_position = a
+	if "velocity" in p:
+		p.set("velocity", Vector3.ZERO)
+	if "velocity" in target:
+		target.set("velocity", Vector3.ZERO)
+	_emit_message("空间扭曲——你与敌人交换了位置")
+
+
+## 交换对象：优先 Boss，其次最近的敌人
+func _pick_swap_target(p: Node3D) -> Node3D:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null:
+		return null
+	var best: Node3D = null
+	var best_d := INF
+	for e in tree.get_nodes_in_group("enemies"):
+		if not (e is Node3D) or not is_instance_valid(e):
+			continue
+		# 破坏物也在这个组里，但它们不该被交换（会飞进墙里）
+		if e.has_method("request_ignite") or e.get("prop_kind") != null:
+			continue
+		var en := e as Node3D
+		if bool(en.get("is_boss")):
+			return en
+		var d := en.global_position.distance_to(p.global_position)
+		if d < best_d:
+			best_d = d
+			best = en
+	return best
+
+
+## 随机选一个牵引方向（上下左右）
+func _pick_gravity_dir() -> Vector3:
+	var dirs := [
+		Vector3(1, 0, 0), Vector3(-1, 0, 0),
+		Vector3(0, 0, 1), Vector3(0, 0, -1),
+	]
+	return dirs[randi() % dirs.size()]
+
+
+## 把玩家往当前"重力"方向推。用位移而非加速度：
+## 俯视角下没有落地/失重的视觉反馈，加速度会表现为"走路变飘"，
+## 而恒定位移能被立刻感知为"有股力在拉我"。
+func _apply_gravity_pull(p: Node3D, delta: float) -> void:
+	if "velocity" not in p:
+		return
+	var v: Vector3 = p.get("velocity")
+	# 只叠加水平分量，且不覆盖玩家的主动移动——玩家仍能逆着走
+	v.x += _gravity_dir.x * VOID_PULL_SPEED * delta * 10.0
+	v.z += _gravity_dir.z * VOID_PULL_SPEED * delta * 10.0
+	# 限速：不超过玩家自身速度上限的 1.5 倍，避免被推得失控
+	var max_v := 8.0
+	if v.length() > max_v:
+		v = v.normalized() * max_v
+	p.set("velocity", v)
+
+
+## 视野遮蔽：屏幕边缘闪一次虚空裂缝。
+## 走一个临时的全屏 CanvasLayer（不依赖相机内部结构，也不改 FOV——
+## 改 FOV 会让中心区域一起变形，与策划"不影响中心区域"相反）。
+func _flash_vision_block() -> void:
+	var p := _find_player()
+	if p == null:
+		return
+	var layer := CanvasLayer.new()
+	layer.layer = 5
+	add_child(layer)
+	# 四条边缘遮挡条（只盖边缘，中心留空）
+	var rects := [
+		Rect2(0.0, 0.0, 1.0, 0.12),      # 上
+		Rect2(0.0, 0.88, 1.0, 0.12),     # 下
+		Rect2(0.0, 0.0, 0.12, 1.0),      # 左
+		Rect2(0.88, 0.0, 0.12, 1.0),     # 右
+	]
+	for r in rects:
+		var cr := ColorRect.new()
+		cr.anchor_right = 1.0
+		cr.anchor_bottom = 1.0
+		cr.offset_left = r.position.x * 1920.0
+		cr.offset_top = r.position.y * 1080.0
+		cr.offset_right = -(1920.0 - (r.position.x + r.size.x) * 1920.0)
+		cr.offset_bottom = -(1080.0 - (r.position.y + r.size.y) * 1080.0)
+		cr.color = Color(0.55, 0.35, 1.0, 0.0)
+		cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.add_child(cr)
+		var tw := create_tween()
+		tw.tween_property(cr, "color:a", 0.55, 0.12)
+		tw.tween_property(cr, "color:a", 0.0, 0.35)
+	# 闪完销毁整个层
+	var cleanup := create_tween()
+	cleanup.tween_interval(0.6)
+	cleanup.tween_callback(layer.queue_free)
 
 
 ## 8 层「地狱王座」：全屏间歇性火焰风暴（策划 6.9.2：每 15 秒安全区重置）
@@ -556,7 +736,7 @@ func _process(delta: float) -> void:
 		"firestorm":
 			_tick_blast("storm_interval", "storm_damage", "storm_radius", Color(1.0, 0.35, 0.15, 0.55))
 		"void_warp":
-			_tick_warp("warp_interval")
+			_tick_void_warp(delta)
 		"chaos_warp":
 			_tick_warp("warp_interval")
 
@@ -642,6 +822,17 @@ func _tick_warp(interval_key: String) -> void:
 	var bus = tree.root.get_node_or_null("EventBus") if tree and tree.root else null
 	if bus:
 		bus.message.emit("空间扭曲——你被传送了")
+
+
+## EventBus 运行时查找并广播一条消息。
+## **不能直接写 EventBus**：它是 autoload，--script 测试模式没有 autoload，
+## 直接引用会让整个脚本编译失败——表现为调用方报 "Nonexistent function
+## 'apply'"，实际是脚本根本没加载出来。
+func _emit_message(text: String) -> void:
+	var tree := Engine.get_main_loop() as SceneTree
+	var bus = tree.root.get_node_or_null("EventBus") if tree and tree.root else null
+	if bus:
+		bus.message.emit(text)
 
 
 ## 供测试读取机制配置
