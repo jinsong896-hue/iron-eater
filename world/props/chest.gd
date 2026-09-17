@@ -81,6 +81,9 @@ func open_chest() -> void:
 	if bus:
 		bus.gold_changed.emit(gm.gold if gm else gold)
 		bus.message.emit("宝箱：金币 +%d" % gold)
+		# 广播开箱事件（第 6 层硫磺毒气的"开宝箱 -1 层"挂钩）。
+		# 放在这里而不是更早：此时金币已入账，订阅方读到的状态是完整的。
+		bus.chest_opened.emit(gold, global_position)
 
 	if gm and get_parent() != null:
 		var loot := LootSystem.new()

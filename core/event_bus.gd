@@ -47,6 +47,10 @@ signal door_locked(door_id: String)
 # ============================================================
 # 装备/物品事件
 # ============================================================
+## 宝箱被打开（第 6 层「硫磺毒气」减层挂钩：开宝箱 -1 层）。
+## 原先开箱只发 gold_changed + message，外部无法感知"开了一个箱子"。
+@warning_ignore("unused_signal")
+signal chest_opened(gold: int, position: Vector3)
 @warning_ignore("unused_signal")
 signal item_picked_up(item_id: String, item_name: String)
 @warning_ignore("unused_signal")

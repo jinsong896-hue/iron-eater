@@ -1688,6 +1688,34 @@ func _update_flash() -> void:
 ## from：攻击者（可选）。仅用于**伤害反弹**词条（分册限定「受到近战伤害时」），
 ## 传 null 表示无来源（区域伤害/DOT 等），不触发反弹。
 ## 保持默认值以兼容既有调用（敌人 AI、DamageZone、测试）。
+## 真实伤害 —— 无视护甲、减伤、霸体与护盾，**只受无敌帧保护**。
+##
+## 用途：第 6 层「硫磺毒气」每层每秒 ×1.5 的真实伤害（策划 6.7 明写
+## "真实伤害"）。走这个入口而不是 `take_damage`，否则玩家堆防御就能
+## 把毒气完全免疫，机制失去意义。
+##
+## 仍保留无敌帧判定与受击反馈——"翻滚能躲"是合理的操作空间，
+## 但"堆减伤能免疫"不是。
+func take_true_damage(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	if _is_dodging or _jump_phase == JumpPhase.DIVE:
+		return
+	if _god_mode:
+		return
+	var attrs = GameManager.attributes
+	if attrs == null or attrs.is_dead():
+		return
+	attrs.take_damage(amount)
+	EventBus.player_hit.emit(amount, global_position)
+	EventBus.damage_popup.emit(global_position, amount, "true")
+	_flash_timer = HIT_FLASH_DURATION
+	_update_flash()
+	EventBus.stats_changed.emit()
+	if attrs.is_dead():
+		die()
+
+
 func take_damage(amount: float, from: Node3D = null) -> void:
 	# 翻滚/俯冲无敌帧
 	if _is_dodging or _jump_phase == JumpPhase.DIVE:

@@ -24,6 +24,9 @@ var _last_transition_time := -999.0
 var dungeon_generated := false
 var current_room_node: Node3D = null
 var room_state: Dictionary = {}
+## 整层机制容器（跨房间存活；如第 6 层毒气层数）。
+## 每层重建一次，见 _rebuild_floor_mechanic。
+var floor_mechanic: FloorMechanic = null
 
 # 子节点
 @onready var world: Node3D = $World
@@ -126,6 +129,10 @@ func next_floor() -> void:
 	if gm and gm.rng:
 		seed_value = gm.rng.randi()
 
+	# 整层机制容器：跨房间存活的那一半（如第 6 层毒气层数）。
+	# **必须在生成地牢之前重建**——房间预建时 FloorEnvironment 会读它的参数。
+	_rebuild_floor_mechanic(floor_num)
+
 	# generate_dungeon 内部按**当前层**取房间数与可用范围（FloorDefs），
 	# 并同步加载起始房、放置玩家、激活控制器
 	generate_dungeon(seed_value)
@@ -141,6 +148,17 @@ func next_floor() -> void:
 # ============================================================
 # 模板注册
 # ============================================================
+
+## 重建整层机制容器。切层时调用；同层内**不重建**（层数是跨房间状态）。
+func _rebuild_floor_mechanic(floor_num: int) -> void:
+	if floor_mechanic != null and is_instance_valid(floor_mechanic):
+		floor_mechanic.queue_free()
+	floor_mechanic = FloorMechanic.new()
+	floor_mechanic.name = "FloorMechanic"
+	add_child(floor_mechanic)
+	floor_mechanic.setup(floor_num)
+
+
 
 func _register_templates() -> void:
 	room_templates = {"start": [], "normal": [], "elite": [], "treasure": [], "boss": [], "shop": [], "heal": [], "event": [], "hidden": [], "reward_hall": []}
@@ -179,6 +197,12 @@ func _read_json_field(path: String, field: String) -> String:
 ## 第 9 层固定 5 间）；显式传正数则用它（测试与调试跳层需要固定规模）。
 func generate_dungeon(seed_value: int, count: int = -1) -> void:
 	var floor_num: int = _current_floor_num()
+	# 整层机制容器必须**先于房间生成**存在：房间预建时 FloorEnvironment
+	# 会读它的参数（如毒气层数）来决定布置。
+	# next_floor 里已重建过一次；这里是首次生成（开局直跑场景）的兜底。
+	if floor_mechanic == null or not is_instance_valid(floor_mechanic) \
+			or floor_mechanic.floor_num != floor_num:
+		_rebuild_floor_mechanic(floor_num)
 	# 按层取默认规模：rng 用本次种子，保证同种子同层结果可复现
 	var rng := RandomNumberGenerator.new()
 	rng.set_seed(seed_value)
