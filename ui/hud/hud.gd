@@ -10,6 +10,7 @@ extends CanvasLayer
 @onready var gold_label: Label = $TopLeft/GoldLabel
 @onready var floor_label: Label = $TopLeft/FloorLabel
 @onready var combo_label: Label = $TopLeft/ComboLabel
+@onready var gas_label: Label = $TopLeft/GasLabel
 @onready var message_label: Label = $TopLeft/MessageLabel
 @onready var buff_bar: HBoxContainer = $BuffBar
 @onready var minimap: MinimapView = $Minimap
@@ -44,6 +45,7 @@ func _process(_delta: float) -> void:
 	# player_hit 等事件时被调——回蓝过程球根本不动，
 	# 玩家看到的就是"蓝量不恢复"。
 	_update_display()
+	_update_gas_label()
 	if combo_label == null:
 		return
 	var players := get_tree().get_nodes_in_group("player")
@@ -55,9 +57,34 @@ func _process(_delta: float) -> void:
 		combo_label.text = "连击 x%d" % count if count >= 2 else ""
 
 
+## 第 6 层硫磺毒气层数（策划 6.7）。
+## **必须显示**——玩家在持续掉真伤，不给数字就变成"莫名其妙在死"。
+## 层数住在整层的 FloorMechanic 上，故从 GameRoot 取而不是从玩家取。
+func _update_gas_label() -> void:
+	if gas_label == null:
+		return
+	var gr := get_tree().current_scene
+	var fm = null
+	if gr != null:
+		fm = gr.get("floor_mechanic")
+	if fm == null or not is_instance_valid(fm):
+		gas_label.text = ""
+		return
+	var info: Dictionary = fm.call("gas_info")
+	var layers := int(info.get("layers", 0))
+	if layers <= 0:
+		gas_label.text = ""
+		return
+	var dps := int(float(layers) * float(info.get("dps_per_layer", 0.0)))
+	var suffix := "（暂停）" if bool(info.get("paused", false)) else ""
+	gas_label.text = "毒气 %d/%d 层 · %d/秒%s" % [
+		layers, int(info.get("max", 10)), dps, suffix]
+
+
 # ============================================================
 # 状态图标条（BuffBar）
 # ============================================================
+
 ## 每个图标节点复用的缓存：id -> {"root": Control, "label": Label, "bar": ColorRect, ...}
 ##
 ## **为什么每帧重建不可取**：状态会持续若干秒，每帧 new/free 节点会造成

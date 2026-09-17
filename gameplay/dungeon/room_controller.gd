@@ -317,7 +317,34 @@ func _game_root():
 	return null
 
 
+## 泉水清空硫磺毒气（策划 6.7 的三种减层方式之一）。
+## 毒气层数住在整层的 FloorMechanic 上，不在本房间控制器里。
+func _clear_gas_if_any() -> void:
+	var fm = _floor_mechanic()
+	if fm != null:
+		fm.call("clear_gas")
+
+
+## 暂停/恢复毒气累积（策划 6.7：Boss 战期间暂停）
+func _set_gas_paused(paused: bool) -> void:
+	var fm = _floor_mechanic()
+	if fm != null:
+		fm.set("gas_paused", paused)
+
+
+## 取整层的 FloorMechanic（不存在时返回 null——非第 6 层就没有毒气机制）
+func _floor_mechanic():
+	var gr = _game_root()
+	if gr == null:
+		return null
+	var fm = gr.get("floor_mechanic")
+	if fm != null and is_instance_valid(fm):
+		return fm
+	return null
+
+
 ## 递归查找带 room_state 属性的节点（GameRoot 特征）
+
 func _find_game_root(node: Node) -> Node:
 	if node.get("room_state") != null:
 		return node
@@ -416,6 +443,10 @@ func _spawn_enemy_at(point: Marker3D, difficulty_mult: float, m: Dictionary = {}
 ## 层难度（boss_hp 基准）来自 FloorDefs，两者相乘。
 ## 第 8 层固定破坏神化身、第 9 层三连战由 BossDB 的 pool 直接决定。
 func _spawn_boss() -> void:
+	# 策划 6.7：Boss 战期间**暂停**硫磺毒气累积。
+	# 挂在这里而不是"进 Boss 房时"——只有真的刷出 Boss 才算 Boss 战，
+	# 空 Boss 房（异常数据）不该白暂停。
+	_set_gas_paused(true)
 	if _boss_spawn == null:
 		return
 	var mult := _difficulty_mult()
@@ -668,6 +699,10 @@ func interact_special() -> Dictionary:
 		"heal":
 			var gm = _game_manager()
 			result = _special_service.use_healing_spring(gm.attributes if gm else null)
+			# 泉水清空硫磺毒气（策划 6.7：减层方式之一是「泉水清空」）。
+			# 挂在结算成功之后——没喝到水不该白清层。
+			if result.get("ok", false):
+				_clear_gas_if_any()
 		"shop":
 			var gm_shop = _game_manager()
 			var config: Dictionary = _room_interaction()
