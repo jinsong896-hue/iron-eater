@@ -56,6 +56,8 @@ var kite_range := 5.0         ## 风筝后退触发距离
 var dash_range := 0.0         ## 突进触发距离（0=不突进）
 var death_poison := false     ## 死亡释放毒雾
 var body_scale := 1.0         ## 体型缩放
+## 碰撞体（见 _create_collision；投射物命中依赖它存在）
+var _collision: CollisionShape3D = null
 
 # —— 怪物机制（分册第 4/5 章；本轮实现「自爆/分裂/召唤」三种）——
 var death_explode := false    ## 死亡自爆（带前摇，期间被打死则提前引爆）
@@ -557,7 +559,43 @@ func _tick_trail(delta: float) -> void:
 	DamageZone.spawn(spec, parent)
 
 
+## 碰撞体 —— **此前完全缺失**。
+##
+## EnemyBase extends CharacterBody3D 且每帧调 move_and_slide()，但整个类
+## 没有任何 CollisionShape3D：CharacterBody3D 没有形状时物理引擎不参与
+## 碰撞，于是三件事同时坏掉——
+##   ① 投射物（Projectile 是 Area3D，靠 body_entered 命中）永远打不中敌人；
+##   ② 敌人不与墙碰撞，能穿墙；
+##   ③ 玩家与敌人互不阻挡。
+## 实测症状即用户报的「大部分技能使用后没有实际效果」（投射物类技能全废）。
+##
+## 层位：**只占第 2 层（bit 2）**，且**不与第 1 层（墙/世界）互动**。
+## 理由：给敌人开物理碰撞会带来"怪物互相挤成一坨/被墙卡住"的连锁问题，
+## 那属于 AI 与寻路的范畴，超出本次修复范围；而投射物命中只要求
+## 敌人的**形状存在且在第 2 层**。玩家 mask 含第 2 层时会被敌人阻挡——
+## 这是"敌人是实体"的应有表现，且玩家能推开它们。
+func _create_collision() -> void:
+	if _collision != null:
+		return
+	_collision = CollisionShape3D.new()
+	_collision.name = "Collision"
+	var shape := CapsuleShape3D.new()
+	shape.radius = 0.4 * body_scale
+	shape.height = maxf(1.8 * body_scale, shape.radius * 2.0 + 0.01)
+	_collision.shape = shape
+	_collision.position = Vector3(0, 0.9 * body_scale, 0)
+	collision_layer = ENEMY_LAYER
+	# 不与环境层互动：见上方注释（避免把寻路问题引进来）
+	collision_mask = 0
+	add_child(_collision)
+
+
+## 敌人占用的物理层（bit 2）。投射物靠这一层命中；玩家 mask 含它则会被阻挡。
+const ENEMY_LAYER := 2
+
+
 func _create_visual() -> void:
+	_create_collision()
 	var model := MeshInstance3D.new()
 	model.name = "Model"
 	var capsule := CapsuleMesh.new()

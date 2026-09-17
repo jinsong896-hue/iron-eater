@@ -16,6 +16,11 @@ extends Area3D
 const TARGET_PLAYER := "player"
 const TARGET_ENEMY := "enemies"
 
+## 命中检测的物理层掩码（Area3D.mask 与目标 layer 相交才产生 body_entered）。
+## 1 = 世界/墙，2 = 敌人（见 enemy_base.ENEMY_LAYER），3 = 玩家。
+## 必须显式列出——Area3D 默认 mask 只含第 1 层。
+const PROJECTILE_MASK := 0b111
+
 var direction := Vector3.FORWARD
 var speed := 10.0
 var damage := 0.0
@@ -98,6 +103,11 @@ func _build_visual() -> void:
 	col.shape = shape
 	add_child(col)
 	monitoring = true
+	# **命中判定靠 mask 与目标的 layer 相交**：Area3D 的 mask 默认只含第 1 层，
+	# 而敌人占第 2 层（见 enemy_base.ENEMY_LAYER）——不显式打开就永远
+	# 收不到 body_entered，投射物类技能全部"放出去没效果"。
+	collision_mask = PROJECTILE_MASK
+	collision_layer = 0   # 投射物本身不需要被别的物体检测
 
 	var mesh := MeshInstance3D.new()
 	var sphere := SphereMesh.new()

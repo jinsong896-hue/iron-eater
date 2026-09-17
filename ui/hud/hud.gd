@@ -39,6 +39,11 @@ func _process(_delta: float) -> void:
 	_update_boss_bar()
 	_update_buff_icons()
 	_update_skill_bar()
+	# 资源球（魔力/怒气/…）必须每帧刷新：它是**连续变化**的
+	#（法师每秒回蓝），而 _update_display 此前只在 stats_changed /
+	# player_hit 等事件时被调——回蓝过程球根本不动，
+	# 玩家看到的就是"蓝量不恢复"。
+	_update_display()
 	if combo_label == null:
 		return
 	var players := get_tree().get_nodes_in_group("player")

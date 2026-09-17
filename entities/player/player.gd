@@ -450,6 +450,10 @@ func enter_state(state_name: String) -> void:
 
 ## 击杀回血回调
 func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
+	# 职业资源：击杀积攒（策划 6.1 判官「击杀 +20」）。
+	# 与命中积攒同属"打怪回资源"链路，此前同样从未被调用。
+	if class_resource != null:
+		class_resource.on_kill()
 	if GameBalance.KILL_HEAL <= 0.0:
 		return
 	if GameManager.attributes and not GameManager.attributes.is_dead():
@@ -1176,6 +1180,13 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 			eb.call("apply", mark, "form")
 	# 形态·普攻附加效果（命中后结算）
 	_on_basic_attack_landed(enemy, total)
+	# 职业资源：**普攻命中也要积攒**。
+	#
+	# 此前 on_hit() 只在 SkillSystem._deal_damage 里调过——普攻命中从不积攒。
+	# 于是除法师/武僧（有自然回复）外，战士/猎人/判官**只能靠挨打或放技能**
+	# 攒资源，而放技能本身又要资源：死循环。实机表现就是"蓝量不能恢复"。
+	if class_resource != null:
+		class_resource.on_hit(crit)
 	# 形态·直线穿透（策划 6.4 鹰眼「所有攻击附带范围穿透：
 	# 身后 2 米直线 40% 伤害」）——沿攻击方向在目标身后再打一条线
 	_apply_pierce_line(enemy, total)

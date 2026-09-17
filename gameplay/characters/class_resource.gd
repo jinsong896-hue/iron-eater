@@ -78,6 +78,11 @@ var regen_mult := 1.0
 
 
 ## 按职业初始化。未知职业 → 无资源（value 恒 0，所有操作空转）。
+##
+## **开局给一部分初始资源**：此前 value 恒从 0 开始，而技能消耗 20~40、
+## 战士/猎人/判官又没有任何自然回复——玩家开局放不出任何技能，
+## 必须先在怪堆里挨打/命中攒够才能用，实机感受就是"蓝量太低、技能用不了"。
+## 给到上限的 50% 后，开局即可放 1~2 个技能，后续靠命中循环续上。
 static func create(p_class_id: String) -> ClassResource:
 	var r := ClassResource.new()
 	r.class_id = p_class_id
@@ -85,8 +90,12 @@ static func create(p_class_id: String) -> ClassResource:
 		var d: Dictionary = DEFS[p_class_id]
 		r.res_name = str(d.get("name", "资源"))
 		r.base_max = float(d.get("max", 100.0))
-	r.value = 0.0
+	r.value = r.max_value() * START_RATIO
 	return r
+
+
+## 开局资源占上限的比例（策划未规定，按"开局能放 1~2 个技能"取半）
+const START_RATIO := 0.5
 
 
 ## 是否有资源系统（未知职业为 false）

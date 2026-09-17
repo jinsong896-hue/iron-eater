@@ -34,6 +34,8 @@ func _ready() -> void:
 	await _test_hunter_mechanisms()
 	await _test_monk_mechanisms()
 	await _test_judge_mechanisms()
+	await _test_resource_system()
+	await _test_enemy_has_collision()
 
 	if failed == 0:
 		print("ALL CLASS MECHANICS TESTS PASSED")
@@ -463,6 +465,112 @@ func _hit_once(p, enemy) -> float:
 	var before: float = float(enemy.get("_hp"))
 	p.call("_apply_hit", enemy, 1.0, 0.0)
 	return before - float(enemy.get("_hp"))
+
+
+## 职业资源：初始值 / 普攻积攒 / 扣费拦截 / 自然回复。
+##
+## 实机四问题里三条落在这里：
+##   ① 初始蓝量太低 → create() 从 0 开始，技能消耗 20~40，开局放不出技能
+##   ② 蓝量不能恢复 → on_hit/on_kill 从未被调用，只有自然回复
+##   ③ 蓝量不足也能放 → 实测扣费本来是好的，但初始为 0 时"能放"的观感
+##      来自初始值被反复重置，故一并锁住
+func _test_resource_system() -> void:
+	for cid in ["warrior", "mage", "hunter", "judge", "monk"]:
+		await _start(cid, 0)
+		var p = _player()
+		var r = p.get("class_resource")
+		_check(r != null and r.value > 0.0,
+			"%s 开局有初始资源（%.0f/%.0f）" % [cid, r.value, r.max_value()])
+
+	# —— 普攻命中积攒（此前完全没接）——
+	await _start("warrior", 0)
+	var p2 = _player()
+	var r2 = p2.get("class_resource")
+	r2.value = 0.0
+	var enemy: Node3D = await _spawn_enemy_near(p2, 0.5)
+	if enemy == null:
+		_check(false, "成功刷出测试木桩"); return
+	enemy.set("_hp", 1000000.0)
+	enemy.set("defense", 0.0)
+	enemy.set("dodge_pct", 0.0)
+	p2.call("_apply_hit", enemy, 1.0, 0.0)
+	_check(r2.value > 0.0, "普攻命中积攒怒气（0 → %.0f）" % r2.value)
+
+	# —— 击杀积攒（判官 +20）——
+	await _start("judge", 0)
+	var p3 = _player()
+	var r3 = p3.get("class_resource")
+	r3.value = 0.0
+	# 直接走击杀信号链路
+	EventBus.enemy_died.emit(null, Vector3.ZERO, [])
+	await get_tree().process_frame
+	_check(r3.value >= 20.0, "击杀积攒裁决（0 → %.0f）" % r3.value)
+
+	# —— 扣费拦截：资源差 1 点必须拒绝，且不进入冷却 ——
+	await _start("warrior", 1)
+	var p4 = _player()
+	var r4 = p4.get("class_resource")
+	var sk: Dictionary = ClassDefs.skills_of("warrior", 1)[0]
+	var cost := float(sk.get("cost", 0.0))
+	r4.value = cost - 1.0
+	p4.get("_skills").reset_cooldowns()
+	var res: Dictionary = p4.call("cast_skill", str(sk.get("id", "")))
+	_check(not res.get("ok", true), "资源不足时施法被拒（差 1 点）", [str(res)])
+	_check(absf(r4.value - (cost - 1.0)) < 0.01, "被拒时资源未被扣除")
+	_check(float(p4.call("skill_cooldown_left", str(sk.get("id", "")))) <= 0.0,
+		"被拒时不进入冷却")
+	# 资源刚好够 → 放得出去且扣掉
+	r4.value = cost
+	var res2: Dictionary = p4.call("cast_skill", str(sk.get("id", "")))
+	_check(res2.get("ok", false), "资源刚好够时施法成功")
+	_check(absf(r4.value) < 0.01, "施法后资源被扣到 0（%.0f）" % r4.value)
+
+	# —— 自然回复：法师 5 秒至少 +20（策划 6/s）——
+	await _start("mage", 0)
+	var p5 = _player()
+	var r5 = p5.get("class_resource")
+	r5.value = 0.0
+	var t := 0.0
+	while t < 5.0:
+		await get_tree().process_frame
+		t += get_process_delta_time()
+	_check(r5.value >= 20.0, "法师 5 秒自然回蓝（0 → %.0f）" % r5.value)
+
+
+## 敌人必须有碰撞体：投射物（Area3D）靠它命中。
+##
+## 这条断言来自实机问题「大部分技能没有实际效果」——EnemyBase 是
+## CharacterBody3D 且每帧 move_and_slide()，但此前没有任何 CollisionShape3D，
+## 于是投射物的 body_entered 永远不触发、投射物类技能全废。
+func _test_enemy_has_collision() -> void:
+	await _start("warrior", 0)
+	var p = _player()
+	var enemy: Node3D = await _spawn_enemy_near(p, 1.0)
+	if enemy == null:
+		_check(false, "成功刷出测试敌人"); return
+	var shapes := enemy.find_children("*", "CollisionShape3D", true, false)
+	_check(shapes.size() > 0, "敌人生成时带碰撞体（%d 个）" % shapes.size())
+	_check(int(enemy.get("collision_layer")) != 0,
+		"敌人在物理层上（layer=%d）" % int(enemy.get("collision_layer")))
+
+	# 端到端：投射物必须真的打中
+	await _start("mage", 1)
+	var p2 = _player()
+	var r2 = p2.get("class_resource")
+	r2.gain(999.0)
+	var e2: Node3D = await _spawn_enemy_near(p2, 0.8)
+	if e2 == null:
+		_check(false, "成功刷出投射物靶子"); return
+	e2.set("_hp", 1000000.0)
+	e2.set("defense", 0.0)
+	e2.set("dodge_pct", 0.0)
+	var before: float = float(e2.get("_hp"))
+	var dir: Vector3 = (e2.global_position - p2.global_position).normalized()
+	p2.call("cast_skill", "arcane_siphon", dir)
+	for _f in 30:
+		await get_tree().process_frame
+	_check(float(e2.get("_hp")) < before,
+		"投射物命中敌人并造成伤害（%.0f → %.0f）" % [before, float(e2.get("_hp"))])
 
 
 # ============================================================

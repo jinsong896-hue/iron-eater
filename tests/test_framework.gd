@@ -429,7 +429,10 @@ func test_class_resource() -> void:
 		var r := ClassResource.create(cid)
 		_check(r.is_active(), "职业 %s 有资源系统" % cid)
 		_check(not r.res_name.is_empty(), "职业 %s 资源有名称" % cid)
-		_check(r.value == 0.0, "职业 %s 初始资源为 0" % cid)
+		# 开局给一部分初始资源（策划未规定比例；此前恒为 0，
+		# 而技能消耗 20~40、战士/猎人/判官又无自然回复 → 开局放不出技能）
+		_check(r.value > 0.0 and r.value < r.max_value(),
+			"职业 %s 开局有初始资源（%.0f/%.0f）" % [cid, r.value, r.max_value()])
 
 	# 未知职业 → 无资源，所有操作空转
 	var none := ClassResource.create("not_a_class")
@@ -438,17 +441,24 @@ func test_class_resource() -> void:
 	_check(not none.spend(1.0), "无资源时 spend 失败")
 
 	# 战士怒气：命中 +5、受击按 10% 积攒、上限 100
+	# **用增量断言而不是绝对值**：初始资源不再为 0，写死绝对值会被
+	# 初始值一改就打破（下面几组同理）。
 	var w := ClassResource.create("warrior")
+	var w_base: float = w.value
 	w.on_hit(false)
-	_check(absf(w.value - 5.0) < 0.01, "普攻命中 +5 怒气", [str(w.value)])
+	_check(absf(w.value - (w_base + 5.0)) < 0.01, "普攻命中 +5 怒气",
+		["%.1f → %.1f" % [w_base, w.value]])
+	var before_taken: float = w.value
 	w.on_damage_taken(100.0)
-	_check(absf(w.value - 15.0) < 0.01, "受击 100 按 10% 加 10", [str(w.value)])
+	_check(absf(w.value - (before_taken + 10.0)) < 0.01, "受击 100 按 10% 加 10",
+		["%.1f → %.1f" % [before_taken, w.value]])
 	w.gain(500.0)
 	_check(absf(w.value - w.max_value()) < 0.01, "资源封顶于上限", [str(w.value)])
 	_check(w.ratio() >= 0.99, "满资源比例为 1")
 
 	# 消耗：足量成功、不足失败且不扣
 	var w2 := ClassResource.create("warrior")
+	w2.reset()          # reset 清零，便于断言精确剩余量
 	w2.gain(30.0)
 	_check(w2.spend(20.0), "足够时消耗成功")
 	_check(absf(w2.value - 10.0) < 0.01, "消耗后剩 10", [str(w2.value)])
@@ -465,6 +475,7 @@ func test_class_resource() -> void:
 
 	# 法师魔力：自然回复（tick 累积到整点才进 value）
 	var m := ClassResource.create("mage")
+	m.reset()
 	m.tick(1.0)
 	_check(absf(m.value - 6.0) < 0.01, "法师每秒回 6 点魔力", [str(m.value)])
 	m.reset()
@@ -472,6 +483,7 @@ func test_class_resource() -> void:
 
 	# 猎人：暴击额外积攒
 	var h := ClassResource.create("hunter")
+	h.reset()
 	h.on_hit(false)
 	var normal_gain := h.value
 	h.reset()
