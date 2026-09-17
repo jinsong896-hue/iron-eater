@@ -69,6 +69,8 @@ run_scene_suite  "menu         (主菜单交互)" "res://tests/test_menu_interac
 run_scene_suite  "settings     (设置面板)" "res://tests/test_settings_panel.tscn"
 run_scene_suite  "backpack     (背包 UI)" "res://tests/test_backpack_ui.tscn"
 run_scene_suite  "class_mech   (职业/形态机制)" "res://tests/test_class_mechanics.tscn"
+# CrowdSim 依赖 GDExtension 编译产物；无产物时套件自身打印 SKIP 并以 0 退出
+run_scene_suite  "crowd_sim    (海量单位模拟)" "res://tests/test_crowd_sim.tscn"
 run_scene_suite  "combat       (战斗系统)" "res://tests/test_combat_system.tscn"
 run_scene_suite  "room_flow    (房间流程+特殊房)" "res://tests/test_room_flow.tscn"
 run_scene_suite  "special_room (特殊房交互 UI)" "res://tests/test_special_room_ui.tscn"
