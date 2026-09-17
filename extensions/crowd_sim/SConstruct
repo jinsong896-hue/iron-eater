@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+# CrowdSim GDExtension 构建脚本
+# 用法（在 extensions/crowd_sim 下）：
+#   scons platform=windows target=template_debug arch=x86_64
+# 注意：需在 VS 开发者环境（vcvars64）中运行，或直接用完整路径调用 scons。
+
+import os
+
+env = Environment()
+env["IO_PATHS"] = Dir(".")
+
+# godot-cpp 子目录（同仓克隆，非 submodule——CI 环境友好）
+godot_cpp_dir = "#godot-cpp/"
+env.Append(CPPPATH=[godot_cpp_dir + "gdextension/", godot_cpp_dir + "include/"])
+
+# 链接预编译的 godot-cpp 静态库（SCons 会按 platform/target/arch 找对）
+env["godot_cpp"] = godot_cpp_dir
+SConscript(godot_cpp_dir + "SConstruct", "env")
+
+sources = Glob("src/*.cpp")
+
+if env["platform"] == "macos":
+    library = env.SharedLibrary(
+        "bin/libcrowd_sim.{}.{}.{}.framework".format(
+            env["platform"], env["target"], env["arch"],
+        ),
+        source=sources,
+    )
+else:
+    library = env.SharedLibrary(
+        "bin/libcrowd_sim{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+        source=sources,
+    )
+
+Default(library)

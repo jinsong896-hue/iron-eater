@@ -37,3 +37,12 @@ dist/
 
 # 第三方课程资料（下载的教程资产，不入库）
 房间参考/课件/
+
+# GDExtension 编译产物与 godot-cpp 子树（不入库；构建见 extensions/crowd_sim/SConstruct）
+extensions/crowd_sim/bin/
+extensions/crowd_sim/godot-cpp/
+extensions/crowd_sim/.sconsign.dblite
+extensions/**/*.obj
+extensions/**/*.exp
+extensions/**/*.lib
+.tools/
