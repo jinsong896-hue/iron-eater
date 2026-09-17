@@ -977,7 +977,7 @@ func _deal_bonus_damage(enemy: Node3D, amount: float, kind: String,
 	if not ignore_armor:
 		def_v = float(enemy.get("defense")) if enemy.get("defense") != null else 0.0
 	var result := DamagePipeline.physical(amount, 1.0, 0.0, def_v)
-	enemy.call("take_damage", float(result.damage), false, Vector3.ZERO)
+	enemy.call("take_damage", float(result.damage), false, Vector3.ZERO, self)
 	EventBus.damage_popup.emit(enemy.global_position, float(result.damage), kind)
 
 
@@ -1171,7 +1171,7 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 			push = push.normalized() * kb
 		else:
 			push = _facing * kb
-	enemy.call("take_damage", total, crit, push)
+	enemy.call("take_damage", total, crit, push, self)
 	# 形态印记：普攻也要叠（策划 4.4 咒焰的层数来源）。
 	#
 	# **为什么普攻是必须的**：咒焰使的两个技能一个是 detonate（引爆目标身上

@@ -423,7 +423,7 @@ func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float,
 		push.y = 0.0
 		if push.length_squared() > 0.001:
 			push = push.normalized() * knockback
-	enemy.call("take_damage", total, crit, push)
+	enemy.call("take_damage", total, crit, push, caster)
 	EventBus.damage_popup.emit(enemy.global_position, total, "crit" if crit else "normal")
 	# 技能也能叠元素（走与普攻相同的阈值/联动路径）。
 	# 元素来源：施法者的攻击元素（武器赋予）——技能自身若声明了 element

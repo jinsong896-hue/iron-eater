@@ -31,6 +31,7 @@ func _ready() -> void:
 	await _test_armor_pierce()
 	await _test_mage_range_mult()
 	await _test_form_stack_marks()
+	await _test_affix_hooks()
 	await _test_hunter_mechanisms()
 	await _test_monk_mechanisms()
 	await _test_judge_mechanisms()
@@ -644,9 +645,136 @@ func _room_controller():
 	return gr.current_room_node.get_node_or_null("RoomController")
 
 
+## 精英词缀：9 个词缀的战斗钩子必须真的生效（策划《怪物设计分册》7.2）。
+##
+## 背景：`AffixDB` 早已存在，但此前**只有数值型（快速/强壮）作用到属性**，
+## 7 个非数值词缀只登记 id 无人消费。且「强壮」的击退那半也从未生效
+##（`knockback_mult` 只写不读）。本测试守住这两类静默失效。
+func _test_affix_hooks() -> void:
+	await _start("warrior", 0)
+	var ctrl = _room_controller()
+	if ctrl == null:
+		_check(false, "找到 RoomController"); return
+
+	# ① 装配：每个词缀都要落到对应字段上
+	var cases := {
+		"burn": ["affix_burn", true],
+		"freeze": ["affix_freeze", true],
+		"immortal": ["affix_immortal", true],
+		"void": ["affix_void", true],
+		"chaos": ["affix_chaos", true],
+	}
+	for id in cases:
+		var e = _spawn_with_affixes(ctrl, [id])
+		if e == null:
+			_check(false, "刷出带「%s」的怪" % id); continue
+		_check(bool(e.get(cases[id][0])) == bool(cases[id][1]),
+			"「%s」装配到 %s" % [id, cases[id][0]])
+		e.queue_free()
+
+	# ② 强壮：击退倍率必须被读入（此前只写不读）
+	var st = _spawn_with_affixes(ctrl, ["strong"])
+	if st != null:
+		_check(absf(float(st.get("knockback_mult")) - 1.5) < 0.001,
+			"「强壮」击退倍率 1.5（此前只写不读）",
+			["实际 %.2f" % float(st.get("knockback_mult"))])
+		st.queue_free()
+
+	# ③ 吸血：攻击后自身回血
+	var ls = _spawn_with_affixes(ctrl, ["lifesteal"])
+	if ls != null:
+		var p = _player()
+		ls.set("_hp", float(ls.get("max_hp")) * 0.5)
+		_place_near(ls, p, 1.0)
+		var before: float = float(ls.get("_hp"))
+		ls.call("_perform_attack")
+		_check(float(ls.get("_hp")) > before,
+			"「吸血」攻击后回血（%.0f → %.0f）" % [before, float(ls.get("_hp"))])
+		ls.queue_free()
+
+	# ④ 复仇：打它 → 自己掉血（需要 from 参数）
+	var rv = _spawn_with_affixes(ctrl, ["revenge"])
+	if rv != null:
+		var p2 = _player()
+		var hp_before: float = GameManager.attributes.hp
+		rv.call("take_damage", 100.0, false, Vector3.ZERO, p2)
+		_check(GameManager.attributes.hp < hp_before,
+			"「复仇」反伤（%.0f → %.0f）" % [hp_before, GameManager.attributes.hp])
+		rv.queue_free()
+
+	# ⑤ 不朽：低血触发一次免伤 + 回血
+	var im = _spawn_with_affixes(ctrl, ["immortal"])
+	if im != null:
+		im.set("_hp", float(im.get("max_hp")) * 0.25)
+		var hp0: float = float(im.get("_hp"))
+		im.call("take_damage", float(im.get("max_hp")) * 0.10, false, Vector3.ZERO, null)
+		_check(bool(im.get("_immortal_used")), "「不朽」低血触发")
+		_check(float(im.get("_hp")) > hp0, "「不朽」触发时回血")
+		var hp1: float = float(im.get("_hp"))
+		im.call("take_damage", 9999.0, false, Vector3.ZERO, null)
+		_check(absf(float(im.get("_hp")) - hp1) < 0.01, "「不朽」免伤期间免疫伤害")
+		im.queue_free()
+
+	# ⑥ 混沌：周期到点后属性变化
+	var ch = _spawn_with_affixes(ctrl, ["chaos"])
+	if ch != null:
+		var vals := [float(ch.get("atk")), float(ch.get("move_speed")),
+			float(ch.get("attack_interval"))]
+		ch.set("_chaos_timer", 0.0)
+		ch.call("_tick_chaos", 0.1)
+		var after := [float(ch.get("atk")), float(ch.get("move_speed")),
+			float(ch.get("attack_interval"))]
+		var moved := false
+		for i in 3:
+			if absf(after[i] - vals[i]) > 0.0001:
+				moved = true
+		_check(moved, "「混沌」周期到点后属性变化")
+		ch.queue_free()
+
+	# ⑦ 精英可见性：精英有光环 + 词缀名标签
+	var el = _spawn_with_affixes(ctrl, ["fast", "burn"], true)
+	if el != null:
+		_check(el.get_node_or_null("EliteRing") != null, "精英有标识光环")
+		var lb = el.get_node_or_null("AffixLabel")
+		_check(lb != null, "精英显示词缀名")
+		if lb != null:
+			_check(str(lb.text).contains("快速") and str(lb.text).contains("燃烧"),
+				"词缀名含「快速·燃烧」", [str(lb.text)])
+		el.queue_free()
+
+
+## 刷一只带指定词缀的怪（走 _spawn_enemy_at，与实战同一装配路径）
+func _spawn_with_affixes(ctrl, affix_ids: Array, elite: bool = false):
+	var ids: Array = []
+	for m in MonsterDB.all_monsters():
+		ids.append(str(m.get("id", "")))
+	if ids.is_empty():
+		return null
+	var m: Dictionary = MonsterDB.get_monster(ids[0]).duplicate()
+	AffixDB.apply(m, affix_ids)
+	var p = _player()
+	var mk := Marker3D.new()
+	mk.position = (p.global_position if p != null else Vector3.ZERO) + Vector3(3, 0, 0)
+	ctrl.add_child(mk)
+	var e = ctrl.call("_spawn_enemy_at", mk, 1.0, m)
+	mk.queue_free()
+	if e != null and elite:
+		e.is_elite = true
+		e.call("_create_elite_marker")
+	return e
+
+
+func _place_near(e, p, dist: float) -> void:
+	if e == null or p == null:
+		return
+	(e as Node3D).global_position = (p as Node3D).global_position + Vector3(dist, 0, 0)
+	e.set("_player", p)
+
+
 # ============================================================
 # 测试脚手架
 # ============================================================
+
 
 
 ## 以指定职业/形态开一局，并把玩家属性刷成该组合

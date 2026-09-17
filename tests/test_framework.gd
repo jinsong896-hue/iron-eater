@@ -1586,8 +1586,22 @@ func test_monster_pool() -> void:
 	var atk_before := int(m2.get("atk", 0))
 	ADB.apply(m2, ["burn", "freeze"])
 	_check(int(m2.get("atk", 0)) == atk_before, "非数值型词缀不改属性（仅登记）")
-	_check(ADB.pending_systems().size() == 7, "登记待实现的词缀 7 种",
-		[str(ADB.pending_systems().size())])
+	# 全部 9 个词缀现已接线。这条断言是**反"只登记不实现"的守卫**：
+	# 新增词缀却忘了在 enemy_base._apply_affix 里装配钩子时，
+	# pending_systems() 会重新出现条目，此处立刻变红。
+	_check(ADB.pending_systems().size() == 0, "9 个词缀全部接线（无待实现）",
+		[str(ADB.pending_systems())])
+	# 已接线清单必须与 affix_db 的 9 个 id 一一对应，不能漏也不能多
+	var all_ids: Array = []
+	for a in ADB.AFFIXES:
+		all_ids.append(str(a[0]))
+	var covered: Array = []
+	for id in all_ids:
+		if ADB.is_numeric(id) or id in ADB.IMPLEMENTED_NON_NUMERIC:
+			covered.append(id)
+	_check(covered.size() == all_ids.size(),
+		"每个词缀 id 都被覆盖（数值型或已接线钩子）",
+		["未覆盖：%s" % str(all_ids.filter(func(x): return not (x in covered)))])
 
 
 ## 资源系统测试：宝箱/回血/层间恢复/金币产出

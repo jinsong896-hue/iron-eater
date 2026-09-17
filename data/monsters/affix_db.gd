@@ -10,9 +10,11 @@ extends RefCounted
 ##   阶段四(7-8层) 普通 2~3 / 精英 3，池：+不朽、吸血
 ##   第 9 层      全精英 2~3，含专属：虚空、混沌
 ##
-## 实现现状：**只有纯数值型词缀会真正作用到怪物属性**（快速/强壮）。
-## 其余需要战斗钩子或状态系统（燃烧/冰冻/复仇/不朽/吸血/虚空/混沌），
-## 本轮只登记 id 与需求说明，挂在 monster["affixes"] 上供后续系统消费。
+## 实现现状：**9 个词缀全部实装**。
+## 数值型（快速/强壮）由 `apply()` 直接写怪物属性；
+## 非数值型（燃烧/冰冻/复仇/不朽/吸血/虚空/混沌）的战斗钩子装配在
+## `enemy_base._apply_affix()`，触发点见 `_perform_attack` / `take_damage` /
+## `_apply_melee_mechanics` / `_tick_mech_timers`。
 
 ## 词缀定义表
 ## [id, 名称, 首次可用阶段, 是否纯数值,
@@ -111,10 +113,22 @@ static func apply(monster: Dictionary, affix_ids: Array) -> Dictionary:
 	return {"applied_numeric": applied, "all": affix_ids}
 
 
-## 需要后续系统实现的词缀（登记待办用）
+## 需要后续系统实现的词缀（登记待办用）。
+##
+## **全部 9 个词缀现已实装**（7 个非数值词缀的战斗钩子在
+## `enemy_base._apply_affix` / `_perform_attack` / `take_damage` 里）。
+## 本函数保留为空实现——它是"只登记不实现"的守卫：
+## 新增词缀但忘了接线时，这里会重新出现条目，测试随之变红。
 static func pending_systems() -> Array:
 	var out: Array = []
 	for a in AFFIXES:
-		if not bool(a[3]):
+		if not bool(a[3]) and not (str(a[0]) in IMPLEMENTED_NON_NUMERIC):
 			out.append({"id": a[0], "name": a[1], "effect": a[8]})
 	return out
+
+
+## 已接线战斗钩子的非数值词缀（与 enemy_base._apply_affix 的 match 分支一一对应）。
+## 两边不同步时 pending_systems() 会非空，测试立刻失败。
+const IMPLEMENTED_NON_NUMERIC := [
+	"burn", "freeze", "revenge", "immortal", "lifesteal", "void", "chaos",
+]

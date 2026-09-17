@@ -148,6 +148,36 @@ var void_echo := false           ## 射击后产生虚空回响区域（减速+�
 enum DeathZone { NONE, POISON, SULFUR, ENTROPY, BIG_POISON }
 var death_zone := DeathZone.NONE
 var melee_knockback := 0.0    ## 石翼蝙蝠：命中击退玩家
+## 「强壮」词缀的击退倍率（`AffixDB.apply` 写入 monster dict，此处读入）。
+## 乘在 melee_knockback 上——没有这个字段时，词缀写进 dict 也没人读，
+## 表现为"强壮只加攻击、不提升击退"。
+var knockback_mult := 1.0
+## 词缀·复仇：受击时按此比例反伤给来源（0 = 无）
+var affix_revenge_pct := 0.0
+## 词缀·吸血：造成伤害时按此比例回血（0 = 无）
+var affix_lifesteal_pct := 0.0
+## 词缀·燃烧：命中时给玩家挂灼烧（0 = 无）
+var affix_burn := false
+## 词缀·冰冻：命中时给玩家叠冰元素层（false = 无）
+var affix_freeze := false
+## 词缀·虚空：命中时与玩家交换位置（false = 无）
+var affix_void := false
+## 词缀·不朽：低血触发免伤+回血（false = 无）
+var affix_immortal := false
+## 词缀·混沌：周期性随机改自身属性（false = 无）
+var affix_chaos := false
+## 不朽已触发过（每只怪只触发一次）
+var _immortal_used := false
+## 不朽免伤剩余时长
+var _immortal_timer := 0.0
+## 混沌下次变动的倒计时
+var _chaos_timer := 0.0
+## 最近一次伤害来源（复仇反伤用）
+var _last_attacker: Node3D = null
+## 精英标识光环节点
+var _elite_ring: MeshInstance3D = null
+## 词缀名标签（世界空间 billboard）
+var _affix_label: Label3D = null
 var hit_mark_seconds := 0.0   ## 熵能浮体：命中标记玩家（秒）
 var ash_chance_on_hit := 0.0  ## 灰烬行者：命中后进入灰烬形态的概率
 var ash_duration := 0.0
@@ -210,6 +240,112 @@ func _find_player() -> void:
 		_player = players[0]
 
 
+## 装配词缀的战斗钩子（分册 7.2）。
+##
+## **为什么是"直接改字段/置标志"而不是挂 stat 词条**：敌人没有 AttributeSystem
+##（见下方 eff_atk 附近的注释），`BuffHolder._sync_modifier` 会因找不到
+## `add_modifier` 而静默早退。所以词缀只能落在敌人自己的字段上。
+##
+## 数值型（快速/强壮）已由 `AffixDB.apply` 写进 monster dict 并在
+## `apply_monster_config` 里读入；这里只处理需要战斗钩子的 7 种。
+func _apply_affixes() -> void:
+	for id in affixes:
+		_apply_affix(str(id))
+
+
+func _apply_affix(id: String) -> void:
+	match id:
+		"burn":
+			affix_burn = true
+		"freeze":
+			affix_freeze = true
+		"revenge":
+			# 策划 7.2「受击一定比例反伤」——数值自定（分册只给效果示例）
+			affix_revenge_pct = AFFIX_REVENGE_PCT
+		"immortal":
+			affix_immortal = true
+		"lifesteal":
+			affix_lifesteal_pct = AFFIX_LIFESTEAL_PCT
+		"void":
+			affix_void = true
+		"chaos":
+			affix_chaos = true
+			_chaos_timer = AFFIX_CHAOS_INTERVAL
+		_:
+			pass   # 数值型词缀（fast/strong）已由 AffixDB 处理
+
+
+## 词缀数值（分册只给「效果示例」不给数值，故按威胁强度自定）
+const AFFIX_REVENGE_PCT := 0.15      ## 复仇：反伤 15%
+const AFFIX_LIFESTEAL_PCT := 0.20    ## 吸血：伤害的 20% 回血
+const AFFIX_IMMORTAL_THRESHOLD := 0.30  ## 不朽：血量低于 30% 触发
+const AFFIX_IMMORTAL_HEAL_PCT := 0.15   ## 不朽：回复 15% 最大生命
+const AFFIX_IMMORTAL_SHIELD_TIME := 2.5 ## 不朽：免伤 2.5 秒
+const AFFIX_CHAOS_INTERVAL := 6.0    ## 混沌：每 6 秒变动一次
+
+
+## 词缀·复仇：把本次伤害的一部分打回来源。
+## 镜像玩家侧的 `_reflect_damage`（player.gd）——那边是"受到近战伤害时反弹"
+## 的装备词条，这里是敌人词缀，语义相同、方向相反。
+##
+## **签名要与玩家的 take_damage 对齐**：玩家侧是
+## `take_damage(amount, from)`（只有 2 个参数），传 3 个会报
+## "Expected 2 argument(s)" 并**静默反伤失败**——实测就是这么发现的。
+func _reflect_to(attacker: Node3D, amount: float) -> void:
+	if attacker == null or not is_instance_valid(attacker):
+		return
+	var back := amount * affix_revenge_pct
+	if back <= 0.0 or not attacker.has_method("take_damage"):
+		return
+	attacker.call("take_damage", back, self)
+	var bus = _event_bus()
+	if bus:
+		bus.damage_popup.emit(attacker.global_position, back, "aoe")
+
+
+## 词缀·不朽：短暂免伤 + 回血（每只怪一次）
+func _trigger_immortal() -> void:
+	_immortal_used = true
+	_immortal_timer = AFFIX_IMMORTAL_SHIELD_TIME
+	_hp = minf(_hp + max_hp * AFFIX_IMMORTAL_HEAL_PCT, max_hp)
+	_update_health_bar()
+	var bus = _event_bus()
+	if bus:
+		bus.damage_popup.emit(global_position, max_hp * AFFIX_IMMORTAL_HEAL_PCT, "heal")
+		bus.message.emit("%s 触发不朽——短时间内无法造成伤害" % monster_name)
+
+
+## 词缀·吸血：按造成的伤害回血（策划 7.2「造成伤害时回复自身」）。
+## **不能复用玩家的 `_lifesteal_heal`**——那个走 GameManager.attributes.heal()，
+## 而敌人没有 AttributeSystem。直接改 _hp 才是对的。
+func _affix_lifesteal(amount: float) -> void:
+	if affix_lifesteal_pct <= 0.0 or amount <= 0.0:
+		return
+	var before := _hp
+	_hp = minf(_hp + amount * affix_lifesteal_pct, max_hp)
+	if _hp > before:
+		_update_health_bar()
+
+
+## 词缀·混沌：周期性随机改自身属性（策划 7.2「随机增益/减益组合，不可预测性」）。
+## 策划未给具体表，按"改属性"实现——每次随机挑一项增减。
+## 有策划表后只需替换这个函数体。
+func _tick_chaos(delta: float) -> void:
+	_chaos_timer -= delta
+	if _chaos_timer > 0.0:
+		return
+	_chaos_timer = AFFIX_CHAOS_INTERVAL
+	var roll := rng.randi() % 3
+	match roll:
+		0:
+			atk = maxf(atk * (1.0 + rng.randf_range(-0.2, 0.3)), 1.0)
+		1:
+			move_speed = maxf(move_speed * (1.0 + rng.randf_range(-0.2, 0.3)), 0.5)
+		2:
+			attack_interval = maxf(
+				attack_interval * (1.0 + rng.randf_range(-0.2, 0.3)), 0.5)
+
+
 ## 从 MonsterDB 字典应用配置（刷怪用）
 func apply_monster_config(m: Dictionary) -> void:
 	if m.is_empty():
@@ -229,6 +365,8 @@ func apply_monster_config(m: Dictionary) -> void:
 	elem_resist = er if er is Dictionary else {}
 	attack_interval = float(m.get("attack_interval", 3.0))
 	_base_attack_interval = attack_interval
+	# 「强壮」词缀的击退倍率（AffixDB.apply 写入；默认 1.0 = 无修正）
+	knockback_mult = float(m.get("knockback_mult", 1.0))
 	dodge_pct = float(m.get("dodge_pct", 0.0))
 	body_scale = float(m.get("scale", 1.0))
 	# 金币按血量档位（血厚值钱：飞行/闪避怪低、高血怪高）
@@ -289,8 +427,10 @@ func apply_monster_config(m: Dictionary) -> void:
 		shield_amount = float(special["shield_amount"])
 		shield_on_timer = float(special.get("shield_on_timer", 20.0))
 
-	# 词缀（分册第 7 章）：非数值型词缀已登记在 affixes，此处只记录供后续系统消费
+	# 词缀（分册第 7 章）：数值型由 AffixDB.apply 写进 monster dict，
+	# 非数值型在这里装配战斗钩子。
 	affixes = m.get("affixes", [])
+	_apply_affixes()
 
 	# 专属机制（分册第 5/6 章）：按机制标记装配，数值取自分册原文
 	_apply_mechanic(str(m.get("mech", "")))
@@ -631,6 +771,63 @@ func _create_visual() -> void:
 	_model = model
 	_visual_color = mat.albedo_color  # 记录本色，闪红后还原用
 	_create_health_bar()
+	_create_elite_marker()
+
+
+## 精英标识（策划 7.2：词缀的用意是「威胁特征」，玩家识别不出来就达不到设计目的）。
+##
+## 做法：脚下一圈金色光环（billboard 贴地，与血条同一套纯脚本图元方案）。
+## **不动模型材质**——那会与受击闪红、毒怪发光等已有逻辑打架。
+func _create_elite_marker() -> void:
+	if not is_elite:
+		return
+	var ring := MeshInstance3D.new()
+	ring.name = "EliteRing"
+	var torus := TorusMesh.new()
+	torus.inner_radius = 0.55 * body_scale
+	torus.outer_radius = 0.72 * body_scale
+	ring.mesh = torus
+	# 平铺在地上（TorusMesh 默认竖立）
+	ring.rotation_degrees = Vector3(90.0, 0.0, 0.0)
+	ring.position = Vector3(0, 0.05, 0)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.82, 0.25)
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.75, 0.2)
+	mat.emission_energy_multiplier = 0.8
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring.material_override = mat
+	add_child(ring)
+	_elite_ring = ring
+	_create_affix_label()
+
+
+## 词缀名标签（策划 7.2 的「威胁特征」要让玩家看得见）。
+##
+## 用 `Label3D` + billboard——项目里已有先例（`damage_popup.gd`），
+## 不需要自建字形图集或屏幕空间投影。
+## 挂在血条上方，只对精英显示（普通怪没有词缀，第 1~2 层连精英也没有）。
+func _create_affix_label() -> void:
+	if not is_elite:
+		return
+	var names: Array[String] = []
+	for id in affixes:
+		names.append(AffixDB.affix_name(str(id)))
+	if names.is_empty():
+		return
+	var lb := Label3D.new()
+	lb.name = "AffixLabel"
+	lb.text = " · ".join(names)
+	lb.font_size = 48
+	lb.modulate = Color(1.0, 0.88, 0.45)
+	lb.outline_size = 8
+	lb.outline_modulate = Color.BLACK
+	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	lb.no_depth_test = true          # 不被墙挡住，玩家始终看得到威胁信息
+	lb.pixel_size = 0.006            # 世界单位下的字高（约 0.3 米）
+	lb.position = Vector3(0, 2.75 * body_scale, 0)
+	add_child(lb)
+	_affix_label = lb
 
 
 ## 敌人头顶血条（billboard 四边形，纯脚本图元，无贴图依赖）
@@ -859,12 +1056,12 @@ func _state_attack() -> void:
 
 	# 自爆怪：进入前摇不普攻，蓄爆后自爆（分册 5.1，1.5 秒可被打断）
 	if death_explode:
-		_attack_timer = attack_interval
+		_attack_timer = eff_attack_interval()
 		_start_explode_windup()
 		return
 
 	# 进入攻击前摇（高伤害怪前摇更长，可被打断）
-	_attack_timer = attack_interval
+	_attack_timer = eff_attack_interval()
 	_windup_timer = _windup_duration()
 	_current_state = EnemyState.WINDUP
 	_set_windup_visual(true)
@@ -940,7 +1137,7 @@ func _start_dash() -> void:
 	_current_state = EnemyState.DASH
 	# 虚空猎犬：突进距离翻倍（乘在基础时长上）
 	_dash_timer = 0.35 * dash_range_mult
-	_attack_timer = attack_interval  # 冲完进入攻击冷却
+	_attack_timer = eff_attack_interval()  # 冲完进入攻击冷却
 
 
 ## 有效移速：基础值 × 减速系数（寒霜/侵蚀/泥沼等词条）
@@ -1168,6 +1365,8 @@ func _perform_attack() -> void:
 	_player.take_damage(result.damage, self)
 	_apply_element_to_player()
 	_apply_melee_mechanics()
+	# 词缀·吸血：按造成的伤害回血（策划 7.2「考验持续压制能力」）
+	_affix_lifesteal(result.damage)
 	# 毒腺蛙：攻击后在原地留下毒液区
 	_spawn_attack_zone()
 	var bus = _event_bus()
@@ -1180,10 +1379,13 @@ func _apply_melee_mechanics() -> void:
 	if _player == null:
 		return
 	# 石翼蝙蝠：命中击退玩家
+	# 乘 knockback_mult 是「强壮」词缀的那一半效果——`AffixDB.apply` 会写这个字段，
+	# 但此前**全项目无人读**，所以"强壮提升击退"从未生效过（只有攻击力那半生效）。
 	if melee_knockback > 0.0 and _player.has_method("apply_knockback"):
 		var dir: Vector3 = (_player.global_position - global_position)
 		dir.y = 0.0
-		_player.call("apply_knockback", dir.normalized() * melee_knockback)
+		_player.call("apply_knockback",
+			dir.normalized() * melee_knockback * knockback_mult)
 	# 熵能浮体 / 时间畸变者：给玩家挂词条（时长走词条自身的 duration）
 	var pb = _player.get("buffs")
 	if pb != null:
@@ -1191,6 +1393,14 @@ func _apply_melee_mechanics() -> void:
 			pb.apply("mark", "monster")
 		if slow_target_pct > 0.0 and slow_target_seconds > 0.0:
 			pb.apply("thorn_slow", "monster")
+		# 词缀·燃烧（策划 7.2「攻击附加持续灼烧，考验续航与净化管理」）
+		if affix_burn:
+			pb.apply("burn", "affix")
+		# 词缀·冰冻（策划 7.2「攻击附加减速/冻结，限制走位」）
+		# 走寒霜减速而非直接冻结——冻结是硬控，每次命中都触发会变成
+		# "被精英粘住就动不了"，远超"限制走位"的设计强度。
+		if affix_freeze:
+			pb.apply("frost", "affix")
 	# 时间畸变者：自身攻速提升
 	if haste_self_pct > 0.0 and haste_self_seconds > 0.0:
 		_haste_timer = haste_self_seconds
@@ -1215,10 +1425,20 @@ func _apply_melee_mechanics() -> void:
 	# 熵能幽魂：命中后与玩家交换位置
 	if hit_swap_positions:
 		_swap_with_player(8.0)
+	# 词缀·虚空（策划 7.2「传送/空间干扰类效果，打乱站位」）。
+	# 复用现成的 _swap_with_player，不另造轮子。
+	if affix_void:
+		_swap_with_player(10.0)
 
 
 ## 每帧推进本怪的攻击/突进附加效果计时器
 func _tick_mech_timers(delta: float) -> void:
+	# 词缀·不朽：免伤计时
+	if _immortal_timer > 0.0:
+		_immortal_timer = maxf(_immortal_timer - delta, 0.0)
+	# 词缀·混沌：周期性随机改属性
+	if affix_chaos:
+		_tick_chaos(delta)
 	if _melee_haste_timer > 0.0:
 		_melee_haste_timer = maxf(_melee_haste_timer - delta, 0.0)
 		if _melee_haste_timer == 0.0:
@@ -1349,9 +1569,18 @@ func eff_ap() -> float:
 	return atk * 0.5   # 敌人无独立法强字段，按攻击力折半近似
 
 
-func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vector3.ZERO) -> void:
+## `from`：伤害来源（可选）。**只有「复仇」词缀用得到**——它需要知道
+## "谁打了我"才能把伤害按比例反打回去。默认 null 保持向后兼容，
+## 现有不传来源的调用点（召唤物自伤、环境伤害等）行为不变。
+func take_damage(amount: float, _is_crit: bool = false,
+		knockback: Vector3 = Vector3.ZERO, from: Node3D = null) -> void:
 	# 熔炉核心：脉冲期间自身无敌
 	if _pulse_timer > 0.0:
+		return
+	# 词缀·不朽：低血时短暂免伤（策划 7.2「血量低于阈值时短暂免伤/回血，
+	# 需要爆发斩杀或机制处理」）。**每只怪只触发一次**——否则低血时
+	# 无限免伤会变成打不死的怪。
+	if _immortal_timer > 0.0:
 		return
 	# 闪避判定（迷雾幽灵 30%）
 	if dodge_pct > 0.0 and rng.randf() < dodge_pct:
@@ -1375,6 +1604,14 @@ func take_damage(amount: float, _is_crit: bool = false, knockback: Vector3 = Vec
 	# 矿晶甲虫：常驻护甲减伤（在调用方已算的防御减伤之上再叠一层）
 	if armor_plates > 0.0:
 		amount = amount * (1.0 - armor_plates)
+	# 词缀·复仇：受击反伤（策划 7.2「受击一定比例反伤，迫使玩家控制输出节奏」）。
+	# 在扣血之前算——反伤基于"这次挨了多少"，与自身是否被打死无关。
+	if affix_revenge_pct > 0.0:
+		_reflect_to(from, amount)
+	# 词缀·不朽：血量将跌破阈值时触发一次免伤 + 回血
+	if affix_immortal and not _immortal_used \
+			and (_hp - amount) / maxf(max_hp, 0.001) < AFFIX_IMMORTAL_THRESHOLD:
+		_trigger_immortal()
 	_hp = maxf(_hp - amount, 0.0)
 	# 记录受伤：护甲累计/碎裂、虚无守卫激怒叠层
 	_note_damage_taken(amount)
