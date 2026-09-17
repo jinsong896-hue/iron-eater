@@ -2,21 +2,25 @@ extends Node
 ## CrowdSim 大规模模拟 —— 行为回归测试
 ##
 ## 覆盖实施计划「批次 1」的验收点：位置推进、障碍不穿透、邻居斥力、
-## 圆/锥查询、批量伤害与死亡事件。
+## 圆/锥查询、批量伤害与死亡事件、双缓冲渲染缓冲。
 ##
-## **无扩展时自动跳过**：本套件依赖编译产物（bin/libcrowd_sim.*.dll），
-## 在 CI / 新克隆的机器上不存在。此时打印 SKIP 并视为通过——
-## 逻辑正确性由批次 2 的 GDScript fallback 覆盖，性能类断言只在本机跑。
+## **双后端**：有 C++ 扩展时测真扩展（2048 容量），无编译产物时自动
+## 改测 `CrowdSimFallback`（纯 GDScript，200 容量）。
+## 这样 CI / 新克隆的机器上**逻辑正确性照样被验证**，而不是整片 SKIP——
+## "测不到"等于没有防线。
+##
+## 只有性能类断言会区分后端（降级路径本就慢，不参与性能判定）。
 ##
 ## 运行：godot --headless --path . res://tests/test_crowd_sim.tscn
 
 var failed := 0
-var skipped := false
+## 本轮的容量上限（随后端变化）
+var cap := 0
 
 
 func _ready() -> void:
 	var guard := Timer.new()
-	guard.wait_time = 60.0
+	guard.wait_time = 120.0
 	guard.timeout.connect(func():
 		print("CROWD SIM TESTS FAILED: 超时")
 		get_tree().quit(1))
@@ -25,12 +29,15 @@ func _ready() -> void:
 
 	await get_tree().process_frame
 
-	if not ClassDB.class_exists("CrowdSim"):
-		print("CROWD SIM TESTS SKIPPED (无 GDExtension 编译产物)")
-		get_tree().quit(0)
+	var cs := CrowdSimLoader.create()
+	if cs == null:
+		print("CROWD SIM TESTS FAILED: 两条后端都不可用")
+		get_tree().quit(1)
 		return
+	add_child(cs)
+	cap = CrowdSimLoader.capacity_limit()
+	print("后端：%s（容量上限 %d）" % [CrowdSimLoader.backend_name(), cap])
 
-	var cs = ClassDB.instantiate("CrowdSim")
 	_test_spawn_capacity(cs)
 	_test_movement(cs)
 	_test_obstacle_blocking(cs)
@@ -49,25 +56,26 @@ func _ready() -> void:
 
 ## 池容量：spawn 到满返回 -1，despawn 后可复用
 func _test_spawn_capacity(cs) -> void:
-	cs.call("setup", 64, 2.0)
-	_check(int(cs.call("get_capacity")) == 64, "容量按 setup 设定")
+	var n := mini(cap, 64)
+	cs.call("setup", n, 2.0)
+	_check(int(cs.call("get_capacity")) == n, "容量按 setup 设定（%d）" % n)
 	var last := -1
-	for i in 64:
+	for i in n:
 		last = int(cs.call("spawn", float(i) * 0.5, 0.0, 10.0, 1.0, 0.3, 1.0))
-	_check(last >= 0, "第 64 个 spawn 成功（id=%d）" % last)
-	_check(int(cs.call("get_active_count")) == 64, "活跃数 = 64")
+	_check(last >= 0, "第 %d 个 spawn 成功（id=%d）" % [n, last])
+	_check(int(cs.call("get_active_count")) == n, "活跃数 = %d" % n)
 	_check(int(cs.call("spawn", 0.0, 0.0, 1.0, 1.0, 0.3, 1.0)) == -1,
 		"池满时 spawn 返回 -1（不崩、不越界）")
 	# 释放一个后可复用
 	cs.call("despawn", 0)
-	_check(int(cs.call("get_active_count")) == 63, "despawn 后活跃数 -1")
+	_check(int(cs.call("get_active_count")) == n - 1, "despawn 后活跃数 -1")
 	_check(int(cs.call("spawn", 0.0, 0.0, 1.0, 1.0, 0.3, 1.0)) >= 0,
 		"释放后能重新 spawn")
 
 
 ## 移动：朝目标推进，且不会越过目标
 func _test_movement(cs) -> void:
-	cs.call("setup", 128, 2.0)
+	cs.call("setup", mini(cap, 128), 2.0)
 	var id := int(cs.call("spawn", 0.0, 0.0, 100.0, 4.0, 0.35, 1.0))
 	var p0: Vector3 = cs.call("get_position", id)
 	for i in 60:
@@ -83,7 +91,7 @@ func _test_movement(cs) -> void:
 
 ## 障碍：单位不得穿过 AABB 墙（薄墙最容易穿，专门测）
 func _test_obstacle_blocking(cs) -> void:
-	cs.call("setup", 128, 2.0)
+	cs.call("setup", mini(cap, 128), 2.0)
 	var ids: Array = []
 	var k := 0
 	for iy in 8:
@@ -116,7 +124,7 @@ func _test_obstacle_blocking(cs) -> void:
 ## 真实场景是"敌人朝玩家移动中成团"，此时 seek 持续给压力、斥力负责分层，
 ## 两者配合才形成自然的群体感。故测试用远处目标。
 func _test_repulsion(cs) -> void:
-	cs.call("setup", 128, 2.0)
+	cs.call("setup", mini(cap, 128), 2.0)
 	var ids: Array = []
 	for i in 20:
 		ids.append(int(cs.call("spawn", float(i) * 0.05, 0.0, 100.0, 4.0, 0.35, 1.0)))
@@ -144,7 +152,7 @@ func _test_repulsion(cs) -> void:
 
 ## 圆查询 / 锥形查询
 func _test_queries(cs) -> void:
-	cs.call("setup", 256, 2.0)
+	cs.call("setup", mini(cap, 200), 2.0)
 	# 一排单位沿 x 轴，间距 2
 	for i in 10:
 		cs.call("spawn", float(i) * 2.0, 0.0, 100.0, 1.0, 0.3, 1.0)
@@ -166,7 +174,7 @@ func _test_queries(cs) -> void:
 
 ## 批量伤害 + 死亡事件
 func _test_damage_and_events(cs) -> void:
-	cs.call("setup", 128, 2.0)
+	cs.call("setup", mini(cap, 128), 2.0)
 	var ids: Array = []
 	for i in 5:
 		ids.append(int(cs.call("spawn", float(i), 0.0, 50.0, 1.0, 0.3, 1.0)))
@@ -192,7 +200,7 @@ func _test_damage_and_events(cs) -> void:
 
 ## 双缓冲：step 后读缓冲切换，渲染数据取自已完成的那份
 func _test_double_buffer(cs) -> void:
-	cs.call("setup", 64, 2.0)
+	cs.call("setup", mini(cap, 64), 2.0)
 	var id := int(cs.call("spawn", 0.0, 0.0, 100.0, 4.0, 0.35, 1.0))
 	cs.call("step", 1.0 / 60.0, 10.0, 0.0)
 	var after_one: Vector3 = cs.call("get_position", id)
@@ -201,9 +209,10 @@ func _test_double_buffer(cs) -> void:
 	_check(after_two.x > after_one.x, "连续 step 位置持续推进（双缓冲未丢帧）")
 	# 渲染缓冲：12 float/实例，未存活的缩放写 0
 	var buf = cs.call("get_render_buffer")
-	_check(buf.size() == 64 * 12, "渲染缓冲尺寸 = 容量 × 12")
+	var n64 := mini(cap, 64)
+	_check(buf.size() == n64 * 12, "渲染缓冲尺寸 = 容量 × 12（%d）" % buf.size())
 	_check(absf(buf[id * 12 + 0]) > 0.01, "存活实例的缩放非 0")
-	var dead_slot := 63
+	var dead_slot := n64 - 1
 	_check(absf(buf[dead_slot * 12 + 0]) < 0.001,
 		"未存活实例的缩放为 0（MultiMesh 不渲染）")
 
