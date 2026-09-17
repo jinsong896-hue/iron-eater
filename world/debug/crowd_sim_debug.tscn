@@ -1,0 +1,50 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://world/debug/crowd_sim_debug.gd" id="1_dbg"]
+
+[sub_resource type="StyleBoxFlat" id="SB_panel"]
+bg_color = Color(0.06, 0.06, 0.08, 0.85)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.3, 0.35, 1)
+
+[node name="CrowdSimDebug" type="Node3D"]
+script = ExtResource("1_dbg")
+
+[node name="Swarm" type="MultiMeshInstance3D" parent="."]
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Panel" type="Panel" parent="UI"]
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 420.0
+offset_bottom = 130.0
+theme_override_styles/panel = SubResource("SB_panel")
+
+[node name="VBox" type="VBoxContainer" parent="UI/Panel"]
+offset_left = 10.0
+offset_top = 8.0
+offset_right = 400.0
+offset_bottom = 120.0
+theme_override_constants/separation = 6
+
+[node name="Info" type="Label" parent="UI/Panel/VBox"]
+layout_mode = 2
+text = "初始化中…"
+theme_override_font_sizes/font_size = 15
+
+[node name="CountLabel" type="Label" parent="UI/Panel/VBox"]
+layout_mode = 2
+text = "生成数量"
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.7, 0.68, 0.65, 1)
+
+[node name="CountSlider" type="HSlider" parent="UI/Panel/VBox"]
+layout_mode = 2
+min_value = 100.0
+max_value = 2048.0
+step = 100.0
+value = 1000.0
