@@ -105,6 +105,22 @@ func _ready() -> void:
 	# 故订阅 game_started，在真正的开局信息写进去之后再配一次。
 	if bus and bus.has_signal("game_started"):
 		bus.game_started.connect(_on_game_started)
+	# 治疗监听：光层靠"治疗/护盾积累"（策划 8.5）。
+	# 治疗入口散落在泉水/药水/击杀回血/吸血等多处，故收口在
+	# AttributeSystem.heal_listeners 一处，避免逐个挂漏掉。
+	_bind_heal_listener()
+
+
+## 把光层监听挂到当前 AttributeSystem。
+## 每次开局 AttributeSystem 会被重建（GameManager._reset_run），
+## 故 _on_game_started 里也要重新挂——否则第二局起光层不再积累。
+func _bind_heal_listener() -> void:
+	var attrs = GameManager.attributes
+	if attrs == null or not ("heal_listeners" in attrs):
+		return
+	var cb := Callable(self, "_on_healed")
+	if not attrs.heal_listeners.has(cb):
+		attrs.heal_listeners.append(cb)
 
 
 ## 新一局开始：按 run_info 重新装配职业/形态/资源。
@@ -112,6 +128,8 @@ func _on_game_started() -> void:
 	class_resource = null   # 换职业要换资源容器，不能沿用上一个职业的
 	_setup_class()
 	_refresh_attack_element()
+	# AttributeSystem 每次开局都会被重建，监听要重新挂
+	_bind_heal_listener()
 	EventBus.stats_changed.emit()
 
 
@@ -129,6 +147,22 @@ var class_id := ""
 var form_slot := 0
 ## 护盾：在 hp 之前被消耗的临时生命（形态「溢出转护盾」等机制的载体）
 var temp_shield := 0.0
+## 反击待发次数（策划 7.2 铁身「受伤自动反击」）：
+## 每次受伤 +1，下次普攻消费 1 次并吃 counter_on_hit 倍率。
+var _counter_charges := 0
+## 普攻命中计数（策划 8.3 影子判官「每 4 次攻击触发影子攻击」）
+var _attack_count := 0
+## 脱战计时（策划 6.2 斥候「脱战 3 秒后移速 +30%」）：有输出/受击即清零
+var _out_of_combat_time := 0.0
+## 翻滚后免疫下一次攻击的待发标记（策划 6.2 斥候）
+var _dodge_immune_ready := false
+## 破极状态是否已触发（策划 7.4：每 25 连击触发一次，同一次连击段内不重复触发）
+var _break_triggered := false
+## 森之领域节点（策划 6.5；同一时刻只保留一个）
+var _forest_domain: Node3D = null
+## 光层 / 暗层计数（策划 8.5 光暗审裁）
+var _light_layers := 0
+var _dark_layers := 0
 
 
 ## 装配职业与初始形态。取不到 run_info 时回退战士（保证任何场景都能玩）。
@@ -481,7 +515,18 @@ func _physics_process(delta: float) -> void:
 	if _hit_combo_time > 0.0:
 		_hit_combo_time = maxf(_hit_combo_time - delta, 0.0)
 		if _hit_combo_time == 0.0:
-			_hit_combo_count = 0
+			# 形态·断连保留（策划 7.1 拳师「连击中断后保留 50% 连击数」）。
+			# 只对声明了该机制的形态生效：其余形态断连归零，
+			# 否则"连击断了"这件事对所有职业都失去惩罚。
+			if ClassDefs.special_flag(class_id, form_slot, "slow_combo_decay"):
+				_hit_combo_count = int(_hit_combo_count * 0.5)
+			else:
+				_hit_combo_count = 0
+			_break_triggered = false   # 断连后允许下次连击段再触发破极
+
+	# 脱战计时（策划 6.2 斥候）：有输出/受击时被 _on_basic_attack_landed
+	# 与 _on_player_hurt 清零，此处只负责推进
+	_out_of_combat_time += delta
 
 	# 词条/元素推进：DOT 结算 + 元素衰减 + 控制判定
 	if buffs != null:
@@ -543,12 +588,14 @@ func _start_normal_attack() -> void:
 	if stage == combo_stages_size() and GameBalance.FINISHER_SUPERARMOR:
 		_finisher_armor_timer = _attack_timer
 		_spawn_armor_visual()
-	_perform_melee_attack(params[1], params[2], deg_to_rad(params[3]), params[4])
+	# 普攻射程 = 连段表的基础射程 + 形态加成（策划 7.1 拳师「空手射程 +0.5 米」）
+	var reach: float = float(params[2]) + _fist_reach_bonus()
+	_perform_melee_attack(params[1], reach, deg_to_rad(params[3]), params[4])
 	# 挥砍视觉：终结技（第 4 段）金色大扇形，其余白
 	if stage == combo_stages_size():
-		_spawn_slash_visual(params[2], deg_to_rad(params[3]), Color(1.0, 0.8, 0.2, 0.55))
+		_spawn_slash_visual(reach, deg_to_rad(params[3]), Color(1.0, 0.8, 0.2, 0.55))
 	else:
-		_spawn_slash_visual(params[2], deg_to_rad(params[3]))
+		_spawn_slash_visual(reach, deg_to_rad(params[3]))
 	_combo.end_attack()
 
 
@@ -651,6 +698,8 @@ func _perform_melee_attack(multiplier: float, reach: float, half_angle: float, k
 ## 冲撞判定（奔跑攻击）：面向矩形区域
 func _perform_charge_attack(multiplier: float, length: float, width: float, knockback: float) -> void:
 	var hit_any := false
+	# 形态·徒手射程（策划 7.1 拳师）对突进距离同样生效
+	length += _fist_reach_bonus()
 	var width_sq := (width / 2.0) * (width / 2.0)
 	for enemy in get_tree().get_nodes_in_group("enemies"):
 		if not _is_valid_enemy(enemy):
@@ -673,6 +722,8 @@ func _perform_charge_attack(multiplier: float, length: float, width: float, knoc
 ## 圆形 AOE 判定（跳跃攻击落地）
 func _perform_aoe_attack(multiplier: float, radius: float, knockback: float) -> void:
 	var hit_any := false
+	# 形态·徒手射程（策划 7.1 拳师）对落地 AOE 半径同样生效
+	radius += _fist_reach_bonus()
 	for enemy in get_tree().get_nodes_in_group("enemies"):
 		if not _is_valid_enemy(enemy):
 			continue
@@ -703,6 +754,337 @@ func _hit_enemies_in_cone(multiplier: float, reach: float, half_angle: float, kn
 	return hit_any
 
 
+## 攻击是否属于「背刺」：攻击者位于目标**背后**。
+##
+## 敌人没有 facing 字段，朝向由 `-global_transform.basis.z` 给出
+##（enemy_base 在 CHASE 态 look_at 目标，故这个前向是可信的）。
+## 判定用「目标→攻击者」与「目标前向」的点积：大于阈值说明攻击者在正面，
+## 小于负阈值说明确实绕到了背后。
+func _is_backstab(enemy: Node3D) -> bool:
+	if ClassDefs.special_num(class_id, form_slot, "backstab_mult", 1.0) <= 1.0:
+		return false
+	if enemy == null or not is_instance_valid(enemy):
+		return false
+	var to_me: Vector3 = global_position - enemy.global_position
+	to_me.y = 0.0
+	if to_me.length_squared() < 0.0001:
+		return false
+	var enemy_forward: Vector3 = -enemy.global_transform.basis.z
+	enemy_forward.y = 0.0
+	if enemy_forward.length_squared() < 0.0001:
+		return false
+	return to_me.normalized().dot(enemy_forward.normalized()) < -BACKSTAB_DOT_THRESHOLD
+
+
+## 背刺判定的点积阈值：要求"确实绕到身后"，而不是"在侧面"也算。
+const BACKSTAB_DOT_THRESHOLD := 0.3
+
+
+## 形态·远近切换无冷却（策划 6.1 追猎者「远近切换无冷却；切换后移速 +10%」）。
+##
+## 玩家没有真正的"切换武器"动作（攻击由连段表驱动），故这里把它落成
+## **连续攻击之间不额外惩罚**：声明该机制时，攻击后的移速惩罚取消，
+## 并在攻击间隔内给一点移速补偿，对应策划的"切换后移速 +10%"手感。
+func weapon_swap_free() -> bool:
+	return ClassDefs.special_flag(class_id, form_slot, "free_weapon_swap")
+
+
+## 普攻射程的形态加成（策划 7.1 拳师「空手攻击射程 +0.5 米」）。
+##
+## 注意：基础射程来自**连段表**（AttackCombo.stage_params），
+## 不是本文件的 ATTACK_REACH 常量——后者是历史遗留、无人读取。
+## 形态加成是"在连段表之上再加一截"，故单独返回增量而不是绝对值。
+func _fist_reach_bonus() -> float:
+	return ClassDefs.special_num(class_id, form_slot, "fist_reach", 0.0)
+
+
+## 当前形态的普攻护甲穿透。
+## `armor_pierce`（形态主动机制）与 `fist_armor_pierce`（徒手特性）是两条
+## 独立来源，可叠加，故一并返回。
+func _basic_attack_pierce() -> float:
+	var p := ClassDefs.special_num(class_id, form_slot, "armor_pierce", 0.0)
+	p += ClassDefs.special_num(class_id, form_slot, "fist_armor_pierce", 0.0)
+	return clampf(p, 0.0, 1.0)
+
+
+## 受伤时的形态反应（在扣血前调用，amount 是护盾吸收后的实际伤害）。
+func _on_player_hurt(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	# 脱战计时被打断（策划 6.2：脱战 3 秒后才给移速加成）
+	_out_of_combat_time = 0.0
+	# 受伤反击（策划 7.2 铁身）：置位一次待发反击；
+	# 连击≥10 时策划要求「反击翻倍」——这里再置一位，即两次 ×2.0
+	if ClassDefs.has_special(class_id, form_slot, "counter_on_hit"):
+		_counter_charges += 1
+		if _hit_combo_count >= COUNTER_DOUBLE_COMBO:
+			_counter_charges += 1
+	# 暗层积累（策划 8.5：施加负面积累）——受伤本身就是"负面"的一种
+	if ClassDefs.special_flag(class_id, form_slot, "light_dark_layers"):
+		_gain_dark_layer()
+	# 职业资源：战士怒气等（原本就在 take_damage 里调，这里保持同口径）
+	if class_resource != null:
+		class_resource.on_damage_taken(amount)
+
+
+## 连击≥10 时铁身的反击翻倍（策划 7.2）
+const COUNTER_DOUBLE_COMBO := 10
+## 连击≥10 时铁身的减伤比例（策划 7.2）
+const COUNTER_COMBO_DR := 0.25
+## 翻滚开始（由 DodgeState.enter 调用）
+func on_dodge_started() -> void:
+	_out_of_combat_time = 0.0
+	if ClassDefs.special_flag(class_id, form_slot, "dodge_immune_next"):
+		_dodge_immune_ready = true
+
+
+## 6.2 斥候「脱战 3 秒后移速 +30%」：返回当前应额外乘的移速系数。
+## 由 move_state 每帧读取——挂在属性系统上会需要额外的计时器管理，
+## 而"脱战"是玩家侧的瞬时状态，就地算更直接。
+func out_of_combat_speed_mult() -> float:
+	var bonus := ClassDefs.special_num(class_id, form_slot, "out_of_combat_spd", 0.0)
+	if bonus <= 0.0 or _out_of_combat_time < OUT_OF_COMBAT_DELAY:
+		return 1.0
+	return 1.0 + bonus
+
+
+## 脱战判定时长（策划 6.2：3 秒）
+const OUT_OF_COMBAT_DELAY := 3.0
+
+
+## 连击数是否无上限（策划 7.4 破极「连击无上限」）。
+## 其余形态沿用 GameBalance 的连击加成上限，避免数值失控。
+func combo_cap() -> float:
+	if ClassDefs.special_flag(class_id, form_slot, "myriad_combo") \
+			or ClassDefs.has_special(class_id, form_slot, "break_limit_at"):
+		return INF
+	return GameBalance.COMBO_DAMAGE_CAP
+
+
+## 当前形态是否禁用武器（策划 7.1/7.2/7.3/7.5 武僧前四形态「不可装备武器」；
+## 7.4 破极「可装备武器（突破限制）」用 can_equip_weapon 显式解锁）。
+func weapon_forbidden() -> bool:
+	if ClassDefs.special_flag(class_id, form_slot, "can_equip_weapon"):
+		return false
+	return ClassDefs.special_flag(class_id, form_slot, "no_weapon")
+
+
+## 治疗/护盾时积累光层（策划 8.5 光暗审裁）。
+## 订阅在 _ready 里挂到 AttributeSystem.heal_listeners——治疗入口有
+## 泉水/药水/击杀回血/吸血等多处，收口在那里才能全覆盖。
+func _on_healed(amount: float) -> void:
+	if amount > 0.0:
+		_gain_light_layer()
+
+
+## 普攻命中后的形态附加效果（策划 6/7/8 章）。
+## 集中在一处：这些都要"打中了才算"，放在 _apply_hit 的命中分支里。
+func _on_basic_attack_landed(enemy: Node3D, damage: float) -> void:
+	if enemy == null or not is_instance_valid(enemy):
+		return
+	_out_of_combat_time = 0.0   # 有输出即视为交战
+	_attack_count += 1
+
+	# 8.1 渡鸦「所有攻击额外附加（法强×0.2）法术伤害」
+	var spell_pct := ClassDefs.special_num(class_id, form_slot, "spell_on_hit_ap_pct", 0.0)
+	if spell_pct > 0.0:
+		var ap := GameManager.stat_value("ap")
+		if ap > 0.0:
+			_deal_bonus_damage(enemy, ap * spell_pct, "spell")
+
+	# 8.2 锁链判官「攻击挂审判印记（每层 +10% 法伤）」+「连锁传导 30%」
+	if ClassDefs.special_flag(class_id, form_slot, "mark_per_hit"):
+		_apply_buff_to(enemy, "judge_mark")
+		var chain := ClassDefs.special_num(class_id, form_slot, "chain_30pct", 0.0)
+		if chain > 0.0:
+			_chain_spell_damage(enemy, damage * chain)
+
+	# 8.3 影子判官「每 4 次攻击触发影子攻击（法强×0.5，无视护甲）」
+	if ClassDefs.special_flag(class_id, form_slot, "shadow_every_4") \
+			and _attack_count % SHADOW_ATTACK_EVERY == 0:
+		var ap2 := GameManager.stat_value("ap")
+		_deal_bonus_damage(enemy, ap2 * 0.5, "shadow", true)
+
+	# 6.5 森之选召「命中生成森之领域」
+	if ClassDefs.special_flag(class_id, form_slot, "forest_domain"):
+		_spawn_forest_domain()
+
+	# 8.5 光层：造成伤害本身不算光层（光层来自治疗/护盾），故这里只处理
+	# 「施加负面 → 暗层」——锁链判官挂印记属于施加负面
+	if ClassDefs.special_flag(class_id, form_slot, "light_dark_layers") \
+			and ClassDefs.special_flag(class_id, form_slot, "mark_per_hit"):
+		_gain_dark_layer()
+
+	# 7.4 破极「每 25 连击触发破极状态 6 秒」
+	_maybe_trigger_break_limit()
+
+
+## 影子攻击的触发间隔（策划 8.3：每 4 次攻击）
+const SHADOW_ATTACK_EVERY := 4
+## 直线穿透的长度与伤害比例（策划 6.4 鹰眼：身后 2 米、40% 伤害）
+const PIERCE_LINE_LENGTH := 2.0
+
+
+## 6.4 鹰眼：命中后沿攻击方向在目标**身后**再打一条直线，
+## 对线上其余敌人造成本次伤害的一部分。
+##
+## 与 `armor_pierce`（削护甲）是两回事：这个是"打穿一条线"，
+## 名字都带 pierce 但机制不同，故分开实现。
+func _apply_pierce_line(origin: Node3D, damage: float) -> void:
+	var pct := ClassDefs.special_num(class_id, form_slot, "pierce_line", 0.0)
+	if pct <= 0.0 or damage <= 0.0:
+		return
+	var dir := _facing
+	dir.y = 0.0
+	if dir.length_squared() < 0.0001:
+		return
+	dir = dir.normalized()
+	var line_start: Vector3 = origin.global_position
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if e == origin or not _is_valid_enemy(e):
+			continue
+		var to_e: Vector3 = (e as Node3D).global_position - line_start
+		to_e.y = 0.0
+		var along := to_e.dot(dir)
+		if along <= 0.0 or along > PIERCE_LINE_LENGTH:
+			continue
+		# 侧向偏移要够小才算"在这条线上"
+		if (to_e - dir * along).length() > PIERCE_LINE_HALF_WIDTH:
+			continue
+		_deal_bonus_damage(e as Node3D, damage * pct, "pierce")
+
+
+## 直线穿透的判定宽度（策划只给了长度 2 米，宽度按"一条线"取 0.6 米）
+const PIERCE_LINE_HALF_WIDTH := 0.6
+
+
+## 对目标结算一笔"附加伤害"（不走普攻的连击/暴击链路，独立结算）。
+## `ignore_armor` 用于影子攻击（策划明写"无视护甲"）。
+func _deal_bonus_damage(enemy: Node3D, amount: float, kind: String,
+		ignore_armor: bool = false) -> void:
+	if amount <= 0.0 or not _is_valid_enemy(enemy):
+		return
+	var def_v: float = 0.0
+	if not ignore_armor:
+		def_v = float(enemy.get("defense")) if enemy.get("defense") != null else 0.0
+	var result := DamagePipeline.physical(amount, 1.0, 0.0, def_v)
+	enemy.call("take_damage", float(result.damage), false, Vector3.ZERO)
+	EventBus.damage_popup.emit(enemy.global_position, float(result.damage), kind)
+
+
+## 给单个目标挂 buff（形态印记等）
+func _apply_buff_to(enemy: Node3D, buff_id: String) -> void:
+	if not _is_valid_enemy(enemy):
+		return
+	var eb = enemy.get("buffs")
+	if eb != null and eb.has_method("apply"):
+		eb.call("apply", buff_id, "form")
+
+
+## 8.2 连锁传导：把本次伤害的一部分扩散给目标周围的敌人
+func _chain_spell_damage(origin: Node3D, amount: float) -> void:
+	if amount <= 0.0:
+		return
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if e == origin or not _is_valid_enemy(e):
+			continue
+		if (e as Node3D).global_position.distance_to(origin.global_position) > CHAIN_RADIUS:
+			continue
+		_deal_bonus_damage(e as Node3D, amount, "spell")
+
+
+## 连锁传导半径（策划 8.2：周围 3 米）
+const CHAIN_RADIUS := 3.0
+
+
+## 7.4 破极：连击数跨过 25 的整数倍时触发破极状态 6 秒。
+## 用 `_break_triggered` 保证"同一次连击段内只触发一次"——
+## 否则连击停在 25 附近来回时会反复刷新，等于常驻。
+func _maybe_trigger_break_limit() -> void:
+	var at := int(ClassDefs.special_num(class_id, form_slot, "break_limit_at", 0.0))
+	if at <= 0 or buffs == null:
+		return
+	if _hit_combo_count < at:
+		return
+	if _break_triggered:
+		return
+	_break_triggered = true
+	buffs.apply("break_limit_state", "form")
+	EventBus.message.emit("破极！")
+
+
+## 6.5 森之选召：在脚下生成森之领域（6 秒、4 米）。
+## 同一时刻只保留一个——重复命中不该叠出一地领域。
+##
+## 复用 DamageZone 的「区域内挂/撤词条」能力（damage=0：领域只上 debuff 不造成伤害）。
+## 它自带进区施加、出区移除的成对逻辑，比另写一套范围检测可靠。
+func _spawn_forest_domain() -> void:
+	if _forest_domain != null and is_instance_valid(_forest_domain):
+		return
+	var parent := get_parent()
+	if parent == null:
+		return
+	_forest_domain = DamageZone.spawn({
+		"radius": FOREST_DOMAIN_RADIUS,
+		"duration": FOREST_DOMAIN_DURATION,
+		"damage": 0.0,
+		"target_group": DamageZone.TARGET_ENEMY,
+		"slow_buff": "forest_domain_foe",
+		"color": Color(0.25, 0.75, 0.35, 0.25),
+		"position": global_position,
+	}, parent)
+	# 领域内猎人自身：攻速 +40%、暴击 +30%（策划 6.5）。
+	# 自身增益用 buff 计时器管，领域消失后自然到期。
+	if buffs != null:
+		buffs.apply("forest_domain_self", "form")
+
+
+const FOREST_DOMAIN_RADIUS := 4.0
+const FOREST_DOMAIN_DURATION := 6.0
+
+
+## 形态·连击减伤（策划 7.2 铁身「连击≥10 时减伤 25%」）。
+## 只对声明了 counter_on_hit 的形态生效——否则会给所有职业白送减伤。
+func _combo_damage_reduction() -> float:
+	if not ClassDefs.has_special(class_id, form_slot, "counter_on_hit"):
+		return 0.0
+	if _hit_combo_count < COUNTER_DOUBLE_COMBO:
+		return 0.0
+	return COUNTER_COMBO_DR
+
+
+## 光层 / 暗层积累与平衡判定（策划 8.5 光暗审裁）。
+## 光层来自治疗/护盾，暗层来自施加负面；均 ≥5 时挂 verdict_balance。
+func _gain_light_layer() -> void:
+	if not ClassDefs.special_flag(class_id, form_slot, "light_dark_layers"):
+		return
+	_light_layers = mini(_light_layers + 1, LIGHT_DARK_CAP)
+	_refresh_light_dark_balance()
+
+
+func _gain_dark_layer() -> void:
+	if not ClassDefs.special_flag(class_id, form_slot, "light_dark_layers"):
+		return
+	_dark_layers = mini(_dark_layers + 1, LIGHT_DARK_CAP)
+	_refresh_light_dark_balance()
+
+
+## 光暗均 ≥5 时挂 verdict_balance（策划 8.5：全伤害 +40%、移速 +30%）
+const LIGHT_DARK_CAP := 10
+const LIGHT_DARK_BALANCE_AT := 5
+
+
+func _refresh_light_dark_balance() -> void:
+	if buffs == null:
+		return
+	if _light_layers >= LIGHT_DARK_BALANCE_AT and _dark_layers >= LIGHT_DARK_BALANCE_AT:
+		if not buffs.has("verdict_balance"):
+			buffs.apply("verdict_balance", "form")
+	else:
+		if buffs.has("verdict_balance"):
+			buffs.remove("verdict_balance")
+
+
 ## 对单个敌人结算伤害与击退
 ##
 ## **这是普攻的唯一漏斗**：扇形横扫、冲撞、落地 AOE 三条路径全部汇入这里，
@@ -715,17 +1097,26 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	# 形态·近战伤害倍率（策划 3.2 狂战士「近战武器伤害 +20%」、
 	# 壁垒「近战 -20%」）。普攻全是近战，直接乘在倍率上。
 	multiplier *= 1.0 + ClassDefs.special_num(class_id, form_slot, "melee_dmg_pct", 0.0)
-	# 连击数伤害加成（每击 +2%，上限 +30%）
+	# 形态·反击加成（策划 7.2 铁身「受伤自动反击，下次攻击 ×2.0」）。
+	# 计数器在 take_damage 里置位，这里消费一次后清掉——
+	# 策划写的是「下次攻击」，不是"永久翻倍"。
+	if _counter_charges > 0:
+		multiplier *= ClassDefs.special_num(class_id, form_slot, "counter_on_hit", 1.0)
+		_counter_charges -= 1
+	# 形态·背刺（策划 6.3 暗刃 ×2.0 / 8.4 暗影主宰 ×2.5）
+	if _is_backstab(enemy):
+		multiplier *= ClassDefs.special_num(class_id, form_slot, "backstab_mult", 1.0)
+	# 连击数伤害加成（每击 +2%，上限由形态决定——策划 7.4 破极「连击无上限」）
 	var combo_bonus: float = minf(
 		_hit_combo_count * GameBalance.COMBO_DAMAGE_PER_HIT,
-		GameBalance.COMBO_DAMAGE_CAP
+		combo_cap()
 	)
 	var target_def: float = enemy.get("defense") if enemy.get("defense") != null else 0.0
-	# 形态·护甲穿透（策划 3.5 锁链「穿刺无视 50% 护甲」）。
+	# 形态·护甲穿透（策划 3.5 锁链「穿刺无视 50% 护甲」、
+	# 7.1 拳师「徒手无视 5% 护甲」）。
 	# DamagePipeline 的护甲减伤是 def/(def+100)，没有穿透参数，
 	# 故在调用侧把防御打折——等效于穿透。下限 0：穿透不该变成负防御增伤。
-	target_def *= 1.0 - clampf(
-		ClassDefs.special_num(class_id, form_slot, "armor_pierce", 0.0), 0.0, 1.0)
+	target_def *= 1.0 - _basic_attack_pierce()
 	# 目标身上的词条影响：易伤（毒蚀等）与减伤（护盾/防御型）
 	var vuln := 0.0
 	var taken_down := 0.0
@@ -783,6 +1174,11 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 		var eb = enemy.get("buffs")
 		if eb != null and eb.has_method("apply"):
 			eb.call("apply", mark, "form")
+	# 形态·普攻附加效果（命中后结算）
+	_on_basic_attack_landed(enemy, total)
+	# 形态·直线穿透（策划 6.4 鹰眼「所有攻击附带范围穿透：
+	# 身后 2 米直线 40% 伤害」）——沿攻击方向在目标身后再打一条线
+	_apply_pierce_line(enemy, total)
 	# 生命偷取：造成伤害的 N% 转回血
 	var ls: float = float(sp.get("life_steal", 0.0))
 	if ls > 0.0:
@@ -1226,6 +1622,26 @@ func _is_valid_enemy(enemy: Node) -> bool:
 func _register_hit_combo() -> void:
 	_hit_combo_count += 1
 	_hit_combo_time = 2.0
+	# 形态·连击回复（策划 7.3 疾风「连击≥10 时每次攻击恢复 2% 已损生命」）
+	_apply_combo_heal()
+
+
+## 形态·连击达标时按比例回复**已损生命**（不是最大生命的百分比——
+## 策划写的是「已损生命」，残血时回复量才够看，满血时为 0）。
+func _apply_combo_heal() -> void:
+	var pct := ClassDefs.special_num(class_id, form_slot, "combo_heal", 0.0)
+	if pct <= 0.0 or _hit_combo_count < COMBO_HEAL_THRESHOLD:
+		return
+	var attrs = GameManager.attributes
+	if attrs == null or attrs.is_dead():
+		return
+	var lost: float = maxf(attrs.max_hp - attrs.hp, 0.0)
+	if lost > 0.0:
+		_lifesteal_heal(lost * pct)
+
+
+## 连击回复的触发门槛（策划 7.3：连击≥10）
+const COMBO_HEAL_THRESHOLD := 10
 
 
 ## 当前连击数（HUD 用）
@@ -1265,6 +1681,16 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	# 翻滚/俯冲无敌帧
 	if _is_dodging or _jump_phase == JumpPhase.DIVE:
 		return
+	# 形态·翻滚后免疫一次（策划 6.2 斥候「翻滚后免疫下一次攻击」）。
+	# 与无敌帧是两回事：无敌帧只在翻滚**过程中**生效，这个是在翻滚
+	# **结束后**仍能挡下一次。消费一次后失效。
+	if _dodge_immune_ready:
+		_dodge_immune_ready = false
+		EventBus.player_hit.emit(0.0, global_position)
+		_flash_timer = HIT_FLASH_DURATION
+		_update_flash()
+		EventBus.message.emit("闪避！免疫本次伤害")
+		return
 	# 终结技霸体：减伤 30%，不掉连段节奏（无硬直状态，攻击照常续接）
 	var armor := _finisher_armor_timer > 0.0
 	if armor:
@@ -1281,6 +1707,15 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	# 但仍照常走受击反馈——玩家要看得出"护盾挡了一下"。
 	var to_hp := _absorb_with_shield(amount)
 	amount = maxf(to_hp, 0.0)
+	# 形态·受伤触发（在真正扣血前记录，用**护盾吸收后**的实际伤害）：
+	#   7.2 铁身「受伤自动反击，下次攻击 ×2.0」；连击≥10 时反击翻倍
+	#   6.2 斥候「脱战计时」被打断
+	#   8.5 光暗审裁「暗层（施加负面积累）」受伤也算一次暗层
+	_on_player_hurt(amount)
+	# 形态·连击减伤（策划 7.2 铁身「连击≥10 时减伤 25%」）
+	var combo_dr := _combo_damage_reduction()
+	if combo_dr > 0.0:
+		amount *= 1.0 - combo_dr
 	GameManager.attributes.take_damage(amount)
 	EventBus.player_hit.emit(amount, global_position)
 	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")

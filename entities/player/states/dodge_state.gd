@@ -17,6 +17,10 @@ func enter(_previous: String, data: Dictionary = {}) -> void:
 	p._is_dodging = true
 	p.dodge_timer = p.dodge_duration
 	p._dodge_cooldown_timer = p.dodge_cooldown
+	# 形态·翻滚后免疫下一次攻击（策划 6.2 斥候）。
+	# 在这里置位而不是 exit()：翻滚被中断时 exit 仍会跑到，
+	# 而"翻滚过就获得免疫"是策划原意，与是否正常结束无关。
+	p.on_dodge_started()
 	EventBus.player_moved.emit(p.global_position, _direction)
 
 

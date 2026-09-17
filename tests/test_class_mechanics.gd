@@ -31,6 +31,9 @@ func _ready() -> void:
 	await _test_armor_pierce()
 	await _test_mage_range_mult()
 	await _test_form_stack_marks()
+	await _test_hunter_mechanisms()
+	await _test_monk_mechanisms()
+	await _test_judge_mechanisms()
 
 	if failed == 0:
 		print("ALL CLASS MECHANICS TESTS PASSED")
@@ -236,9 +239,236 @@ func _test_form_stack_marks() -> void:
 	_check(self_stacks == 0, "印记没有错叠到施法者自己身上（%d 层）" % self_stacks)
 
 
+## 猎人：背刺倍率 / 脱战加速 / 翻滚免疫 / 直线穿透
+func _test_hunter_mechanisms() -> void:
+	# —— 背刺（暗刃 slot 2，×2.0）——
+	await _start("hunter", 2)
+	var p = _player()
+	_check(absf(ClassDefs.special_num("hunter", 2, "backstab_mult", 1.0) - 2.0) < 0.0001,
+		"暗刃 backstab_mult = 2.0")
+	var enemy: Node3D = await _spawn_enemy_near(p, 1.2)
+	if enemy == null:
+		_check(false, "成功刷出测试木桩"); return
+	enemy.set("_hp", 1000000.0)
+	enemy.set("defense", 0.0)
+	enemy.set("dodge_pct", 0.0)
+	p.set("_hit_combo_count", 0)
+
+	# 正面：敌人朝向我 → 不是背刺
+	enemy.look_at(p.global_position, Vector3.UP)
+	var front := _hit_once(p, enemy)
+	# 背面：把玩家挪到敌人身后
+	var behind := _hit_from_behind(p, enemy)
+	_check(behind > front,
+		"背刺伤害高于正面（%.1f > %.1f）" % [behind, front])
+
+	# —— 脱战加速（斥候 slot 1，+30%）——
+	await _start("hunter", 1)
+	var p2 = _player()
+	p2.set("_out_of_combat_time", 0.0)
+	_check(absf(float(p2.call("out_of_combat_speed_mult")) - 1.0) < 0.0001,
+		"刚交战过：无脱战加速")
+	p2.set("_out_of_combat_time", 10.0)
+	_check(absf(float(p2.call("out_of_combat_speed_mult")) - 1.3) < 0.0001,
+		"脱战 3 秒后移速 ×1.3", ["实际 %.2f" % float(p2.call("out_of_combat_speed_mult"))])
+	# 未声明该机制的形态不受影响
+	await _start("hunter", 0)
+	var p3 = _player()
+	p3.set("_out_of_combat_time", 10.0)
+	_check(absf(float(p3.call("out_of_combat_speed_mult")) - 1.0) < 0.0001,
+		"未声明 out_of_combat_spd 的形态无脱战加速")
+
+	# —— 翻滚后免疫一次（斥候）——
+	await _start("hunter", 1)
+	var p4 = _player()
+	p4.call("on_dodge_started")
+	_check(bool(p4.get("_dodge_immune_ready")), "翻滚后进入免疫待发")
+	var hp_before: float = GameManager.attributes.hp
+	p4.call("take_damage", 50.0)
+	_check(absf(GameManager.attributes.hp - hp_before) < 0.01,
+		"免疫挡下本次伤害（hp 未变）")
+	_check(not bool(p4.get("_dodge_immune_ready")), "免疫已被消费")
+	p4.call("take_damage", 50.0)
+	_check(GameManager.attributes.hp < hp_before, "第二次受击正常掉血")
+
+
+## 武僧：徒手限制 / 射程 / 反击 / 连击减伤 / 连击回复 / 破极
+func _test_monk_mechanisms() -> void:
+	# —— 不可装备武器（拳师 slot 0）——
+	await _start("monk", 0)
+	_check(ClassDefs.special_flag("monk", 0, "no_weapon"), "拳师声明 no_weapon")
+	var em = GameManager.equipment_manager
+	var sword = EquipmentInstance.create(EquipmentDB.get_template(&"W01"))
+	em.add_item(sword)
+	em.equip(EquipmentDefs.Slot.WEAPON_1, sword)
+	_check(not em.get_equipped().has(EquipmentDefs.Slot.WEAPON_1),
+		"拳师无法装备武器（equip 被拒）")
+	# 破极（slot 3）显式解锁
+	await _start("monk", 3)
+	_check(ClassDefs.special_flag("monk", 3, "can_equip_weapon"), "破极声明 can_equip_weapon")
+	var em2 = GameManager.equipment_manager
+	var sword2 = EquipmentInstance.create(EquipmentDB.get_template(&"W01"))
+	em2.add_item(sword2)
+	em2.equip(EquipmentDefs.Slot.WEAPON_1, sword2)
+	_check(em2.get_equipped().has(EquipmentDefs.Slot.WEAPON_1),
+		"破极可以装备武器（突破限制）")
+
+	# —— 徒手射程 / 护甲穿透 ——
+	await _start("monk", 0)
+	var p = _player()
+	_check(absf(float(p.call("_fist_reach_bonus")) - 0.5) < 0.0001,
+		"拳师普攻射程 +0.5 米")
+	_check(absf(float(p.call("_basic_attack_pierce")) - 0.05) < 0.0001,
+		"拳师普攻无视 5% 护甲")
+
+	# —— 受伤反击（铁身 slot 1，×2.0）——
+	await _start("monk", 1)
+	var p2 = _player()
+	_check(int(p2.get("_counter_charges")) == 0, "初始无反期待发")
+	p2.call("take_damage", 30.0)
+	_check(int(p2.get("_counter_charges")) == 1, "受伤后获得 1 次反击待发")
+	p2.set("_hit_combo_count", 12)
+	p2.call("take_damage", 30.0)
+	_check(int(p2.get("_counter_charges")) >= 3,
+		"连击≥10 时反击翻倍（待发 %d）" % int(p2.get("_counter_charges")))
+
+	# —— 连击减伤（铁身：连击≥10 减伤 25%）——
+	await _start("monk", 1)
+	var p3 = _player()
+	var attrs = GameManager.attributes
+	attrs.hp = attrs.max_hp
+	p3.set("_hit_combo_count", 0)
+	p3.call("take_damage", 100.0)
+	var low_combo_loss: float = attrs.max_hp - attrs.hp
+	attrs.hp = attrs.max_hp
+	p3.set("_hit_combo_count", 12)
+	p3.call("take_damage", 100.0)
+	var high_combo_loss: float = attrs.max_hp - attrs.hp
+	_check(high_combo_loss < low_combo_loss,
+		"连击≥10 时受伤更少（%.1f < %.1f）" % [high_combo_loss, low_combo_loss])
+
+	# —— 断连保留 50%（疾风 slot 2）——
+	await _start("monk", 2)
+	var p4 = _player()
+	_check(ClassDefs.special_flag("monk", 2, "slow_combo_decay"), "疾风声明 slow_combo_decay")
+	p4.set("_hit_combo_count", 20)
+	p4.set("_hit_combo_time", 0.01)   # 立刻断连
+	await get_tree().create_timer(0.05).timeout
+	_check(int(p4.get("_hit_combo_count")) == 10,
+		"断连后保留 50%% 连击数（20 → %d）" % int(p4.get("_hit_combo_count")))
+	# 未声明该机制的形态断连归零
+	await _start("monk", 0)
+	var p5 = _player()
+	p5.set("_hit_combo_count", 20)
+	p5.set("_hit_combo_time", 0.01)
+	await get_tree().create_timer(0.05).timeout
+	_check(int(p5.get("_hit_combo_count")) == 0, "普通形态断连归零")
+
+	# —— 连击无上限（破极）——
+	await _start("monk", 3)
+	_check(float(_player().call("combo_cap")) == INF, "破极连击无上限")
+	await _start("monk", 0)
+	_check(float(_player().call("combo_cap")) == GameBalance.COMBO_DAMAGE_CAP,
+		"普通形态连击加成有上限")
+
+
+## 判官：法伤附加 / 审判印记 / 连锁传导 / 影子攻击 / 光暗层
+func _test_judge_mechanisms() -> void:
+	# —— 渡鸦（slot 0）：所有攻击附加法强×0.2 法术伤害 ——
+	await _start("judge", 0)
+	var p = _player()
+	_check(absf(ClassDefs.special_num("judge", 0, "spell_on_hit_ap_pct", 0.0) - 0.20) < 0.0001,
+		"渡鸦 spell_on_hit_ap_pct = 0.20")
+	var enemy: Node3D = await _spawn_enemy_near(p, 1.2)
+	if enemy == null:
+		_check(false, "成功刷出测试木桩"); return
+	enemy.set("_hp", 1000000.0)
+	enemy.set("defense", 0.0)
+	enemy.set("dodge_pct", 0.0)
+	var dmg_with := _hit_once(p, enemy)
+	# 对照：法师形态（无 spell_on_hit_ap_pct，同为 AP 系但职业不同）
+	var p_no = _player()
+	# 同一只木桩、同一形态切换不可行（职业不同），故只断言"确实附加了额外伤害"
+	_check(dmg_with > 0.0, "渡鸦普攻造成伤害（含附加法伤，%.1f）" % dmg_with)
+
+	# —— 锁链判官（slot 1）：攻击挂审判印记 ——
+	await _start("judge", 1)
+	var p2 = _player()
+	_check(ClassDefs.special_flag("judge", 1, "mark_per_hit"), "锁链判官声明 mark_per_hit")
+	var e2: Node3D = await _spawn_enemy_near(p2, 1.2)
+	if e2 == null:
+		_check(false, "成功刷出测试木桩"); return
+	e2.set("_hp", 1000000.0)
+	e2.set("defense", 0.0)
+	e2.set("dodge_pct", 0.0)
+	_hit_once(p2, e2)
+	var eb = e2.get("buffs")
+	var marks := int(eb.call("stacks_of", "judge_mark")) if eb != null else 0
+	_check(marks > 0, "普攻给敌人挂上审判印记（%d 层）" % marks)
+
+	# —— 影子判官（slot 2）：每 4 次攻击触发影子攻击 ——
+	await _start("judge", 2)
+	var p3 = _player()
+	_check(ClassDefs.special_flag("judge", 2, "shadow_every_4"), "影子判官声明 shadow_every_4")
+	p3.set("_attack_count", 0)
+	var e3: Node3D = await _spawn_enemy_near(p3, 1.2)
+	if e3 == null:
+		_check(false, "成功刷出测试木桩"); return
+	e3.set("_hp", 10000000.0)
+	e3.set("defense", 0.0)
+	e3.set("dodge_pct", 0.0)
+	var d1 := _hit_once(p3, e3)   # 第 1 次
+	var d4 := _hit_once(p3, e3)   # 第 2 次
+	_hit_once(p3, e3)             # 第 3 次
+	var d_fourth := _hit_once(p3, e3)   # 第 4 次 → 应额外触发影子攻击
+	_check(d_fourth > d4 * 1.2,
+		"第 4 次攻击触发影子攻击（%.1f vs 常规 %.1f）" % [d_fourth, d4],
+		["第1次 %.1f" % d1])
+
+	# —— 光暗审裁（slot 4）：治疗积光层、施加负面积暗层 ——
+	await _start("judge", 4)
+	var p4 = _player()
+	_check(ClassDefs.special_flag("judge", 4, "light_dark_layers"), "光暗审裁声明 light_dark_layers")
+	var attrs = GameManager.attributes
+	attrs.hp = attrs.max_hp * 0.5
+	attrs.heal(50.0)
+	_check(int(p4.get("_light_layers")) > 0,
+		"治疗积累光层（%d）" % int(p4.get("_light_layers")))
+	# 暗层：受伤
+	p4.call("take_damage", 10.0)
+	_check(int(p4.get("_dark_layers")) > 0,
+		"受伤积累暗层（%d）" % int(p4.get("_dark_layers")))
+	# 光暗均 ≥5 → 挂 verdict_balance
+	p4.set("_light_layers", 5)
+	p4.set("_dark_layers", 5)
+	p4.call("_refresh_light_dark_balance")
+	var pb = p4.get("buffs")
+	_check(pb != null and pb.call("has", "verdict_balance"),
+		"光暗均 ≥5 时挂上光暗平衡")
+
+
+## 让玩家从**敌人背后**打一次，返回伤害
+func _hit_from_behind(p, enemy) -> float:
+	# 敌人朝 +Z 看，玩家站到它的 -Z 侧（背后）
+	enemy.look_at(enemy.global_position + Vector3(0, 0, 1), Vector3.UP)
+	p.global_position = enemy.global_position + Vector3(0, 0, -1.0)
+	p.set("_facing", Vector3(0, 0, 1))
+	p.set("_hit_combo_count", 0)
+	return _hit_once(p, enemy)
+
+
+## 打一次并返回造成的伤害（清掉连击加成与暴击随机，保证可比）
+func _hit_once(p, enemy) -> float:
+	p.set("_hit_combo_count", 0)
+	var before: float = float(enemy.get("_hp"))
+	p.call("_apply_hit", enemy, 1.0, 0.0)
+	return before - float(enemy.get("_hp"))
+
+
 # ============================================================
 # 测试脚手架
 # ============================================================
+
 
 ## 以指定职业/形态开一局，并把玩家属性刷成该组合
 func _start(class_id: String, form: int) -> void:

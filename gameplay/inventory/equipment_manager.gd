@@ -50,8 +50,33 @@ func remove_item(inst: EquipmentInstance) -> void:
 ## 连续替换会让背包无限膨胀（实测 5 次替换净增 10 件），
 ## 且能突破容量上限（40 格塞进 41 件）。
 ## 现改为：只调 unequip，退回动作由它独家负责。
+## 当前形态是否允许穿戴这件装备（策划 7.1~7.3、7.5 武僧前四形态「不可装备武器」；
+## 7.4 破极用 can_equip_weapon 显式解锁）。
+##
+## 收口在这里而不是各个 UI 入口：穿戴路径有右键菜单、拖拽、初始装备发放
+## 三条，逐个拦必然漏。护甲/饰品不受限——策划限制的是"武器"。
+func _can_wear(inst: EquipmentInstance) -> bool:
+	var tpl := inst.get_template()
+	if tpl == null:
+		return true
+	if tpl.category != EquipmentDefs.Category.WEAPON:
+		return true
+	var gm = _game_manager()
+	if gm == null:
+		return true
+	var ri: Dictionary = gm.run_info if gm.get("run_info") != null else {}
+	var cid := str(ri.get("character", "warrior"))
+	var slot := int(ri.get("form", 0))
+	if ClassDefs.special_flag(cid, slot, "can_equip_weapon"):
+		return true
+	return not ClassDefs.special_flag(cid, slot, "no_weapon")
+
+
+## 穿戴
 func equip(slot: int, inst: EquipmentInstance) -> void:
 	if inst == null:
+		return
+	if not _can_wear(inst):
 		return
 	# 若已穿戴在其他槽位，先卸下（unequip 会把它放回背包）
 	for s in _equipped.keys():

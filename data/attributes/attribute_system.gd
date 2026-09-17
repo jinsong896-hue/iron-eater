@@ -70,10 +70,23 @@ func take_damage(amount: float) -> void:
 
 
 ## 治疗（返回实际回复量）
+##
+## `heal_listeners` 里的回调会在**实际回血后**收到回血量（0 不回）。
+## 用途：判官「光暗审裁」的光层靠"治疗/护盾积累"（策划 8.5），
+## 而治疗入口散落在泉水/药水/击杀回血/吸血等多处——
+## 逐个去挂既漏又难维护，收口在这里一处即可全覆盖。
+var heal_listeners: Array[Callable] = []
+
+
 func heal(amount: float) -> float:
 	var before := hp
 	hp = minf(hp + amount, max_hp)
-	return hp - before
+	var gained := hp - before
+	if gained > 0.0:
+		for cb in heal_listeners:
+			if cb.is_valid():
+				cb.call(gained)
+	return gained
 
 
 func is_dead() -> bool:

@@ -117,6 +117,24 @@ const BUFFS := [
 	["flame_mark", "咒焰", Kind.ATTACK, 5.0, 6, "每层法强 +8%、攻速 +5%", "stat", {"ap_up": 0.08, "aspd_up": 0.05}],
 	# 策划 4.6 虚空古神化身：目标受伤 +10%/层（最多 5 层）
 	["void_stigma", "虚空印记", Kind.VULN, 8.0, 5, "每层受到伤害 +10%", "stat", {"vuln": 0.10}],
+	# 策划 7.4 破极：每 25 连击触发 6 秒，攻击 +70%、攻速 +50%、防御归零
+	["break_limit_state", "破极", Kind.ATTACK, 6.0, 0, "攻击 +70%、攻速 +50%、防御归零", "stat",
+		{"atk_up": 0.70, "aspd_up": 0.50, "def_down": 1.0}],
+	# 策划 6.5 森之选召：领域内猎人攻速 +40%、暴击 +30%
+	["forest_domain_self", "森之领域·主", Kind.ATTACK, 6.0, 0, "领域内攻速 +40%、暴击 +30%", "stat",
+		{"aspd_up": 0.40, "crit_up": 0.30}],
+	# 策划 6.5 森之选召：领域内敌人移速 -40%、受伤 +25%
+	["forest_domain_foe", "森之领域·敌", Kind.VULN, 6.0, 0, "移速 -40%、受伤 +25%", "stat",
+		{"slow": 0.40, "vuln": 0.25}],
+	# 策划 8.1 锁链判官：攻击挂审判印记，每层 +10% 法伤
+	["judge_mark", "审判印记", Kind.VULN, 6.0, 5, "每层受到法术伤害 +10%", "stat", {"vuln": 0.10}],
+	# 策划 8.5 光暗审裁：光层（治疗/护盾积累）
+	["light_layer", "光层", Kind.RESOURCE, 10.0, 10, "光层累积", "special", {"light_layer": true}],
+	# 策划 8.5 光暗审裁：暗层（施加负面积累）
+	["dark_layer", "暗层", Kind.RESOURCE, 10.0, 10, "暗层累积", "special", {"dark_layer": true}],
+	# 策划 8.5：光暗均 ≥5 时全伤害 +40%、移速 +30%
+	["verdict_balance", "光暗平衡", Kind.ATTACK, 5.0, 0, "全伤害 +40%、移速 +30%", "stat",
+		{"atk_up": 0.40, "ap_up": 0.40, "spd_up": 0.30}],
 
 	# ---------- 第 5 章 通用词条池（21） ----------
 	["gen_atk_up", "属性增益·攻击", Kind.GENERIC, 8.0, 0, "攻击力提升", "stat", {"atk_up": 0.12}],
@@ -154,7 +172,9 @@ const KIND_NAMES := {
 ## 职业技能描述反推而来（文档只给效果说明、未给独立词条定义）。
 ## 单独列出是为了让「词条表 == 文档 81 条」这条不变量仍可被测试校验。
 const SKILL_ONLY_IDS := ["rage_haste", "rage_fury", "rage_dance_aspd",
-	"rage_dance_true", "chain_weak", "flame_mark", "void_stigma"]
+	"rage_dance_true", "chain_weak", "flame_mark", "void_stigma",
+	"break_limit_state", "forest_domain_self", "forest_domain_foe",
+	"judge_mark", "light_layer", "dark_layer", "verdict_balance"]
 
 ## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
 ## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），

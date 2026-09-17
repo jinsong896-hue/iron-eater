@@ -284,30 +284,50 @@ func test_class_defs() -> void:
 ## **这不是"想做"的清单，是"代码里真的读了"的清单**——
 ## 新增字段却没实现时，上面的断言会失败并把它列出来。
 const IMPLEMENTED_SPECIALS := [
+	# 战士
 	"lifesteal",                  # player._lifesteal_heal / equipment 侧
-	"backstab_mult",              # skill_system._deal_damage
 	"melee_dmg_pct",              # player._apply_hit 倍率乘区
 	"ranged_dmg_pct",             # skill_system._cast_projectile
-	"armor_pierce",               # player._apply_hit 目标防御打折
+	"armor_pierce",               # player._basic_attack_pierce / skill_system
 	"overflow_to_shield",         # player._lifesteal_heal → _add_shield
+	# 法师
 	"skill_range_pct",            # skill_system.cast_skill 几何放大
 	"mana_regen_up",              # ClassResource.regen_mult
 	"mana_regen_stack",           # ClassResource.regen_mult
 	"cast_refund_pct",            # skill_system.cast_skill 消耗返还
 	"resonance_chance",           # skill_system.cast_skill 概率免费
-	"flame_stack_per_cast",       # skill_system._stack_form_marks_on
-	"void_stigma_per_cast",       # skill_system._stack_form_marks_on
+	"flame_stack_per_cast",       # ClassDefs.form_mark_id（普攻+技能）
+	"void_stigma_per_cast",       # ClassDefs.form_mark_id（普攻+技能）
+	# 猎人
+	"free_weapon_swap",           # player._start_normal_attack 远近切换无冷却
+	"out_of_combat_spd",          # player.out_of_combat_speed_mult
+	"dodge_immune_next",          # player.on_dodge_started / take_damage
+	"backstab_mult",              # player._is_backstab
+	"pierce_line",                # player._apply_hit 直线穿透
+	"forest_domain",              # player._spawn_forest_domain
+	# 武僧
+	"no_weapon",                  # EquipmentManager._can_wear
+	"can_equip_weapon",           # EquipmentManager._can_wear（显式解锁）
+	"fist_reach",                 # player._fist_reach_bonus
+	"fist_armor_pierce",          # player._basic_attack_pierce
+	"counter_on_hit",             # player._on_player_hurt / _apply_hit
+	"combo_heal",                 # player._apply_combo_heal
+	"slow_combo_decay",           # player 连击衰减保留 50%
+	"break_limit_at",             # player._maybe_trigger_break_limit
+	"myriad_combo",               # player.combo_cap
+	# 判官
+	"spell_on_hit_ap_pct",        # player._on_basic_attack_landed
+	"mark_per_hit",               # player._on_basic_attack_landed
+	"chain_30pct",                # player._chain_spell_damage
+	"shadow_every_4",             # player._on_basic_attack_landed
+	"light_dark_layers",          # player._gain_light_layer / _gain_dark_layer
+	"verdict_at_5",               # player._refresh_light_dark_balance
 ]
 
-## 仍未接线的字段（猎人/武僧/判官三职业，待后续轮次）。
-## 每完成一个就从这里删一个——测试会强制这份清单与代码同步。
-const EXPECTED_UNIMPLEMENTED := [
-	"break_limit_at", "can_equip_weapon", "chain_30pct", "combo_heal",
-	"counter_on_hit", "dodge_immune_next", "fist_armor_pierce", "fist_reach",
-	"forest_domain", "free_weapon_swap", "light_dark_layers", "mark_per_hit",
-	"myriad_combo", "no_weapon", "out_of_combat_spd", "pierce_line",
-	"shadow_every_4", "slow_combo_decay", "spell_on_hit_ap_pct", "verdict_at_5",
-]
+## 仍未接线的字段（应恒为空——全部 31 个机制已实装）。
+## 留这个常量是为了让"未接线集合 == 预期"的断言在两侧都保持显式：
+## 将来新增 special 字段时，它会被列进实际未接线集合而让测试变红。
+const EXPECTED_UNIMPLEMENTED := []
 
 
 ## ---------- 职业基础属性 + 初始装备 ----------

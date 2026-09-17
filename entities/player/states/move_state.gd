@@ -62,9 +62,14 @@ func _core_movement(delta: float) -> void:
 		p.sprint_hold = 0.0
 
 	var speed := p.sprint_speed if p._is_sprinting else p.move_speed
+	# 形态·脱战加速（策划 6.2 斥候「脱战 3 秒后移速 +30%」）。
+	# 未声明该机制的形态返回 1.0，无副作用。
+	speed *= p.out_of_combat_speed_mult()
 
-	# 攻击动作期间减速
-	if p._attack_timer > 0.0:
+	# 攻击动作期间减速。
+	# 形态·追猎者「远近切换无冷却」（策划 6.1）落成"攻击后不被拖慢"——
+	# 玩家没有真正的换武器动作，攻击后的移速惩罚就是这条机制能作用的地方。
+	if p._attack_timer > 0.0 and not p.weapon_swap_free():
 		speed *= GameBalance.ATTACK_MOVE_SLOWDOWN
 
 	if input_dir != Vector3.ZERO:
