@@ -83,7 +83,10 @@ void fragment() {
 	int cols = int(atlas_grid.x);
 	int col = gi % cols;
 	int row = gi / cols;
-	vec2 uv = (vec2(float(col), float(row)) + UV) / atlas_grid;
+	// **V 轴要翻转**：canvas_item 的 UV.y 在四边形底部为 0、顶部为 1
+	//（与"图集里 V=0 在顶部"相反）。不翻转的话字形会上下倒立——
+	// 实测把渲染结果打成 ASCII 才看出来（"7" 的横杠跑到了下方）。
+	vec2 uv = (vec2(float(col), float(row)) + vec2(UV.x, 1.0 - UV.y)) / atlas_grid;
 	vec4 t = texture(atlas, uv);
 	if (t.a < 0.02) {
 		discard;   // 空格/字形外区域
