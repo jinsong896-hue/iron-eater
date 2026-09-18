@@ -26,6 +26,8 @@ var _special_used := false
 var _gambler_boxes: Array = []   # 赌徒挑战：已洗牌的 3 个箱子（开箱后填）
 ## 群体模拟管理器（只在有 swarm 怪的房间创建，见 _crowd()）
 var _crowd_mgr: CrowdManager = null
+## 特效池（惰性创建，见 effect_field()）
+var _effect_field: EffectField = null
 ## 本房墙体是否已喂给模拟核（每房只喂一次）
 var _walls_fed := false
 ## 测试/调试开关：强制所有符合条件的基础怪走群体模拟。
@@ -419,6 +421,20 @@ func _has_enemy_mechanic(m: Dictionary) -> bool:
 	return false
 
 
+## 本房的特效池（惰性创建，全房共用一个）。
+##
+## 挂在房间节点下随房间销毁——特效本就是房间的临时产物。
+## 全房共用而不是每个敌人一个：池化的意义就是"少数节点反复复用"，
+## 每个实体各建一个池等于没池化。
+func effect_field() -> EffectField:
+	if _effect_field != null and is_instance_valid(_effect_field):
+		return _effect_field
+	_effect_field = EffectField.new()
+	_effect_field.name = "EffectField"
+	add_child(_effect_field)
+	return _effect_field
+
+
 ## 惰性创建群体管理器（只在本房真的有 swarm 怪时才建）
 func _crowd() -> CrowdManager:
 	if _crowd_mgr != null and is_instance_valid(_crowd_mgr):
@@ -446,11 +462,15 @@ func _on_crowd_attacked(_pos: Vector3, damage: float) -> void:
 		p.call("take_damage", damage, null)
 
 
-## 群体死亡：同步计数 + 掉落。
+## 群体死亡：同步计数 + 掉落 + 特效。
 ## 掉落走与节点式敌人**同一个 LootSystem 接口**，只是数据来源不同
 ##（节点侧在 EnemyBase.die() 里发，这里由死亡事件驱动）。
 func _on_crowd_died(pos: Vector3, _is_elite: bool) -> void:
 	enemies_alive = maxf(enemies_alive - 1, 0)
+	# 死亡特效：群体单位此前**完全没有表现**，打死了毫无反馈。
+	# 用轻量的 swarm_death 预设（粒子数少）——同时几百个死亡时，
+	# 每个都放 20 颗粒子会瞬间把 GPU 粒子预算吃满。
+	effect_field().play("swarm_death", pos, Color(0.85, 0.35, 0.30))
 	var loot := LootSystem.new()
 	var parent := get_parent()
 	if parent != null:

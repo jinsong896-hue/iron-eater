@@ -75,6 +75,7 @@ run_scene_suite  "class_mech   (职业/形态机制)" "res://tests/test_class_me
 run_scene_suite  "crowd_sim    (海量单位模拟)" "res://tests/test_crowd_sim.tscn"
 run_scene_suite  "pickup_field (掉落物规模化)" "res://tests/test_pickup_field.tscn"
 run_scene_suite  "mass_text    (海量文本渲染)" "res://tests/test_mass_text.tscn"
+run_scene_suite  "effect_field (特效池)" "res://tests/test_effect_field.tscn"
 run_scene_suite  "combat       (战斗系统)" "res://tests/test_combat_system.tscn"
 run_scene_suite  "room_flow    (房间流程+特殊房)" "res://tests/test_room_flow.tscn"
 run_scene_suite  "special_room (特殊房交互 UI)" "res://tests/test_special_room_ui.tscn"

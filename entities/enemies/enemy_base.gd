@@ -1690,6 +1690,12 @@ func die() -> void:
 	if _current_state == EnemyState.DEAD:
 		return
 	_current_state = EnemyState.DEAD
+	# 死亡特效：走房间特效池（零新建）。
+	# 精英用更大的爆炸表现（视觉上区分普通怪与精英）。
+	var fx := _effect_field()
+	if fx != null:
+		fx.play("death", global_position,
+			Color(1.0, 0.75, 0.25) if is_elite else Color(0.9, 0.3, 0.25))
 	var gm = _game_manager()
 	if gm:
 		gm.kills += 1
@@ -1745,7 +1751,22 @@ func _do_explode() -> void:
 		if (p as Node3D).global_position.distance_to(global_position) <= explode_radius:
 			if p.has_method("take_damage"):
 				p.call("take_damage", explode_damage)
-	# 视觉：橙色扩张球
+	# 视觉：走房间特效池，而不是每次现建 mesh。
+	#
+	# **原实现有个泄漏**：`MeshInstance3D.new()` 后 `add_child(vis)`，
+	# 但**没有任何地方销毁它**——挂在本节点下，而本节点随后 queue_free，
+	# 所以实际不会永久泄漏；但每次自爆都新建节点 + 材质，
+	# 大规模团战下是纯 CPU 开销。改用池后零新建。
+	var field := _effect_field()
+	if field != null:
+		field.play("death", global_position, Color(1.0, 0.5, 0.1))
+	else:
+		# 兜底：拿不到特效池时退回原实现（保证自爆永远有视觉反馈）
+		_spawn_explode_visual_legacy()
+
+
+## 自爆视觉的旧实现（特效池不可用时的兜底）
+func _spawn_explode_visual_legacy() -> void:
 	var vis := MeshInstance3D.new()
 	var sphere := SphereMesh.new()
 	sphere.radius = explode_radius * 0.5
@@ -1760,6 +1781,16 @@ func _do_explode() -> void:
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	vis.material_override = mat
 	add_child(vis)
+
+
+## 取本房的特效池（向上找 RoomController）
+func _effect_field() -> EffectField:
+	var room := get_parent()
+	while room != null and not room.has_method("effect_field"):
+		room = room.get_parent()
+	if room == null:
+		return null
+	return room.call("effect_field") as EffectField
 
 
 ## 进入自爆前摇（分册：前摇 1.5 秒，期间被打死或受击则提前引爆）
