@@ -135,13 +135,26 @@ func ui_snapshot() -> Array:
 			continue
 		var cfg := ElementDefs.get_element(elem)
 		var dur := float(cfg.get("duration", 0.0))
+		var decay := float(cfg.get("decay_per_sec", 0.0))
+		if decay <= 0.0 and _is_player_target():
+			decay = PLAYER_ELEM_DECAY
+		# 剩余时间：有衰减时按「当前层数 ÷ 速率」推算（玩家看到的"还要扛多久"），
+		# 无衰减（如敌人身上的毒/雷）才是真永久，显示 ∞。
+		var left := 0.0
+		var is_perm := true
+		if decay > 0.0:
+			left = float(n) / decay
+			is_perm = false
+		elif dur > 0.0:
+			left = dur
+			is_perm = false
 		out.append({
 			"id": "elem:%d" % elem,
 			"name": str(cfg.get("stack_name", "元素")),
 			"stacks": n,
-			"remaining": 0.0,
-			"total": dur,
-			"permanent": dur <= 0.0,
+			"remaining": left,
+			"total": left,
+			"permanent": is_perm,
 			"kind": -1,
 			"is_debuff": true,
 		})
@@ -330,10 +343,18 @@ func tick(delta: float) -> Dictionary:
 		if per > 0.0:
 			elem_dot += ap * per * float(_elem_stacks[elem]) * delta
 
-	# 元素衰减（火：停止攻击后每秒 -5 层；毒/雷不衰减）
+	# 元素衰减（火：停止攻击后每秒 -5 层；毒/雷策划口径是「不衰减」）
+	#
+	# **玩家侧兜底衰减**：策划的「层数永不衰减」是针对**敌人**的——
+	# 玩家打怪时毒/雷层数越叠越高、易伤越来越强，那是设计意图。
+	# 但反过来，玩家被毒怪/毒雾打中后也会永久挂毒，而玩家没有任何清除手段，
+	# 于是会一直掉血到死（实机症状：「接触毒雾后中毒 buff 不消退」）。
+	# 故玩家侧对「本身不衰减」的元素补一个兜底衰减速率。
 	for elem in _elem_stacks.keys():
 		var cfg: Dictionary = ElementDefs.get_element(elem)
 		var decay := float(cfg.get("decay_per_sec", 0.0))
+		if decay <= 0.0 and _is_player_target():
+			decay = PLAYER_ELEM_DECAY
 		if decay > 0.0:
 			_elem_decay_accum[elem] = float(_elem_decay_accum.get(elem, 0.0)) + decay * delta
 			var drop := int(_elem_decay_accum[elem])
@@ -350,6 +371,26 @@ func tick(delta: float) -> Dictionary:
 
 var _elem_decay_accum := {}
 static var _param_cache := {}
+
+## 玩家侧元素兜底衰减速率（层/秒）。
+##
+## 策划给毒/雷写的是「层数永不衰减」，但那是在**玩家攻击敌人**的语境下——
+## 层数越叠越高、易伤越强，是设计意图。玩家被反向叠层时（毒怪/毒雾）
+## 没有任何清除手段，会永久掉血到死。
+## 取 1.0 层/秒：中毒后约十几秒清空，给玩家反应时间又不至于毫无压力。
+const PLAYER_ELEM_DECAY := 1.0
+
+## 宿主是否是玩家（用于区分"玩家叠给敌人"与"敌人叠给玩家"）。
+##
+## 两种方向的设计意图不同：玩家打怪时毒/雷层数**该**越叠越高（易伤成长），
+## 而玩家被叠层时需要能自然消退（否则永久掉血到死）。
+## 用 group 判定而不是类型判定——玩家是 Player 类，但测试桩可能不是。
+func _is_player_target() -> bool:
+	if _target == null or not is_instance_valid(_target):
+		return false
+	if _target is Node and (_target as Node).is_in_group("player"):
+		return true
+	return false
 
 static func params_of_cached(id: String) -> Dictionary:
 	if _param_cache.is_empty():

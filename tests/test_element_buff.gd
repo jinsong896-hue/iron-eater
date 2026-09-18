@@ -16,6 +16,7 @@ func _ready() -> void:
 
 	_test_element_defs()
 	_test_element_stacking()
+	_test_ui_snapshot()
 	_test_buff_defs()
 	_test_buff_apply_stack()
 	_test_buff_modifier()
@@ -117,17 +118,78 @@ func _test_element_stacking() -> void:
 	_check(h3.is_frozen(), "冰冻状态生效")
 	_check(h3.elem_stacks(ED.Elem.FROST) == 0, "冰冻后层数归零")
 
-	# 毒：不衰减
+	# 毒：不衰减（**敌人侧语义**——玩家打怪时层数越叠越高是设计意图）
 	var h4 = H.new(null)
 	for _i in 5:
 		h4.add_element(ED.Elem.POISON, 1)
 	h4.tick(10.0)
-	_check(h4.elem_stacks(ED.Elem.POISON) == 5, "毒蚀永不衰减", [str(h4.elem_stacks(ED.Elem.POISON))])
+	_check(h4.elem_stacks(ED.Elem.POISON) == 5, "毒蚀永不衰减（无宿主/敌人侧）",
+		[str(h4.elem_stacks(ED.Elem.POISON))])
+
+	# **玩家侧必须能消退**：玩家被毒怪/毒雾叠层后没有任何清除手段，
+	# 若沿用"永不衰减"会一直掉血到死（实机症状：接触毒雾后中毒不消退）。
+	# 用一个进 "player" 组的 Node 冒充宿主。
+	var pnode := Node.new()
+	pnode.add_to_group("player")
+	add_child(pnode)
+	var hp = H.new(pnode)
+	for _i in 5:
+		hp.add_element(ED.Elem.POISON, 1)
+	_check(hp.elem_stacks(ED.Elem.POISON) == 5, "玩家中毒先叠上 5 层")
+	hp.tick(1.0)
+	_check(hp.elem_stacks(ED.Elem.POISON) < 5,
+		"玩家侧毒蚀会衰减（1 秒后 %d 层）" % hp.elem_stacks(ED.Elem.POISON))
+	hp.tick(10.0)
+	_check(hp.elem_stacks(ED.Elem.POISON) == 0, "玩家侧毒蚀最终清零（不会永久挂）")
+	pnode.queue_free()
 
 	# 土/风不叠层
 	var h5 = H.new(null)
 	h5.add_element(ED.Elem.EARTH, 1)
 	_check(h5.elem_stacks(ED.Elem.EARTH) == 0, "土不叠层")
+
+
+## ---------- buff UI 快照：剩余时间必须可读 ----------
+##
+## HUD 的图标要显示"还有几秒"。快照若把限时状态报成 permanent，
+## UI 会画成 "∞" —— 玩家看到持续掉血却不知道还要扛多久。
+func _test_ui_snapshot() -> void:
+	_test = "UiSnapshot"
+	print("\n--- %s ---" % _test)
+	var H = load("res://gameplay/status/buff_holder.gd")
+
+	# 限时 buff：快照必须给出 remaining/total 且非永久
+	var h = H.new(null)
+	h.apply("burn", "test")
+	var snap: Array = h.ui_snapshot()
+	var burn := {}
+	for info in snap:
+		if str(info.get("id", "")) == "burn":
+			burn = info
+	_check(not burn.is_empty(), "快照含 burn 词条")
+	if not burn.is_empty():
+		_check(not bool(burn.get("permanent", true)), "限时词条不是永久")
+		_check(float(burn.get("total", 0.0)) > 0.0, "限时词条有总时长")
+		_check(float(burn.get("remaining", 0.0)) > 0.0, "限时词条有剩余时间")
+
+	# 玩家身上的毒：快照要给出可推算的剩余时间（而不是 ∞）
+	var pnode := Node.new()
+	pnode.add_to_group("player")
+	add_child(pnode)
+	var hp = H.new(pnode)
+	hp.add_element(ElementDefs.Elem.POISON, 3)
+	var found := {}
+	for info in hp.ui_snapshot():
+		if str(info.get("id", "")).begins_with("elem:"):
+			found = info
+	_check(not found.is_empty(), "快照含元素层数条目")
+	if not found.is_empty():
+		_check(int(found.get("stacks", 0)) == 3, "元素条目带层数")
+		_check(not bool(found.get("permanent", true)),
+			"玩家侧毒蚀显示为限时（会衰减，不是 ∞）")
+		_check(float(found.get("remaining", 0.0)) > 0.0,
+			"玩家侧毒蚀有可读剩余时间（%.1fs）" % float(found.get("remaining", 0.0)))
+	pnode.queue_free()
 
 
 ## ---------- 词条数据完整性（分册 3~5 章） ----------

@@ -147,6 +147,9 @@ var class_id := ""
 var form_slot := 0
 ## 护盾：在 hp 之前被消耗的临时生命（形态「溢出转护盾」等机制的载体）
 var temp_shield := 0.0
+## DOT 小数累积器：DOT 单帧只有零点几点，攒够 1 点才结算一次
+##（见 _physics_process 里的说明——每帧结算会冒出 "0" 伤害数字）
+var _dot_accum := 0.0
 ## 反击待发次数（策划 7.2 铁身「受伤自动反击」）：
 ## 每次受伤 +1，下次普攻消费 1 次并吃 counter_on_hit 倍率。
 var _counter_charges := 0
@@ -536,8 +539,19 @@ func _physics_process(delta: float) -> void:
 	if buffs != null:
 		var tick_out: Dictionary = buffs.tick(delta)
 		var dot: float = float(tick_out.get("dot", 0.0))
+		# **DOT 按「跳」结算，不是每帧结算**。
+		#
+		# DOT 公式是 `法强 × 系数 × 层数 × delta`，单帧只有 ~0.017 点
+		#（60fps 下）。原先每帧直接 take_damage(0.017)，而伤害飘字格式化成
+		# `"%.0f"` —— 于是每帧在玩家身上冒一个 **"0"**，既刷屏又看不出在掉血
+		#（实机症状：「不停冒出 0 点伤害数字」）。
+		# 改为累积到 1 点再结算：飘字变成有意义的整数，且每帧的受击开销消失。
 		if dot > 0.0:
-			take_damage(dot)
+			_dot_accum += dot
+			if _dot_accum >= 1.0:
+				var whole := floorf(_dot_accum)
+				_dot_accum -= whole
+				take_damage(whole)
 			if GameManager.attributes and GameManager.attributes.is_dead():
 				return
 		# 硬控（冰冻/麻痹/眩晕/定身）：期间不能移动也不能出招，只保留击退位移

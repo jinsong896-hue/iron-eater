@@ -161,6 +161,22 @@ func _make_buff_icon() -> Control:
 	bar.color = Color(1, 1, 1, 0.85)
 	root.add_child(bar)
 
+	# 剩余时间数字：贴在时间条上方，居中。
+	# 只画一条进度条看不出"还有几秒"——尤其是持续伤害类状态，
+	# 玩家需要确切知道还要扛多久。永久状态显示 "∞"。
+	var timer := Label.new()
+	timer.name = "TimeText"
+	timer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	timer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	timer.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	timer.add_theme_font_size_override("font_size", 10)
+	# 深色描边：数字压在彩色底上要能看清
+	timer.add_theme_color_override("font_color", Color(1, 1, 1, 0.95))
+	timer.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	timer.add_theme_constant_override("outline_size", 3)
+	timer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(timer)
+
 	# 层数角标（右下角，仅叠层 > 1 时显示）
 	var stack := Label.new()
 	stack.name = "Stacks"
@@ -211,6 +227,18 @@ func _paint_buff_icon(icon: Control, info: Dictionary) -> void:
 	var stk := icon.get_node_or_null("Stacks") as Label
 	if stk != null:
 		stk.text = ("x%d" % stacks) if stacks > 1 else ""
+
+	# 剩余时间数字（永久状态显示 ∞）
+	var ttxt := icon.get_node_or_null("TimeText") as Label
+	if ttxt != null:
+		if permanent:
+			ttxt.text = "∞"
+		elif total > 0.0:
+			# 小于 10 秒给一位小数（关键时刻更精确），否则取整
+			var left := maxf(remaining, 0.0)
+			ttxt.text = ("%.1f" % left) if left < 10.0 else ("%d" % int(ceil(left)))
+		else:
+			ttxt.text = ""
 
 	# 悬停提示：名称 + 层数 + 剩余时间
 	var tip := name_s
