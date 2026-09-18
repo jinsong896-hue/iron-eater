@@ -1987,17 +1987,40 @@ func _interact_special_room() -> bool:
 
 ## 查找最近的掉落物（拾取/吞噬共用）
 ## 有距离上限：超过则视为够不着（原先返回全场景最近的，隔着半张地图也能捡）
+##
+## **走 PickupField 的空间分桶查询**，不再遍历 `group("pickups")`：
+## 大规模团战下掉落物可达数百件，全量遍历是每帧的固定开销。
+## 分桶后只查玩家所在格及邻格。
 func _nearest_pickup() -> Node3D:
+	var field := _pickup_field()
+	if field != null:
+		return field.nearest(global_position, PICKUP_RANGE)
+	# 兜底：没有 PickupField（旧场景/测试直建）时退回全量遍历
 	var nearest: Node3D = null
 	var nearest_d := PICKUP_RANGE
 	for node in get_tree().get_nodes_in_group("pickups"):
 		if not is_instance_valid(node):
 			continue
-		var d := (node as Node3D).global_position.distance_to(global_position)
+		var d: float = (node as Node3D).global_position.distance_to(global_position)
 		if d < nearest_d:
 			nearest_d = d
 			nearest = node
 	return nearest
+
+
+## 当前房间的掉落物管理器（没有则返回 null）
+func _pickup_field() -> PickupField:
+	var node: Node = get_parent()
+	while node != null:
+		if node.get("current_room_node") != null:
+			var room = node.get("current_room_node")
+			if is_instance_valid(room):
+				var f: Node = room.get_node_or_null("PickupField")
+				if f is PickupField:
+					return f
+			return null
+		node = node.get_parent()
+	return null
 
 
 ## 拾取最近掉落物进背包

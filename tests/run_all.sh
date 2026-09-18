@@ -73,6 +73,7 @@ run_scene_suite  "class_mech   (职业/形态机制)" "res://tests/test_class_me
 # GDScript fallback（见 addons/crowd_sim/crowd_sim_loader.gd）。
 # 故本套件在 CI / 新克隆的机器上**照样跑逻辑断言**，不是整片 SKIP。
 run_scene_suite  "crowd_sim    (海量单位模拟)" "res://tests/test_crowd_sim.tscn"
+run_scene_suite  "pickup_field (掉落物规模化)" "res://tests/test_pickup_field.tscn"
 run_scene_suite  "combat       (战斗系统)" "res://tests/test_combat_system.tscn"
 run_scene_suite  "room_flow    (房间流程+特殊房)" "res://tests/test_room_flow.tscn"
 run_scene_suite  "special_room (特殊房交互 UI)" "res://tests/test_special_room_ui.tscn"

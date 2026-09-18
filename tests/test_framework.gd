@@ -1642,8 +1642,16 @@ func test_resource_system() -> void:
 		self.root.add_child(parent)
 		var loot = LS.new()
 		loot.generate_chest_loot(Vector3.ZERO, parent, 1)
-		_check(parent.get_child_count() == 1, "宝箱掉落生成 1 件拾取物",
-			[parent.get_child_count()])
+		# 只数拾取物——PickupField（集中管理器）也会作为子节点挂进来，
+		# 直接比 get_child_count() 会被它占掉一个名额（实测踩到）。
+		var pickups := 0
+		for c in parent.get_children():
+			if c.is_in_group("pickups"):
+				pickups += 1
+		_check(pickups == 1, "宝箱掉落生成 1 件拾取物", [pickups])
+		# 顺带断言集中管理器确实建立了（掉落物优化的载体）
+		_check(parent.get_node_or_null("PickupField") != null,
+			"掉落物挂到了 PickupField 管理器下")
 		parent.queue_free()
 
 	# --- 怪物金币按血量档位 ---

@@ -268,6 +268,10 @@ func _explicit_loot_id(enemy_data) -> String:
 
 
 ## 创建掉落物节点（走近可拾取，F 可吞噬）
+##
+## **动画与查找交给 PickupField 集中管理**（见该文件）：
+## 掉落物自身不跑 `_process`，拾取也不靠遍历 `group("pickups")`。
+## 本函数只负责"造出这一件、给它正确的视觉与数据"。
 func _spawn_pickup(item: EquipmentInstance, position: Vector3, parent: Node3D) -> void:
 	var pickup := Node3D.new()
 	pickup.name = "Pickup_%s" % item.display_name()
@@ -292,66 +296,42 @@ func _spawn_pickup(item: EquipmentInstance, position: Vector3, parent: Node3D) -
 	pickup.set_meta("instance_id", item.instance_id)
 	pickup.set_meta("template_id", str(item.template_id))
 	pickup.set_meta("rarity", item.rarity)
-	pickup.set_script(pickup_anim_script())
+	pickup.set_script(PICKUP_SCRIPT)
 	pickup.set("item", item)
 
 	pickup.add_child(mesh)
 	parent.add_child(pickup)
+	# 登记到集中管理器（接管动画 + 空间分桶 + 上限淘汰）
+	_field_for(parent).register(pickup)
 
 
-## 掉落物动画脚本（缓存，避免每次掉落重新编译）
-static var _anim_script: GDScript
+## 掉落物脚本（引擎预编译的资源，不再运行时生成 GDScript）
+const PICKUP_SCRIPT := preload("res://gameplay/loot/pickup_item.gd")
 
 
-static func pickup_anim_script() -> GDScript:
-	if _anim_script == null:
-		var script := GDScript.new()
-		script.source_code = """
-extends Node3D
-## 掉落物 —— 旋转动画 + 拾取（pick_up）/ 吞噬（devour）
+## 取/建本房间的掉落物管理器。
+##
+## **统一挂到房间根**（而不是调用方传进来的 parent）：
+## 调用方有两条——节点式敌人传的是 RoomController（敌人挂在它下面），
+## 群体掉落传的是房间根。若不归一，同一个房间会出现**两个 PickupField**，
+## 各自只看得见自己那半掉落物，拾取时漏掉一半。
+func _field_for(parent: Node) -> PickupField:
+	var root := _room_root_of(parent)
+	var existing: Node = root.get_node_or_null("PickupField")
+	if existing is PickupField:
+		return existing
+	var field := PickupField.new()
+	field.name = "PickupField"
+	root.add_child(field)
+	return field
 
-## 注意：不能声明为 `var item: Resource`。
-## EquipmentInstance 继承 RefCounted 而非 Resource，类型不符会让
-## set("item", ...) 静默失败，item 恒为 null，拾取永远报"无效物品"。
-var item
 
-func _process(delta: float) -> void:
-	rotate_y(delta * 2.0)
-	position.y += sin(Time.get_ticks_msec() * 0.003) * 0.005
-
-## autoload 运行时获取（--script 测试模式下不存在）
-func _gm():
-	return get_node_or_null("/root/GameManager")
-
-func _bus():
-	return get_node_or_null("/root/EventBus")
-
-## 拾取进背包
-func pick_up() -> Dictionary:
-	if item == null:
-		return {"ok": false, "reason": "无效物品"}
-	var gm = _gm()
-	if gm == null:
-		return {"ok": false, "reason": "GameManager 不可用"}
-	if not gm.equipment_manager.add_item(item):
-		return {"ok": false, "reason": "背包已满"}
-	var bus = _bus()
-	if bus:
-		bus.item_picked_up.emit(item.instance_id, item.display_name())
-		bus.message.emit("拾取：%s" % item.display_name())
-	queue_free()
-	return {"ok": true}
-
-## 原地吞噬（本局永久成长）
-func devour() -> Dictionary:
-	var gm = _gm()
-	if gm == null:
-		return {"ok": false, "reason": "GameManager 不可用"}
-	var result: Dictionary = gm.devour_item(item)
-	if result.get("ok", false):
-		queue_free()
-	return result
-"""
-		script.reload()
-		_anim_script = script
-	return _anim_script
+## 从任意房间内节点向上找到房间根（带 RoomController 的那个）。
+## 找不到时回退用传入的节点（保证测试里裸建也能工作）。
+func _room_root_of(node: Node) -> Node:
+	var n := node
+	while n != null:
+		if n.get_node_or_null("RoomController") != null:
+			return n
+		n = n.get_parent()
+	return node
