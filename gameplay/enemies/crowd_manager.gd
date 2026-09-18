@@ -107,6 +107,11 @@ func unit_position(id: int) -> Vector3:
 	return sim.call("get_position", id) if sim != null else Vector3.ZERO
 
 
+## 单位当前血量（测试/UI 血条用）
+func unit_hp(id: int) -> float:
+	return float(sim.call("get_hp", id)) if sim != null else 0.0
+
+
 ## 该单位对应的怪物配置（掉落用）
 func monster_of(id: int) -> Dictionary:
 	return _spawn_meta.get(id, {})

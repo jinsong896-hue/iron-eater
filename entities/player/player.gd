@@ -755,6 +755,18 @@ func _hit_enemies_in_cone(multiplier: float, reach: float, half_angle: float, kn
 			continue
 		_apply_hit(enemy as Node3D, multiplier, knockback)
 		hit_any = true
+	# 群体单位（CrowdSim）不在场景树里，走查询而不是遍历组。
+	# 扇形判据与上面完全一致，保证两条路径的命中范围相同。
+	var mgr = _crowd_manager()
+	if mgr != null and int(mgr.get("active")) > 0:
+		var dir2 := Vector2(_facing.x, _facing.z)
+		if dir2.length_squared() > 0.0001:
+			dir2 = dir2.normalized()
+			var ids = mgr.call("query_cone", global_position.x, global_position.z,
+				dir2.x, dir2.y, half_angle, reach)
+			for id in ids:
+				_apply_hit_crowd(mgr, int(id), multiplier, knockback)
+				hit_any = true
 	return hit_any
 
 
@@ -1094,11 +1106,21 @@ func _refresh_light_dark_balance() -> void:
 			buffs.remove("verdict_balance")
 
 
-## 对单个敌人结算伤害与击退
+## 普攻伤害结算的**共用计算段** —— 节点怪与群体单位走同一套数值。
 ##
-## **这是普攻的唯一漏斗**：扇形横扫、冲撞、落地 AOE 三条路径全部汇入这里，
-## 所以「近战伤害 +N%」这类形态机制只需在这一处生效。
-func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
+## 抽出来的理由：命中链路里"找目标"有两条（场景树 group / CrowdSim 查询），
+## 但**伤害公式只能有一套**。若各写一份，迟早出现"同样的攻击打节点怪和
+## 打 swarm 怪伤害不一样"——那种 bug 极难察觉，玩家只会觉得"某些怪特别硬"。
+##
+## 参数：
+##   enemy      目标（节点路径传入 EnemyBase；群体路径传 null）
+##   target_def 目标防御（群体路径从 monster dict 取）
+##   hp_ratio   目标血量比例（-1 = 不可知，跳过处决线判定）
+##   is_backstab 是否背刺（群体单位没有朝向，恒 false）
+## 返回 {damage, crit, push} —— 调用方据此扣血/击退/飘字。
+func _compute_basic_damage(multiplier: float, knockback: float,
+		target_def: float, elem_resist: float, vuln: float, taken_down: float,
+		hp_ratio: float, is_backstab: bool) -> Dictionary:
 	var atk := GameManager.stat_value("atk")
 	var crt := GameManager.stat_value("crt")
 	var crd := GameManager.stat_value("crd")
@@ -1113,19 +1135,98 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 		multiplier *= ClassDefs.special_num(class_id, form_slot, "counter_on_hit", 1.0)
 		_counter_charges -= 1
 	# 形态·背刺（策划 6.3 暗刃 ×2.0 / 8.4 暗影主宰 ×2.5）
-	if _is_backstab(enemy):
+	if is_backstab:
 		multiplier *= ClassDefs.special_num(class_id, form_slot, "backstab_mult", 1.0)
 	# 连击数伤害加成（每击 +2%，上限由形态决定——策划 7.4 破极「连击无上限」）
 	var combo_bonus: float = minf(
 		_hit_combo_count * GameBalance.COMBO_DAMAGE_PER_HIT,
 		combo_cap()
 	)
-	var target_def: float = enemy.get("defense") if enemy.get("defense") != null else 0.0
 	# 形态·护甲穿透（策划 3.5 锁链「穿刺无视 50% 护甲」、
 	# 7.1 拳师「徒手无视 5% 护甲」）。
-	# DamagePipeline 的护甲减伤是 def/(def+100)，没有穿透参数，
-	# 故在调用侧把防御打折——等效于穿透。下限 0：穿透不该变成负防御增伤。
 	target_def *= 1.0 - _basic_attack_pierce()
+	var result := DamagePipeline.elemental_attack(
+		atk, multiplier, fusion_bonus + combo_bonus, target_def, attack_element,
+		elem_resist, vuln, taken_down)
+	# 元素亲和：元素伤害 +15%（分册 4.x 词条）
+	if attack_element >= 0:
+		result.damage = result.damage * (1.0 + _element_affinity_bonus())
+	# 法术部分不可暴击（分册 2.3）
+	var can_crit := attack_element < 0 or ElementDefs.can_crit(attack_element)
+	var crit := _force_crit or (can_crit and GameManager.rng.randf() < crt)
+	var total := DamagePipeline.with_crit(result.damage, crit, crd)
+	total *= _damage_multiplier
+
+	var sp: Dictionary = _equip_special_mods()
+	# 处决线：对生命低于阈值的敌人伤害 +30%（分册「处决线」）
+	var exec_line: float = float(sp.get("execute_line", 0.0))
+	if exec_line > 0.0 and hp_ratio >= 0.0 and hp_ratio <= exec_line:
+		total *= 1.3
+	# 击退距离 +N%
+	var kb_pct: float = float(sp.get("knockback_pct", 0.0))
+	return {"damage": total, "crit": crit, "knockback": knockback * (1.0 + kb_pct)}
+
+
+## 对**群体单位**（CrowdSim）结算一次普攻命中。
+##
+## 与 `_apply_hit` 共用 `_compute_basic_damage`，故伤害公式完全一致；
+## 差别只在目标属性来源与"哪些附加效果能生效"：
+##   · 目标没有 buffs/hp_ratio/朝向 → 易伤/减伤/处决线/背刺按缺省处理
+##   · 形态的附加效果（影子攻击/直线穿透/触发词条）需要节点目标，
+##     群体路径**不施加**——这是分批迁移的已知缺口，记在批次 6 待办里
+##   · 职业资源积攒、连击计数、生命偷取、飘字照常（它们不依赖目标节点）
+func _apply_hit_crowd(mgr, id: int, multiplier: float, knockback: float) -> void:
+	var pos: Vector3 = mgr.call("unit_position", id)
+	var monster: Dictionary = mgr.call("monster_of", id)
+	var target_def := float(monster.get("defense", 0.0))
+	var hp: float = float(mgr.call("unit_hp", id))
+	var max_hp := maxf(float(monster.get("hp", hp)), 1.0)
+	var calc := _compute_basic_damage(multiplier, knockback, target_def,
+		0.0, 0.0, 0.0, clampf(hp / max_hp, 0.0, 1.0), false)
+	var total: float = calc["damage"]
+	var crit: bool = calc["crit"]
+	var kills: int = int(mgr.call("apply_damage", PackedInt32Array([id]), total))
+	# 生命偷取（不依赖目标节点）
+	var ls: float = float(_equip_special_mods().get("life_steal", 0.0))
+	if ls > 0.0:
+		_lifesteal_heal(total * ls)
+	if class_resource != null:
+		class_resource.on_hit(crit)
+	if kills > 0:
+		_register_hit_combo()
+	EventBus.damage_popup.emit(pos, total, "crit" if crit else "normal")
+	if crit or _current_combo_stage == combo_stages_size():
+		_hitstop(0.06)
+		_screen_shake(0.1)
+
+
+## 本房间的群体管理器（没有则返回 null）
+##
+## **不能用 `get_tree().current_scene`**：测试场景把 main.tscn 嵌在测试根节点
+## 之下，current_scene 是那个测试根，拿不到 `current_room_node`（实测踩到）。
+## 故从玩家自身向上走，找带 `current_room_node` 属性的祖先（GameRoot 特征）。
+func _crowd_manager():
+	var node: Node = get_parent()
+	while node != null:
+		if node.get("current_room_node") != null:
+			var room = node.get("current_room_node")
+			if is_instance_valid(room):
+				var ctrl = room.get_node_or_null("RoomController")
+				if ctrl != null:
+					var mgr = ctrl.get("_crowd_mgr")
+					if mgr != null and is_instance_valid(mgr):
+						return mgr
+			return null
+		node = node.get_parent()
+	return null
+
+
+## 对单个敌人结算伤害与击退
+##
+## **这是普攻的唯一漏斗**：扇形横扫、冲撞、落地 AOE 三条路径全部汇入这里，
+## 所以「近战伤害 +N%」这类形态机制只需在这一处生效。
+func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
+	var target_def: float = enemy.get("defense") if enemy.get("defense") != null else 0.0
 	# 目标身上的词条影响：易伤（毒蚀等）与减伤（护盾/防御型）
 	var vuln := 0.0
 	var taken_down := 0.0
@@ -1133,34 +1234,13 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	if tgt_buffs != null and tgt_buffs is BuffHolder:
 		vuln = (tgt_buffs as BuffHolder).total_vulnerability()
 		taken_down = (tgt_buffs as BuffHolder).total_damage_reduction()
-	var result := DamagePipeline.elemental_attack(
-		atk, multiplier, fusion_bonus + combo_bonus, target_def, attack_element,
-		_target_elem_resist(enemy), vuln, taken_down)
-	# 元素亲和：元素伤害 +15%（分册 4.x 词条）
-	if attack_element >= 0:
-		result.damage = result.damage * (1.0 + _element_affinity_bonus())
-	# 法术部分不可暴击（分册 2.3）——火/冰/雷/毒为纯法术，永不暴击；
-	# 土/风的物理半可暴击，此处按「是否法术为主」简化：纯法术元素跳过暴击
-	var can_crit := attack_element < 0 or ElementDefs.can_crit(attack_element)
-	# 调试强制暴击**故意绕过 can_crit**：否则法术系元素永远看不到暴击顿帧，
-	# 而观察暴击命中判定正是调试想要的。
-	var crit := _force_crit or (can_crit and GameManager.rng.randf() < crt)
-	var total := DamagePipeline.with_crit(result.damage, crit, crd)
-	# 调试伤害倍率加在**出手侧**（面板上的"伤害倍率"惯例指"我打出去的伤害"）
-	total *= _damage_multiplier
-
-	# —— 装备通用词条（名词分册第 5 章）——
-	# 这些不是面板属性，只在命中结算时读一次，故不挂 AttributeSystem。
+	var hp_ratio: float = float(enemy.call("hp_ratio")) if enemy.has_method("hp_ratio") else -1.0
+	var calc := _compute_basic_damage(multiplier, knockback, target_def,
+		_target_elem_resist(enemy), vuln, taken_down, hp_ratio, _is_backstab(enemy))
+	var total: float = calc["damage"]
+	var crit: bool = calc["crit"]
+	var kb: float = calc["knockback"]
 	var sp: Dictionary = _equip_special_mods()
-
-	# 处决线：对生命低于阈值的敌人伤害 +30%（分册「处决线」）
-	var exec_line: float = float(sp.get("execute_line", 0.0))
-	if exec_line > 0.0 and enemy.has_method("hp_ratio") and float(enemy.call("hp_ratio")) <= exec_line:
-		total *= 1.3
-
-	# 击退距离 +N%：直接放大本次击退
-	var kb_pct: float = float(sp.get("knockback_pct", 0.0))
-	var kb: float = knockback * (1.0 + kb_pct)
 
 	# 击退向量（EnemyBase 硬直期间消费）
 	var push: Vector3 = Vector3.ZERO

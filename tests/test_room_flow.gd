@@ -249,11 +249,45 @@ func _test_crowd_routing(gr) -> void:
 	# 计数要算上群体单位（否则清空判定会提前放行）
 	_check(ctrl.enemies_alive > 0, "[crowd] enemies_alive 计入群体单位（%d）" % ctrl.enemies_alive)
 
+	# —— 批次 5 的核心：**玩家攻击必须能打到群体单位** ——
+	#
+	# 这是分流能否成立的关键。群体单位不在场景树里，玩家的 group("enemies")
+	# 遍历找不到它们；必须走 CrowdSim 的 query_cone 分支。
+	# 早期版本只测"直接调 apply_damage"，那条路径绕过了玩家的命中链路——
+	# 等于批次 5 的功能完全没被覆盖（"测不到"等于没有防线）。
+	var p = get_tree().get_first_node_in_group("player")
+	if p != null:
+		# 把一个单位挪到玩家正前方，确保在扇形范围内
+		var fwd: Vector3 = p.get("_facing")
+		if fwd.length_squared() < 0.01:
+			fwd = Vector3.FORWARD
+		fwd = fwd.normalized()
+		var target_pos: Vector3 = p.global_position + fwd * 1.2
+		var ids_all = mgr.call("query_circle", 0.0, 0.0, 9999.0)
+		var hp_before := -1.0
+		if ids_all.size() > 0:
+			var first_id: int = int(ids_all[0])
+			# 用模拟核的 set_target/位置无直接写入接口，改用整体平移：
+			# 直接把玩家挪到该单位面前更简单（单位位置由模拟核掌管）
+			var upos: Vector3 = mgr.call("unit_position", first_id)
+			p.global_position = upos - fwd * 1.2
+			hp_before = float(mgr.call("unit_hp", first_id))
+			# 走玩家的扇形命中入口（普攻的真实路径）
+			p.call("_hit_enemies_in_cone", 1.0, 2.5, deg_to_rad(60.0), 0.0)
+			var hp_after := float(mgr.call("unit_hp", first_id))
+			_check(hp_after < hp_before,
+				"[crowd] 玩家普攻能打到群体单位（hp %.1f → %.1f）" % [hp_before, hp_after])
+		else:
+			_check(false, "[crowd] 有群体单位可供攻击测试")
+
 	# 打掉全部群体单位 → 应触发清空
+	#
+	# **必须等物理帧**：CrowdManager 在 _physics_process 里 step + drain_events，
+	# 死亡计数是那时才扣的。等 process_frame 等不到（实测踩到）。
 	var all = mgr.call("query_circle", 0.0, 0.0, 9999.0)
 	mgr.call("apply_damage", all, 999999.0)
-	await get_tree().process_frame
-	await get_tree().process_frame
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 	_check(int(mgr.get("active")) == 0, "[crowd] 全灭后群体活跃数归零")
 	# 房间可能还有其他节点式怪（带机制的），故只断言"群体那部分已结算"
 	_check(ctrl.enemies_alive < n + 1,
