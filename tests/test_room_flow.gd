@@ -321,11 +321,28 @@ func _test_crowd_form_extras(p, mgr) -> void:
 	if ids.is_empty():
 		_check(false, "[crowd-form] 有群体单位可测")
 		return
-	var tid := int(ids[0])
+	# **挑一个血量最高的存活单位**：本测试跑在前面的用例之后，
+	# 有些单位已被打残或打死；而 buffs_of 对已死单位返回 null。
+	# 挑第一个存活的还不够——可能挑到刚被打残的那个，
+	# 后续附加伤害会把它打死（实测：单独跑过、全量跑挂）。
+	var tid := -1
+	var best_hp := -1.0
+	for i in ids:
+		var uid := int(i)
+		if not bool(mgr.call("is_alive", uid)):
+			continue
+		var h: float = mgr.call("unit_hp", uid)
+		if h > best_hp:
+			best_hp = h
+			tid = uid
+	if tid < 0:
+		_check(false, "[crowd-form] 有存活的群体单位可测")
+		return
 	var upos: Vector3 = mgr.call("unit_position", tid)
-	# 直接把附加伤害打到该单位所在位置
+	# **附加伤害要小**：这条断言只验证"伤害落到了群体单位身上"，
+	# 打太狠会把测试对象打死，后面的 buff 宿主断言就没了目标（实测踩到）。
 	var hp0: float = mgr.call("unit_hp", tid)
-	p.call("_deal_bonus_damage_crowd", upos, 50.0, "spell", false)
+	p.call("_deal_bonus_damage_crowd", upos, 5.0, "spell", false)
 	var hp1: float = mgr.call("unit_hp", tid)
 	_check(hp1 < hp0,
 		"[crowd-form] 附加伤害落到群体单位（hp %.1f → %.1f）" % [hp0, hp1])
@@ -335,6 +352,45 @@ func _test_crowd_form_extras(p, mgr) -> void:
 	p.call("_apply_pierce_line_at", upos, 100.0)
 	var hp3: float = mgr.call("unit_hp", tid)
 	_check(hp3 <= hp2, "[crowd-form] 穿透线按位置结算不报错（hp %.1f → %.1f）" % [hp2, hp3])
+
+	# —— B 类：给目标挂状态（元素/印记/触发词条）——
+	#
+	# 群体单位不是场景节点，BuffHolder 需要宿主才能工作。
+	# 没有宿主时这一整类效果在群体路径上静默失效——
+	# 表现为"元素叠层打 swarm 怪没反应"，玩家完全看不出原因。
+	var holder = mgr.call("buffs_of", tid)
+	_check(holder != null, "[crowd-form] 群体单位能拿到 buff 宿主")
+	if holder == null:
+		return
+	# 宿主必须提供 DOT 结算需要的读接口（与 EnemyBase 同口径）
+	_check(holder.get("_target") != null, "[crowd-form] 宿主已绑定目标")
+	var host = holder.get("_target")
+	_check(host.has_method("eff_atk") and host.has_method("eff_ap"),
+		"[crowd-form] 宿主提供 eff_atk/eff_ap（DOT 结算要用）")
+	_check(not host.has_method("add_modifier"),
+		"[crowd-form] 宿主不提供 add_modifier（群体单位无属性层，与敌人一致）")
+	# 挂一个词条，确认真的进账本
+	var r: Dictionary = holder.call("apply", "burn", "test")
+	_check(r.get("ok", false), "[crowd-form] 能往群体单位挂词条")
+	_check(int(holder.call("stacks_of", "burn")) > 0,
+		"[crowd-form] 词条层数已记录（%d）" % holder.call("stacks_of", "burn"))
+	# 死亡后宿主应被回收（否则节点泄漏）
+	var host_count_before: int = _count_hosts(mgr)
+	mgr.call("apply_damage", PackedInt32Array([tid]), 999999.0)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	_check(_count_hosts(mgr) < host_count_before,
+		"[crowd-form] 单位死亡后宿主被回收（%d → %d）" % [
+			host_count_before, _count_hosts(mgr)])
+
+
+## 数 CrowdManager 下还挂着多少个 buff 宿主
+func _count_hosts(mgr) -> int:
+	var n := 0
+	for c in mgr.get_children():
+		if c is CrowdUnitHost:
+			n += 1
+	return n
 
 
 ## 地牢种子随机，故遍历本层实际分配到的全部特殊房类型（shop/heal/event）

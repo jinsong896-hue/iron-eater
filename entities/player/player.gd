@@ -1198,6 +1198,14 @@ func _apply_hit_crowd(mgr, id: int, multiplier: float, knockback: float) -> void
 	EventBus.damage_popup.emit(pos, total, "crit" if crit else "normal")
 	# —— 形态附加效果（与节点路径同一套，见 _on_basic_attack_landed）——
 	_apply_form_extras_at(pos, total)
+	# —— 给目标挂状态的效果（元素叠层 / 印记 / 触发词条）——
+	# 群体单位不是场景节点，BuffHolder 需要宿主才能工作；
+	# CrowdManager.buffs_of 按需建一个（见 crowd_unit_host.gd）。
+	var tgt_holder: BuffHolder = mgr.call("buffs_of", id)
+	if tgt_holder != null:
+		_apply_element_to_holder(tgt_holder)
+		_apply_form_mark_to(tgt_holder)
+		_apply_trigger_affixes_holder(tgt_holder, total)
 	if crit or _current_combo_stage == combo_stages_size():
 		_hitstop(0.06)
 		_screen_shake(0.1)
@@ -1353,17 +1361,8 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 		else:
 			push = _facing * kb
 	enemy.call("take_damage", total, crit, push, self)
-	# 形态印记：普攻也要叠（策划 4.4 咒焰的层数来源）。
-	#
-	# **为什么普攻是必须的**：咒焰使的两个技能一个是 detonate（引爆目标身上
-	# 已有的 flame_mark 层数）、一个是 buff，没有任何一个技能能产生层数。
-	# 只在技能侧接的话，该形态会陷入"要引爆先得有层数、要有层数却只能引爆"
-	# 的死循环——实测症状正是"放完技能敌人身上 0 层"。
-	var mark := ClassDefs.form_mark_id(class_id, form_slot)
-	if not mark.is_empty():
-		var eb = enemy.get("buffs")
-		if eb != null and eb.has_method("apply"):
-			eb.call("apply", mark, "form")
+	# 形态印记：普攻也要叠（见 _apply_form_mark_to 的说明）
+	_apply_form_mark_to(enemy.get("buffs"))
 	# 形态·普攻附加效果（命中后结算）
 	_on_basic_attack_landed(enemy, total)
 	# 职业资源：**普攻命中也要积攒**。
@@ -1538,10 +1537,17 @@ func _apply_splash_damage(center: Node3D, _base_damage: float) -> void:
 
 ## 把本次攻击的元素叠到目标身上，并处理阈值触发（冰冻/雷暴）## 攻击元素来源：已装备武器的 element 字段；未赋予则为纯物理，不叠层。
 func _apply_element_to(enemy: Node3D) -> void:
-	if attack_element < 0:
-		return
-	var tgt = enemy.get("buffs")
-	if tgt == null:
+	_apply_element_to_holder(enemy.get("buffs"))
+
+
+## 给目标挂元素层数（按 holder 版本）。
+##
+## 抽出来是为了让**节点路径与群体路径共用同一套逻辑**——
+## 群体单位不是节点，但它同样能拿到一个 BuffHolder 宿主
+##（见 gameplay/enemies/crowd_unit_host.gd）。
+## 两处各写一份的话，迟早出现"元素在节点怪上生效、在 swarm 怪上不生效"。
+func _apply_element_to_holder(tgt) -> void:
+	if attack_element < 0 or tgt == null:
 		return
 	var out: Dictionary = ElementDamage.attack(tgt, attack_element)
 	for ev in out.get("events", []):
@@ -1549,6 +1555,43 @@ func _apply_element_to(enemy: Node3D) -> void:
 		if ctrl_id != "":
 			tgt.apply(ctrl_id, "element")
 			EventBus.message.emit("触发%s" % ElementDamage.event_name(str(ev)))
+
+
+## 形态印记（咒焰/虚空印记）挂到目标身上（按 holder 版本）。
+##
+## **为什么普攻也要叠**：咒焰使的两个技能一个是 detonate（引爆目标身上
+## 已有的 flame_mark 层数）、一个是 buff，没有任何一个技能能产生层数。
+## 只在技能侧接的话，该形态会陷入"要引爆先得有层数、要有层数却只能引爆"
+## 的死循环——实测症状正是"放完技能敌人身上 0 层"。
+func _apply_form_mark_to(tgt) -> void:
+	var mark := ClassDefs.form_mark_id(class_id, form_slot)
+	if mark.is_empty() or tgt == null:
+		return
+	if tgt.has_method("apply"):
+		tgt.call("apply", mark, "form")
+
+
+## 装备触发型词条（按 holder 版本）。
+## 与节点版 `_apply_trigger_affixes(enemy, dmg)` 同源，只是目标换成 holder。
+func _apply_trigger_affixes_holder(tgt, damage: float) -> void:
+	if tgt == null or damage <= 0.0:
+		return
+	var em = GameManager.equipment_manager
+	if em == null or not em.has_method("equipped_trigger_affixes"):
+		return
+	var triggers: Array = em.equipped_trigger_affixes()
+	if triggers.is_empty():
+		return
+	for t in triggers:
+		var d: Dictionary = t
+		var chance := float(d.get("chance", 0.0))
+		if chance <= 0.0 or GameManager.rng.randf() > chance:
+			continue
+		var bid := str(d.get("buff", ""))
+		if bid.is_empty():
+			continue
+		if tgt.has_method("apply"):
+			tgt.call("apply", bid, "equip")
 
 
 ## 元素亲和：已装备物品提供的「所有元素伤害 +X%」总和（分册 4.x 词条）

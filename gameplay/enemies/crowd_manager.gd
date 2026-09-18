@@ -32,6 +32,8 @@ var _capacity := 0
 var _player: Node3D = null
 ## id → 该单位的怪物配置（掉落时要用原始 monster dict）
 var _spawn_meta: Dictionary = {}
+## id → buff 宿主（按需创建，见 buffs_of）
+var _hosts: Dictionary = {}
 
 
 func _ready() -> void:
@@ -103,6 +105,7 @@ func despawn_unit(id: int) -> void:
 		active = maxi(active - 1, 0)
 	sim.call("despawn", id)
 	_spawn_meta.erase(id)
+	_free_host(id)
 
 
 func is_alive(id: int) -> bool:
@@ -121,6 +124,44 @@ func unit_hp(id: int) -> float:
 ## 该单位对应的怪物配置（掉落用）
 func monster_of(id: int) -> Dictionary:
 	return _spawn_meta.get(id, {})
+
+
+## 取（或创建）某单位的 buff 宿主。
+##
+## **为什么要宿主**：`BuffHolder` 需要一个 Node 才能工作，而群体单位不是
+## 场景节点。没有它的话，元素叠层 / 审判印记 / 咒焰印记 / 装备触发词条
+## 这些"给敌人挂状态"的效果在群体路径上全部失效——
+## 同一个形态打 swarm 怪会少一整套交互。
+##
+## 宿主按需创建（不是每个单位都建）：绝大多数单位一生都不会被挂状态，
+## 提前建一堆 Node 反而浪费。
+func buffs_of(id: int) -> BuffHolder:
+	if not is_alive(id):
+		return null
+	if _hosts.has(id):
+		var h: CrowdUnitHost = _hosts[id]
+		if is_instance_valid(h):
+			# 每次取用时同步一次位置/数值（核里的坐标是权威的）
+			h.bind(id, unit_position(id), _unit_atk(id), self)
+			return h.buffs
+	var host := CrowdUnitHost.new()
+	host.name = "UnitHost_%d" % id
+	add_child(host)
+	host.bind(id, unit_position(id), _unit_atk(id), self)
+	var holder := BuffHolder.new(host)
+	_hosts[id] = host
+	host.set_meta("holder", holder)
+	return holder
+
+
+## 单位攻击力（从 monster 配置取；缺省 10）
+func _unit_atk(id: int) -> float:
+	return float(monster_of(id).get("atk", 10.0))
+
+
+## 单位当前坐标的便捷入口（脚本外部用）
+func position_of(id: int) -> Vector3:
+	return unit_position(id)
 
 
 func _physics_process(delta: float) -> void:
@@ -161,8 +202,20 @@ func _drain_deaths() -> void:
 				float(d.get("damage", 0.0)))
 			continue
 		active = maxi(active - 1, 0)
-		_spawn_meta.erase(int(d.get("id", -1)))
+		var dead_id := int(d.get("id", -1))
+		_spawn_meta.erase(dead_id)
+		_free_host(dead_id)
 		crowd_died.emit(d.get("pos", Vector3.ZERO), bool(d.get("is_elite", false)))
+
+
+## 释放单位对应的 buff 宿主（单位死亡时调，避免宿主节点泄漏）
+func _free_host(id: int) -> void:
+	if not _hosts.has(id):
+		return
+	var h = _hosts[id]
+	_hosts.erase(id)
+	if is_instance_valid(h):
+		h.queue_free()
 
 
 ## 查询接口（批次 5 的命中判定用）
