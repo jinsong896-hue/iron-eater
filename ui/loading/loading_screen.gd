@@ -134,6 +134,9 @@ func begin(duration: float, title: String = "", hint: String = "") -> void:
 		_hint.text = hint
 
 	_overlay.modulate.a = 0.0
+	# 恢复输入拦截：上一轮 finish 时放开了它（见 finish 的说明），
+	# 本轮要重新挡住输入，否则过渡期间玩家能点到下面的 UI。
+	_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = true
 	var tween := create_tween()
 	tween.tween_property(_overlay, "modulate:a", 1.0, 0.12)
@@ -141,7 +144,17 @@ func begin(duration: float, title: String = "", hint: String = "") -> void:
 
 
 ## 等满最低时长后淡出。若生成超过最低时长，立即淡出（不额外等待）。
+##
+## **淡出前必须先放开鼠标拦截**：遮罩是 `MOUSE_FILTER_STOP` 的全屏 ColorRect，
+## 只要它还拦截输入，下面的 UI 就完全点不动。而 `visible = false` 在
+## `await tween.finished` 之后——tween 一旦被打断（节点释放、被新 tween
+## 顶掉、切场景时正在 await），这行就永远不会执行，
+## 留下一个 **alpha=0 却拦截一切点击的隐形遮罩**。
+## 实机症状正是「回到主界面后 UI 无法再次触发」。
+## 故不把"能否操作"绑在动画完成上：一进 finish 就放开输入。
 func finish() -> void:
+	if _overlay != null:
+		_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var wait := maxf(_min_duration - _elapsed, 0.0)
 	if wait > 0.0:
 		await get_tree().create_timer(wait, true, false, true).timeout
@@ -149,6 +162,16 @@ func finish() -> void:
 	var tween := create_tween()
 	tween.tween_property(_overlay, "modulate:a", 0.0, 0.18)
 	await tween.finished
+	visible = false
+
+
+## 立即隐藏并放开输入（不播淡出）。
+## 给"切场景等不了 0.18 秒淡出"的路径用，避免淡出动画与场景切换竞争。
+func hide_now() -> void:
+	if _overlay != null:
+		_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_overlay.modulate.a = 0.0
+	_holding = false
 	visible = false
 
 

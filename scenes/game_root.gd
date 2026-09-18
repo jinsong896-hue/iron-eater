@@ -24,6 +24,9 @@ var _last_transition_time := -999.0
 var dungeon_generated := false
 var current_room_node: Node3D = null
 var room_state: Dictionary = {}
+## 本层地牢种子。用于「房间模板在生成期就定好」——同一房间无论重建多少次
+## 都拿到同一个模板（见 _pick_template）。
+var dungeon_seed := 0
 ## 整层机制容器（跨房间存活；如第 6 层毒气层数）。
 ## 每层重建一次，见 _rebuild_floor_mechanic。
 var floor_mechanic: FloorMechanic = null
@@ -197,6 +200,8 @@ func _read_json_field(path: String, field: String) -> String:
 ## 第 9 层固定 5 间）；显式传正数则用它（测试与调试跳层需要固定规模）。
 func generate_dungeon(seed_value: int, count: int = -1) -> void:
 	var floor_num: int = _current_floor_num()
+	# 记下本层种子：房间模板的确定性选择依赖它（见 _pick_template）
+	dungeon_seed = seed_value
 	# 整层机制容器必须**先于房间生成**存在：房间预建时 FloorEnvironment
 	# 会读它的参数（如毒气层数）来决定布置。
 	# next_floor 里已重建过一次；这里是首次生成（开局直跑场景）的兜底。
@@ -633,7 +638,15 @@ func _pick_template(room_type: String, prefer_id: String = "") -> String:
 			if not arr.is_empty():
 				return arr[0]
 		return ""
-	return templates[randi() % templates.size()]
+	# **确定性选择**：用「地牢种子 + 房间下标」派生，而不是全局 randi()。
+	#
+	# 原先用 `randi()` 是「已进过的房间会不停变换」的根因：房间节点每次
+	# 进入都重建（见 _transition_to_room），重建时又抽一次模板——同一个房间
+	# 第二次进去可能换成长宽不同的另一套模板，布局全变。
+	# 策划口径是「房间布局在开局就该定好」，故改为由种子派生：
+	# 同种子 + 同房间 → 永远同一个模板。
+	var h := hash("%d:%d:%s" % [dungeon_seed, _building_room_index, room_type])
+	return templates[abs(h) % templates.size()]
 
 
 func _build_spawn_markers(parent: Node3D, data) -> void:

@@ -26,6 +26,8 @@ var _special_used := false
 var _gambler_boxes: Array = []   # 赌徒挑战：已洗牌的 3 个箱子（开箱后填）
 ## 群体模拟管理器（只在有 swarm 怪的房间创建，见 _crowd()）
 var _crowd_mgr: CrowdManager = null
+## 本房墙体是否已喂给模拟核（每房只喂一次）
+var _walls_fed := false
 ## 测试/调试开关：强制所有符合条件的基础怪走群体模拟。
 ## 生产环境恒为 false（路由由 MonsterDB 的 swarm 标记决定）。
 static var CROWD_FORCE_SWARM := false
@@ -462,6 +464,11 @@ func _spawn_crowd_at(point: Marker3D, m: Dictionary, difficulty_mult: float) -> 
 	var mgr := _crowd()
 	if mgr == null:
 		return false
+	# **把本房墙体喂给模拟核**——否则群体单位没有墙的碰撞，
+	# 会被斥力一路挤出房间，玩家清不掉也追不上（实机症状：
+	# "敌人过多时被挤到边界外，游戏无法继续"）。
+	# 每房都要重设：切房后障碍全变了。
+	_feed_walls_to_crowd(mgr)
 	var hp := float(m.get("hp", 100.0)) * difficulty_mult
 	var speed := 4.0 * float(m.get("speed_pct", 50)) / 100.0
 	var pos := point.global_position
@@ -470,6 +477,56 @@ func _spawn_crowd_at(point: Marker3D, m: Dictionary, difficulty_mult: float) -> 
 		return false
 	enemies_alive += 1
 	return true
+
+
+## 把本房墙体转成 AABB 喂给群体模拟核。
+##
+## 障碍格式：每 4 个 float 一组 = min_x, min_z, max_x, max_z（世界坐标）。
+## 房间 JSON 的墙是格子坐标 + 方向，每格 1 米（CELL_SIZE=1.0），
+## 故直接把格子边界当 AABB 用，不做缩放换算。
+##
+## 房间外墙若在 JSON 里没写全（部分模板只记了内墙），再补一圈房间边界，
+## 保证单位跑不出房间——这是"被挤出边界"的最后一道防线。
+func _feed_walls_to_crowd(mgr) -> void:
+	if mgr == null or _walls_fed:
+		return
+	_walls_fed = true
+	var out := PackedFloat32Array()
+	var d = room_data
+	if d == null:
+		return
+	# room_data 可能是原始 JSON 字典（game_root 传的是 jd），
+	# 也可能是 RoomData 对象（编辑器/测试路径）。两种都要支持。
+	var width := 0.0
+	var height := 0.0
+	var walls: Array = []
+	if d is Dictionary:
+		width = float((d as Dictionary).get("width", 0))
+		height = float((d as Dictionary).get("height", 0))
+		walls = (d as Dictionary).get("walls", [])
+	else:
+		width = float(d.get("width"))
+		height = float(d.get("height"))
+		var w = d.get("walls")
+		if w is Array:
+			walls = w
+	for w in walls:
+		var wx := float(w.get("x", 0))
+		var wy := float(w.get("y", 0))
+		# 墙占 1 格；向外扩 0.1 留厚度，避免高速单位在单帧内穿过
+		out.append(wx - 0.1)
+		out.append(wy - 0.1)
+		out.append(wx + 1.1)
+		out.append(wy + 1.1)
+	if width > 0.0 and height > 0.0:
+		# 房间四边各补一条厚墙：JSON 若漏记外墙，这是最后一道防线，
+		# 保证单位不会跑出房间（"被挤到边界外"的直接兜底）。
+		var t := 0.5
+		out.append(-t); out.append(-t); out.append(width + t); out.append(0.0)
+		out.append(-t); out.append(height); out.append(width + t); out.append(height + t)
+		out.append(-t); out.append(-t); out.append(0.0); out.append(height + t)
+		out.append(width); out.append(-t); out.append(width + t); out.append(height + t)
+	mgr.set_obstacles(out)
 
 
 ## 生成敌人（70% 概率/点；怪物从 MonsterDB 第一层池按房间类型选）

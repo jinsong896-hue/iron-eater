@@ -92,7 +92,88 @@ func _ready() -> void:
 	# swarm 分流：群体模拟的生成/计数/死亡结算闭环
 	await _test_crowd_routing(gr)
 
+	# 房间模板稳定性：回访已进过的房间，布局不得改变
+	await _test_room_template_stable(gr)
+
+	# 群体单位不得跑出房间边界
+	await _test_crowd_stays_in_bounds(gr)
+
 	_finish()
+
+
+## 房间模板在生成期就该定好 —— 回访已进过的房间，**布局必须完全一致**。
+##
+## 原先 `_pick_template` 用全局 `randi()` 选模板，而房间节点每次进入都重建
+## （见 _transition_to_room），于是同一个房间第二次进去可能换成长宽不同的
+## 另一套模板 —— 玩家看到的是"已进过的房间在不停变换"。
+## 修法是按「地牢种子 + 房间下标」确定性派生。
+func _test_room_template_stable(gr) -> void:
+	# 找一个普通房（房间数足够，随便挑中间一个）
+	var idx := -1
+	for i in gr.dungeon_graph.size():
+		if str(gr.dungeon_graph[i].get("type", "")) == "normal":
+			idx = i
+			break
+	if idx < 0:
+		_check(true, "[模板] 无普通房可测（跳过）")
+		return
+
+	# 第一次进：记录房间尺寸与门位（布局的可观测特征）
+	gr._transition_to_room(idx)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var ctrl1 = gr.current_room_node.get_node_or_null("RoomController")
+	if ctrl1 == null:
+		_check(false, "[模板] 控制器就绪")
+		return
+	var sig1 := _room_signature(ctrl1)
+
+	# 切走再切回（强制走完整的"销毁 → 重建"路径）
+	var other := 0
+	for i in gr.dungeon_graph.size():
+		if i != idx:
+			other = i
+			break
+	gr._transition_to_room(other)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	gr._transition_to_room(idx)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var ctrl2 = gr.current_room_node.get_node_or_null("RoomController")
+	if ctrl2 == null:
+		_check(false, "[模板] 回访后控制器就绪")
+		return
+	var sig2 := _room_signature(ctrl2)
+
+	_check(sig1 == sig2, "[模板] 回访房间布局完全一致（%s vs %s）" % [sig1, sig2])
+	_check(not sig1.is_empty(), "[模板] 房间特征非空（%s）" % sig1)
+
+
+## 房间布局的可观测特征：宽高 + 门数量 + 门位（排序后）
+func _room_signature(ctrl) -> String:
+	var d = ctrl.get("room_data")
+	if d == null:
+		return ""
+	var w := 0.0
+	var h := 0.0
+	var doors: Array = []
+	if d is Dictionary:
+		w = float((d as Dictionary).get("width", 0))
+		h = float((d as Dictionary).get("height", 0))
+		doors = (d as Dictionary).get("doors", [])
+	else:
+		w = float(d.get("width"))
+		h = float(d.get("height"))
+		var dd = d.get("doors")
+		if dd is Array:
+			doors = dd
+	var parts: Array[String] = []
+	for dr in doors:
+		parts.append("%d,%d,%s" % [int(dr.get("x", 0)), int(dr.get("y", 0)),
+			str(dr.get("direction", ""))])
+	parts.sort()
+	return "%dx%d|%s" % [int(w), int(h), ",".join(parts)]
 
 ## 全地牢哑门排查：逐间房构建，断言每扇门都通向真实邻接房间
 ## 哑门 = 门朝向没有邻接房间，玩家走上去 DoorTrigger 发信号但
@@ -304,6 +385,68 @@ func _test_crowd_routing(gr) -> void:
 	# 房间可能还有其他节点式怪（带机制的），故只断言"群体那部分已结算"
 	_check(ctrl.enemies_alive < n + 1,
 		"[crowd] 群体死亡已从 enemies_alive 扣除（%d）" % ctrl.enemies_alive)
+
+	RoomController.CROWD_FORCE_SWARM = false
+
+
+## 群体单位**不得跑出房间边界**。
+##
+## 实机症状：「房间敌人过多时敌人有概率被挤到 z 轴上方，游戏无法继续」。
+## 根因是 `CrowdManager.set_obstacles()` 在生产路径从未被调用——
+## 群体单位没有墙的碰撞，被邻居斥力一路挤出房间，玩家清不掉也追不上。
+##
+## 这里让一批单位朝同一方向猛挤，断言它们仍留在房间 AABB 内。
+func _test_crowd_stays_in_bounds(gr) -> void:
+	var idx := -1
+	for i in gr.dungeon_graph.size():
+		if str(gr.dungeon_graph[i].get("type", "")) != "normal":
+			continue
+		if bool(gr.room_state.get(i, {}).get("cleared", false)):
+			continue
+		idx = i
+		break
+	if idx < 0:
+		_check(true, "[边界] 无未清空普通房可测（跳过）")
+		return
+
+	RoomController.CROWD_FORCE_SWARM = true
+	gr._transition_to_room(idx)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
+	var mgr = ctrl.get("_crowd_mgr") if ctrl else null
+	if mgr == null:
+		_check(true, "[边界] 本房无群体单位（跳过）")
+		RoomController.CROWD_FORCE_SWARM = false
+		return
+
+	# 房间尺寸（判定边界用）
+	var d = ctrl.get("room_data")
+	var w := 20.0
+	var h := 15.0
+	if d is Dictionary:
+		w = float((d as Dictionary).get("width", 20))
+		h = float((d as Dictionary).get("height", 15))
+
+	# 猛挤：把玩家放到房间外远处，所有单位会朝它冲，撞上边界
+	var p = get_tree().get_first_node_in_group("player")
+	if p != null:
+		p.global_position = Vector3(w * 0.5, 0.0, -50.0)
+	for i in 120:
+		await get_tree().physics_frame
+
+	# 断言：全部单位仍在房间 AABB（留 1 米容差给半径/斥力）
+	var out_of_bounds := 0
+	var worst := ""
+	for id in mgr.call("query_circle", 0.0, 0.0, 9999.0):
+		var pos: Vector3 = mgr.call("unit_position", int(id))
+		if pos.x < -1.0 or pos.x > w + 1.0 or pos.z < -1.0 or pos.z > h + 1.0:
+			out_of_bounds += 1
+			worst = "(%.1f, %.1f)" % [pos.x, pos.z]
+	_check(out_of_bounds == 0,
+		"[边界] 群体单位全部留在房间内（越界 %d 个 %s，房间 %dx%d）"
+			% [out_of_bounds, worst, int(w), int(h)])
 
 	RoomController.CROWD_FORCE_SWARM = false
 

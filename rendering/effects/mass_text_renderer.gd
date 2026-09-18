@@ -176,7 +176,16 @@ func _bake_atlas() -> void:
 
 	await get_tree().process_frame
 	await get_tree().process_frame
-	var img := vp.get_texture().get_image()
+	var img := vp.get_texture().get_image() if vp.get_texture() != null else null
+	if img == null:
+		# **无 GPU 环境（headless / dummy 渲染器）拿不到 SubViewport 纹理**。
+		# 此处必须早退而不是继续——否则 create_from_image(null) 与
+		# get_pixel 会连锁报错，把整个场景拖挂。
+		# 所有字形退回等宽步进（排版略松，但不影响正确性）。
+		for ch in _glyph_cell:
+			_glyph_adv[ch] = 0.62
+		vp.queue_free()
+		return
 	_atlas_tex = ImageTexture.create_from_image(img)
 	if _mmi != null:
 		_mmi.material.set_shader_parameter("atlas", _atlas_tex)
