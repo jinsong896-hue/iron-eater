@@ -285,6 +285,13 @@ func _test_crowd_routing(gr) -> void:
 		else:
 			_check(false, "[crowd] 有群体单位可供攻击测试")
 
+	# —— 形态附加效果在群体路径也要生效 ——
+	#
+	# 节点路径有一套附加效果（渡鸦法强附加/影子攻击/穿透线/森之领域…），
+	# 群体单位不是节点，早期版本**整套都跳过了**——同一个形态打 swarm 怪
+	# 会明显少一截伤害。这里验证"附加伤害确实落到群体单位身上"。
+	await _test_crowd_form_extras(p, mgr)
+
 	# 打掉全部群体单位 → 应触发清空
 	#
 	# **必须等物理帧**：CrowdManager 在 _physics_process 里 step + drain_events，
@@ -299,6 +306,35 @@ func _test_crowd_routing(gr) -> void:
 		"[crowd] 群体死亡已从 enemies_alive 扣除（%d）" % ctrl.enemies_alive)
 
 	RoomController.CROWD_FORCE_SWARM = false
+
+
+## 形态附加效果在群体路径生效（渡鸦法强附加 / 影子攻击 / 穿透线）。
+##
+## 这些效果要么是纯伤害、要么作用于自身，**不依赖目标是不是节点**，
+## 所以群体路径必须同样生效。早期版本整套跳过——同一个形态打 swarm 怪
+## 会明显少一截伤害，而玩家只会觉得"某些怪特别硬"，极难定位。
+func _test_crowd_form_extras(p, mgr) -> void:
+	if p == null or mgr == null:
+		_check(false, "[crowd-form] 有玩家与群体管理器")
+		return
+	var ids = mgr.call("query_circle", 0.0, 0.0, 9999.0)
+	if ids.is_empty():
+		_check(false, "[crowd-form] 有群体单位可测")
+		return
+	var tid := int(ids[0])
+	var upos: Vector3 = mgr.call("unit_position", tid)
+	# 直接把附加伤害打到该单位所在位置
+	var hp0: float = mgr.call("unit_hp", tid)
+	p.call("_deal_bonus_damage_crowd", upos, 50.0, "spell", false)
+	var hp1: float = mgr.call("unit_hp", tid)
+	_check(hp1 < hp0,
+		"[crowd-form] 附加伤害落到群体单位（hp %.1f → %.1f）" % [hp0, hp1])
+
+	# 穿透线：从单位位置沿玩家朝向打一条线，应能命中该单位本身
+	var hp2: float = mgr.call("unit_hp", tid)
+	p.call("_apply_pierce_line_at", upos, 100.0)
+	var hp3: float = mgr.call("unit_hp", tid)
+	_check(hp3 <= hp2, "[crowd-form] 穿透线按位置结算不报错（hp %.1f → %.1f）" % [hp2, hp3])
 
 
 ## 地牢种子随机，故遍历本层实际分配到的全部特殊房类型（shop/heal/event）

@@ -1169,12 +1169,13 @@ func _compute_basic_damage(multiplier: float, knockback: float,
 
 ## 对**群体单位**（CrowdSim）结算一次普攻命中。
 ##
-## 与 `_apply_hit` 共用 `_compute_basic_damage`，故伤害公式完全一致；
-## 差别只在目标属性来源与"哪些附加效果能生效"：
-##   · 目标没有 buffs/hp_ratio/朝向 → 易伤/减伤/处决线/背刺按缺省处理
-##   · 形态的附加效果（影子攻击/直线穿透/触发词条）需要节点目标，
-##     群体路径**不施加**——这是分批迁移的已知缺口，记在批次 6 待办里
-##   · 职业资源积攒、连击计数、生命偷取、飘字照常（它们不依赖目标节点）
+## 与 `_apply_hit` 共用 `_compute_basic_damage`，故伤害公式完全一致。
+## 形态附加效果（渡鸦法强/影子攻击/穿透线/森之领域/光暗层/破极）
+## 与节点路径**同样生效**——它们要么是纯伤害、要么作用于自身，不依赖目标节点。
+##
+## **仍缺失的**（需目标身上有状态，见批次 6 待办）：
+## 元素叠层、审判印记、咒焰/虚空印记、装备触发词条——
+## 模拟核没有 buff 槽，这些要等给核加状态存储。
 func _apply_hit_crowd(mgr, id: int, multiplier: float, knockback: float) -> void:
 	var pos: Vector3 = mgr.call("unit_position", id)
 	var monster: Dictionary = mgr.call("monster_of", id)
@@ -1195,9 +1196,109 @@ func _apply_hit_crowd(mgr, id: int, multiplier: float, knockback: float) -> void
 	if kills > 0:
 		_register_hit_combo()
 	EventBus.damage_popup.emit(pos, total, "crit" if crit else "normal")
+	# —— 形态附加效果（与节点路径同一套，见 _on_basic_attack_landed）——
+	_apply_form_extras_at(pos, total)
 	if crit or _current_combo_stage == combo_stages_size():
 		_hitstop(0.06)
 		_screen_shake(0.1)
+
+
+## 形态附加效果 —— **按位置**版本，两条命中路径共用。
+##
+## 节点路径的 `_on_basic_attack_landed(enemy, dmg)` 需要一个 EnemyBase 引用，
+## 但群体单位不是节点。这里改用世界坐标：需要找周围敌人时走群体查询，
+## 不需要找敌人的效果（森之领域/光暗层/破极）则与路径无关。
+func _apply_form_extras_at(pos: Vector3, damage: float) -> void:
+	_attack_count += 1
+	# 8.1 渡鸦「所有攻击额外附加（法强×0.2）法术伤害」——
+	# 附加给**被命中的那个**（按位置找最近的那个群体单位）
+	var spell_pct := ClassDefs.special_num(class_id, form_slot, "spell_on_hit_ap_pct", 0.0)
+	if spell_pct > 0.0:
+		var ap := GameManager.stat_value("ap")
+		if ap > 0.0:
+			_deal_bonus_damage_crowd(pos, ap * spell_pct, "spell")
+	# 8.3 影子判官「每 4 次攻击触发影子攻击（法强×0.5，无视护甲）」
+	if ClassDefs.special_flag(class_id, form_slot, "shadow_every_4") \
+			and _attack_count % SHADOW_ATTACK_EVERY == 0:
+		var ap2 := GameManager.stat_value("ap")
+		_deal_bonus_damage_crowd(pos, ap2 * 0.5, "shadow", true)
+	# 6.4 鹰眼「所有攻击附带范围穿透：身后 2 米直线 40% 伤害」
+	if ClassDefs.special_num(class_id, form_slot, "pierce_line", 0.0) > 0.0:
+		_apply_pierce_line_at(pos, damage)
+	# 6.5 森之选召「命中生成森之领域」——作用于自身，与目标类型无关
+	if ClassDefs.special_flag(class_id, form_slot, "forest_domain"):
+		_spawn_forest_domain()
+	# 8.5 光层/暗层：施加负面 → 暗层。群体路径没有 buff 槽，
+	# 但"命中本身算施加负面"的语义在锁链判官形态下成立，故照样计
+	if ClassDefs.special_flag(class_id, form_slot, "light_dark_layers") \
+			and ClassDefs.special_flag(class_id, form_slot, "mark_per_hit"):
+		_gain_dark_layer()
+	# 7.4 破极「每 25 连击触发破极状态 6 秒」——作用于自身
+	_maybe_trigger_break_limit()
+
+
+## 对**最近的群体单位**结算一笔附加伤害（按位置找目标）。
+## 找不到群体单位时退化为对最近的节点敌人结算——保证附加伤害不凭空消失。
+func _deal_bonus_damage_crowd(pos: Vector3, amount: float, kind: String,
+		ignore_armor: bool = false) -> void:
+	if amount <= 0.0:
+		return
+	var mgr = _crowd_manager()
+	if mgr == null or int(mgr.get("active")) <= 0:
+		return
+	# 取最近的一个群体单位（半径给足，附加伤害本就跟随本次命中）
+	var ids = mgr.call("query_circle", pos.x, pos.z, BONUS_TARGET_RADIUS)
+	if ids.is_empty():
+		return
+	var best_id := int(ids[0])
+	var best_d := INF
+	for id in ids:
+		var up: Vector3 = mgr.call("unit_position", int(id))
+		var d := up.distance_to(pos)
+		if d < best_d:
+			best_d = d
+			best_id = int(id)
+	var def_v := 0.0
+	if not ignore_armor:
+		def_v = float(mgr.call("monster_of", best_id).get("defense", 0.0))
+	var result := DamagePipeline.physical(amount, 1.0, 0.0, def_v)
+	mgr.call("apply_damage", PackedInt32Array([best_id]), float(result.damage))
+	EventBus.damage_popup.emit(mgr.call("unit_position", best_id), float(result.damage), kind)
+
+
+## 附加伤害的搜敌半径（米）。给得比普攻范围大一点——
+## 附加伤害是"这次命中的衍生效果"，不该因为目标恰好站在范围边缘就丢掉。
+const BONUS_TARGET_RADIUS := 4.0
+
+
+## 直线穿透（按位置版）：沿攻击方向在目标身后打一条线，只作用于群体单位。
+func _apply_pierce_line_at(origin: Vector3, damage: float) -> void:
+	var pct := ClassDefs.special_num(class_id, form_slot, "pierce_line", 0.0)
+	if pct <= 0.0 or damage <= 0.0:
+		return
+	var dir := _facing
+	dir.y = 0.0
+	if dir.length_squared() < 0.0001:
+		return
+	dir = dir.normalized()
+	var mgr = _crowd_manager()
+	if mgr == null or int(mgr.get("active")) <= 0:
+		return
+	# 用锥形查询取沿线候选，再按侧向偏移过滤（与节点版判据一致）
+	var ids = mgr.call("query_cone", origin.x, origin.z, dir.x, dir.z,
+		deg_to_rad(30.0), PIERCE_LINE_LENGTH)
+	for id in ids:
+		var up: Vector3 = mgr.call("unit_position", int(id))
+		var to_e: Vector3 = up - origin
+		to_e.y = 0.0
+		var along := to_e.dot(dir)
+		if along <= 0.0 or along > PIERCE_LINE_LENGTH:
+			continue
+		if (to_e - dir * along).length() > PIERCE_LINE_HALF_WIDTH:
+			continue
+		var result := DamagePipeline.physical(damage * pct, 1.0, 0.0, 0.0)
+		mgr.call("apply_damage", PackedInt32Array([int(id)]), float(result.damage))
+		EventBus.damage_popup.emit(up, float(result.damage), "pierce")
 
 
 ## 本房间的群体管理器（没有则返回 null）
