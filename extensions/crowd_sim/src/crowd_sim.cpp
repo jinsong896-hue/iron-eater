@@ -18,6 +18,8 @@ void CrowdSim::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("query_circle", "cx", "cz", "radius"), &CrowdSim::query_circle);
 	ClassDB::bind_method(D_METHOD("query_cone", "ox", "oz", "dir_x", "dir_z",
 			"half_angle", "range"), &CrowdSim::query_cone);
+	ClassDB::bind_method(D_METHOD("set_attack_params", "range", "interval", "damage"),
+			&CrowdSim::set_attack_params);
 	ClassDB::bind_method(D_METHOD("apply_damage", "ids", "amount"), &CrowdSim::apply_damage);
 	ClassDB::bind_method(D_METHOD("drain_events"), &CrowdSim::drain_events);
 	ClassDB::bind_method(D_METHOD("get_render_buffer"), &CrowdSim::get_render_buffer);
@@ -114,13 +116,21 @@ Array CrowdSim::drain_events() {
 	Array out;
 	for (const crowd::SimEvent &e : evs) {
 		Dictionary d;
-		d["type"] = "death";
+		// 事件类型用字符串——GDScript 侧按字符串分支最直观，
+		// 也避免两边各维护一份枚举常量表而漂移。
+		d["type"] = (e.type == crowd::SIM_EVENT_ATTACK) ? "attack" : "death";
 		d["id"] = e.id;
 		d["pos"] = Vector3(e.x, 0.0f, e.z);
 		d["is_elite"] = e.is_elite != 0;
+		d["damage"] = e.damage;
 		out.push_back(d);
 	}
 	return out;
+}
+
+
+void CrowdSim::set_attack_params(float range, float interval, float damage) {
+	core->set_attack_params(range, interval, damage);
 }
 
 PackedFloat32Array CrowdSim::get_render_buffer() const {

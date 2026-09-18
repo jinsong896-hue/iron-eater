@@ -231,6 +231,11 @@ func _test_crowd_routing(gr) -> void:
 	gr._transition_to_room(idx)
 	await get_tree().process_frame
 	await get_tree().process_frame
+	# **必须等物理帧**：CrowdManager 在 _physics_process 里 step，
+	# 而空间哈希是 step 时建的——没 step 过，query_circle 会返回空
+	#（表现为"有单位但查不到"）。等 process_frame 等不到物理帧。
+	await get_tree().physics_frame
+	await get_tree().physics_frame
 
 	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
 	_check(ctrl != null, "[crowd] 控制器就绪")

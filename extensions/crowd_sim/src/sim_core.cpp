@@ -41,6 +41,7 @@ void SimCore::setup(int capacity, float cell_size) {
 	radius_.assign(static_cast<size_t>(capacity_), 0.3f);
 	scale_.assign(static_cast<size_t>(capacity_), 1.0f);
 	stagger_.assign(static_cast<size_t>(capacity_), 0.0f);
+	atk_cd_.assign(static_cast<size_t>(capacity_), 0.0f);
 	flags_.assign(static_cast<size_t>(capacity_), 0u);
 	target_id_.assign(static_cast<size_t>(capacity_), -1);
 
@@ -88,6 +89,7 @@ int SimCore::spawn(float x, float z, float hp, float speed, float radius, float 
 	radius_[id] = radius;
 	scale_[id] = scale;
 	stagger_[id] = 0.0f;
+	atk_cd_[id] = 0.0f;
 	flags_[id] = SIM_ALIVE;
 	target_id_[id] = -1;
 
@@ -539,8 +541,48 @@ void SimCore::step(float dt, float player_x, float player_z) {
 	}
 	build_hash();
 	phase_steer(dt, player_x, player_z);
+	phase_attack(dt, player_x, player_z);
 	phase_collide_obstacles();
 	phase_integrate(dt);
+}
+
+
+// 攻击阶段：进入 attack_range 的单位按 attack_interval 对玩家造成伤害。
+//
+// **伤害不由本核结算**——核不知道玩家的护甲/减伤/无敌帧，也没有
+// EventBus。这里只负责"谁在何时打了多少"，发事件给 GDScript 侧走
+// 正常的 take_damage 链路（与节点式敌人同一套结算）。
+//
+// 放在 phase_steer 之后：用本帧的意图速度判断是否已贴脸，
+// 避免"刚进范围就被打"的滞后感。
+void SimCore::phase_attack(float dt, float player_x, float player_z) {
+	const float r2 = attack_range_ * attack_range_;
+	for (int i = 0; i < capacity_; ++i) {
+		if (!(flags_[i] & SIM_ALIVE)) {
+			continue;
+		}
+		// 冷却推进（无论是否在范围内，保证离开再回来不会立刻打）
+		if (atk_cd_[i] > 0.0f) {
+			atk_cd_[i] -= dt;
+		}
+		const float dx = px_[cur_buf_][i] - player_x;
+		const float dz = pz_[cur_buf_][i] - player_z;
+		if (dx * dx + dz * dz > r2) {
+			continue;
+		}
+		if (atk_cd_[i] > 0.0f) {
+			continue;
+		}
+		atk_cd_[i] = attack_interval_;
+		SimEvent e;
+		e.type = SIM_EVENT_ATTACK;
+		e.id = i;
+		e.x = px_[cur_buf_][i];
+		e.z = pz_[cur_buf_][i];
+		e.is_elite = (flags_[i] & SIM_ELITE) ? 1 : 0;
+		e.damage = attack_damage_;
+		events_.push_back(e);
+	}
 }
 
 // ============================================================
@@ -630,11 +672,12 @@ int SimCore::apply_damage(const std::vector<int> &ids, float amount) {
 			hp_[id] = 0.0f;
 			// 死亡事件：位置用读缓冲（本帧渲染的那份）
 			SimEvent ev;
-			ev.type = 0;
+			ev.type = SIM_EVENT_DEATH;
 			ev.id = id;
 			ev.x = px_[cur_buf_][id];
 			ev.z = pz_[cur_buf_][id];
 			ev.is_elite = (flags_[id] & SIM_ELITE) ? 1 : 0;
+			ev.damage = 0.0f;
 			events_.push_back(ev);
 			despawn(id);
 			++kills;

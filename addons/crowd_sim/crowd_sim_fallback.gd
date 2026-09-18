@@ -43,6 +43,12 @@ var _free: Array[int] = []
 var _obstacles: Array[Rect2] = []   # x/z 平面上的 AABB（用 Rect2 的 position/size）
 var _events: Array[Dictionary] = []
 
+# —— 攻击参数（与 C++ 侧同默认值，保证两条后端行为一致）——
+var _attack_range := 1.4
+var _attack_interval := 1.2
+var _attack_damage := 8.0
+var _atk_cd := PackedFloat32Array()
+
 ## 空间哈希：格子 → 实例 id 列表
 var _grid := {}
 
@@ -60,10 +66,12 @@ func setup(capacity: int, _cell_size: float = CELL_SIZE) -> void:
 	_stagger.resize(_capacity)
 	_alive.resize(_capacity)
 	_target.resize(_capacity)
+	_atk_cd.resize(_capacity)
 	for i in _capacity:
 		_alive[i] = 0
 		_scale[i] = 0.0
 		_target[i] = -1
+		_atk_cd[i] = 0.0
 	_free.clear()
 	# 逆序压栈 → id 从小到大分配（与 C++ 侧一致，便于对照调试）
 	for i in range(_capacity - 1, -1, -1):
@@ -99,6 +107,7 @@ func spawn(x: float, z: float, hp: float, speed: float, radius: float, scale: fl
 	_radius[id] = radius
 	_scale[id] = scale
 	_stagger[id] = 0.0
+	_atk_cd[id] = 0.0
 	_alive[id] = 1
 	_target[id] = -1
 	_active += 1
@@ -152,11 +161,19 @@ func set_target(id: int, target_id: int) -> void:
 		_target[id] = target_id
 
 
-## 一帧模拟。语义与 C++ 侧一致：seek + 斥力 + 障碍推出 + 积分。
+## 攻击参数（与 C++ 侧同语义：进入 range 后每 interval 秒打 damage）
+func set_attack_params(range_: float, interval: float, damage: float) -> void:
+	_attack_range = range_
+	_attack_interval = maxf(interval, 0.01)
+	_attack_damage = damage
+
+
+## 一帧模拟。语义与 C++ 侧一致：seek + 斥力 + 攻击 + 障碍推出 + 积分。
 func step(dt: float, player_x: float, player_z: float) -> void:
 	if _active == 0:
 		return
 	_rebuild_grid()
+	_tick_attacks(dt, player_x, player_z)
 
 	# 阶段 1：转向（seek 插值，不含斥力）
 	for i in _capacity:
@@ -256,6 +273,27 @@ func step(dt: float, player_x: float, player_z: float) -> void:
 		_pz[i] = nz
 
 
+## 攻击：进入范围的单位按间隔发攻击事件。
+## **不在本类结算伤害**——与 C++ 侧同口径，交给 GDScript 走正常受击链路。
+func _tick_attacks(dt: float, player_x: float, player_z: float) -> void:
+	var r2 := _attack_range * _attack_range
+	for i in _capacity:
+		if _alive[i] == 0:
+			continue
+		if _atk_cd[i] > 0.0:
+			_atk_cd[i] -= dt
+		var dx: float = _px[i] - player_x
+		var dz: float = _pz[i] - player_z
+		if dx * dx + dz * dz > r2 or _atk_cd[i] > 0.0:
+			continue
+		_atk_cd[i] = _attack_interval
+		_events.append({
+			"type": "attack", "id": i,
+			"pos": Vector3(_px[i], 0.0, _pz[i]),
+			"is_elite": false, "damage": _attack_damage,
+		})
+
+
 ## 重建空间哈希（降级路径用 Dictionary，不追求 C++ 的六步流水线）
 func _rebuild_grid() -> void:
 	_grid.clear()
@@ -342,7 +380,7 @@ func apply_damage(ids: PackedInt32Array, amount: float) -> int:
 			_events.append({
 				"type": "death", "id": id,
 				"pos": Vector3(_px[id], 0.0, _pz[id]),
-				"is_elite": false,
+				"is_elite": false, "damage": 0.0,
 			})
 			despawn(id)
 			kills += 1

@@ -46,6 +46,9 @@ public:
 	int apply_damage(const PackedInt32Array &ids, float amount);
 	Array drain_events();
 
+	// 攻击参数：进入 range 的单位每 interval 秒对玩家造成 damage（发事件）
+	void set_attack_params(float range, float interval, float damage);
+
 	PackedFloat32Array get_render_buffer() const;
 	int get_active_count() const;
 	int get_capacity() const;

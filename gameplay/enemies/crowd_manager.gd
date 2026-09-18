@@ -17,6 +17,8 @@ extends Node3D
 
 ## 死亡事件（供 room_controller 结算计数与掉落）
 signal crowd_died(position: Vector3, is_elite: bool)
+## 群体单位攻击玩家（供 room_controller 走正常受击结算）
+signal crowd_attacked(position: Vector3, damage: float)
 
 ## 模拟核实例（真扩展或 GDScript 降级）
 var sim: Node = null
@@ -41,6 +43,10 @@ func _ready() -> void:
 	add_child(sim)
 	_capacity = CrowdSimLoader.capacity_limit()
 	sim.call("setup", _capacity, 2.0)
+	# 攻击参数：进 1.4 米每 1.2 秒打 8 点。
+	# 数值取"基础杂兵"档——真正的差异化等批次 6 把怪物类型带进核里再说。
+	if sim.has_method("set_attack_params"):
+		sim.call("set_attack_params", 1.4, 1.2, 8.0)
 	_setup_multimesh()
 	_ensure_player()
 
@@ -138,13 +144,22 @@ func _sync_render() -> void:
 	_multimesh.buffer = sim.call("get_render_buffer")
 
 
-## 消费死亡事件：同步计数 + 转成信号
+## 消费死亡/攻击事件。
+##
+## **攻击事件必须导出**：模拟核不知道玩家的护甲/减伤/无敌帧，
+## 也不该知道——它只报"谁在何时打了多少"，由 GDScript 侧走正常的
+## `take_damage` 链路结算（与节点式敌人同一套规则）。
+## 若在核里直接扣血，玩家堆防御就对群体单位无效——那种不一致极难察觉。
 func _drain_deaths() -> void:
 	var evs: Array = sim.call("drain_events")
 	if evs.is_empty():
 		return
 	for e in evs:
 		var d: Dictionary = e
+		if str(d.get("type", "")) == "attack":
+			crowd_attacked.emit(d.get("pos", Vector3.ZERO),
+				float(d.get("damage", 0.0)))
+			continue
 		active = maxi(active - 1, 0)
 		_spawn_meta.erase(int(d.get("id", -1)))
 		crowd_died.emit(d.get("pos", Vector3.ZERO), bool(d.get("is_elite", false)))

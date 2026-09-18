@@ -45,6 +45,7 @@ func _ready() -> void:
 	_test_queries(cs)
 	_test_damage_and_events(cs)
 	_test_double_buffer(cs)
+	_test_attack_events(cs)
 
 	if failed == 0:
 		print("ALL CROWD SIM TESTS PASSED")
@@ -184,18 +185,19 @@ func _test_damage_and_events(cs) -> void:
 	# 半死：每个打 30（剩 20）
 	var k1 := int(cs.call("apply_damage", hits, 30.0))
 	_check(k1 == 0, "打 30 伤害不死（hp 50→20）")
-	_check(cs.call("drain_events").size() == 0, "无死亡则无事件")
+	# 只数 death 事件——攻击事件也会进同一个队列，不能整体判空
+	_check(_count_deaths(cs.call("drain_events")) == 0, "无死亡则无死亡事件")
 	# 补刀
 	var k2 := int(cs.call("apply_damage", hits, 30.0))
 	_check(k2 == 5, "补刀击杀 5 个（实际 %d）" % k2)
 	var evs: Array = cs.call("drain_events")
-	_check(evs.size() == 5, "产生 5 条死亡事件（实际 %d）" % evs.size())
+	_check(_count_deaths(evs) == 5, "产生 5 条死亡事件（实际 %d）" % _count_deaths(evs))
 	if evs.size() > 0:
 		var e: Dictionary = evs[0]
 		_check(str(e.get("type", "")) == "death", "事件类型为 death")
 		_check(e.get("pos") is Vector3, "事件带世界坐标")
 	_check(int(cs.call("get_active_count")) == 0, "全部死亡后活跃数为 0")
-	_check(cs.call("drain_events").size() == 0, "事件取走后清空（不重复消费）")
+	_check(_count_deaths(cs.call("drain_events")) == 0, "事件取走后清空（不重复消费）")
 
 
 ## 双缓冲：step 后读缓冲切换，渲染数据取自已完成的那份
@@ -215,6 +217,58 @@ func _test_double_buffer(cs) -> void:
 	var dead_slot := n64 - 1
 	_check(absf(buf[dead_slot * 12 + 0]) < 0.001,
 		"未存活实例的缩放为 0（MultiMesh 不渲染）")
+
+
+## 攻击事件：贴到攻击距离内的单位应周期性发 attack 事件。
+##
+## **这是"群体单位会打人"的最小证据**。没有它，swarm 怪只会追着玩家跑
+## 却毫无威胁——玩家站着不动永远不会掉血（实测过的缺口）。
+func _test_attack_events(cs) -> void:
+	cs.call("setup", mini(cap, 64), 2.0)
+	if cs.has_method("set_attack_params"):
+		cs.call("set_attack_params", 1.4, 0.5, 8.0)
+	else:
+		_check(false, "后端暴露 set_attack_params")
+		return
+
+	# 一只贴在玩家脚下（距离 0），一只远在天边（不该攻击）
+	var near_id := int(cs.call("spawn", 0.0, 0.0, 100.0, 1.0, 0.3, 1.0))
+	var far_id := int(cs.call("spawn", 50.0, 50.0, 100.0, 1.0, 0.3, 1.0))
+	cs.call("drain_events")   # 清掉可能的历史事件
+
+	# 跑够一个攻击间隔（0.5s @ 60fps = 30 帧），留余量到 40 帧
+	for i in 40:
+		cs.call("step", 1.0 / 60.0, 0.0, 0.0)
+	var evs: Array = cs.call("drain_events")
+	var attacks := 0
+	var from_far := 0
+	var dmg := 0.0
+	for e in evs:
+		var d: Dictionary = e
+		if str(d.get("type", "")) != "attack":
+			continue
+		attacks += 1
+		if int(d.get("id", -1)) == far_id:
+			from_far += 1
+		dmg = float(d.get("damage", 0.0))
+	_check(attacks > 0, "贴脸单位发起了攻击（%d 次）" % attacks)
+	_check(from_far == 0, "超距单位没有攻击（%d 次）" % from_far)
+	_check(absf(dmg - 8.0) < 0.01, "攻击事件带正确伤害（%.1f）" % dmg)
+	# 冷却生效：40 帧（0.67s）内不该打出超过 3 次（间隔 0.5s）
+	_check(attacks <= 3, "攻击受冷却限制（%d 次 ≤ 3）" % attacks)
+	# 清干净
+	cs.call("apply_damage", PackedInt32Array([near_id, far_id]), 999999.0)
+
+
+## 事件队列里 death 类型的条数。
+## **不能整体判空**——攻击事件也进同一个队列（批次 6 加的），
+## 用 size()==0 判断"无死亡"会被攻击事件打破（实测踩到）。
+func _count_deaths(evs: Array) -> int:
+	var n := 0
+	for e in evs:
+		if str((e as Dictionary).get("type", "")) == "death":
+			n += 1
+	return n
 
 
 func _check(cond: bool, name: String) -> void:

@@ -430,7 +430,18 @@ func _crowd() -> CrowdManager:
 	_crowd_mgr.name = "CrowdManager"
 	add_child(_crowd_mgr)
 	_crowd_mgr.crowd_died.connect(_on_crowd_died)
+	_crowd_mgr.crowd_attacked.connect(_on_crowd_attacked)
 	return _crowd_mgr
+
+
+## 群体单位攻击玩家 → 走**正常的受击链路**结算。
+##
+## 模拟核只报"打了多少"，护甲/减伤/无敌帧/护盾全由 player.take_damage 处理。
+## 若在核里直接扣血，玩家堆防御就对群体单位无效——那种不一致极难察觉。
+func _on_crowd_attacked(_pos: Vector3, damage: float) -> void:
+	var p = get_tree().get_first_node_in_group("player")
+	if p != null and p.has_method("take_damage"):
+		p.call("take_damage", damage, null)
 
 
 ## 群体死亡：同步计数 + 掉落。

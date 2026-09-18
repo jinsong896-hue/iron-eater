@@ -40,10 +40,17 @@ struct AABB {
 
 // 死亡/命中事件（导出给 GDScript 消费）
 struct SimEvent {
-	int type;      // 0 = death
+	int type;      // 0 = death, 1 = attack
 	int id;
 	float x, z;
 	int is_elite;
+	float damage;  // 仅 type=1（attack）有意义
+};
+
+// 事件类型
+enum SimEventType : int {
+	SIM_EVENT_DEATH = 0,
+	SIM_EVENT_ATTACK = 1,
 };
 
 class SimCore {
@@ -60,6 +67,14 @@ public:
 	// 一帧模拟。player_x/player_z 是"跟随目标"。
 	// 读 cur_buf_，写 1-cur_buf_，结束后由调用方 swap。
 	void step(float dt, float player_x, float player_z);
+
+	// 攻击参数（全体统一；个体差异后续按怪物类型扩展）
+	//   进入 attack_range 后每 attack_interval 秒对玩家造成一次 attack_damage
+	void set_attack_params(float range, float interval, float damage) {
+		attack_range_ = range;
+		attack_interval_ = interval > 0.0f ? interval : 1.0f;
+		attack_damage_ = damage;
+	}
 
 	// 交换双缓冲（渲染方在 step 完成后调）
 	void swap_buffers() { cur_buf_ = 1 - cur_buf_; }
@@ -100,6 +115,8 @@ private:
 	void phase_steer(float dt, float player_x, float player_z);
 	void phase_collide_obstacles();
 	void phase_integrate(float dt);
+	// 攻击：进入距离的单位按间隔对玩家造成伤害（发事件，由 GDScript 结算）
+	void phase_attack(float dt, float player_x, float player_z);
 
 	// 空间哈希：把世界坐标映射到格子下标
 	int cell_of(float x, float z) const;
@@ -121,8 +138,14 @@ private:
 	std::vector<float> radius_;
 	std::vector<float> scale_;
 	std::vector<float> stagger_;      // 剩余硬直时间
+	std::vector<float> atk_cd_;       // 攻击冷却剩余（<=0 可攻击）
 	std::vector<uint32_t> flags_;
 	std::vector<int> target_id_;      // -1 = 跟随玩家
+
+	// —— 攻击参数（全体统一）——
+	float attack_range_ = 1.4f;
+	float attack_interval_ = 1.2f;
+	float attack_damage_ = 8.0f;
 
 	int cur_buf_ = 0;
 	int active_ = 0;
