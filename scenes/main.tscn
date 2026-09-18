@@ -12,7 +12,7 @@
 [ext_resource type="PackedScene" path="res://ui/debug/debug_console.tscn" id="20_dbgcon"]
 [ext_resource type="PackedScene" path="res://ui/debug/debug_panel.tscn" id="21_dbgpanel"]
 [ext_resource type="PackedScene" path="res://scenes/ui/settings_panel.tscn" id="11_settings"]
-[ext_resource type="Script" uid="uid://328gmmesnpmx" path="res://rendering/effects/damage_text_renderer.gd" id="9_dmg_text"]
+[ext_resource type="Script" path="res://rendering/effects/mass_text_renderer.gd" id="9_dmg_text"]
 
 [sub_resource type="Environment" id="Environment_hd2d"]
 background_mode = 1
