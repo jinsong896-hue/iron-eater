@@ -89,6 +89,9 @@ func _ready() -> void:
 	# 全地牢哑门排查（本次修复的核心不变量）
 	await _test_no_dead_doors(gr)
 
+	# swarm 分流：群体模拟的生成/计数/死亡结算闭环
+	await _test_crowd_routing(gr)
+
 	_finish()
 
 ## 全地牢哑门排查：逐间房构建，断言每扇门都通向真实邻接房间
@@ -201,7 +204,64 @@ func _test_respawn_relocks(gr, idx: int) -> void:
 	await get_tree().process_frame
 
 
-## 特殊房闭环：切到特殊房 → 有门有墙有实体 → 交互结算 → 开门
+## swarm 分流闭环：开启强制开关后，基础怪应走 CrowdManager 而非 EnemyBase，
+## 且计数、清空判定、死亡掉落都要跟着走通。
+##
+## **为什么要测**：路由默认关闭（没有 MonsterDB 条目带 swarm 标记），
+## 不强制打开的话这条路径永远测不到——而"测不到"等于没有防线。
+## 这里用 RoomController.CROWD_FORCE_SWARM 静态开关临时打开。
+##
+## **必须找一个尚未被清空的房间**：本测试跑在前面的用例之后，
+## 它们已经打过若干房间；若选中已清空的房间，`activate()` 会走
+## "回访已清房间"分支直接 return，根本不刷怪（实测踩到）。
+func _test_crowd_routing(gr) -> void:
+	var idx := -1
+	for i in gr.dungeon_graph.size():
+		if str(gr.dungeon_graph[i].get("type", "")) != "normal":
+			continue
+		if bool(gr.room_state.get(i, {}).get("cleared", false)):
+			continue   # 已清空的房间不会再刷怪
+		idx = i
+		break
+	if idx < 0:
+		_check(true, "[crowd] 无未清空普通房可测（跳过）")
+		return
+
+	RoomController.CROWD_FORCE_SWARM = true
+	gr._transition_to_room(idx)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
+	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
+	_check(ctrl != null, "[crowd] 控制器就绪")
+	if ctrl == null:
+		RoomController.CROWD_FORCE_SWARM = false
+		return
+
+	var mgr = ctrl.get("_crowd_mgr")
+	_check(mgr != null, "[crowd] 强制开关下创建了 CrowdManager")
+	if mgr == null:
+		RoomController.CROWD_FORCE_SWARM = false
+		return
+
+	var n: int = int(mgr.get("active"))
+	_check(n > 0, "[crowd] 群体单位已生成（%d 个）" % n)
+	# 计数要算上群体单位（否则清空判定会提前放行）
+	_check(ctrl.enemies_alive > 0, "[crowd] enemies_alive 计入群体单位（%d）" % ctrl.enemies_alive)
+
+	# 打掉全部群体单位 → 应触发清空
+	var all = mgr.call("query_circle", 0.0, 0.0, 9999.0)
+	mgr.call("apply_damage", all, 999999.0)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(int(mgr.get("active")) == 0, "[crowd] 全灭后群体活跃数归零")
+	# 房间可能还有其他节点式怪（带机制的），故只断言"群体那部分已结算"
+	_check(ctrl.enemies_alive < n + 1,
+		"[crowd] 群体死亡已从 enemies_alive 扣除（%d）" % ctrl.enemies_alive)
+
+	RoomController.CROWD_FORCE_SWARM = false
+
+
 ## 地牢种子随机，故遍历本层实际分配到的全部特殊房类型（shop/heal/event）
 func _test_special_room(gr) -> void:
 	var targets: Array[int] = []

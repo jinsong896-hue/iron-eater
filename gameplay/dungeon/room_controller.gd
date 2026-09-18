@@ -24,6 +24,11 @@ var _portal: Area3D = null
 var _special_service
 var _special_used := false
 var _gambler_boxes: Array = []   # 赌徒挑战：已洗牌的 3 个箱子（开箱后填）
+## 群体模拟管理器（只在有 swarm 怪的房间创建，见 _crowd()）
+var _crowd_mgr: CrowdManager = null
+## 测试/调试开关：强制所有符合条件的基础怪走群体模拟。
+## 生产环境恒为 false（路由由 MonsterDB 的 swarm 标记决定）。
+static var CROWD_FORCE_SWARM := false
 
 
 func _ready() -> void:
@@ -364,6 +369,98 @@ func deactivate() -> void:
 		bus.room_exited.emit(_room_id())
 
 
+## 引擎真正消费的机制键（见 EnemyBase._apply_mechanic）。
+##
+## **不能用"special 非空"当判据**：MonsterDB._special_for 的默认分支返回
+## `{"mechanic": mech}`——那是给未来引擎实现用的**登记键**，不是已实现行为。
+## 于是每只怪都有非空 special，一刀切会把所有怪都拒掉（实测踩到）。
+## 只有下面这些键代表"这只怪真的有行为机制"，必须留在 EnemyBase 节点上。
+const ENEMY_MECHANIC_KEYS := [
+	"death_poison", "death_explode", "death_split", "summon",
+	"stealth_always", "ambush", "slow_target_pct", "haste_self_pct",
+	"healcut_on_hit", "knockback_on_hit", "aura_spec", "shield_spec",
+	"pulse_slow", "enrage_below_pct", "teleport_spec", "ranged_spec",
+]
+
+
+## 该怪是否走群体模拟（而非 EnemyBase 节点）。
+##
+## 判据刻意保守——**只有明确标了 swarm 的基础怪**才走：
+##   · 精英一律走节点（词缀行为、视觉差异、掉落规则都在节点侧）
+##   · Boss 一律走节点（阶段机制）
+##   · 带**已实现机制**的怪走节点（自爆/分裂/召唤/隐身等在 EnemyBase 里）
+## 这样"搬走"的永远是行为最简单的近战追击型基础怪。
+##
+## **测试/调试开关** `CROWD_FORCE_SWARM`：置 true 时所有符合条件的
+## 基础怪都走群体模拟，不必逐个给 MonsterDB 条目加 swarm 标记。
+## 这让路由本身可被测试覆盖——否则"默认没有怪带 swarm"意味着
+## 这条路径永远测不到，等于没有防线。
+func _should_use_crowd(m: Dictionary, is_elite_room: bool) -> bool:
+	if is_elite_room or bool(m.get("is_elite", false)):
+		return false
+	if not (CROWD_FORCE_SWARM or bool(m.get("swarm", false))):
+		return false
+	# 带已实现机制的怪不搬（机制还没进模拟核）
+	if _has_enemy_mechanic(m):
+		return false
+	if _crowd() == null:
+		return false
+	return true
+
+
+## 该怪是否带引擎已实现的机制（→ 必须留在 EnemyBase 节点上）
+func _has_enemy_mechanic(m: Dictionary) -> bool:
+	var sp: Dictionary = m.get("special", {})
+	for key in ENEMY_MECHANIC_KEYS:
+		if sp.has(key):
+			return true
+	return false
+
+
+## 惰性创建群体管理器（只在本房真的有 swarm 怪时才建）
+func _crowd() -> CrowdManager:
+	if _crowd_mgr != null and is_instance_valid(_crowd_mgr):
+		return _crowd_mgr
+	# 至少一条后端可用才建（真扩展或 GDScript 降级）。
+	# 探测走加载器而不是 ClassDB.class_exists("CrowdSimFallback")——
+	# fallback 是 class_name 脚本，不是注册到 ClassDB 的原生类。
+	if CrowdSimLoader.create() == null:
+		return null
+	_crowd_mgr = CrowdManager.new()
+	_crowd_mgr.name = "CrowdManager"
+	add_child(_crowd_mgr)
+	_crowd_mgr.crowd_died.connect(_on_crowd_died)
+	return _crowd_mgr
+
+
+## 群体死亡：同步计数 + 掉落。
+## 掉落走与节点式敌人**同一个 LootSystem 接口**，只是数据来源不同
+##（节点侧在 EnemyBase.die() 里发，这里由死亡事件驱动）。
+func _on_crowd_died(pos: Vector3, _is_elite: bool) -> void:
+	enemies_alive = maxf(enemies_alive - 1, 0)
+	var loot := LootSystem.new()
+	var parent := get_parent()
+	if parent != null:
+		loot.generate_loot({}, pos, parent)
+	if enemies_alive <= 0:
+		_on_cleared()
+
+
+## 在指定生成点创建群体单位。返回是否成功。
+func _spawn_crowd_at(point: Marker3D, m: Dictionary, difficulty_mult: float) -> bool:
+	var mgr := _crowd()
+	if mgr == null:
+		return false
+	var hp := float(m.get("hp", 100.0)) * difficulty_mult
+	var speed := 4.0 * float(m.get("speed_pct", 50)) / 100.0
+	var pos := point.global_position
+	var id := mgr.spawn_unit(pos, hp, speed, 0.35, 1.0, m)
+	if id < 0:
+		return false
+	enemies_alive += 1
+	return true
+
+
 ## 生成敌人（70% 概率/点；怪物从 MonsterDB 第一层池按房间类型选）
 func _spawn_enemies() -> void:
 	if _spawn_points.is_empty():
@@ -398,6 +495,16 @@ func _spawn_enemies() -> void:
 			var affix_ids := AffixDB.roll(phase, is_elite_room, rng)
 			if not affix_ids.is_empty():
 				AffixDB.apply(m, affix_ids)
+			# **swarm 分流**（海量单位优化）：MonsterDB 条目带 swarm:true 的
+			# 基础怪走 CrowdSim（C++ 模拟 + MultiMesh 渲染），其余（精英/
+			# 带机制怪/Boss）仍走 EnemyBase 节点。
+			#
+			# 默认没有任何怪带这个标记——路由能力就位但不改变现有行为，
+			# 真正启用是"给选定基础怪加 swarm 标记"这一数据决定。
+			# 这是刻意的分批迁移：第一版只搬"移动+碰撞+渲染"，
+			# 机制/词缀行为留给后续批次。
+			if _should_use_crowd(m, is_elite_room) and _spawn_crowd_at(point, m, difficulty_mult):
+				continue
 			var enemy := _spawn_enemy_at(point, difficulty_mult, m)
 			if enemy:
 				enemies_alive += 1
