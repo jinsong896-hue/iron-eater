@@ -388,7 +388,13 @@ static func _legacy_id(key: String) -> String:
 	return ""
 
 
-## 机制标记 → special 字典（引擎已实现的键保持原样，其余仅作登记）
+## 机制标记 → `special` 参数字典。
+##
+## **这张表是数据层到引擎行为的唯一桥梁**：返回什么键，`EnemyBase` 才能读什么。
+## 早期只映射了 6 个机制，其余一律落到 `{"mechanic": mech}`——当时无害，
+## 因为那些机制确实是纯登记；但 `dash_range` 属于**另一类**：
+## 猎犬家族的突进距离要按阶段给，而这里从没写过，
+## 导致 `ai=rusher` 的怪 `dash_range` 恒为 0、永不突进（见 enemy_base 兜底注释）。
 static func _special_for(mech: String) -> Dictionary:
 	match mech:
 		# —— 引擎已实现的机制 ——
