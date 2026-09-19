@@ -523,28 +523,39 @@ static func has_mech(boss: Dictionary, mech: String) -> bool:
 ##
 ## 若要实现其中某项，路径是：给 EnemyBase 加字段 → apply_monster_config
 ## 消费它 → 在 _special_of 里加映射 → 从本清单移除。
+##
+## **两类会腐烂的登记**（已由 `stale_unwired()` / `zombie_unwired()` 自检拦截）：
+##   · 陈旧登记——已接线却忘了从本清单移除，读清单的人会以为它没做
+##   · 僵尸登记——清单里有、但没有任何 Boss 用它，是纯噪声
+##
+## 2026-09-19 审计：清除 5 项陈旧登记（teleport / root_seconds / fear_radius /
+## ignitable / tracking_laser——均已接线，见 _special_of 对应分支）与
+## 3 项僵尸登记（lifesteal / burst_seconds / healcut_on_hit_ratio）。
+##
+## **影响面提醒**：剩余各项最多只挂在 2 个 Boss 上（53 个 Boss 里大多数
+## 只差一项），所以补其中任意一项都只影响极少数战斗，谈不上"填坑"——
+## 这些是 53 个 Boss 各自的专属特性，属大型特性计划，不是接线遗漏。
 const UNWIRED_PARAMS := [
 	# 场地/机关类：需要"可破坏物件"或"动态障碍"系统
 	"spawn_obstacle_on_hit", "energy_pillars", "devours_cover", "ring_flame",
 	"slam", "aoe_radius", "spray", "gear_projectile",
 	# 弹幕类：需要"追踪/覆盖型弹幕"发射器
-	"tracking_laser", "arrow_rain", "coverage", "safe_zone", "spear",
+	"arrow_rain", "coverage", "safe_zone", "spear",
 	"timed_bomb", "bomb", "bomb_reflectable", "bomb_countdown",
 	# 双体/共享机制：需要"多实体共享血条"的实体编排
 	"twin", "shared_hp", "three_heads", "elements",
 	# 复活/变身类
 	"ash_revive", "revive_window", "heat_buildup", "explode_at_full",
 	# 控制类：EnemyBase 无对应硬控（用光环近似，见 _special_of）
-	"root_seconds", "fear_radius", "fear_push", "exec_damage_pct",
+	"fear_push", "exec_damage_pct",
 	"chain_pull", "confuse", "random_debuff_interval", "purify_circle",
 	# 其它
-	"steal_equipment", "reflect_damage", "reflectable", "ignitable",
-	"lifesteal", "lifesteal_aura", "dot_on_hit", "reveal_on_attack",
-	"stun_after_wall", "stun_on_hit", "burst_seconds", "interruptible",
+	"steal_equipment", "reflect_damage", "reflectable",
+	"lifesteal_aura", "dot_on_hit", "reveal_on_attack",
+	"stun_after_wall", "stun_on_hit", "interruptible",
 	"windup_scale", "armor_reduction", "burn_per_second",
 	"forced_teleport_interval", "enrage_atk", "enrage_speed",
 	"split_hp_pct", "chain_split", "shield_break", "self_destruct", "fuse",
-	"teleport", "healcut_on_hit_ratio",
 	# P0 自检补登：策划语义明确但无原语
 	"burrow_seconds",      # 钻地潜伏（需"潜地不可选中"状态）
 	"absorb_buff_pct",     # 吸取场上残魂增伤（需"可击杀的增益物"系统）
@@ -552,6 +563,51 @@ const UNWIRED_PARAMS := [
 	"armor_reduction_p4",  # 第 8 层 P4 破防（BossMechanics 已按阶段降护甲，此为语义重复）
 	"interval",            # 通用周期参数，各机制自己解释（非独立机制）
 ]
+
+
+## 陈旧登记：在 UNWIRED_PARAMS 里，但 `_special_of` 其实已经消费它。
+##
+## **用行为探针判定，而不是比对另一张硬编码清单**：给每个键单独造一个
+## 只含该参数的 boss 字典，喂进 `_special_of`，若产出了 special 就说明
+## 它已被接线。比对硬编码清单的做法会随 `_special_of` 改动而失效，
+## 反而给出虚假的安全感（本次审计发现的 5 项陈旧登记就是这么漏掉的）。
+static func stale_unwired() -> Array:
+	var out: Array = []
+	for k in UNWIRED_PARAMS:
+		var probe := {"params": {str(k): _probe_value(str(k))}}
+		if not _special_of(probe).is_empty():
+			out.append(k)
+	return out
+
+
+## 僵尸登记：在 UNWIRED_PARAMS 里，但没有任何 Boss 使用它。
+static func zombie_unwired() -> Array:
+	var used := {}
+	for f in BOSSES:
+		for b in BOSSES[f]:
+			for k in b.get("params", {}).keys():
+				used[str(k)] = true
+	for k in BOSS_FLOOR_8.get("params", {}).keys():
+		used[str(k)] = true
+	for b in BOSS_FLOOR_9:
+		for k in b.get("params", {}).keys():
+			used[str(k)] = true
+	var out: Array = []
+	for k in UNWIRED_PARAMS:
+		if not used.has(k):
+			out.append(k)
+	return out
+
+
+## 探针取值：按参数语义给一个"能触发该分支"的值。
+## 布尔型给 true（分支写的是 `p.has(...) and bool(p[...])` 时才需要非 false），
+## 其余给 1.0——分支只判断 `p.has()` 的情况下任何值都够。
+static func _probe_value(key: String) -> Variant:
+	match key:
+		"cool_zone", "ignitable", "teleport", "disguise", "tracking_laser", \
+		"regen_shield", "refuel_heal":
+			return true
+	return 1.0
 
 
 ## 自检：收集 BOSSES 里实际出现、但既没接线也不在 UNWIRED_PARAMS 里的键。

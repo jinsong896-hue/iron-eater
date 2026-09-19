@@ -3555,6 +3555,18 @@ func test_boss_mechanic_wiring() -> void:
 	_check(undoc.is_empty(),
 		"所有 params 键都有交代（已接线或已登记未实现）", [undoc])
 
+	# ③b UNWIRED_PARAMS 不得腐烂。上面那条只查单向（已登记就算交代），
+	# 于是清单会往两个方向腐烂，而两条都不会被上面的断言发现：
+	#   · 陈旧登记——已接线却忘了移除，读清单的人会误以为它没做
+	#   · 僵尸登记——清单里有、但没有任何 Boss 用它，纯噪声
+	# 2026-09-19 审计时实际存在 5 项陈旧 + 3 项僵尸，说明这不是假想问题。
+	var stale := BossDB.stale_unwired()
+	_check(stale.is_empty(),
+		"UNWIRED_PARAMS 无陈旧登记（已接线的必须从清单移除）", [stale])
+	var zombie := BossDB.zombie_unwired()
+	_check(zombie.is_empty(),
+		"UNWIRED_PARAMS 无僵尸登记（清单项必须有 Boss 在用）", [zombie])
+
 	# ④ 召唤 id 必须能在 MonsterDB 查到。
 	# **行为级断言，比字段级更靠得住**：策划写的是概念名（"zombie"），
 	# MonsterDB 存的是具体 id（"zombie_prison"），早期直接传概念名导致
