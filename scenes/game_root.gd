@@ -162,6 +162,15 @@ func next_floor() -> void:
 		bus.floor_changed.emit(floor_num)
 		bus.message.emit("进入第 %d 层" % floor_num)
 
+	# 层间切换是玩家**可感知**的卡顿点：`generate_dungeon` 只同步建了起始房，
+	# 其余房间靠 `_process` 每帧 1 间补——而 1 间 ≈ 7ms，占掉一帧预算的四成
+	# （见 PRELOAD_PER_FRAME 注释），玩家会在新层里持续抖好几秒。
+	#
+	# 切层瞬间本来就有整屏传送特效盖着，正是该把预建一次做完的时机。
+	# 放在最后调：`floor_changed` 的监听方（HUD/小地图）此时已拿到新层数据，
+	# 预建不会看到半更新的状态。
+	preload_all()
+
 
 # ============================================================
 # 模板注册
@@ -265,6 +274,12 @@ func generate_dungeon(seed_value: int, count: int = -1) -> void:
 	load_current_room()
 	_place_player()
 	_activate_current_room()
+	# 首次生成走 `_init_dungeon`，那里有过渡遮罩盖着，整层一次性建完。
+	# 这条路径（测试直调 / 调试跳层）没有遮罩，留给 _process 逐帧补，
+	# 免得在无过渡的情况下同步卡住一帧。
+	if not _cinematics_enabled():
+		return
+	preload_all()
 
 
 ## 按当前层应用世界环境主题（雾色/环境光）。取不到 WorldEnvironment 时静默跳过。

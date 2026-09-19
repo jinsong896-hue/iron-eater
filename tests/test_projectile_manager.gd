@@ -157,8 +157,14 @@ func _test_hit_damages_crowd(gr) -> void:
 	_check(crowd.has_method("get_position_buffer"),
 		"CrowdManager 暴露 get_position_buffer")
 
-	# 在玩家附近刷一个群体单位（离原点远一点，避免与地图自带怪重叠）
-	var at := Vector3(6.0, 0.0, 6.0)
+	# 刷一个群体单位。
+	#
+	# **位置必须硬编码在原点附近（房间内部），且投射物要按"单位实际位置"生成**：
+	# 核每帧跑 `phase_collide_obstacles`，单位落在墙格上会被立刻推出墙外。
+	# 若拿生成坐标当命中点，而该格恰好是墙（房间布局逐次随机），
+	# 单位会停在离生成点 0.6 米开外、正好在命中半径之外——
+	# 表现为"投射物打不中群体单位"，且只在特定房间布局下复现。
+	var at := Vector3(0.0, 0.0, 0.0)
 	var id := int(crowd.call("spawn_unit", at, 500.0, 0.0, 0.5, 1.0,
 		{"id": "test_crowd_dummy", "hp": 500.0, "defense": 0.0}))
 	if id < 0:
@@ -174,9 +180,9 @@ func _test_hit_damages_crowd(gr) -> void:
 	var hp_before := float(crowd.call("unit_hp", id))
 	var host := Node3D.new()
 	add_child(host)
-	# 起点就在单位身上，立刻命中
+	# 起点就在单位身上（用**实际位置**，不是生成位置），立刻命中
 	Projectile.spawn({
-		"direction": Vector3(1, 0, 0), "position": at,
+		"direction": Vector3(1, 0, 0), "position": crowd.call("unit_position", id),
 		"speed": 1.0, "damage": 25.0, "lifetime": 1.0,
 	}, host, Projectile.TARGET_ENEMY)
 	for i in 6:
@@ -208,8 +214,9 @@ func _test_explode_damages_crowd(gr) -> void:
 		_check(true, "（无 CrowdManager，跳过爆炸波及测试）")
 		return
 
-	# 两个单位：一个在爆心 0.5 米内（应被波及），一个在 6 米外（不该被波及）
-	var at := Vector3(14.0, 0.0, 14.0)
+	# 两个单位：一个贴爆心（应被波及），一个在 6 米外（不该被波及）。
+	# 同 `_test_hit_damages_crowd`：位置取房间内部的原点，投射物按实际位置生成。
+	var at := Vector3(0.0, 0.0, 0.0)
 	var near_id := int(crowd.call("spawn_unit", at, 500.0, 0.0, 0.5, 1.0,
 		{"id": "test_boom_near", "hp": 500.0, "defense": 0.0}))
 	var far_id := int(crowd.call("spawn_unit", at + Vector3(6.0, 0.0, 0.0), 500.0, 0.0, 0.5, 1.0,
@@ -227,7 +234,7 @@ func _test_explode_damages_crowd(gr) -> void:
 	add_child(host)
 	# 极短引信：出生即炸（与 4-16 炎骨弓手 arrow_explode 同款参数）
 	Projectile.spawn({
-		"direction": Vector3(1, 0, 0), "position": at,
+		"direction": Vector3(1, 0, 0), "position": crowd.call("unit_position", near_id),
 		"speed": 1.0, "damage": 5.0, "lifetime": 1.0,
 		"fuse": 0.05, "explode_radius": 2.0, "explode_damage": 30.0,
 	}, host, Projectile.TARGET_ENEMY)

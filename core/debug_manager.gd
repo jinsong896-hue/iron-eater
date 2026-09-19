@@ -260,6 +260,11 @@ func _cmd_list(args: Array) -> Dictionary:
 			for e in alive:
 				if is_instance_valid(e):
 					lines3.append("  %s  血 %.0f" % [str(e.get("monster_name")), float(e.get("_hp"))])
+			# 群体单位（CrowdSim）不是场景节点，上面那份清单里没有它们——
+			# 不单独报一行的话，玩家会看到"存活 0 只"却仍在战斗中。
+			var crowd = ctrl.get("_crowd_mgr")
+			if crowd != null and is_instance_valid(crowd):
+				lines3.append("  [群体模拟] %d 只" % int(crowd.get("active")))
 			return _ok("\n".join(lines3))
 	return _err("用法：list monsters|rooms|entities")
 

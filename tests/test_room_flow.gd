@@ -49,11 +49,8 @@ func _ready() -> void:
 				any_locked = true
 		_check(any_locked, "战斗中门已锁")
 
-		# 杀光敌人
-		for e in ctrl._living_enemies.duplicate():
-			if is_instance_valid(e):
-				e.set("dodge_pct", 0.0)
-				e.take_damage(999999.0)
+		# 杀光敌人（节点式 + 群体单位，走产品死亡路径）
+		ctrl.debug_kill_all_enemies()
 		await get_tree().process_frame
 		await get_tree().process_frame
 		_check(ctrl.is_cleared, "清怪后房间标记清空")

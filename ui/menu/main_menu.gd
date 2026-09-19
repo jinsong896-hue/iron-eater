@@ -66,6 +66,17 @@ var selected_difficulty := "normal"
 
 
 func _ready() -> void:
+	# 暂停态下也要能交互。
+	#
+	# 结算页 `settlement_panel._on_continue()` 是先 `paused = false` 再切场景的，
+	# 所以常规「死亡 → 结算 → 回主菜单」不会带着暂停进来。但**不能依赖这条**：
+	# 只要有任何一条路径在 paused 仍为 true 时切到主菜单（新加的入口、异常
+	# 中断、将来把结算改成延迟切场景），本菜单就会整体冻结——按钮不响应，
+	# ESC 也不响应（`_unhandled_input` 同样不跑），表现为「主页面 UI 点不动」。
+	#
+	# 另外三个菜单（pause / settlement / settings）都设了 ALWAYS，只有本菜单
+	# 漏了。对齐即可，不改变任何现有行为。
+	process_mode = PROCESS_MODE_ALWAYS
 	_setup_main_menu()
 	_setup_save_select()
 	_setup_profile()

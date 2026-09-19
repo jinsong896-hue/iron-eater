@@ -64,9 +64,8 @@ func _ready() -> void:
 			boss.take_damage(999999.0)
 		await get_tree().process_frame
 		# 清掉残余召唤物，让房间真正满足清空条件
-		for e in controller.get("_living_enemies").duplicate():
-			if is_instance_valid(e) and e.get("_hp") != null and float(e.get("_hp")) > 0.0:
-				e.take_damage(999999.0)
+		# （节点式 + 群体单位一起清；群体单位不在 `_living_enemies` 里）
+		controller.debug_kill_all_enemies()
 		await get_tree().process_frame
 		await get_tree().process_frame
 		_check(controller.is_cleared, "Boss 死后房间清空")

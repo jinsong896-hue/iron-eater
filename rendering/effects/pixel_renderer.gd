@@ -70,9 +70,17 @@ func _ready() -> void:
 	# 二者都在低分辨率缓冲上做亚像素平滑，会把颗粒感抹掉（`ai/hd2d.md` 第二十七条同源理由）
 	_viewport.msaa_3d = Viewport.MSAA_DISABLED
 	_viewport.use_taa = false
-	# 3D 侧不吃输入；键鼠事件由 UI 层与 InputManager 处理
+	# 3D 侧不吃输入；键鼠事件由 UI 层与 InputManager 处理。
+	#
+	# **`gui_disable_input` 必须保持 false**（实测验证，勿改回 true）：
+	# 置 true 会让本视口**完全不接收转发事件**，视口内的节点收不到任何
+	# `_unhandled_input`。玩家（`Player`）就在这个 SubViewport 里，而交互键 E
+	# 只在 `Player._unhandled_input` 里处理——置 true 后按 E 毫无反应
+	#（移动/攻击走 `Input.is_action_pressed()` 轮询，与视口无关，故只有交互键会死）。
+	# 「不让 3D 视口吃掉给 UI 的输入」靠 `handle_input_locally = false` 就够了：
+	# 那表示本视口不消费事件，事件会继续往上层视口传递。
 	_viewport.handle_input_locally = false
-	_viewport.gui_disable_input = true
+	_viewport.gui_disable_input = false
 
 	# 尺寸由 SubViewportContainer 反推（见 _sync_viewport_size），不再手写死值
 	_viewport.size_changed.connect(_sync_viewport_size)

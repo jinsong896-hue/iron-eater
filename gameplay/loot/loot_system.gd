@@ -286,12 +286,11 @@ func _spawn_pickup(item: EquipmentInstance, position: Vector3, parent: Node3D) -
 	mesh.mesh = box
 
 	var rarity_color: Color = EquipmentDefs.RARITY_COLORS.get(item.rarity, Color.WHITE)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = rarity_color
-	mat.emission_enabled = true
-	mat.emission = rarity_color
-	mat.emission_energy_multiplier = 0.5
-	mesh.material_override = mat
+	# 走统一的 toon 工厂（全项目唯一材质入口）。此前这里是最后一处
+	# `StandardMaterial3D`，掉落物因此不吃卡通渲染、在满屏 toon 里显得突兀。
+	# 自发光沿用原值：稀有度颜色的光晕是"一眼看出稀有度"的主要线索。
+	mesh.material_override = ToonMaterial.create(
+		rarity_color, null, Color.WHITE, rarity_color, 0.5, false)
 
 	pickup.set_meta("instance_id", item.instance_id)
 	pickup.set_meta("template_id", str(item.template_id))

@@ -25,35 +25,40 @@ PASSED_SUITES=()
 run_script_suite() {
 	local name="$1" path="$2"
 	echo "── $name ──────────────────────────────"
-	local out
+	local out rc
 	out=$(timeout 300 "$GODOT" --headless --path . --script "$path" 2>&1)
+	rc=$?
 	echo "$out" | grep -E "ALL .*PASSED|FAILED:|\.\.\. FAIL|ALL [0-9]+ TESTS" || true
-	# 必须出现明确的通过标记才算通过：脚本解析失败/超时挂起时输出里
-	# 既无 PASSED 也无 FAILED，只查 FAILED 会把它误判为通过（假绿灯）
-	if ! echo "$out" | grep -qE "PASSED"; then
-		echo "  (未出现 PASSED 标记——脚本可能加载失败或挂起)"
-		FAILED_SUITES+=("$name")
-	elif echo "$out" | grep -qE "FAILED:|\.\.\. FAIL"; then
-		FAILED_SUITES+=("$name")
-	else
-		PASSED_SUITES+=("$name")
-	fi
+	_judge "$name" "$out" "$rc"
 }
 
 # 场景模式套件（.tscn，带 autoload，真实节点树）
 run_scene_suite() {
 	local name="$1" path="$2"
 	echo "── $name ──────────────────────────────"
-	local out
+	local out rc
 	out=$(timeout 300 "$GODOT" --headless --path . "$path" 2>&1)
+	rc=$?
 	echo "$out" | grep -E "ALL .*PASSED|FAILED:|\[FAIL\]" || true
-	if ! echo "$out" | grep -qE "PASSED"; then
-		echo "  (未出现 PASSED 标记——脚本可能加载失败或挂起)"
+	_judge "$name" "$out" "$rc"
+}
+
+# 判定单套结果。
+#
+# **必须同时看退出码**：套件跑完会调 `get_tree().quit(0)`，进程随即退出，
+# stdout 管道里尚未冲刷的缓冲会被丢掉——`$(...)` 抓到的流是**被截断**的，
+# 截断位置每次不同（表现为"每轮红的套件不一样"，而单独跑同样的套件却通过）。
+# 只查文本就会把已通过的套件判成失败。退出码不受缓冲影响，是权威信号；
+# 文本标记仍保留，用于兜住"退出码 0 但实际有断言失败"的情况。
+_judge() {
+	local name="$1" out="$2" rc="$3"
+	if echo "$out" | grep -qE "FAILED:|\.\.\. FAIL|\[FAIL\]"; then
 		FAILED_SUITES+=("$name")
-	elif echo "$out" | grep -qE "FAILED:|\[FAIL\]"; then
-		FAILED_SUITES+=("$name")
-	else
+	elif echo "$out" | grep -qE "PASSED" || [ "$rc" -eq 0 ]; then
 		PASSED_SUITES+=("$name")
+	else
+		echo "  (退出码 $rc，且未出现 PASSED 标记——脚本可能加载失败或挂起)"
+		FAILED_SUITES+=("$name")
 	fi
 }
 

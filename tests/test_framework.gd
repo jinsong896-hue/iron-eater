@@ -989,12 +989,12 @@ func test_room_combat_loop() -> void:
 	_check(alive > 0, "激活后刷出敌人（alive=%d）" % alive, [alive])
 
 	if alive > 0:
-		# 杀死所有活敌 → 房间清空（先清闪避，确保击杀确定性）
-		var enemies: Array = controller.get("_living_enemies")
-		for e in enemies:
-			if is_instance_valid(e):
-				e.set("dodge_pct", 0.0)
-				e.take_damage(99999.0)
+		# 杀死所有活敌 → 房间清空。
+		# **必须走 `debug_kill_all_enemies()` 而不是自己遍历 `_living_enemies`**：
+		# 后者只有节点式敌人，群体单位（CrowdSim）住在模拟核的 SoA 数组里、
+		# 不是场景节点，漏掉就会让 `enemies_alive` 归不了零、`is_cleared` 恒 false。
+		# 基础怪带 `swarm` 标记后（僵尸/狂暴囚犯/猎犬）本房会真的刷出群体单位。
+		controller.debug_kill_all_enemies()
 		_check(controller.is_cleared, "全灭后房间清空")
 
 	room_root.queue_free()

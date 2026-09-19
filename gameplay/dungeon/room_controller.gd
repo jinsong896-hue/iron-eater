@@ -212,22 +212,51 @@ func debug_spawn(monster_id: String, count: int, at: Vector3) -> Dictionary:
 
 
 ## 清空当前房间的所有敌人（立刻结算清空，供调试跳过战斗）
+##
+## 与 `debug_kill_all_enemies()` 的区别：本函数**不产死亡事件**（不走掉落、
+## 不计击杀），只是把场地清干净并强制结算；后者走完整死亡路径。
+## 两者都必须覆盖群体单位——只清节点侧的话，模拟核里的单位会继续攻击玩家。
 func debug_clear_enemies() -> void:
 	for e in _living_enemies.duplicate():
 		if is_instance_valid(e):
 			e.queue_free()
 	_living_enemies.clear()
+	if _crowd_mgr != null and is_instance_valid(_crowd_mgr):
+		_crowd_mgr.kill_all_units()
 	enemies_alive = 0
 	_on_cleared()
 
 
 ## 运行时存活实体清单（读 _living_enemies，不遍历场景树）
+##
+## **注意：这里只有节点式敌人。** 群体单位（CrowdSim）住在模拟核的 SoA
+## 数组里、不是场景节点，不在本清单内——需要连它们一起处理时用
+## `debug_kill_all_enemies()`，别自己遍历本清单去"清场"。
 func debug_living_enemies() -> Array:
 	var out: Array = []
 	for e in _living_enemies:
 		if is_instance_valid(e):
 			out.append(e)
 	return out
+
+
+## 清空本房所有存活敌人（节点式 + 群体），走正常死亡路径。
+## 返回被清掉的总数。
+##
+## 存在的理由：`enemies_alive` 把两类敌人算在一起，而它们的死亡入口完全不同
+##（节点侧 `EnemyBase.die()` / 群体侧 `crowd_died` 信号）。任何"清场"的调用方
+## 只处理一半，就会让 `enemies_alive` 归不了零 → 房间永不清空 → 门永不开。
+## 调试命令与测试都走这里，保证与产品路径同一套清空逻辑。
+func debug_kill_all_enemies() -> int:
+	var n := 0
+	for e in _living_enemies.duplicate():
+		if is_instance_valid(e):
+			e.set("dodge_pct", 0.0)      # 清闪避，保证击杀确定性
+			e.take_damage(999999.0)
+			n += 1
+	if _crowd_mgr != null and is_instance_valid(_crowd_mgr):
+		n += _crowd_mgr.kill_all_units()
+	return n
 
 
 ## 房间清空（标记状态并落盘到 GameRoot.room_state，供回访时恢复）

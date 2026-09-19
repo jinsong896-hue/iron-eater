@@ -235,6 +235,35 @@ func _free_host(id: int) -> void:
 		h.queue_free()
 
 
+## 清空全部群体单位，走正常死亡路径（死亡事件照常经 `_drain_deaths` 导出）。
+##
+## 存在的理由：`RoomController.enemies_alive` 把节点式敌人与群体单位**算在一起**，
+## 但两者的死亡入口完全不同（节点侧 `EnemyBase.die()` / 群体侧 `crowd_died`）。
+## 任何"清场"的调用方只处理一半，就会让计数归不了零 → 房间永不清空 → 门永不开。
+## 统一收在这里，调试命令与测试共用同一套清空逻辑。
+##
+## **走 `apply_damage` 而不是 `despawn_unit`**：后者是静默移除，不产死亡事件，
+## 调用方（掉落、计数、特效）全都收不到通知——那正是"清场清不干净"的成因。
+func kill_all_units() -> int:
+	if sim == null or active == 0:
+		return 0
+	# 空间网格只在 `step()` 里重建：没跑过物理帧时 `query_circle` 恒返回空。
+	# 故这里直接扫 id 空间（容量 2048，一次扫描可忽略），不依赖核的空间索引。
+	var ids := PackedInt32Array()
+	for i in range(_capacity):
+		if bool(sim.call("is_alive", i)):
+			ids.append(i)
+	if ids.is_empty():
+		return 0
+	var kills := apply_damage(ids, 1.0e9)
+	# **必须立刻排空事件**：死亡事件平时由 `_physics_process` → `_drain_deaths()`
+	# 消费，而"清场"的调用方（调试命令、测试）在调用后**不会**再跑物理帧——
+	# 不排空的话 `active` 不掉、`crowd_died` 不发，`enemies_alive` 就永远差一只，
+	# 房间清不掉、门不开（实测踩到：killed=6 而 enemies_alive 仍为 1）。
+	_drain_deaths()
+	return kills
+
+
 ## 查询接口（批次 5 的命中判定用）
 func query_circle(cx: float, cz: float, radius: float) -> PackedInt32Array:
 	if sim == null:

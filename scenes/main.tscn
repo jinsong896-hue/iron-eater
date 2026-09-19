@@ -51,6 +51,7 @@ stretch_shrink = 2
 
 [node name="SubViewport" type="SubViewport" parent="GameRoot/ViewportContainer"]
 handle_input_locally = false
+gui_disable_input = false
 size = Vector2i(640, 360)
 render_target_update_mode = 4
 

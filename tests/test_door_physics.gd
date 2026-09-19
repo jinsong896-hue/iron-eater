@@ -38,10 +38,8 @@ func _ready() -> void:
 	# --- 清怪开门（真实流程）---
 	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
 	if ctrl.enemies_alive > 0:
-		for e in ctrl._living_enemies.duplicate():
-			if is_instance_valid(e):
-				e.set("dodge_pct", 0.0)
-				e.take_damage(999999.0)
+		# 杀光敌人（节点式 + 群体单位，走产品死亡路径）
+		ctrl.debug_kill_all_enemies()
 		await get_tree().process_frame
 		await get_tree().process_frame
 
