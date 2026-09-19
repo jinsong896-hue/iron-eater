@@ -152,9 +152,12 @@ func _ready() -> void:
 	_c(p._flash_timer > 0.0, "玩家受击进入闪红状态")
 	var pmat = p._model.material_override if p._model else null
 	_c(pmat != null, "玩家模型有独立材质（闪红可控）")
+	# 模型已换用卡通着色器（ToonMaterial），本色存在 ShaderMaterial 参数里，
+	# 没有 `albedo_color` 属性可读——统一走 ToonMaterial.get_color
 	if pmat:
-		_c(pmat.albedo_color.r > pmat.albedo_color.g, "闪红时偏红",
-			"color=%s" % str(pmat.albedo_color))
+		var pcol := ToonMaterial.get_color(pmat)
+		_c(pcol.r > pcol.g, "闪红时偏红",
+			"color=%s" % str(pcol))
 
 	# --- #1 攻击输入不再丢帧（按五次才出一次的老问题）---
 	# 根因：attack_direction 在 _process 开头清零、由 _physics_process 读取，

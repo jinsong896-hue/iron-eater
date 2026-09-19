@@ -84,8 +84,7 @@ static func _create_door_node() -> Node3D:
 	var frame_box := BoxMesh.new()
 	frame_box.size = Vector3(DOOR_WIDTH, DOOR_HEIGHT, DOOR_THICKNESS)
 	frame.mesh = frame_box
-	var frame_mat := StandardMaterial3D.new()
-	frame_mat.albedo_color = Color(0.3, 0.22, 0.15)
+	var frame_mat := ToonMaterial.create(Color(0.3, 0.22, 0.15))
 	frame.material_override = frame_mat
 	root.add_child(frame)
 

@@ -846,26 +846,24 @@ func _create_visual() -> void:
 	capsule.height = 1.8 * body_scale
 	model.mesh = capsule
 	model.position = Vector3(0, 0.9 * body_scale, 0)
-	var mat := StandardMaterial3D.new()
+	var color := Color(0.5, 0.3, 0.7)  # 紫色特殊（默认）
 	match behavior:
 		AIBehavior.MELEE_CHASE:
-			mat.albedo_color = Color(0.8, 0.2, 0.2)  # 红色近战
+			color = Color(0.8, 0.2, 0.2)  # 红色近战
 		AIBehavior.RANGED_KITE:
-			mat.albedo_color = Color(0.2, 0.2, 0.8)  # 蓝色远程
+			color = Color(0.2, 0.2, 0.8)  # 蓝色远程
 		AIBehavior.SENTRY:
-			mat.albedo_color = Color(0.2, 0.6, 0.6)  # 青色哨兵
+			color = Color(0.2, 0.6, 0.6)  # 青色哨兵
 		AIBehavior.RUSHER:
-			mat.albedo_color = Color(0.85, 0.5, 0.1)  # 橙色突进
-		_:
-			mat.albedo_color = Color(0.5, 0.3, 0.7)  # 紫色特殊
-	mat.emission_enabled = death_poison  # 毒怪发光提示
-	if death_poison:
-		mat.emission = Color(0.2, 0.8, 0.2)
-		mat.emission_energy_multiplier = 0.4
+			color = Color(0.85, 0.5, 0.1)  # 橙色突进
+	# 卡通材质 + 反壳描边（毒怪带绿色自发光提示）
+	var mat := ToonMaterial.create(color, null, Color.WHITE,
+		Color(0.2, 0.8, 0.2) if death_poison else Color.BLACK,
+		0.4 if death_poison else 0.0)
 	model.material_override = mat
 	add_child(model)
 	_model = model
-	_visual_color = mat.albedo_color  # 记录本色，闪红后还原用
+	_visual_color = color  # 记录本色，闪红后还原用
 	_create_health_bar()
 	_create_elite_marker()
 
@@ -1207,18 +1205,16 @@ func _set_windup_visual(active: bool) -> void:
 	var model := get_node_or_null("Model") as MeshInstance3D
 	if model == null:
 		return
-	var mat := model.material_override as StandardMaterial3D
+	var mat := model.material_override as ShaderMaterial
 	if mat == null:
 		return
 	if active:
-		mat.emission_enabled = true
-		mat.emission = Color(1.0, 0.95, 0.5)
-		mat.emission_energy_multiplier = 0.8
+		ToonMaterial.set_emission(mat, Color(1.0, 0.95, 0.5), 0.8)
 	elif not death_poison:
-		mat.emission_enabled = false
+		ToonMaterial.set_emission(mat, Color.BLACK, 0.0)
 	else:
-		mat.emission = Color(0.2, 0.8, 0.2)
-		mat.emission_energy_multiplier = 0.4
+		# 毒怪：前摇结束后退回常驻绿光，而不是熄掉
+		ToonMaterial.set_emission(mat, Color(0.2, 0.8, 0.2), 0.4)
 
 
 ## 受击硬直推进：AI 暂停，击退速度摩擦衰减
@@ -1370,12 +1366,12 @@ func _swap_with_player(max_dist: float = 8.0) -> void:
 
 
 ## 隐身视觉：常态半透明（暗影潜伏者）
+##
+## 用 `GeometryInstance3D.transparency` 而非材质 alpha——见
+## ToonMaterial.set_model_transparency 的注释（改材质 alpha 会掉进透明队列，
+## 既拖慢几何又破坏屏幕空间描边读的深度缓冲）。
 func _apply_stealth_visual() -> void:
-	if _model == null or _model.material_override == null:
-		return
-	var mat := _model.material_override as StandardMaterial3D
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color.a = 0.35
+	ToonMaterial.set_model_transparency(_model, 0.35)
 
 
 ## 推进潜伏/隐身/护盾计时器
@@ -1405,9 +1401,7 @@ func _try_ambush() -> bool:
 		return false
 	_ambush_armed = false
 	# 显形（潜伏态结束）
-	if _model != null and _model.material_override != null:
-		var mat := _model.material_override as StandardMaterial3D
-		mat.albedo_color.a = 1.0
+	ToonMaterial.set_model_transparency(_model, 1.0)
 	# 突袭伤害：高倍率
 	var dmg := atk * ambush_damage_pct
 	if (_player as Node3D).has_method("take_damage"):
@@ -1823,8 +1817,7 @@ func take_damage(amount: float, _is_crit: bool = false,
 	# 隐身怪受击：显形 3 秒
 	if stealth_always or stealth_exit_bonus > 0.0:
 		_reveal_timer = 3.0
-		if _model != null and _model.material_override != null:
-			(_model.material_override as StandardMaterial3D).albedo_color.a = 1.0
+		ToonMaterial.set_model_transparency(_model, 1.0)
 	# 矿晶甲虫：常驻护甲减伤（在调用方已算的防御减伤之上再叠一层）
 	if armor_plates > 0.0:
 		amount = amount * (1.0 - armor_plates)
@@ -1893,16 +1886,16 @@ func _flash_hit() -> void:
 func _update_flash() -> void:
 	if _model == null or _model.material_override == null:
 		return
-	var mat := _model.material_override as StandardMaterial3D
+	var mat := _model.material_override as ShaderMaterial
 	if mat == null:
 		return
 	if _flash_timer <= 0.0:
-		mat.albedo_color = _visual_color
+		ToonMaterial.set_color(mat, _visual_color)
 		return
 	# 前 40% 全红，剩余时间线性退回本色
 	var t := _flash_timer / HIT_FLASH_DURATION
 	var blend := clampf(t / 0.4, 0.0, 1.0)
-	mat.albedo_color = Color(1.0, 0.15, 0.15).lerp(_visual_color, 1.0 - blend)
+	ToonMaterial.set_color(mat, Color(1.0, 0.15, 0.15).lerp(_visual_color, 1.0 - blend))
 
 
 func die() -> void:

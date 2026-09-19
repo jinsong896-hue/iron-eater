@@ -396,12 +396,14 @@ func _setup_hit_model() -> void:
 	_model = get_node_or_null("Model") as MeshInstance3D
 	if _model == null:
 		return
+	# 取原本的纯色（player.tscn 的 Model 没挂材质，取到 null 就用白色兜底），
+	# 再换成卡通材质。反壳描边挂在它的 next_pass 上。
 	var src := _model.get_active_material(0) as StandardMaterial3D
-	var mat := StandardMaterial3D.new()
 	if src != null:
-		mat = src.duplicate() as StandardMaterial3D
-	_base_color = mat.albedo_color
-	_model.material_override = mat
+		_base_color = src.albedo_color
+	else:
+		_base_color = Color.WHITE
+	_model.material_override = ToonMaterial.create(_base_color)
 
 
 ## 装配状态机：注册五个状态并进入默认的 MoveState
@@ -1916,15 +1918,17 @@ func add_hit_combo(n: int) -> void:
 func _update_flash() -> void:
 	if _model == null or _model.material_override == null:
 		return
-	var mat := _model.material_override as StandardMaterial3D
+	# 卡通材质是 ShaderMaterial，改色走 ToonMaterial 的 set_color
+	# （原先 as StandardMaterial3D 的写法在这里会静默拿到 null）
+	var mat := _model.material_override as ShaderMaterial
 	if mat == null:
 		return
 	if _flash_timer <= 0.0:
-		mat.albedo_color = _base_color
+		ToonMaterial.set_color(mat, _base_color)
 		return
 	var t := _flash_timer / HIT_FLASH_DURATION
 	var blend := clampf(t / 0.4, 0.0, 1.0)
-	mat.albedo_color = Color(1.0, 0.15, 0.15).lerp(_base_color, 1.0 - blend)
+	ToonMaterial.set_color(mat, Color(1.0, 0.15, 0.15).lerp(_base_color, 1.0 - blend))
 
 
 ## 玩家受击。

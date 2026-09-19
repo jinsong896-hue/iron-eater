@@ -176,25 +176,24 @@ const CORNER_UVS: Array[Vector2] = [
 ]
 
 static func _wall_material(theme_color: Color = Color.TRANSPARENT,
-		theme_id: String = "", has_tex: bool = false) -> StandardMaterial3D:
+		theme_id: String = "", has_tex: bool = false) -> ShaderMaterial:
 	var key := "%.3f_%.3f_%.3f|%s" % [theme_color.r, theme_color.g, theme_color.b, theme_id]
 	if _wall_mat_cache.has(key):
 		return _wall_mat_cache[key]
-	var mat := StandardMaterial3D.new()
+	var texture: Texture2D = null
+	var tint := Color.WHITE
 	if has_tex and ResourceLoader.exists(AtlasDefs.SHEET_PATH):
-		var tex := ResourceLoader.load(AtlasDefs.SHEET_PATH, "Texture2D",
+		texture = ResourceLoader.load(AtlasDefs.SHEET_PATH, "Texture2D",
 			ResourceLoader.CACHE_MODE_REUSE) as Texture2D
-		if tex != null:
-			mat.albedo_texture = tex
-			mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		if texture != null:
 			# 与地板同理：先量贴图该格亮度，再反解系数，让
 			# 「albedo_color × texture」的结果回到主题色亮度
-			mat.albedo_color = AtlasDefs.tint_for(theme_color,
-				AtlasDefs.wall_tile(theme_id))
-			_wall_mat_cache[key] = mat
-			return mat
-	mat.albedo_color = theme_color if theme_color.a > 0.0 else Color(0.3, 0.3, 0.35)
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+			tint = AtlasDefs.tint_for(theme_color, AtlasDefs.wall_tile(theme_id))
+	var color := theme_color if theme_color.a > 0.0 else Color(0.3, 0.3, 0.35)
+	# 墙是独立方块，挂反壳描边——相邻墙块之间会形成竖向暗线，
+	# 与屏幕空间后处理画的接缝线叠加，墙的棱角更清楚
+	var mat := ToonMaterial.create(color, texture, tint,
+		Color.BLACK, 0.0, true, 0.01)
 	_wall_mat_cache[key] = mat
 	return mat
 

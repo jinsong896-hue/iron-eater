@@ -30,7 +30,7 @@ var indestructible := false
 
 var _collision: CollisionShape3D = null
 var _flash_timer := 0.0
-var _materials: Array[StandardMaterial3D] = []
+var _materials: Array[ShaderMaterial] = []
 
 ## 受击闪红时长（与敌人同节奏）
 const HIT_FLASH_DURATION := 0.12
@@ -117,7 +117,8 @@ func _apply_flash() -> void:
 	for m in _materials:
 		if m == null:
 			continue
-		m.albedo_color = m.albedo_color.lerp(Color(1.0, 0.35, 0.35), blend * 0.8)
+		var base := ToonMaterial.get_color(m)
+		ToonMaterial.set_color(m, base.lerp(Color(1.0, 0.35, 0.35), blend * 0.8))
 
 
 # ============================================================
@@ -174,12 +175,7 @@ func _add_light(color: Color, energy: float) -> OmniLight3D:
 
 ## 建材质并**登记到 _materials**，供闪红时统一染色。
 ## 用每实例独占的材质（不复用静态材质），否则多只物件会互相串色。
-func _make_material(color: Color, emission: float) -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	if emission > 0.0:
-		mat.emission_enabled = true
-		mat.emission = color
-		mat.emission_energy_multiplier = emission
+func _make_material(color: Color, emission: float) -> ShaderMaterial:
+	var mat := ToonMaterial.create(color, null, Color.WHITE, color, emission)
 	_materials.append(mat)
 	return mat

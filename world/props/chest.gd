@@ -31,11 +31,8 @@ func _build_visual() -> void:
 	body_mesh.size = Vector3(1.0, 0.6, 0.7)
 	_body.mesh = body_mesh
 	_body.position = Vector3(0, 0.3, 0)
-	var body_mat := StandardMaterial3D.new()
-	body_mat.albedo_color = Color(0.45, 0.3, 0.15)
-	body_mat.emission_enabled = true
-	body_mat.emission = Color(0.9, 0.7, 0.2)
-	body_mat.emission_energy_multiplier = 0.15  # 微光提示可交互
+	var body_mat := ToonMaterial.create(Color(0.45, 0.3, 0.15), null, Color.WHITE,
+		Color(0.9, 0.7, 0.2), 0.15)  # 微光提示可交互
 	_body.material_override = body_mat
 	add_child(_body)
 
@@ -45,11 +42,8 @@ func _build_visual() -> void:
 	lid_mesh.size = Vector3(1.05, 0.15, 0.75)
 	_lid.mesh = lid_mesh
 	_lid.position = Vector3(0, 0.68, -0.33)
-	var lid_mat := StandardMaterial3D.new()
-	lid_mat.albedo_color = Color(0.55, 0.4, 0.2)
-	lid_mat.emission_enabled = true
-	lid_mat.emission = Color(0.9, 0.7, 0.2)
-	lid_mat.emission_energy_multiplier = 0.25
+	var lid_mat := ToonMaterial.create(Color(0.55, 0.4, 0.2), null, Color.WHITE,
+		Color(0.9, 0.7, 0.2), 0.25)
 	_lid.material_override = lid_mat
 	add_child(_lid)
 
@@ -110,6 +104,6 @@ func _open_visual() -> void:
 		tween.tween_property(_lid, "rotation:x", -1.2, 0.25)
 		tween.parallel().tween_property(_lid, "position:y", 0.85, 0.25)
 	if _body:
-		var mat := _body.material_override as StandardMaterial3D
+		var mat := _body.material_override as ShaderMaterial
 		if mat:
-			mat.emission_energy_multiplier = 0.6
+			ToonMaterial.set_emission(mat, Color(0.9, 0.7, 0.2), 0.6)

@@ -49,11 +49,8 @@ func _build_event_shrine() -> void:
 	mesh.size = Vector3(0.55, 0.6, 0.55)
 	tip.mesh = mesh
 	tip.position = Vector3(0, 1.3, 0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.6, 0.35, 0.7)
-	mat.emission_enabled = true
-	mat.emission = Color(0.85, 0.45, 1.0)
-	mat.emission_energy_multiplier = 0.35
+	var mat := ToonMaterial.create(Color(0.6, 0.35, 0.7), null, Color.WHITE,
+		Color(0.85, 0.45, 1.0), 0.35)
 	tip.material_override = mat
 	add_child(tip)
 	_add_sphere(Vector3(0, 1.75, 0), 0.18, Color(0.9, 0.5, 1.0), 0.9)
@@ -116,12 +113,6 @@ func _add_light(color: Color, energy: float) -> OmniLight3D:
 	return light
 
 
-## 构建带微光的标准材质
-func _make_material(color: Color, emission: float) -> StandardMaterial3D:
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	if emission > 0.0:
-		mat.emission_enabled = true
-		mat.emission = color
-		mat.emission_energy_multiplier = emission
-	return mat
+## 构建带微光的卡通材质
+func _make_material(color: Color, emission: float) -> ShaderMaterial:
+	return ToonMaterial.create(color, null, Color.WHITE, color, emission)

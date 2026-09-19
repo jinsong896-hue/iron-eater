@@ -146,56 +146,61 @@ static func _get_material_for_type(type: String, theme_color: Color = Color.TRAN
 	if _material_cache.has(key):
 		return _material_cache[key]
 
-	var mat := StandardMaterial3D.new()
+	var texture: Texture2D = null
 	var has_texture := false
 	# 图集贴图（有 theme_id 且文件存在时）
 	if not theme_id.is_empty() and ResourceLoader.exists(AtlasDefs.SHEET_PATH):
 		var tex := ResourceLoader.load(AtlasDefs.SHEET_PATH, "Texture2D",
 			ResourceLoader.CACHE_MODE_REUSE) as Texture2D
 		if tex != null:
-			mat.albedo_texture = tex
+			texture = tex
 			has_texture = true
-			# 像素风：最近邻采样，避免放大后糊成一团
-			mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+
+	var color := Color(0.4, 0.4, 0.4)
+	var tint := Color.WHITE
 	if has_texture:
 		# **贴图在场时不能直接乘主题色**：最终色 = albedo_color × texture，
 		# 贴图格自身有亮度（灰砖 0.8 / 暗木 0.48…），直接乘会让亮度失控
 		# （实测第 1 层从 0.30 涨到 0.95，画面洗白）。
 		# AtlasDefs.tint_for 先量出该格平均亮度，再反解出让结果回到主题色
 		# 亮度的那一个系数——纹理保留，明暗归位。
-		mat.albedo_color = AtlasDefs.tint_for(theme_color,
-			AtlasDefs.floor_tile(theme_id))
+		# 贴图与配色**并存**：贴图提供纹理（砖缝/斑点），染色提供该层的色调，
+		# 这样 Kenney 图集只有明亮自然色的限制不成问题——暗色层靠染色压暗。
+		tint = AtlasDefs.tint_for(theme_color, AtlasDefs.floor_tile(theme_id))
 	elif theme_color.a > 0.0:
 		# 无贴图 + 有主题色：退回纯色配色（保持既有行为）
 		match type:
 			"stone":
-				mat.albedo_color = theme_color
+				color = theme_color
 			"wood":
-				mat.albedo_color = theme_color.lightened(0.12)
+				color = theme_color.lightened(0.12)
 			"grass":
-				mat.albedo_color = theme_color.lightened(0.20)
+				color = theme_color.lightened(0.20)
 			"ice":
-				mat.albedo_color = theme_color.lightened(0.35)
+				color = theme_color.lightened(0.35)
 			"lava":
-				mat.albedo_color = theme_color.darkened(0.15)
+				color = theme_color.darkened(0.15)
 			_:
-				mat.albedo_color = theme_color.darkened(0.08)
+				color = theme_color.darkened(0.08)
 	else:
 		# 无主题（默认）：保持旧配色，兼容未接层主题的调用方
 		match type:
 			"stone":
-				mat.albedo_color = Color(0.35, 0.35, 0.4)
+				color = Color(0.35, 0.35, 0.4)
 			"wood":
-				mat.albedo_color = Color(0.45, 0.3, 0.2)
+				color = Color(0.45, 0.3, 0.2)
 			"grass":
-				mat.albedo_color = Color(0.2, 0.5, 0.2)
+				color = Color(0.2, 0.5, 0.2)
 			"ice":
-				mat.albedo_color = Color(0.7, 0.8, 1.0)
+				color = Color(0.7, 0.8, 1.0)
 			"lava":
-				mat.albedo_color = Color(0.8, 0.2, 0.1)
+				color = Color(0.8, 0.2, 0.1)
 			_:
-				mat.albedo_color = Color(0.4, 0.4, 0.4)
+				color = Color(0.4, 0.4, 0.4)
 
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	# 地板不挂反壳描边：它是铺满整片的大平面，反壳会把每一格沿法线外推，
+	# 相邻格互相穿透成一片黑。地板的接缝线由屏幕空间后处理负责。
+	var mat := ToonMaterial.create(color, texture, tint,
+		Color.BLACK, 0.0, false)
 	_material_cache[key] = mat
 	return mat

@@ -131,6 +131,9 @@ func _verify_floors_2_to_5(game_root: Node) -> void:
 ## albedo_color == FloorDefs 主题色；现在贴图提供纹理与材质色，
 ## albedo_color 只承载该层的明暗调制，**层间差异体现在 UV（选了哪块砖）上**。
 ## 故改为校验 mesh 的 UV 落在 AtlasDefs.floor_tile(theme) 对应的范围内。
+##
+## 材质类型变更：地板已换用卡通着色器（ToonMaterial），贴图与染色存在
+## ShaderMaterial 的参数里，不再有 `albedo_texture` 属性可直接读。
 func _floor_matches_theme(room_node: Node, floor_num: int) -> bool:
 	if room_node == null:
 		return false
@@ -140,8 +143,10 @@ func _floor_matches_theme(room_node: Node, floor_num: int) -> bool:
 	var mi := fl.get_child(0) as MeshInstance3D
 	if mi == null or mi.mesh == null:
 		return false
-	var mat := mi.material_override as StandardMaterial3D
-	if mat == null or mat.albedo_texture == null:
+	var mat := mi.material_override as ShaderMaterial
+	if mat == null or not bool(mat.get_shader_parameter("use_albedo_texture")):
+		return false
+	if mat.get_shader_parameter("albedo_texture") == null:
 		return false
 	var arrays: Array = (mi.mesh as ArrayMesh).surface_get_arrays(0)
 	if arrays.is_empty():
@@ -178,11 +183,11 @@ func _floor_color_diag(room_node: Node, floor_num: int) -> String:
 	var mi := fl.get_child(0) as MeshInstance3D
 	if mi == null:
 		return "（首子节点非 MeshInstance3D）"
-	var mat := mi.material_override as StandardMaterial3D
+	var mat := mi.material_override as ShaderMaterial
 	if mat == null:
 		return "（无材质）"
 	var want := FloorDefs.color_of(floor_num, "floor")
-	var got := mat.albedo_color
+	var got: Color = mat.get_shader_parameter("albedo")
 	return "（实际 %.2f,%.2f,%.2f / 期望 %.2f,%.2f,%.2f）" % [
 		got.r, got.g, got.b, want.r, want.g, want.b]
 

@@ -79,17 +79,15 @@ static func _create_placeholder(prop_type: String) -> Node3D:
 			mesh.mesh = box
 			mesh.position.y = 0.25
 
-	var mat := StandardMaterial3D.new()
+	var color := Color(0.5, 0.5, 0.5)
 	match prop_type:
 		"torch":
-			mat.albedo_color = Color(0.6, 0.4, 0.2)
+			color = Color(0.6, 0.4, 0.2)
 		"barrel":
-			mat.albedo_color = Color(0.5, 0.3, 0.15)
+			color = Color(0.5, 0.3, 0.15)
 		"pillar":
-			mat.albedo_color = Color(0.5, 0.5, 0.55)
-		_:
-			mat.albedo_color = Color(0.5, 0.5, 0.5)
+			color = Color(0.5, 0.5, 0.55)
 
-	mesh.material_override = mat
+	mesh.material_override = ToonMaterial.create(color)
 	root.add_child(mesh)
 	return root
