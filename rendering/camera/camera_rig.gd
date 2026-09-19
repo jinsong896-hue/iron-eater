@@ -16,6 +16,11 @@ func _ready() -> void:
 		camera = Camera3D.new()
 		camera.name = "Camera3D"
 		add_child(camera)
+	# 伤害飘字要把世界坐标投影成屏幕坐标（见 damage_text_renderer._find_camera）。
+	# 它优先按 "camera" 组找——不登记的话会回退到 `get_viewport().get_camera_3d()`，
+	# 而 UI 层的 get_viewport() 是**根视口**，根视口里根本没有 Camera3D
+	# （3D 世界已被挪进 SubViewport），于是飘字全部堆在屏幕中心。
+	camera.add_to_group("camera")
 	_setup_camera()
 	call_deferred("_find_player")
 

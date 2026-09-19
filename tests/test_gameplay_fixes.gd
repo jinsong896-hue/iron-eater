@@ -11,8 +11,8 @@ func _c(cond: bool, name: String, extra := "") -> void:
 func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
-	var gr := get_tree().current_scene.get_node_or_null("MainScene")
-	var p = gr.get_node_or_null("Player")
+	var gr := get_tree().current_scene.get_node_or_null("MainScene/GameRoot")
+	var p = gr.find_child("Player", true, false)
 	for e in get_tree().get_nodes_in_group("enemies"):
 		e.queue_free()
 	await get_tree().process_frame
@@ -81,7 +81,7 @@ func _ready() -> void:
 			_c(gr.current_room_index == idx_before or true, "二次触发不叠加")
 
 	# --- #6 HUD 血量刷新 ---
-	var hud = gr.get_node_or_null("UI/HUD")
+	var hud = get_tree().current_scene.find_child("HUD", true, false)
 	if hud:
 		GameManager.attributes.hp = 400.0
 		hud._on_player_hit(100.0, Vector3.ZERO)

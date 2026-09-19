@@ -17,7 +17,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 
-	var gr := get_tree().current_scene.get_node_or_null("MainScene")
+	var gr := get_tree().current_scene.get_node_or_null("MainScene/GameRoot")
 	if gr == null:
 		print("无 MainScene"); get_tree().quit(1); return
 
@@ -52,7 +52,7 @@ func _test_no_chain_transition(gr) -> void:
 	gr._transition_to_room(start_idx)
 	await get_tree().process_frame
 
-	var player = gr.get_node_or_null("Player")
+	var player = gr.find_child("Player", true, false)
 	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
 	# 找一扇未锁且能通往邻接房的门。先记下方向与位置——切房后旧房间会被释放，
 	# 届时不能再访问旧门节点。
@@ -166,7 +166,7 @@ func _test_no_chain_transition(gr) -> void:
 ## ② 伤害数字：敌人受击应产生飘字
 func _test_damage_numbers(gr) -> void:
 	_popups.clear()
-	var player = gr.get_node_or_null("Player")
+	var player = gr.find_child("Player", true, false)
 	if player == null:
 		_check(false, "玩家存在")
 		return
@@ -360,7 +360,7 @@ func _godot_face_normal(a: Vector3, b: Vector3, c: Vector3) -> Vector3:
 ## 真实 GPU 上新材质首次使用会同步编译着色器变体 → 攻击瞬间掉帧。
 ## 这里断言「材质种类数」有上界（缓存生效的直接证据，且不依赖机器性能）。
 func _test_slash_reuses_resources(gr) -> void:
-	var player = gr.get_node_or_null("Player")
+	var player = gr.find_child("Player", true, false)
 	if player == null:
 		_check(false, "玩家存在")
 		return

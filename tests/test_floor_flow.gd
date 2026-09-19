@@ -18,8 +18,11 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 
-	# main.tscn 根节点即 GameRoot（场景实例名为 MainScene）
-	var game_root := get_tree().current_scene.get_node_or_null("MainScene") as Node
+	# MainScene 现在只是外壳（像素化管线的 ViewportContainer 挂它下面），
+	# 脚本仍在 GameRoot 上——next_floor / dungeon_graph 都要从 GameRoot 拿
+	var game_root := get_tree().current_scene.get_node_or_null("MainScene/GameRoot") as Node
+	if game_root == null and get_tree().current_scene.name == "MainScene":
+		game_root = get_tree().current_scene
 	if game_root == null and get_tree().current_scene.name == "GameRoot":
 		game_root = get_tree().current_scene
 	_check(game_root != null and game_root.has_method("next_floor"), "GameRoot 就绪")

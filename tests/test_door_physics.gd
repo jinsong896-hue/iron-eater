@@ -18,15 +18,17 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 
-	var gr := get_tree().current_scene.get_node_or_null("MainScene")
+	var gr := get_tree().current_scene.get_node_or_null("MainScene/GameRoot")
 	if gr == null:
 		_check(false, "GameRoot 就绪")
 		_finish()
 		return
 
 	# --- 小地图初始数据 ---
-	var hud = gr.get_node_or_null("UI/HUD")
-	var minimap = hud.get_node_or_null("Minimap") if hud else null
+	var hud = get_tree().current_scene.find_child("HUD", true, false)
+	# HUD 是实例化场景，其根节点名带 @（如 @HUD@2），故按节点名找不稳；
+	# 改走 hud.gd 暴露的 minimap 引用（@onready 已解析）
+	var minimap = hud.get("minimap") if hud else null
 	_check(minimap != null, "小地图组件就绪")
 	if minimap:
 		_check(minimap.dungeon_graph.size() > 0, "小地图拉到地牢图谱",
@@ -46,7 +48,7 @@ func _ready() -> void:
 	# --- 真实物理穿门（Area3D 信号链）---
 	var door = ctrl._doors[0]
 	var trig = door.get_node_or_null("DoorTrigger")
-	var player = gr.get_node_or_null("Player")
+	var player = gr.find_child("Player", true, false)
 	var room_before: int = gr.current_room_index
 	var map_before: Vector2i = minimap.current_position if minimap else Vector2i.ZERO
 

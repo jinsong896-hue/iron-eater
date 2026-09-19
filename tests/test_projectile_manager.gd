@@ -27,7 +27,11 @@ func _ready() -> void:
 
 	await get_tree().process_frame
 	await get_tree().process_frame
-	var gr := get_tree().current_scene.get_node_or_null("MainScene")
+	# MainScene 现在只是外壳（像素化管线的 ViewportContainer 挂它下面），
+	# 脚本仍在 GameRoot 上——所有游戏状态都要从 GameRoot 读
+	var gr := get_tree().current_scene.get_node_or_null("MainScene/GameRoot")
+	if gr == null:
+		gr = get_tree().current_scene.get_node_or_null("MainScene")
 	if gr == null:
 		_check(false, "GameRoot 就绪")
 		_finish(); return

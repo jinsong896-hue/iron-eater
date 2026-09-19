@@ -6,7 +6,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 
-	var gr := get_tree().current_scene.get_node_or_null("MainScene")
+	var gr := get_tree().current_scene.get_node_or_null("MainScene/GameRoot")
 	if gr == null:
 		_check(false, "GameRoot 就绪")
 		_finish(); return
@@ -709,7 +709,7 @@ func _test_door_transition(gr) -> void:
 	# 「teleport 后物理引擎的陈旧 broadphase 迟发」不可区分——门触发器的
 	# 几何复核（见 door_trigger._on_body_entered）会把两者一起拦掉。
 	var before_idx: int = gr.current_room_index
-	var p := gr.get_node_or_null("Player") as Node3D
+	var p := gr.find_child("Player", true, false) as Node3D
 	if p:
 		p.global_position = (trig as Node3D).global_position + Vector3(0, -1.5, 0)
 	trig._on_body_entered(p)

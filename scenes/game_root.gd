@@ -31,10 +31,25 @@ var dungeon_seed := 0
 ## 每层重建一次，见 _rebuild_floor_mechanic。
 var floor_mechanic: FloorMechanic = null
 
-# 子节点
-@onready var world: Node3D = $World
-@onready var camera_rig: Node3D = $CameraRig
-@onready var player: Node3D = $Player
+# 子节点。
+#
+# 用**按名递归查找**而不是 `$World`：3D 世界被挪进了 SubViewport 子树
+# （见 main.tscn 与 rendering/effects/pixel_renderer.gd 的说明），
+# 绝对路径会随包裹层数变化。节点仍是 GameRoot 的后代，只是多隔了几层。
+@onready var world: Node3D = _find_scene_node("World")
+@onready var camera_rig: Node3D = _find_scene_node("CameraRig")
+@onready var player: Node3D = _find_scene_node("Player")
+
+
+## 在本场景内按名递归查找节点。
+##
+## 不用唯一名 `%World`：那要求 .tscn 里给节点打 `unique_name_in_owner = true`，
+## 而这些节点是从 main.tscn 实例化来的，标记一漏就是运行期空引用。
+## 也不用 `$World`：3D 世界现在隔着 SubViewportContainer/SubViewport 两层。
+## 递归查找对两者都免疫，代价只是启动时一次树遍历。
+func _find_scene_node(node_name: String) -> Node3D:
+	var found := find_child(node_name, true, false)
+	return found as Node3D
 
 
 func _ready() -> void:
@@ -254,7 +269,7 @@ func generate_dungeon(seed_value: int, count: int = -1) -> void:
 
 ## 按当前层应用世界环境主题（雾色/环境光）。取不到 WorldEnvironment 时静默跳过。
 func _apply_floor_environment(floor_num: int) -> void:
-	var we := get_node_or_null("WorldEnvironment") as WorldEnvironment
+	var we := _find_world_environment()
 	if we == null or we.environment == null:
 		return
 	var env := we.environment
@@ -264,6 +279,15 @@ func _apply_floor_environment(floor_num: int) -> void:
 	var amb := FloorDefs.color_of(floor_num, "ambient")
 	var lum := (amb.r + amb.g + amb.b) / 3.0
 	env.ambient_light_energy = clampf(0.4 + lum * 1.6, 0.3, 0.9)
+
+
+## 取本场景的 WorldEnvironment。
+## **递归查找**而非 `$WorldEnvironment`：WorldEnvironment 现在挂在
+## SubViewport 子树下（3D 世界整体下移了一层），写死路径会随包裹层数失效。
+func _find_world_environment() -> WorldEnvironment:
+	for node in find_children("*", "WorldEnvironment", true, false):
+		return node as WorldEnvironment
+	return null
 
 
 # ============================================================

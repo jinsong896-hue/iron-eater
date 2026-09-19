@@ -639,7 +639,7 @@ func _first_monster_id() -> String:
 
 
 func _room_controller():
-	var gr := get_tree().current_scene.get_node_or_null("MainScene")
+	var gr := get_tree().current_scene.get_node_or_null("MainScene/GameRoot")
 	if gr == null or gr.current_room_node == null:
 		return null
 	return gr.current_room_node.get_node_or_null("RoomController")
@@ -808,7 +808,7 @@ func _spawn_enemy_near(p, dist: float):
 		ids.append(str(m.get("id", "")))
 	if ids.is_empty():
 		return null
-	var gr := get_tree().current_scene.get_node_or_null("MainScene")
+	var gr := get_tree().current_scene.get_node_or_null("MainScene/GameRoot")
 	if gr == null:
 		return null
 	var ctrl = gr.current_room_node.get_node_or_null("RoomController")

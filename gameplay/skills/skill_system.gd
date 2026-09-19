@@ -282,7 +282,13 @@ func _cast_buff(_caster: Node3D, _sd: Dictionary) -> void:
 
 ## 投射物：复用 Projectile（它已走完整元素管线）
 func _cast_projectile(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
-	var parent := caster.get_parent()
+	# **必须是 Node3D**：`ProjectileSystem.spawn` 的 parent 参数类型就是 Node3D，
+	# 且投射物要读父节点的 world_3d / 挂碰撞体。施法者的直接父节点不一定是
+	# Node3D——3D 世界被挪进 SubViewport 后，**SubViewport 自己继承的是
+	# Viewport 而不是 Node3D**（它是 Node3D 的父级），若施法者恰好挂在
+	# SubViewport 直属之下，直接取 get_parent() 会把 SubViewport 传进去，
+	# spawn 抛 "not a subclass of the expected argument class" 而静默不出弹。
+	var parent := _projectile_parent(caster)
 	if parent == null:
 		return
 	# 形态·远程伤害倍率（策划 3.2 壁垒「远程伤害 -50%」）。
@@ -308,6 +314,20 @@ func _cast_projectile(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	var proj = ProjectileSystem.spawn(data, parent)
 	if proj != null:
 		proj.global_position = caster.global_position + dir * 0.6
+
+
+## 给投射物挑一个合法的 Node3D 父节点。
+##
+## 优先施法者的直接父节点（投射物随之销毁，房间切走时一起清掉）；
+## 直接父节点不是 Node3D 时（SubViewport 是 Viewport，非 Node3D），
+## 向上找最近的 Node3D 祖先兜底。
+func _projectile_parent(caster: Node3D) -> Node3D:
+	var n := caster.get_parent()
+	while n != null:
+		if n is Node3D:
+			return n as Node3D
+		n = n.get_parent()
+	return null
 
 
 ## 瞬移：去找 dir 方向上射程内最近的敌人，落到它的「背后」（反方向侧）。

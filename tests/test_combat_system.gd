@@ -18,8 +18,10 @@ func _ready() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 
+	# 3D 世界在 MainScene/GameRoot/ViewportContainer/SubViewport 下（像素化管线），
+	# 所以按名递归找，不用直接子节点路径
 	var game_root := get_tree().current_scene.get_node_or_null("MainScene") as Node
-	player = game_root.get_node_or_null("Player")
+	player = game_root.find_child("Player", true, false)
 	if player == null:
 		print("  [FAIL] 玩家不存在")
 		_finish()

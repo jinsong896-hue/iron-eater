@@ -34,7 +34,7 @@ func _ready() -> void:
 	_check(not settlement.visible, "结算面板初始隐藏")
 
 	# 玩家死亡 → finish_run → run_finished → 结算显示
-	var player: Node = game_root.get_node_or_null("Player")
+	var player: Node = game_root.find_child("Player", true, false)
 	_check(player != null, "玩家存在")
 	if player:
 		player.take_damage(999999.0)
