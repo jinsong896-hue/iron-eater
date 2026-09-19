@@ -59,6 +59,21 @@ var body_scale := 1.0         ## 体型缩放
 ## 碰撞体（见 _create_collision；投射物命中依赖它存在）
 var _collision: CollisionShape3D = null
 
+## 突进类（分册 4.6 猎犬家族）的默认突进距离，按**阶段**取（阶段 1~4）。
+##
+## 为什么要这份兜底：`dash_range` 原本**只**从 `special.dash_range` 读，
+## 而 `MonsterDB._special_for()` 只映射 6 个机制、其余一律返回
+## `{"mechanic": mech}`——没有任何地方为基础怪写过这个键。
+## 后果是 4 只猎犬 + 虚空猎手虽然 `ai=rusher`，`dash_range` 恒为 0，
+## `_state_chase` 的突进分支永不进入，连带挂在突进结束点上的
+## `dash_slow_trap` / `dash_lava_trail` / `dash_root` / `long_dash_root`
+## 四个机制触发 0 次。
+##
+## 数值取分册 4.6 表格原文：突进距离 2 / 2.5 / 3 / 4 米（阶段一~四）。
+## 放在这里而不是 `_special_for`，是因为本文件已持有 `behavior`，
+## 且 `apply_monster_config` 对 `mech` 字符串是无状态分派的。
+const DASH_RANGE_BY_PHASE := [2.0, 2.5, 3.0, 4.0]
+
 # —— 怪物机制（分册第 4/5 章；本轮实现「自爆/分裂/召唤」三种）——
 var death_explode := false    ## 死亡自爆（带前摇，期间被打死则提前引爆）
 var explode_damage := 40.0    ## 自爆伤害
@@ -448,6 +463,12 @@ func apply_monster_config(m: Dictionary) -> void:
 			detect_range = float(m.get("attack_range", 15.0))
 		"rusher":
 			behavior = AIBehavior.RUSHER
+			# 突进距离：优先用 special 显式声明的（BossDB 走这条），
+			# 否则按阶段取分册 4.6 的兜底值。
+			# **没有这段兜底，猎犬家族永远不会突进**（见 DASH_RANGE_BY_PHASE 注释）。
+			if dash_range <= 0.0:
+				var ph: int = clampi(int(m.get("phase", 1)), 1, DASH_RANGE_BY_PHASE.size())
+				dash_range = float(DASH_RANGE_BY_PHASE[ph - 1])
 		"flyer_melee":
 			behavior = AIBehavior.MELEE_CHASE  # 飞行近战＝追击（飞行视觉后续做）
 		"flyer_ranged":

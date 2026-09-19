@@ -69,6 +69,7 @@ func _ready() -> void:
 
 	# 怪物池与词缀（全量 64 种、按层选池、词缀阶段分配）
 	await _run_test(test_monster_pool)
+	await _run_test(test_rusher_dash_range)
 
 	# 资源系统测试（宝箱/回血/层间恢复/金币产出）
 	await _run_test(test_resource_system)
@@ -1602,6 +1603,71 @@ func test_monster_pool() -> void:
 	_check(covered.size() == all_ids.size(),
 		"每个词缀 id 都被覆盖（数值型或已接线钩子）",
 		["未覆盖：%s" % str(all_ids.filter(func(x): return not (x in covered)))])
+
+
+## 突进类怪物必须真的能突进。
+##
+## **为什么单独一条**：机制名进了 `_apply_mechanic` 的 `match` 分支
+## **不等于**行为会触发——`dash_slow_trap` / `dash_lava_trail` / `dash_root`
+## / `long_dash_root` 四个机制全挂在"突进结束"这个事件上，而突进本身
+## 需要 `dash_range > 0.0`。`dash_range` 只从 `special.dash_range` 读，
+## 但 `MonsterDB._special_for()` 从没为基础怪写过这个键
+##（它只映射 6 个机制，其余返回 `{"mechanic": mech}`）。
+## 结果：4 只猎犬 + 虚空猎手 + 混沌利刃 `ai=rusher` 却永不突进，
+## 连带那四个机制触发 0 次——门禁全绿，因为**没人断言过突进会发生**。
+##
+## 本测试走完整的 `apply_monster_config`（不是复刻判定逻辑），
+## 这样兜底一旦被删就立刻变红。
+func test_rusher_dash_range() -> void:
+	_current_test = "RusherDash"
+	print("\n--- %s ---" % _current_test)
+
+	var MDB = _require_script("res://data/monsters/monster_db.gd")
+	var EB = _require_script("res://entities/enemies/enemy_base.gd")
+	if MDB == null or EB == null:
+		return
+	MDB.init()
+
+	# 分册 4.6 表格原文：突进距离 2 / 2.5 / 3 / 4 米（阶段一~四）
+	var expected := {"hound_jailer": 2.0, "hound_p2": 2.5, "hound_p3": 3.0, "hound_p4": 4.0}
+	for id in expected:
+		var m: Dictionary = MDB.get_monster(id)
+		if m.is_empty():
+			_check(false, "%s 在 MonsterDB 中" % id)
+			continue
+		var e = EB.new()
+		e.apply_monster_config(m)
+		var got := float(e.get("dash_range"))
+		_check(is_equal_approx(got, float(expected[id])),
+			"%s 突进距离 = %.1f 米（分册 4.6）" % [str(m.get("name")), float(expected[id])],
+			["实得 %.2f" % got])
+		e.free()
+
+	# 虚空猎手：分册 5.4 写「突进距离翻倍（4 米）」，即基础 2 米 ×2。
+	# 它在 hound 阶段四原型上取数，故兜底先给 4 米、再乘 dash_range_mult。
+	var vh: Dictionary = MDB.get_monster("void_hunter")
+	if not vh.is_empty():
+		var ev = EB.new()
+		ev.apply_monster_config(vh)
+		_check(float(ev.get("dash_range")) > 0.0,
+			"虚空猎手有突进距离（基础 %.1f 米）" % float(ev.get("dash_range")))
+		_check(is_equal_approx(float(ev.get("dash_range_mult")), 2.0),
+			"虚空猎手突进距离翻倍倍率 = 2.0")
+		ev.free()
+
+	# 反向守卫：所有 ai=rusher 的怪都必须拿到非零突进距离。
+	# 将来新增突进怪却忘了接线时，这条会直接点名。
+	var missing: Array = []
+	for m in MDB.all_monsters():
+		if str(m.get("ai", "")) != "rusher":
+			continue
+		var e = EB.new()
+		e.apply_monster_config(m)
+		if float(e.get("dash_range")) <= 0.0:
+			missing.append(str(m.get("id", "")))
+		e.free()
+	_check(missing.is_empty(), "所有 rusher 都有非零突进距离（不会静默不突进）",
+		[str(missing)])
 
 
 ## 资源系统测试：宝箱/回血/层间恢复/金币产出
