@@ -76,6 +76,7 @@ run_scene_suite  "crowd_sim    (海量单位模拟)" "res://tests/test_crowd_sim
 run_scene_suite  "pickup_field (掉落物规模化)" "res://tests/test_pickup_field.tscn"
 run_scene_suite  "mass_text    (海量文本渲染)" "res://tests/test_mass_text.tscn"
 run_scene_suite  "projectile   (投射物模拟核)" "res://tests/test_projectile_sim.tscn"
+run_scene_suite  "proj_mgr     (投射物接线)" "res://tests/test_projectile_manager.tscn"
 run_scene_suite  "effect_field (特效池)" "res://tests/test_effect_field.tscn"
 run_scene_suite  "combat       (战斗系统)" "res://tests/test_combat_system.tscn"
 run_scene_suite  "room_flow    (房间流程+特殊房)" "res://tests/test_room_flow.tscn"

@@ -26,6 +26,8 @@ var _special_used := false
 var _gambler_boxes: Array = []   # 赌徒挑战：已洗牌的 3 个箱子（开箱后填）
 ## 群体模拟管理器（只在有 swarm 怪的房间创建，见 _crowd()）
 var _crowd_mgr: CrowdManager = null
+## 投射物模拟管理器（与群体管理器同生命周期）
+var _proj_mgr: ProjectileManager = null
 ## 特效池（惰性创建，见 effect_field()）
 var _effect_field: EffectField = null
 ## 本房墙体是否已喂给模拟核（每房只喂一次）
@@ -89,6 +91,8 @@ func activate() -> void:
 
 	is_active = true
 	add_to_group("current_room_controller")
+	# 投射物管理器：与房间同生命周期（切房随房间销毁，残留子弹不会打到新房间）
+	_ensure_projectile_mgr()
 	var bus = _event_bus()
 	if bus:
 		bus.room_entered.emit(_room_id())
@@ -450,6 +454,19 @@ func _crowd() -> CrowdManager:
 	_crowd_mgr.crowd_died.connect(_on_crowd_died)
 	_crowd_mgr.crowd_attacked.connect(_on_crowd_attacked)
 	return _crowd_mgr
+
+
+## 惰性创建投射物管理器。
+##
+## **不能搭在 _crowd() 里**：那条路径只在"本房有 swarm 怪"时才走，
+## 而投射物与 swarm 无关——没有 swarm 怪的房间照样要能发射投射物。
+## 故由 activate() 无条件调用。
+func _ensure_projectile_mgr() -> void:
+	if _proj_mgr != null and is_instance_valid(_proj_mgr):
+		return
+	_proj_mgr = ProjectileManager.new()
+	_proj_mgr.name = "ProjectileManager"
+	add_child(_proj_mgr)
 
 
 ## 群体单位攻击玩家 → 走**正常的受击链路**结算。

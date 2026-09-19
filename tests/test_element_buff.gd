@@ -811,6 +811,17 @@ func _test_projectile_mechanics() -> void:
 	_test = "ProjectileMechanics"
 	print("\n--- %s ---" % _test)
 
+	# **本段测的是「旧 Area3D 路径」**（`Projectile.USE_SIM_CORE == false`）。
+	#
+	# 那是当前默认路径，所以这些断言仍然有效、不是假绿灯——
+	# 早期我误以为"搬进核后这些字段不存在就是假绿灯"，但分流开关默认关闭，
+	# 旧路径照常走。
+	#
+	# 核路径（ProjectileSim）的行为由 `tests/test_projectile_sim.gd` 覆盖；
+	# 核与场景的接线（manager）由 `tests/test_projectile_manager.gd` 覆盖。
+	# 两条路径都要有防线，因为它们会并存一段时间。
+	_check(not bool(Projectile.USE_SIM_CORE), "分流开关默认关闭（走旧路径）")
+
 	var P = load("res://gameplay/skills/projectile.gd")
 	var ED = load("res://data/elements/element_defs.gd")
 

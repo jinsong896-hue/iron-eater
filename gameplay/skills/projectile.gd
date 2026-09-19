@@ -63,7 +63,24 @@ var _hit_count := 0
 ## 配置并生成。data 键与旧接口兼容（direction/speed/damage/lifetime/element/pierce_count），
 ## 另支持 bounces / arc / fuse / explode_radius / explode_damage / split 等。
 ## target_group 决定打谁：Projectile.TARGET_ENEMY（玩家射出）/ TARGET_PLAYER（敌人射出）
+## 分流开关：是否把投射物交给 C++ 模拟核（ProjectileSim）。
+##
+## **默认关闭**：新核的行为需要逐条对照旧实现（弧线/弹射/引信/分裂/
+## 落地区域/穿透），确认全部对齐后才切换。开着跑会改变手感，
+## 且出问题时难判断是哪条行为没对齐。
+##
+## 打开方式（调试/验证用）：
+##     Projectile.USE_SIM_CORE = true
+static var USE_SIM_CORE := false
+
+
 static func spawn(data: Dictionary, parent: Node3D, target_group: String = TARGET_ENEMY) -> Projectile:
+	# 分流：交给核（ProjectileSim）时**返回 null**——核里的投射物不是节点。
+	#
+	# 调用方必须能接受 null。现有两处调用点（敌人 _shoot / 技能系统）
+	# 都不使用返回值，故安全；新增调用点要注意判空。
+	if USE_SIM_CORE and _spawn_via_sim(data, parent, target_group):
+		return null
 	var p := Projectile.new()
 	p.direction = (data.get("direction", Vector3.FORWARD) as Vector3).normalized()
 	p.speed = float(data.get("speed", 10.0))
@@ -93,6 +110,31 @@ static func spawn(data: Dictionary, parent: Node3D, target_group: String = TARGE
 	parent.add_child(p)
 	p._build_visual()
 	return p
+
+
+## 把同一份 data 交给 C++ 模拟核。返回是否成功接管。
+##
+## **为什么复用同一份 data 字典**：分流只该换后端，不该换接口。
+## 调用方（敌人 _shoot / 技能系统）构造 data 的方式完全不变，
+## 开关一翻就切后端。
+static func _spawn_via_sim(data: Dictionary, parent: Node3D, target_group: String) -> bool:
+	var mgr := _sim_manager(parent)
+	if mgr == null:
+		return false
+	return int(mgr.call("spawn_from_data", data, target_group)) >= 0
+
+
+## 找场景里的投射物管理器（没有则返回 null —— 此时回退旧路径）
+static func _sim_manager(from: Node) -> Node:
+	if from == null:
+		return null
+	var tree := from.get_tree()
+	if tree == null:
+		return null
+	var found := tree.get_nodes_in_group("projectile_manager")
+	if found.is_empty():
+		return null
+	return found[0]
 
 
 ## 构建视觉与碰撞体（Area3D 自身即命中区）
