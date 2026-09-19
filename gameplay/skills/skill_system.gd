@@ -88,6 +88,19 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 		"multi_hit":  _cast_multi_hit(caster, sd, dir)
 		"detonate":   _cast_detonate(caster, sd, dir)
 		"spread":     _cast_spread(caster, sd, dir)
+		_:
+			# 未知 kind：报错并**退化为 aoe**，而不是什么都不做。
+			#
+			# 没有这条时，技能表里写错一个 kind（如 "cone " 带空格、
+			# "AOE" 大小写不符）会**静默无效果**——玩家按了技能、资源扣了、
+			# 冷却进了，但场上没有任何反馈，排查时也看不到任何日志。
+			# 退化成 aoe 至少保留了"打出去了"的可见行为，配合告警能立刻定位。
+			#
+			# 注意 kind 缺失（不是写错）走的是上面的 "aoe" 默认值，
+			# 不会到这里——这条只管"有值但不认识"。
+			push_warning("[SkillSystem] 未知技能 kind '%s'（技能 %s），已退化为 aoe；" % [
+				str(sd.get("kind", "")), str(sd.get("id", "?"))])
+			_cast_aoe(caster, sd, dir)
 
 	# 自身增益：不分 kind，任何技能都能配 self_buffs
 	_apply_self_buffs(caster, sd)
