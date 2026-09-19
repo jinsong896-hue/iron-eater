@@ -26,6 +26,7 @@ func _ready() -> void:
 
 	await get_tree().process_frame
 	await _test_shop()
+	await _test_shop_equipment()
 	await _test_heal()
 	await _test_memory_shard()
 	await _test_gambler()
@@ -55,6 +56,63 @@ func _make_controller(kind: String, interaction: Dictionary):
 	add_child(ctrl)
 	ctrl._special_service = load("res://gameplay/dungeon/special_room_service.gd").new()
 	return ctrl
+
+
+## ---------- 商店装备货架：买入 / 售罄 / 落盘 / 满包不吞钱 ----------
+## 策划 总册 5.1「商店也出售装备」。这组测的是控制器侧的真实成交路径
+## （服务层的定价与货架生成由 test_framework 的 ShopConsumption 覆盖）。
+func _test_shop_equipment() -> void:
+	var fake := $FakeGameRoot
+	fake.seed_rooms(3)
+	fake.current_room_index = 1
+
+	var ctrl = _make_controller("shop", {"price": 25, "heal": 80})
+	GameManager.gold = 99999
+	# get_inventory() 返回副本，清它无效——直接清内部数组重置背包
+	var inv: Array = GameManager.equipment_manager._inventory
+	inv.clear()
+
+	var stock: Array = ctrl.get_shop_stock()
+	_check(stock.size() > 0, "商店摆出货架")
+	var first: Dictionary = stock[0]
+	var price := int(first.get("price", 0))
+	var gold_before: int = GameManager.gold
+
+	var r1: Dictionary = ctrl.purchase_equipment(0)
+	_check(r1.get("ok", false), "购买第 1 件装备成功", [r1])
+	_check(GameManager.gold == gold_before - price, "按标价扣款",
+		["期望 %d 实际 %d" % [gold_before - price, GameManager.gold]])
+	_check(inv.size() == 1, "装备已入背包", ["%d 件" % inv.size()])
+	if inv.size() > 0:
+		_check(inv[0].template_id == StringName(str(first.get("id", ""))),
+			"入包的正是货架上那一件", [str(inv[0].template_id)])
+
+	# 售罄：同一件不可再买（这是「无限回购」的直接回归）
+	var r2: Dictionary = ctrl.purchase_equipment(0)
+	_check(not r2.get("ok", false), "已售出的装备不可重复购买", [r2])
+	_check(GameManager.gold == gold_before - price, "重复购买被拒且未扣款")
+	_check(ctrl.get_shop_stock()[0].get("sold", false), "售罄标记写回货架（UI 会显示已售出）")
+
+	# 落盘：控制器实例重建后仍是售罄（不落盘则回访可无限买）
+	var c2 = _make_controller("shop", {"price": 25, "heal": 80})
+	_check(c2.get_shop_stock()[0].get("sold", false),
+		"新实例从 room_state 读回售罄状态（不复活）")
+	var r3: Dictionary = c2.purchase_equipment(0)
+	_check(not r3.get("ok", false), "回访时同一件仍不可买")
+	c2.queue_free()
+
+	# 满包不吞钱：塞满背包后购买必须被拒且金币不变。
+	# 用 _inventory 直接塞——add_item 自身会在满 40 件时拒绝。
+	for _i in 45:
+		GameManager.equipment_manager._inventory.append(EquipmentInstance.new())
+	var gold_full: int = GameManager.gold
+	var r4: Dictionary = ctrl.purchase_equipment(1)
+	_check(not r4.get("ok", false), "背包满时购买被拒", [r4])
+	_check(GameManager.gold == gold_full, "被拒后金币未变（不吞钱）",
+		["期望 %d 实际 %d" % [gold_full, GameManager.gold]])
+
+	inv.clear()
+	ctrl.queue_free()
 
 
 ## ---------- 商店：可重复购买 + 满包不吞钱（B3 回归） ----------
@@ -256,6 +314,10 @@ func _test_panel_choices() -> void:
 	var ids: Array = ui.choice_ids()
 	_check(ids.has("buy_potion") and ids.has("leave"), "商店列出购买与离开", [str(ids)])
 	_check(ui.status_text().contains("0/3"), "状态行显示 0/3", [ui.status_text()])
+	# 装备货架（策划 总册 5.1）：每件一个 buy_equip_N 条目
+	var equip_ids := ids.filter(func(x): return str(x).begins_with("buy_equip_"))
+	_check(equip_ids.size() == ctrl.get_shop_stock().size(),
+		"货架件数与控制器一致（%d 件）" % ctrl.get_shop_stock().size(), [str(ids)])
 	ui.close()
 
 	# 泉水：已用过时只剩离开

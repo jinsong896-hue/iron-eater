@@ -1894,6 +1894,60 @@ func test_shop_consumption() -> void:
 	# 贷款：借 2000 还 4000
 	_check(S.LOAN_AMOUNT == 2000 and S.LOAN_REPAY == 4000, "贷款借 2000 还 4000")
 
+	# —— 商店出售装备（策划 总册 5.1）——
+	# 升级券文案承诺「解锁紫装→红装碎片→全店 9 折」，但此前商店一件装备
+	# 都不卖——满级解锁的是空集。这组断言把承诺钉住。
+	_check(S.shop_max_rarity(0) == EquipmentDefs.Rarity.BLUE,
+		"未升级只售白~蓝（商店保底）")
+	_check(S.shop_max_rarity(2) == EquipmentDefs.Rarity.PURPLE,
+		"2 级解锁紫装（策划 4.3.2）")
+	_check(S.shop_max_rarity(3) == EquipmentDefs.Rarity.PURPLE,
+		"满级仍不整件售红装（红装走碎片，策划 4.3.2）")
+
+	# 定价：层数成长 + 商店折扣
+	var p_base: int = S.shop_price(EquipmentDefs.Rarity.BLUE, 1, 0)
+	_check(p_base == 700, "蓝装第 1 层原价 700", [p_base])
+	_check(S.shop_price(EquipmentDefs.Rarity.BLUE, 9, 0) > p_base,
+		"售价随层数上涨（第 9 层 > 第 1 层）")
+	_check(S.shop_price(EquipmentDefs.Rarity.BLUE, 1, 3) == 630,
+		"3 级 9 折生效（700 → 630）", [S.shop_price(EquipmentDefs.Rarity.BLUE, 1, 3)])
+
+	# 货架：3 件、稀有度在允许档位内、id 不重复、字段齐全
+	var no_rng_stock: Array = S.roll_shop_stock(3, 0, null)
+	_check(no_rng_stock.size() == S.SHOP_STOCK_SIZE,
+		"货架摆满 %d 件（无随机源时也摆满）" % S.SHOP_STOCK_SIZE,
+		["实际 %d" % no_rng_stock.size()])
+	var ids := {}
+	var rarity_ok := true
+	var fields_ok := true
+	for row in no_rng_stock:
+		ids[str(row.get("id", ""))] = true
+		if int(row.get("rarity", -1)) > S.shop_max_rarity(0):
+			rarity_ok = false
+		for k in ["id", "slot", "rarity", "price", "name", "affix_text"]:
+			if not row.has(k):
+				fields_ok = false
+	_check(ids.size() == no_rng_stock.size(), "货架内不重复（不摆两件同名装备）")
+	_check(rarity_ok, "未升级货架不出现紫装")
+	_check(fields_ok, "货架条目字段齐全（UI 展示所需）")
+
+	# 升到 2 级后档位放宽，且货架里确实出现过紫装
+	var rng2 := RandomNumberGenerator.new()
+	rng2.seed = 20260919
+	var saw_purple := false
+	for _i in 20:
+		for row in S.roll_shop_stock(5, 2, rng2):
+			if int(row.get("rarity", -1)) == EquipmentDefs.Rarity.PURPLE:
+				saw_purple = true
+	_check(saw_purple, "2 级货架能刷出紫装（升级券不是空头支票）")
+
+	# 货架随机源必须与全局流隔离，否则摆货架会挪动后续所有掷骰
+	var a: RandomNumberGenerator = S.shop_stock_rng(7, 3, 0)
+	var b: RandomNumberGenerator = S.shop_stock_rng(7, 3, 0)
+	var c: RandomNumberGenerator = S.shop_stock_rng(7, 4, 0)
+	_check(a.seed == b.seed, "同种子同层同等级 → 货架可复现")
+	_check(a.seed != c.seed, "换层 → 货架换一批")
+
 
 func test_event_room_pool() -> void:
 	_current_test = "EventRoomPool"

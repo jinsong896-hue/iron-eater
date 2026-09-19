@@ -1148,6 +1148,7 @@ func get_special_context() -> Dictionary:
 		"capacity": inv.capacity if inv else 0,
 		"used": _special_used,
 		"event_type": str(config.get("event_type", "memory_shard")),
+		"stock": get_shop_stock() if _room_type() == "shop" else [],
 	}
 
 
@@ -1249,6 +1250,10 @@ func purchase_shop_upgrade() -> Dictionary:
 	gm.gold -= cost
 	gm.shop_level = int(r.get("level", gm.shop_level + 1))
 	_emit_gold_changed()
+	# 升级改变可售稀有度（2 级解锁紫装）与价格（3 级 9 折），货架必须重摆。
+	# 没有这行的话：升级前摆的是蓝装货架，升到 2 级后仍显示蓝装，
+	# 玩家会以为升级券没生效。
+	_invalidate_shop_stock()
 	return {"ok": true, "level": gm.shop_level, "cost": cost, "gold": int(gm.gold)}
 
 
@@ -1293,6 +1298,129 @@ func purchase_enchant(tier: String = "mid", slot: int = -1) -> Dictionary:
 	return {"ok": true, "tier": tier, "cost": int(r.get("cost", 0)),
 		"text": str(r.get("text", "")), "item": target.display_name(),
 		"gold": int(gm.gold)}
+
+
+# ============================================================
+# 商店：出售装备（策划 总册 5.1 / 4.3.2）
+#
+# 货架是**按房间 + 按层缓存**的：随机结果若每次重建都重掷，
+# 关闭面板再打开就会换一批货（同一层商店前后看到的不是同一家店）。
+# 缓存键取「层数 + 商店等级」——升级券会改变可售稀有度与折扣价，
+# 故升级后必须失效重摆，见 _invalidate_shop_stock()。
+# ============================================================
+
+## 已摆出的货架；未摆过为 null
+var _shop_stock = null
+## 货架对应的缓存键 "floor:level"
+var _shop_stock_key := ""
+
+
+## 当前货架（首次访问时按本层与商店等级生成）
+## 返回 [{id, slot, rarity, price, name, affix_text, sold}, ...]
+func get_shop_stock() -> Array:
+	var gm = _game_manager()
+	if gm == null:
+		return []
+	var floor_num := int(gm.run_info.get("floor", 1))
+	var key := "%d:%d" % [floor_num, int(gm.shop_level)]
+	if _shop_stock == null or _shop_stock_key != key:
+		# 用派生独立流，不借 gm.rng——理由见 SpecialRoomService.shop_stock_rng
+		var seed_val := int(gm.run_info.get("seed", 0))
+		var stock_rng := SpecialRoomService.shop_stock_rng(seed_val, floor_num, int(gm.shop_level))
+		_shop_stock = SpecialRoomService.roll_shop_stock(floor_num, int(gm.shop_level), stock_rng)
+		_shop_stock_key = key
+		# sold 标记存在 room_state 里（控制器实例随房间重建而新建，
+		# 存成员变量的话回访商店会「已售出的装备复活」，可无限购买）
+		var sold := _shop_sold_ids()
+		for row in _shop_stock:
+			row["sold"] = sold.has(str(row.get("id", "")))
+	return _shop_stock
+
+
+## 让货架失效（下次 get_shop_stock 重掷）
+func _invalidate_shop_stock() -> void:
+	_shop_stock = null
+	_shop_stock_key = ""
+
+
+## 本店已售出的装备 id 集合（落在 room_state 的数组里）
+func _shop_sold_ids() -> Array:
+	var gr = _game_root()
+	if gr == null:
+		return []
+	var states = gr.get("room_state")
+	if states == null or not (states is Dictionary):
+		return []
+	var idx: int = int(gr.get("current_room_index"))
+	if not states.has(idx):
+		return []
+	return states[idx].get("shop_sold", [])
+
+
+## 记一件装备已售出（落盘，供回访时恢复）
+func _mark_shop_sold(item_id: String) -> void:
+	var gr = _game_root()
+	if gr == null:
+		return
+	var states = gr.get("room_state")
+	if states == null or not (states is Dictionary):
+		return
+	var idx: int = int(gr.get("current_room_index"))
+	if not states.has(idx):
+		return
+	var sold: Array = states[idx].get("shop_sold", [])
+	if not sold.has(item_id):
+		sold.append(item_id)
+	states[idx]["shop_sold"] = sold
+
+
+## 商店：购买货架上第 index 件装备。
+##
+## 返回 {ok, name, rarity, price, gold} 或 {ok:false, reason}。
+##
+## **先扣钱还是先入包**：服务层的 buy_shop_item 负责校验与扣钱，但装备实例
+## 在本函数里创建。若创建失败（模板缺失）而钱已扣，玩家就白花了——
+## 故这里**先建实例、再扣钱**，扣钱后入包失败则原路退款。
+## 与 purchase_health_potion 的「服务层先扣、入包失败回滚」是同一套思路，
+## 只是顺序反过来：那边实例（药水）不需要构造，这边需要。
+func purchase_equipment(index: int) -> Dictionary:
+	if _room_type() != "shop":
+		return {"ok": false, "reason": "此处不出售"}
+	var gm = _game_manager()
+	if gm == null or gm.equipment_manager == null:
+		return {"ok": false, "reason": "状态不可用"}
+	var stock := get_shop_stock()
+	if index < 0 or index >= stock.size():
+		return {"ok": false, "reason": "货架上没有这一件"}
+	var row: Dictionary = stock[index]
+	if bool(row.get("sold", false)):
+		return {"ok": false, "reason": "这件已经卖出去了"}
+	var price := int(row.get("price", 0))
+	var item_id := str(row.get("id", ""))
+
+	var template: EquipmentTemplate = EquipmentDB.get_template(StringName(item_id))
+	if template == null:
+		return {"ok": false, "reason": "装备模板缺失（%s）" % item_id}
+
+	var state := {"gold": int(gm.gold), "purchased": false}
+	var result: Dictionary = _special_service.buy_shop_item(state, price)
+	if not result.get("ok", false):
+		return result
+
+	var inst := EquipmentInstance.create(template)
+	var em = gm.equipment_manager
+	if not em.add_item(inst):
+		return {"ok": false, "reason": "背包已满（%d 格）" % em.get_capacity()}
+
+	gm.gold = int(result.get("gold", gm.gold))
+	_mark_shop_sold(item_id)
+	row["sold"] = true
+	_emit_gold_changed()
+	var bus = _event_bus()
+	if bus:
+		bus.inventory_changed.emit()
+	return {"ok": true, "name": str(row.get("name", "")), "rarity": int(row.get("rarity", 0)),
+		"price": price, "gold": int(gm.gold)}
 
 
 ## 商店：贷款（策划 4.3.2，借 2000 还 4000，结算时扣）。

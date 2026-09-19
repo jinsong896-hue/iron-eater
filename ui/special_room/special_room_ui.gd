@@ -94,7 +94,7 @@ func _build_layout() -> void:
 	match _kind:
 		"shop":
 			_title.text = "商 店"
-			_body.text = str(_config.get("desc", "货架上只有一瓶生命药水。"))
+			_body.text = str(_config.get("desc", "货架上摆着几件装备，也有些药水与门路可谈。"))
 		"heal":
 			_title.text = "泉 水"
 			_body.text = str(_config.get("desc", "一泓清泉，饮下可恢复生命。"))
@@ -132,6 +132,9 @@ func _build_shop_choices() -> void:
 		"id": "buy_potion",
 		"label": "购买生命药水（%d 金 · 恢复 %.0f 生命）" % [price, heal],
 	})
+	# —— 策划 总册 5.1「商店也出售装备」——
+	# 装备摆在最前：玩家进商店的第一诉求是看货，其次才是消费模块。
+	_build_shop_stock_choices()
 	# —— 策划 总册 4.3.2 的消费模块「防溢出深坑」——
 	var gm = _game_manager()
 	if gm != null:
@@ -170,6 +173,30 @@ func _build_shop_choices() -> void:
 				SpecialRoomService.LOAN_AMOUNT, SpecialRoomService.LOAN_REPAY],
 		})
 	_choices_data.append({"id": "leave", "label": "离开"})
+
+
+## 商店装备货架（策划 总册 5.1）。已售出的条目仍列出但标「已售出」，
+## 而不是整条抽掉——抽掉会让选项编号跳动，玩家刚看中的第 3 件
+## 在买掉第 1 件后就变成了第 2 件，容易误购。
+func _build_shop_stock_choices() -> void:
+	if _controller == null or not _controller.has_method("get_shop_stock"):
+		return
+	var stock: Array = _controller.get_shop_stock()
+	for i in range(stock.size()):
+		var row: Dictionary = stock[i]
+		var affix := str(row.get("affix_text", ""))
+		var suffix := "" if affix.is_empty() else "（%s）" % affix
+		if bool(row.get("sold", false)):
+			_choices_data.append({
+				"id": "buy_equip_%d" % i,
+				"label": "%s · 已售出" % str(row.get("name", "")),
+			})
+			continue
+		_choices_data.append({
+			"id": "buy_equip_%d" % i,
+			"label": "%s%s（%d 金）" % [
+				str(row.get("name", "")), suffix, int(row.get("price", 0))],
+		})
 
 
 func _build_heal_choices() -> void:
@@ -298,9 +325,24 @@ func confirm_selection() -> void:
 	_activate(str(_choices_data[_selected].get("id", "")))
 
 
+## 购买货架上第 index 件装备（成功提示带名称与售价）
+func _activate_equipment(index: int) -> void:
+	var r: Dictionary = _controller.purchase_equipment(index)
+	if r.get("ok", false):
+		_notify(r, "购入 %s（%d 金）" % [str(r.get("name", "")), int(r.get("price", 0))])
+	else:
+		_notify(r, "")
+	refresh(_controller.get_special_context())
+
+
 ## 按条目 id 执行（测试直接调这个，绕过输入层）
 func _activate(id: String) -> void:
 	if _controller == null:
+		return
+	# 装备货架条目带下标（buy_equip_0/1/2），match 只能精确匹配，
+	# 故在进入 match 前先按前缀分流。
+	if id.begins_with("buy_equip_"):
+		_activate_equipment(int(id.trim_prefix("buy_equip_")))
 		return
 	match id:
 		"leave":

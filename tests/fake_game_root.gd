@@ -13,4 +13,4 @@ var current_room_index := 0
 func seed_rooms(count: int) -> void:
 	room_state.clear()
 	for i in count:
-		room_state[i] = {"cleared": false, "visited": false}
+		room_state[i] = {"cleared": false, "visited": false, "shop_sold": []}

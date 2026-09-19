@@ -241,6 +241,152 @@ static func shop_discount(level: int) -> float:
 	return 0.9 if level >= SHOP_MAX_LEVEL else 1.0
 
 
+# ------------------------------------------------------------
+# 商店出售装备（策划 总册 5.1「商店也出售装备、增益与折扣券」）
+#
+# **为什么需要这块**：升级券文案承诺「解锁紫装→红装碎片→全店 9 折」，
+# 但此前商店一件装备都不卖——升到满级解锁的是一个**空集**，
+# 玩家花 2,500 金买到的东西在界面上不可见。这块把承诺兑现。
+# ------------------------------------------------------------
+
+## 商店货架每层摆几件装备
+const SHOP_STOCK_SIZE := 3
+## 各稀有度底价（金）。索引即稀有度枚举：白/绿/蓝/紫/橙/红。
+##
+## **红装是例外——用碎片卖，不整件卖**：策划 4.3.2 把「红装碎片」列为
+## 2,000 金一片的商店商品，且 5.1 说 9 层才解锁红装掉落。整件卖 15,000
+## 会直接绕开这两条设计。碎片玩法（凑几片合成、是否跨局）策划未写，
+## 故红装**不出现在货架上**，留待策划给碎片规则后再接。
+const SHOP_BASE_PRICE := [150, 320, 700, 1800, 5000, 15000]
+
+
+## 商店当前允许出售的最高稀有度（策划 4.3.2：升级券解锁紫装）。
+## 0~1 级：白~蓝（商店保底）；2 级起：紫；红装见 SHOP_BASE_PRICE 注释。
+static func shop_max_rarity(level: int) -> int:
+	return EquipmentDefs.Rarity.PURPLE if level >= 2 else EquipmentDefs.Rarity.BLUE
+
+
+## 商店当前**能卖**的稀有度档位（升序）。
+## 货架各件独立抽档——高级档更稀见但并非唯一产出，
+## 否则玩家攒了钱也升了级，回来货架上三件全是紫装，蓝装直接断供。
+static func shop_rarity_tiers(level: int) -> Array:
+	var top := shop_max_rarity(level)
+	var out: Array = []
+	var r: int = EquipmentDefs.Rarity.GREEN
+	while r <= top:
+		out.append(r)
+		r += 1
+	if out.is_empty():
+		out.append(EquipmentDefs.Rarity.WHITE)
+	return out
+
+
+## 货架抽一件装备的稀有度。按档位位置加权：越靠前（越低档）越常见。
+## 权重 = (档位数 - 位置)，即 2 档 → 2:1，3 档 → 3:2:1。
+## rng 为空时取最低档（供测试与无随机源场景，结果确定可断言）。
+static func roll_shop_rarity(level: int, rng: RandomNumberGenerator = null) -> int:
+	var tiers := shop_rarity_tiers(level)
+	if rng == null:
+		return int(tiers[0])
+	var total := 0
+	for i in range(tiers.size()):
+		total += tiers.size() - i
+	var pick := rng.randi_range(0, total - 1)
+	for i in range(tiers.size()):
+		pick -= tiers.size() - i
+		if pick < 0:
+			return int(tiers[i])
+	return int(tiers[tiers.size() - 1])
+
+
+## 装备售价：稀有度底价 × 层数成长 × 商店折扣。
+##
+## 层数成长用 1 + 0.15×(层-1)：到第 9 层约 2.2 倍。商店卖的是成品，
+## 价格必须跟着层数走，否则第 8 层花 1,800 买紫装等于白送。
+## 折扣取整数（9 折后 1,620 → 1,458），避免金币出现小数。
+static func shop_price(rarity: int, floor_num: int, shop_level: int) -> int:
+	var base: int = SHOP_BASE_PRICE[clampi(rarity, 0, SHOP_BASE_PRICE.size() - 1)]
+	var floor_mult := 1.0 + 0.15 * float(maxi(floor_num, 1) - 1)
+	var raw := float(base) * floor_mult * shop_discount(shop_level)
+	return int(round(raw))
+
+
+## 货架专用随机源：由「本局种子 + 层数 + 商店等级」派生。
+##
+## **不能借 GameManager.rng 摆货架**——那是全局流，摆一次货架会挪动它，
+## 连带改变同一局里后续所有掷骰（赌徒开箱、掉落、暴击……）。
+## 实测后果：进过商店再玩赌徒事件，「三只箱子覆盖三种结果」这类
+## 依赖固定流的既有断言会随机失败。派生独立流既隔离了影响，
+## 又让「同一层商店货架固定」成为可复现行为。
+static func shop_stock_rng(run_seed: int, floor_num: int, shop_level: int) -> RandomNumberGenerator:
+	var r := RandomNumberGenerator.new()
+	r.seed = hash("%d:%d:%d" % [run_seed, floor_num, shop_level])
+	return r
+
+
+## 生成一层商店的货架。
+##
+## 返回 [{id, slot, rarity, price, name, affix_text}, ...]——
+## **只带展示所需字段，不造 EquipmentInstance**。实例由控制器在成交时创建，
+## 避免「只看不买」也在内存里堆一批临时装备实例。
+##
+## 各件独立抽档且**不重复**（同一次货架里不出两把同名武器）：
+## 装备库每个稀有度是 36 件全量（12 武器 + 18 护甲 + 6 饰品），
+## 抽重复只会让三格货架看起来像一格。
+static func roll_shop_stock(floor_num: int, shop_level: int,
+		rng: RandomNumberGenerator = null) -> Array:
+	var out: Array = []
+	var used_ids := {}
+	for i in range(SHOP_STOCK_SIZE):
+		var rarity := roll_shop_rarity(shop_level, rng)
+		var templates: Array = EquipmentDB.get_templates_by_rarity(rarity)
+		if templates.is_empty():
+			continue
+		var t: EquipmentTemplate = null
+		# 先随机抽（重复则重抽）。抽不中时**必须回退线性扫描**：
+		# 无 rng 场景下随机索引恒为 0，重抽永远撞同一件，
+		# 货架会只摆出 1 件（测试断言与「无随机源仍可用」都依赖这里）。
+		var tries: int = 1 if rng == null else templates.size()
+		for attempt in range(tries):
+			var idx: int = 0 if rng == null else rng.randi_range(0, templates.size() - 1)
+			var cand: EquipmentTemplate = templates[idx]
+			if not used_ids.has(String(cand.id)):
+				t = cand
+				break
+		if t == null:
+			for cand in templates:
+				if not used_ids.has(String(cand.id)):
+					t = cand
+					break
+		if t == null:
+			continue
+		used_ids[String(t.id)] = true
+		out.append({
+			"id": String(t.id),
+			"slot": int(t.slot),
+			"rarity": rarity,
+			"price": shop_price(rarity, floor_num, shop_level),
+			"name": t.display_name,
+			"affix_text": describe_affix(t.base_affix),
+		})
+	return out
+
+
+## 词条一句话描述（货架与成交提示共用）。
+##
+## 复刻背包 UI 的写法而不复用它的 `_affix_text`：那个是 UI 私有方法，
+## 且额外吃「强化等级」参数——商店卖的是未强化品，强化恒为 0。
+static func describe_affix(affix: AffixData) -> String:
+	if affix == null:
+		return "（无词条）"
+	if affix.is_trigger():
+		return affix.description()
+	var stat_name: String = str(AttributeSystem.STAT_NAMES.get(affix.stat, "属性"))
+	if affix.operation == AffixData.Operation.PERCENT:
+		return "%s %+.1f%%" % [stat_name, affix.value * 100.0]
+	return "%s %+.1f" % [stat_name, affix.value]
+
+
 ## 融合折扣券：下一次融合费用减半（策划 4.3.2，300 金）
 const FUSION_COUPON_PRICE := 300
 const FUSION_COUPON_DISCOUNT := 0.5

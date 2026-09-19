@@ -238,7 +238,9 @@ func generate_dungeon(seed_value: int, count: int = -1) -> void:
 	_clear_preload()
 
 	for i in dungeon_graph.size():
-		room_state[i] = {"cleared": false, "visited": false}
+		# shop_sold：该房商店已售出的装备 id。商店房回访时要恢复「已售罄」，
+		# 不落盘的话回访会重新上架同一件，可无限回购。
+		room_state[i] = {"cleared": false, "visited": false, "shop_sold": []}
 
 	# 本层主题环境（雾/环境光）——与房间地板墙配色一起构成该层视觉主题
 	_apply_floor_environment(floor_num)
