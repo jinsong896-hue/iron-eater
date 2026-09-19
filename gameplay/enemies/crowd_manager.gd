@@ -116,6 +116,17 @@ func unit_position(id: int) -> Vector3:
 	return sim.call("get_position", id) if sim != null else Vector3.ZERO
 
 
+## 全体单位坐标的批量缓冲，每单位 4 个 float：x, z, id, 保留。
+##
+## **给投射物管理器喂目标表用**。必须批量——逐 id 调 `unit_position()`
+## 在 2000 单位时就是 2000 次跨语言调用，光 FFI 开销就吃掉整帧预算。
+## 返回的是底层数组的副本（C++ 侧每次新建 PackedFloat32Array）。
+func get_position_buffer() -> PackedFloat32Array:
+	if sim == null:
+		return PackedFloat32Array()
+	return sim.call("get_position_buffer")
+
+
 ## 单位当前血量（测试/UI 血条用）
 func unit_hp(id: int) -> float:
 	return float(sim.call("get_hp", id)) if sim != null else 0.0
@@ -143,7 +154,13 @@ func buffs_of(id: int) -> BuffHolder:
 		if is_instance_valid(h):
 			# 每次取用时同步一次位置/数值（核里的坐标是权威的）
 			h.bind(id, unit_position(id), _unit_atk(id), self)
-			return h.buffs
+			# 宿主自己持有 holder，**不能写 `h.buffs`**——
+			# CrowdUnitHost 没有这个属性，取属性会抛错，而且错误发生在
+			# 本函数内部，调用方拿不到返回值（拿到的是 null），
+			# 表现为"元素叠层对 swarm 怪静默失效"。
+			# 只有投射物会撞上这条：近战每次命中都调本函数，早就把宿主建好了。
+			var existing: BuffHolder = h.get_meta("holder")
+			return existing
 	var host := CrowdUnitHost.new()
 	host.name = "UnitHost_%d" % id
 	add_child(host)

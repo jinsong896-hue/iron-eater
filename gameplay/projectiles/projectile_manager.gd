@@ -24,6 +24,15 @@ const CAPACITY := 4096
 ## 投射物视觉：小球
 const BULLET_SCALE := 0.18
 
+## 扁平事件流的每事件 float 步长——必须与两侧核实现一致：
+## C++ 侧 `projectile_sim.cpp` 的 EVENT_STRIDE，降级侧
+## `projectile_sim_fallback.gd` 的 EVENT_STRIDE。改一处必须三处同改。
+const EVENT_STRIDE := 11
+## 事件类型（与 C++ 侧 proj::EventType 一致）
+const EV_HIT := 0
+const EV_EXPLODE := 1
+const EV_EXPIRE := 2
+
 var sim: Node = null
 var mmi: MultiMeshInstance3D = null
 var active := 0
@@ -147,59 +156,106 @@ func _sync_render() -> void:
 
 
 ## 消费事件：命中 / 爆炸 / 到期
+##
+## 走**扁平数组**接口（每事件 11 float）而不是逐事件 Dictionary：
+## 4096 发弹幕下字典编组实测 15 ms/帧（约 90% 帧预算），
+## 扁平数组只要 0.02 ms。布局见 EVENT_STRIDE 常量。
 func _drain_events() -> void:
-	var evs: Array = sim.call("drain_events")
-	if evs.is_empty():
+	var ev: PackedFloat32Array = sim.call("drain_events_packed")
+	var n := ev.size() / EVENT_STRIDE
+	if n == 0:
 		return
-	for e in evs:
-		var d: Dictionary = e
-		var kind := str(d.get("type", ""))
-		match kind:
-			"hit":
-				_deal_hit(d)
-			"explode":
-				_deal_explode(d)
-			"expire":
-				_deal_expire(d)
+	for k in n:
+		var b := k * EVENT_STRIDE
+		match int(ev[b + 0]):
+			EV_HIT:
+				_deal_hit(ev, b)
+			EV_EXPLODE:
+				_deal_explode(ev, b)
+			EV_EXPIRE:
+				_deal_expire(ev, b)
 	active = int(sim.call("get_active_count"))
 
 
 ## 单目标命中：走既有伤害链路（与旧 Projectile._deal_damage 同口径）
-func _deal_hit(d: Dictionary) -> void:
-	var ref := int(d.get("target_id", -1))
+func _deal_hit(ev: PackedFloat32Array, b: int) -> void:
+	var ref := int(ev[b + 5])
 	var target := _resolve(ref)
+	var pos := Vector3(ev[b + 2], ev[b + 3], ev[b + 4])
+	var dmg := ev[b + 6]
+	var elem := int(ev[b + 7])
+	# 群体单位不是场景节点（_resolve 对它们返回 null），伤害另走批量接口。
+	# 这条分支必须存在：`_sync_targets` 把群体单位喂进了核，若这里直接
+	# return，子弹会**命中并消失但零伤害**——玩家看到弹幕穿群而过却没反应。
+	if _is_crowd_ref(ref):
+		_apply_damage_to_crowd(ref, dmg, elem, pos)
+		return
 	if target == null:
 		return
-	var pos: Vector3 = d.get("pos", Vector3.ZERO)
-	var dmg := float(d.get("damage", 0.0))
-	var elem := int(d.get("elem", -1))
 	_apply_damage_to(target, dmg, elem, pos)
 	# 命中后原地留区域（策划「命中/有效期结束后原地生成区域」）
-	if bool(d.get("has_zone", false)):
-		_spawn_zone(pos, int(d.get("id", -1)))
+	if ev[b + 10] != 0.0:
+		_spawn_zone(pos, int(ev[b + 1]))
 
 
 ## 引信爆炸：半径内**全组**结算（与旧 Projectile._explode 同口径）
-func _deal_explode(d: Dictionary) -> void:
-	var pos: Vector3 = d.get("pos", Vector3.ZERO)
-	var radius := float(d.get("explode_radius", 0.0))
-	var dmg := float(d.get("explode_damage", 0.0))
-	var elem := int(d.get("elem", -1))
+func _deal_explode(ev: PackedFloat32Array, b: int) -> void:
+	var pos := Vector3(ev[b + 2], ev[b + 3], ev[b + 4])
+	var radius := ev[b + 8]
+	var dmg := ev[b + 9]
+	var elem := int(ev[b + 7])
 	if radius > 0.0:
 		for t in _all_targets():
 			if t is Node3D and is_instance_valid(t):
 				if (t as Node3D).global_position.distance_to(pos) <= radius:
 					_apply_damage_to(t, dmg, elem, pos)
+		_explode_crowd(pos, radius, dmg, elem)
 	# 震屏（旧实现也发这个）
 	EventBus.screen_shake.emit(0.2, 0.15)
-	if bool(d.get("has_zone", false)):
-		_spawn_zone(pos, int(d.get("id", -1)))
+	if ev[b + 10] != 0.0:
+		_spawn_zone(pos, int(ev[b + 1]))
+
+
+## 爆炸波及群体单位（近战 AOE 早就打群体单位，投射物爆炸此前漏了）。
+##
+## `_all_targets()` 只收场景节点，群体单位不在里面——不加这段的话，
+## 一发炸在怪堆里的炸弹只会伤到节点式精英/Boss。
+## 半径查询走 `CrowdManager.query_circle`（核内空间哈希），不逐单位算距离。
+func _explode_crowd(pos: Vector3, radius: float, dmg: float, elem: int) -> void:
+	var crowd = _crowd_manager()
+	if crowd == null:
+		return
+	var ids: PackedInt32Array = crowd.call("query_circle", pos.x, pos.z, radius)
+	if ids.is_empty():
+		return
+	# 逐发结算：`apply_damage` 只吃一个统一数值，但每只怪的防御不同。
+	# 防御按各自的 monster 配置取——与近战打群体单位同口径
+	#（旧节点路径的爆炸本来就没扣防御，那是它自己的简化，不照搬）。
+	for raw in ids:
+		var id := int(raw)
+		if not bool(crowd.call("is_alive", id)):
+			continue
+		var def_v := float((crowd.call("monster_of", id) as Dictionary).get("defense", 0.0))
+		var result := DamagePipeline.elemental_attack(dmg, 1.0, 0.0, def_v, elem)
+		var amount := float(result.damage)
+		crowd.call("apply_damage", PackedInt32Array([id]), amount)
+		var at: Vector3 = crowd.call("unit_position", id)
+		EventBus.damage_popup.emit(at, amount, "normal")
+		projectile_hit.emit(at, amount, "normal")
+		if elem >= 0:
+			var tb = crowd.call("buffs_of", id)
+			if tb != null:
+				var out: Dictionary = ElementDamage.attack(tb, elem)
+				for e in out.get("events", []):
+					var ctrl_id: String = ElementDamage.control_for_event(str(e))
+					if ctrl_id != "":
+						tb.apply(ctrl_id, "element")
 
 
 ## 到期消散：可能要在原地留区域
-func _deal_expire(d: Dictionary) -> void:
-	if bool(d.get("has_zone", false)):
-		_spawn_zone(d.get("pos", Vector3.ZERO), int(d.get("id", -1)))
+func _deal_expire(ev: PackedFloat32Array, b: int) -> void:
+	if ev[b + 10] != 0.0:
+		_spawn_zone(Vector3(ev[b + 2], ev[b + 3], ev[b + 4]), int(ev[b + 1]))
 
 
 ## 对单个目标结算伤害 + 元素叠层。
@@ -228,6 +284,45 @@ func _apply_damage_to(target: Object, dmg: float, elem: int, popup_pos: Vector3)
 	# 元素叠层：与近战一致，投射物也应叠元素
 	if elem >= 0:
 		var tb = target.get("buffs")
+		if tb != null:
+			var out: Dictionary = ElementDamage.attack(tb, elem)
+			for ev in out.get("events", []):
+				var ctrl_id: String = ElementDamage.control_for_event(str(ev))
+				if ctrl_id != "":
+					tb.apply(ctrl_id, "element")
+
+
+## ref 是否指向一个群体单位
+func _is_crowd_ref(ref: int) -> bool:
+	return ref >= 0 and ref < _refs.size() \
+		and str((_refs[ref] as Dictionary).get("kind", "")) == "crowd"
+
+
+## 对群体单位结算投射物伤害。
+##
+## 群体单位不是场景节点，拿不到 `take_damage`，走 `CrowdManager.apply_damage`
+## 批量接口——与玩家近战打群体单位**同一套口径**（`player._apply_hit_crowd`）：
+## 用怪物表里的 defense 过 DamagePipeline，然后按 id 扣血。
+##
+## 元素叠层走 `CrowdManager.buffs_of(id)` 拿到的 BuffHolder
+##（群体单位本身没有 buff 槽，管理器按需给它们挂宿主 Node）。
+func _apply_damage_to_crowd(ref: int, dmg: float, elem: int, popup_pos: Vector3) -> void:
+	var crowd = _crowd_manager()
+	if crowd == null:
+		return
+	var id := int((_refs[ref] as Dictionary).get("id", -1))
+	if id < 0 or not bool(crowd.call("is_alive", id)):
+		return
+	var target_def := float((crowd.call("monster_of", id) as Dictionary).get("defense", 0.0))
+	var result := DamagePipeline.elemental_attack(dmg, 1.0, 0.0, target_def, elem)
+	crowd.call("apply_damage", PackedInt32Array([id]), float(result.damage))
+	EventBus.damage_popup.emit(popup_pos, result.damage, "normal")
+	projectile_hit.emit(popup_pos, result.damage, "normal")
+
+	# 元素叠层：与节点路径同口径。群体单位的 buff 宿主按需创建，
+	# 拿不到宿主（后端不支持）时静默跳过，不影响伤害本身。
+	if elem >= 0:
+		var tb = crowd.call("buffs_of", id)
 		if tb != null:
 			var out: Dictionary = ElementDamage.attack(tb, elem)
 			for ev in out.get("events", []):
@@ -269,9 +364,9 @@ func _resolve(ref: int) -> Object:
 		"player":
 			return _player if (_player != null and is_instance_valid(_player)) else null
 		"crowd":
-			# 群体单位没有节点对象——伤害由 CrowdManager 结算。
-			# 这里返回 null 是**有意的**：群体单位不接投射物伤害
-			#（保持现状：它们只被玩家近战/技能直接打）。
+			# 群体单位不是场景节点，这里没有对象可返回。
+			# **不代表它们不吃伤害**——`_deal_hit` 会在调本函数前先分流到
+			# `_apply_damage_to_crowd`（走 CrowdManager 批量接口）。
 			return null
 	return null
 

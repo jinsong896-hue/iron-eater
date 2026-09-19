@@ -65,13 +65,25 @@ var _hit_count := 0
 ## target_group 决定打谁：Projectile.TARGET_ENEMY（玩家射出）/ TARGET_PLAYER（敌人射出）
 ## 分流开关：是否把投射物交给 C++ 模拟核（ProjectileSim）。
 ##
-## **默认关闭**：新核的行为需要逐条对照旧实现（弧线/弹射/引信/分裂/
-## 落地区域/穿透），确认全部对齐后才切换。开着跑会改变手感，
-## 且出问题时难判断是哪条行为没对齐。
+## **默认开启**（2026-09-19 切换）。切换前做了逐条行为对照与压力测试：
 ##
-## 打开方式（调试/验证用）：
-##     Projectile.USE_SIM_CORE = true
-static var USE_SIM_CORE := false
+## 行为对照（核 vs 旧节点路径）：
+##   直线 / 弧线含 y / 穿透 / 弹射 / 引信爆炸 / 分裂 / 落地区域 / 阵营过滤
+##   —— `tests/test_projectile_sim.gd` 逐条断言，两套后端都跑。
+##
+## 压力测试（4096 发满容量 + 512 目标，每步补满）：
+##   核内 step            0.4 ~ 0.9 ms
+##   事件回传（扁平接口）  0.02 ms
+##   合计                 3.2 ~ 5.5% 帧预算
+##   对照：逐事件 Dictionary 编组要 15 ms/帧（约 90% 帧预算），
+##   故事件回传走 `drain_events_packed()` 扁平数组，不走 Dictionary。
+##
+## 已知两条路径**共有**的遗留问题（非切换引入）：
+##   · 都不处理撞墙——旧路径 `_on_body_entered` 开头就按阵营组过滤，
+##     墙不在 player/enemies 组里，直接 return。
+##
+## 需要退回旧路径时：`Projectile.USE_SIM_CORE = false`（调试用）。
+static var USE_SIM_CORE := true
 
 
 static func spawn(data: Dictionary, parent: Node3D, target_group: String = TARGET_ENEMY) -> Projectile:

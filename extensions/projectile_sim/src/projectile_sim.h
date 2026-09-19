@@ -49,6 +49,15 @@ public:
 	void step(float p_dt);
 	Array drain_events();
 
+	// 事件批量接口：**扁平 PackedFloat32Array**，每事件 11 个 float。
+	//
+	// 为什么另开一条：drain_events() 每事件建一个 8 键 Dictionary，
+	// 4096 发弹幕下实测 13~15 ms/帧（85% 帧预算）全耗在字典编组上，
+	// 而核内 step 只要 0.4~0.85 ms。扁平数组一次编组，无逐事件分配。
+	//
+	// 步长常量见 projectiles/projectile_sim_loader.gd 的 EVENT_STRIDE。
+	PackedFloat32Array drain_events_packed();
+
 	// 渲染
 	PackedFloat32Array get_render_buffer() const;
 	void set_base_scale(float p_scale);

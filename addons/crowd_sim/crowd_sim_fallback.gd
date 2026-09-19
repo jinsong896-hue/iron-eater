@@ -141,6 +141,29 @@ func get_position(id: int) -> Vector3:
 	return Vector3(_px[id], 0.0, _pz[id])
 
 
+## 全体存活单位坐标的批量缓冲，每单位 4 个 float：x, z, id, 1.0。
+## 与 C++ 侧 `CrowdSim::get_position_buffer()` 同布局。
+## 投射物管理器靠它一次取回全部群体单位坐标（逐 id 取在 2000 单位时
+## 是 2000 次跨语言调用，光 FFI 就吃掉整帧）。
+func get_position_buffer() -> PackedFloat32Array:
+	var n := 0
+	for i in _capacity:
+		if _alive[i] != 0:
+			n += 1
+	var out := PackedFloat32Array()
+	out.resize(n * 4)
+	var k := 0
+	for i in _capacity:
+		if _alive[i] == 0:
+			continue
+		out[k * 4 + 0] = _px[i]
+		out[k * 4 + 1] = _pz[i]
+		out[k * 4 + 2] = float(i)
+		out[k * 4 + 3] = 1.0
+		k += 1
+	return out
+
+
 func get_hp(id: int) -> float:
 	if not is_alive(id):
 		return 0.0

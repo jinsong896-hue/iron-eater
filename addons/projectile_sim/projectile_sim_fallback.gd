@@ -395,6 +395,43 @@ func drain_events() -> Array:
 	return out
 
 
+## 扁平事件流——与 C++ 侧 `drain_events_packed()` 同构、同步长。
+## 每事件 11 个 float：type, id, x, y, z, target_id, damage, elem,
+## explode_radius, explode_damage, has_zone
+## type: 0=hit 1=explode 2=expire
+##
+## 存在的意义：GDExtension 路径下逐事件 Dictionary 在 4096 发弹幕时
+## 要 15 ms/帧，扁平数组只要 0.02 ms。降级路径规模小（256 容量）不差这点
+## 性能，但**必须提供同名接口**，否则调用方在无编译产物环境直接报
+## 「方法不存在」——那会让新克隆的机器门禁全红。
+const EVENT_STRIDE := 11
+
+const _EVENT_TYPE_ID := {"hit": 0, "explode": 1, "expire": 2}
+
+
+func drain_events_packed() -> PackedFloat32Array:
+	var n := _events.size()
+	var out := PackedFloat32Array()
+	out.resize(n * EVENT_STRIDE)
+	for k in n:
+		var e: Dictionary = _events[k]
+		var pos: Vector3 = e.get("pos", Vector3.ZERO)
+		var b := k * EVENT_STRIDE
+		out[b + 0] = float(_EVENT_TYPE_ID.get(str(e.get("type", "")), 2))
+		out[b + 1] = float(e.get("id", -1))
+		out[b + 2] = pos.x
+		out[b + 3] = pos.y
+		out[b + 4] = pos.z
+		out[b + 5] = float(e.get("target_id", -1))
+		out[b + 6] = float(e.get("damage", 0.0))
+		out[b + 7] = float(e.get("elem", -1))
+		out[b + 8] = float(e.get("explode_radius", 0.0))
+		out[b + 9] = float(e.get("explode_damage", 0.0))
+		out[b + 10] = 1.0 if bool(e.get("has_zone", false)) else 0.0
+	_events.clear()
+	return out
+
+
 func get_render_buffer() -> PackedFloat32Array:
 	var buf := PackedFloat32Array()
 	buf.resize(_capacity * 12)

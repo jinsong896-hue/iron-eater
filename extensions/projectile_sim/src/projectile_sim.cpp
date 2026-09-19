@@ -2,6 +2,10 @@
 
 #include "projectile_core.h"
 
+// 扁平事件流的每事件 float 步长。改这里必须同步改
+// projectiles/projectile_sim_loader.gd 的 EVENT_STRIDE。
+static constexpr int EVENT_STRIDE = 11;
+
 namespace godot {
 
 void ProjectileSim::_bind_methods() {
@@ -14,6 +18,7 @@ void ProjectileSim::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("clear_targets"), &ProjectileSim::clear_targets);
 	ClassDB::bind_method(D_METHOD("step", "dt"), &ProjectileSim::step);
 	ClassDB::bind_method(D_METHOD("drain_events"), &ProjectileSim::drain_events);
+	ClassDB::bind_method(D_METHOD("drain_events_packed"), &ProjectileSim::drain_events_packed);
 	ClassDB::bind_method(D_METHOD("get_render_buffer"), &ProjectileSim::get_render_buffer);
 	ClassDB::bind_method(D_METHOD("set_base_scale", "scale"), &ProjectileSim::set_base_scale);
 	ClassDB::bind_method(D_METHOD("get_active_count"), &ProjectileSim::get_active_count);
@@ -125,6 +130,34 @@ Array ProjectileSim::drain_events() {
 		d["explode_damage"] = e.explode_damage;
 		d["has_zone"] = e.has_zone != 0;
 		out.push_back(d);
+	}
+	return out;
+}
+
+// 扁平事件流：每事件 11 个 float，一次编组。
+// 布局：type, id, x, y, z, target_id, damage, elem,
+//       explode_radius, explode_damage, has_zone
+// type 用 float 承载（0=hit, 1=explode, 2=expire），GDScript 侧用 int() 还原。
+PackedFloat32Array ProjectileSim::drain_events_packed() {
+	std::vector<proj::SimEvent> evs;
+	core->drain_events(evs);
+	PackedFloat32Array out;
+	out.resize(static_cast<int>(evs.size()) * EVENT_STRIDE);
+	float *w = out.ptrw();
+	for (size_t i = 0; i < evs.size(); ++i) {
+		const proj::SimEvent &e = evs[i];
+		float *p = w + i * EVENT_STRIDE;
+		p[0] = float(e.type);
+		p[1] = float(e.id);
+		p[2] = e.x;
+		p[3] = e.y;
+		p[4] = e.z;
+		p[5] = float(e.target_id);
+		p[6] = e.damage;
+		p[7] = float(e.elem);
+		p[8] = e.explode_radius;
+		p[9] = e.explode_damage;
+		p[10] = float(e.has_zone);
 	}
 	return out;
 }

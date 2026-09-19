@@ -50,6 +50,8 @@ func _ready() -> void:
 	await _test_manager_exists(gr)
 	await _test_spawn_routes_to_core(gr)
 	await _test_hit_damages_enemy(gr)
+	await _test_hit_damages_crowd(gr)
+	await _test_explode_damages_crowd(gr)
 
 	# 恢复默认（避免影响同进程内的其他测试）
 	Projectile.USE_SIM_CORE = false
@@ -123,6 +125,128 @@ func _test_hit_damages_enemy(gr) -> void:
 	_check(hp_after < hp_before,
 		"核的命中事件接回了伤害链路（hp %.1f → %.1f）" % [hp_before, hp_after])
 	host.queue_free()
+
+
+## 投射物必须能打死**群体单位**（不是场景节点）。
+##
+## 这条覆盖一个真实断链：`_sync_targets` 早就把群体单位喂进了核的目标表，
+## 但 (a) `CrowdManager` 没有 `get_position_buffer` 转发方法，
+## (b) 命中事件回来时 `_resolve("crowd")` 返回 null——
+## 子弹会**命中并消失但零伤害**，玩家看到弹幕穿群而过毫无反应。
+## 两条都在 2026-09-19 修掉，这条守住。
+func _test_hit_damages_crowd(gr) -> void:
+	var found := get_tree().get_nodes_in_group("projectile_manager")
+	if found.is_empty():
+		_check(false, "有管理器可测")
+		return
+	var mgr = found[0]
+	var ctrl = _room_controller(gr)
+	if ctrl == null:
+		_check(true, "（无 RoomController，跳过群体命中测试）")
+		return
+	var crowd = ctrl.call("_crowd")
+	if crowd == null:
+		_check(true, "（无 CrowdManager，跳过群体命中测试）")
+		return
+
+	# 群体管理器必须有批量坐标接口——没有它投射物看不到群体单位
+	_check(crowd.has_method("get_position_buffer"),
+		"CrowdManager 暴露 get_position_buffer")
+
+	# 在玩家附近刷一个群体单位（离原点远一点，避免与地图自带怪重叠）
+	var at := Vector3(6.0, 0.0, 6.0)
+	var id := int(crowd.call("spawn_unit", at, 500.0, 0.0, 0.5, 1.0,
+		{"id": "test_crowd_dummy", "hp": 500.0, "defense": 0.0}))
+	if id < 0:
+		_check(false, "群体单位生成成功")
+		return
+	_check(true, "群体单位生成成功（id=%d）" % id)
+
+	# 等一帧让 _sync_targets 把它收进目标表
+	await get_tree().physics_frame
+	var buf: PackedFloat32Array = crowd.call("get_position_buffer")
+	_check(buf.size() >= 4, "批量坐标缓冲非空（%d 个 float）" % buf.size())
+
+	var hp_before := float(crowd.call("unit_hp", id))
+	var host := Node3D.new()
+	add_child(host)
+	# 起点就在单位身上，立刻命中
+	Projectile.spawn({
+		"direction": Vector3(1, 0, 0), "position": at,
+		"speed": 1.0, "damage": 25.0, "lifetime": 1.0,
+	}, host, Projectile.TARGET_ENEMY)
+	for i in 6:
+		await get_tree().physics_frame
+	var hp_after := float(crowd.call("unit_hp", id))
+	_check(hp_after < hp_before,
+		"投射物对群体单位造成伤害（hp %.1f → %.1f）" % [hp_before, hp_after])
+	host.queue_free()
+	crowd.call("despawn_unit", id)
+
+
+## 引信爆炸必须波及**群体单位**。
+##
+## 覆盖另一条真实断链：`_deal_explode` 只遍历 `_all_targets()`（场景节点），
+## 群体单位不在场景树里 → 炸弹在怪堆中心炸开，节点式精英掉血、
+## 群体单位毫发无伤。近战的 AOE 早就打群体单位了，只有投射物爆炸漏了。
+func _test_explode_damages_crowd(gr) -> void:
+	var found := get_tree().get_nodes_in_group("projectile_manager")
+	if found.is_empty():
+		_check(false, "有管理器可测")
+		return
+	var mgr = found[0]
+	var ctrl = _room_controller(gr)
+	if ctrl == null:
+		_check(true, "（无 RoomController，跳过爆炸波及测试）")
+		return
+	var crowd = ctrl.call("_crowd")
+	if crowd == null:
+		_check(true, "（无 CrowdManager，跳过爆炸波及测试）")
+		return
+
+	# 两个单位：一个在爆心 0.5 米内（应被波及），一个在 6 米外（不该被波及）
+	var at := Vector3(14.0, 0.0, 14.0)
+	var near_id := int(crowd.call("spawn_unit", at, 500.0, 0.0, 0.5, 1.0,
+		{"id": "test_boom_near", "hp": 500.0, "defense": 0.0}))
+	var far_id := int(crowd.call("spawn_unit", at + Vector3(6.0, 0.0, 0.0), 500.0, 0.0, 0.5, 1.0,
+		{"id": "test_boom_far", "hp": 500.0, "defense": 0.0}))
+	if near_id < 0 or far_id < 0:
+		_check(false, "爆炸测试的两个群体单位生成成功")
+		return
+	_check(true, "爆炸测试的两个群体单位生成成功")
+
+	await get_tree().physics_frame
+	var near_before := float(crowd.call("unit_hp", near_id))
+	var far_before := float(crowd.call("unit_hp", far_id))
+
+	var host := Node3D.new()
+	add_child(host)
+	# 极短引信：出生即炸（与 4-16 炎骨弓手 arrow_explode 同款参数）
+	Projectile.spawn({
+		"direction": Vector3(1, 0, 0), "position": at,
+		"speed": 1.0, "damage": 5.0, "lifetime": 1.0,
+		"fuse": 0.05, "explode_radius": 2.0, "explode_damage": 30.0,
+	}, host, Projectile.TARGET_ENEMY)
+	for i in 8:
+		await get_tree().physics_frame
+
+	var near_after := float(crowd.call("unit_hp", near_id))
+	var far_after := float(crowd.call("unit_hp", far_id))
+	_check(near_after < near_before,
+		"爆炸波及半径内的群体单位（hp %.1f → %.1f）" % [near_before, near_after])
+	_check(is_equal_approx(far_after, far_before),
+		"爆炸不波及半径外的群体单位（hp %.1f）" % far_after)
+	host.queue_free()
+	crowd.call("despawn_unit", near_id)
+	crowd.call("despawn_unit", far_id)
+
+
+## 从 GameRoot 取当前房的 RoomController
+func _room_controller(gr):
+	var room = gr.get("current_room_node")
+	if room == null or not is_instance_valid(room):
+		return null
+	return room.get_node_or_null("RoomController")
 
 
 func _check(cond: bool, name: String) -> void:

@@ -47,6 +47,8 @@ func _ready() -> void:
 	_test_fuse_explode(sim)
 	_test_expire_without_fuse(sim)
 	_test_split(sim)
+	_test_full_capacity(sim)
+	_test_packed_events(sim)
 
 	if failed == 0:
 		print("ALL PROJECTILE SIM TESTS PASSED")
@@ -266,3 +268,98 @@ func _check(cond: bool, name: String) -> void:
 	else:
 		failed += 1
 		print("  [FAIL] %s" % name)
+
+
+## 满容量：打满池子后 step 仍正确推进、不崩、事件可消费。
+##
+## 加这条的背景：核容量 4096，但此前所有测试最多只跑到 64 发，
+## **弹幕规模从未被验证过**。压测时发现逐事件 Dictionary 编组
+## 在 4096 发下要 15 ms/帧（见 _test_packed_events），
+## 这条则守住"满容量下行为仍正确"这一底线。
+func _test_full_capacity(sim) -> void:
+	sim.call("setup", cap)
+	sim.call("set_targets", PackedFloat32Array(), PackedInt32Array())
+	var spawned := 0
+	for i in cap:
+		var a := TAU * float(i) / float(cap)
+		var id := int(sim.call("spawn", {
+			"x": 0.0, "y": 0.0, "z": 0.0,
+			"dx": cos(a), "dz": sin(a),
+			"speed": 12.0, "damage": 10.0, "lifetime": 5.0,
+			"faction": FACTION_ENEMY, "pierce": 0,
+		}))
+		if id >= 0:
+			spawned += 1
+	_check(spawned == cap, "满容量可全部生成（%d/%d）" % [spawned, cap])
+	_check(int(sim.call("get_active_count")) == cap, "活跃数 = 容量")
+
+	# 满容量 step 不应崩，且事件量级合理
+	var t0 := Time.get_ticks_usec()
+	sim.call("step", 1.0 / 60.0)
+	var step_ms := float(Time.get_ticks_usec() - t0) / 1000.0
+	_check(step_ms < 50.0, "满容量 step 未卡死（%.2f ms）" % step_ms)
+
+	# 池满时再生成应被拒绝而不是越界
+	_check(int(sim.call("spawn", {
+		"x": 0.0, "y": 0.0, "z": 0.0, "dx": 1.0, "dz": 0.0,
+		"speed": 1.0, "damage": 1.0, "lifetime": 1.0,
+		"faction": FACTION_ENEMY, "pierce": 0,
+	})) == -1, "池满时 spawn 返回 -1（不越界）")
+	sim.call("clear")
+
+
+## 扁平事件流与逐事件 Dictionary **语义等价**。
+##
+## 两条接口会并存一段时间（旧测试仍用 Dictionary），必须保证
+## 同一局面下两者报出的内容一致，否则调用方切到扁平接口会静默丢字段。
+func _test_packed_events(sim) -> void:
+	var stride := ProjectileManager.EVENT_STRIDE
+	sim.call("setup", mini(cap, 64))
+	sim.call("set_targets",
+		PackedFloat32Array([1.0, 0.0, 0.5, 7.0]),
+		PackedInt32Array([FACTION_ENEMY]))
+	sim.call("spawn", {
+		"x": 0.0, "y": 0.5, "z": 0.0, "dx": 1.0, "dz": 0.0,
+		"speed": 20.0, "damage": 7.0, "lifetime": 5.0,
+		"faction": FACTION_ENEMY, "pierce": 0, "elem": 3,
+	})
+	sim.call("step", 0.05)
+
+	var dicts: Array = sim.call("drain_events")
+	# 重放同一发子弹，取扁平流
+	sim.call("setup", mini(cap, 64))
+	sim.call("set_targets",
+		PackedFloat32Array([1.0, 0.0, 0.5, 7.0]),
+		PackedInt32Array([FACTION_ENEMY]))
+	sim.call("spawn", {
+		"x": 0.0, "y": 0.5, "z": 0.0, "dx": 1.0, "dz": 0.0,
+		"speed": 20.0, "damage": 7.0, "lifetime": 5.0,
+		"faction": FACTION_ENEMY, "pierce": 0, "elem": 3,
+	})
+	sim.call("step", 0.05)
+	var flat: PackedFloat32Array = sim.call("drain_events_packed")
+
+	_check(dicts.size() > 0, "逐事件接口报出了事件（%d 个）" % dicts.size())
+	_check(flat.size() == dicts.size() * stride,
+		"扁平流长度 = 事件数 × %d（%d = %d × %d）"
+		% [stride, flat.size(), dicts.size(), stride])
+	if flat.size() != dicts.size() * stride or dicts.is_empty():
+		return
+
+	# 逐字段核对第一对
+	var d: Dictionary = dicts[0]
+	var p: Vector3 = d.get("pos", Vector3.ZERO)
+	var type_id: int = {"hit": 0, "explode": 1, "expire": 2}.get(str(d.get("type", "")), 2)
+	_check(int(flat[0]) == type_id, "type 一致（%d）" % type_id)
+	_check(int(flat[1]) == int(d.get("id", -1)), "id 一致")
+	_check(absf(flat[2] - p.x) < 0.001 and absf(flat[3] - p.y) < 0.001
+			and absf(flat[4] - p.z) < 0.001, "位置一致")
+	_check(int(flat[5]) == int(d.get("target_id", -1)), "target_id 一致")
+	_check(absf(flat[6] - float(d.get("damage", 0.0))) < 0.001, "damage 一致")
+	_check(int(flat[7]) == int(d.get("elem", -1)), "elem 一致")
+	_check((flat[10] != 0.0) == bool(d.get("has_zone", false)), "has_zone 一致")
+
+	# 取走后必须清空（两条接口共用同一队列）
+	var again: PackedFloat32Array = sim.call("drain_events_packed")
+	_check(again.size() == 0, "扁平流取走后队列清空")
+	sim.call("clear")

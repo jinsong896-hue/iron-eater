@@ -279,13 +279,19 @@ func _cast_projectile(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	var data := {
 		"skill_id": sd.get("id", ""),
 		"direction": dir,
+		# 出生点必须进 data：走模拟核时投射物**不是节点**，
+		# spawn 返回 null，下面那行 `proj.global_position = ...` 就落空了，
+		# 子弹会从世界原点射出（表现：技能放出去毫无效果）。
+		# 两条路径共用这一份 data，故这里给死。
+		"position": caster.global_position + dir * 0.6,
 		"speed": float(sd.get("speed", 12.0)),
 		"damage": _panel_atk(caster) * float(sd.get("damage_mult", 1.0)) * ranged_mult,
 		"lifetime": float(sd.get("lifetime", 2.0)),
 		"element": str(sd.get("element", "")),
 		"pierce_count": int(sd.get("pierce_count", 0)),
 	}
-	# spawn 返回生成好的投射物节点，直接摆到施法者身前
+	# 旧节点路径：spawn 返回节点，位置也在这里摆一次（幂等）。
+	# 核路径下 spawn 返回 null，位置已由上面的 data["position"] 带进去。
 	var proj = ProjectileSystem.spawn(data, parent)
 	if proj != null:
 		proj.global_position = caster.global_position + dir * 0.6
