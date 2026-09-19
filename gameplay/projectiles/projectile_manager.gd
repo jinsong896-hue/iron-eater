@@ -32,6 +32,13 @@ var _multimesh: MultiMesh = null
 var _player: Node3D = null
 ## 本帧目标来源：[{kind:"node", node:Node} | {kind:"crowd", id:int}]
 var _refs: Array = []
+## 投射物 id → 它的 zone_on_land 规格。
+##
+## 核只报 `has_zone` 布尔（它不关心区域参数），具体参数在这里存着。
+## 用完即删（事件到达后清），避免长期占用。
+var _zone_specs: Dictionary = {}
+## 最近一次 _spawn_zone 用的规格（供测试断言参数确实透传了）
+var _zone_spec: Dictionary = {}
 
 
 func _ready() -> void:
@@ -169,7 +176,7 @@ func _deal_hit(d: Dictionary) -> void:
 	_apply_damage_to(target, dmg, elem, pos)
 	# 命中后原地留区域（策划「命中/有效期结束后原地生成区域」）
 	if bool(d.get("has_zone", false)):
-		_spawn_zone(pos)
+		_spawn_zone(pos, int(d.get("id", -1)))
 
 
 ## 引信爆炸：半径内**全组**结算（与旧 Projectile._explode 同口径）
@@ -186,13 +193,13 @@ func _deal_explode(d: Dictionary) -> void:
 	# 震屏（旧实现也发这个）
 	EventBus.screen_shake.emit(0.2, 0.15)
 	if bool(d.get("has_zone", false)):
-		_spawn_zone(pos)
+		_spawn_zone(pos, int(d.get("id", -1)))
 
 
 ## 到期消散：可能要在原地留区域
 func _deal_expire(d: Dictionary) -> void:
 	if bool(d.get("has_zone", false)):
-		_spawn_zone(d.get("pos", Vector3.ZERO))
+		_spawn_zone(d.get("pos", Vector3.ZERO), int(d.get("id", -1)))
 
 
 ## 对单个目标结算伤害 + 元素叠层。
@@ -229,13 +236,25 @@ func _apply_damage_to(target: Object, dmg: float, elem: int, popup_pos: Vector3)
 					tb.apply(ctrl_id, "element")
 
 
-## 原地生成区域（zone_on_land）
-func _spawn_zone(pos: Vector3) -> void:
+## 原地生成区域（zone_on_land）。
+##
+## **参数必须透传**：`shot_fire_zone`（熔炉哨兵）声明的
+## `radius:2.0 / duration:4.0 / damage:20.0` 与默认值差很远——
+## 早期版本在这里写死了参数，实际生成的是 `damage:4.0` 的弱化区域，
+## 机制强度被静默削掉。
+func _spawn_zone(pos: Vector3, bullet_id: int = -1) -> void:
 	var parent := get_parent()
 	if parent == null:
 		return
-	DamageZone.spawn({"position": pos, "radius": 2.0, "duration": 3.0,
-		"damage": 4.0, "tick_interval": 0.5}, parent)
+	var spec: Dictionary = _zone_specs.get(bullet_id, {})
+	_zone_specs.erase(bullet_id)   # 用完即删
+	if spec.is_empty():
+		# 兜底：核报了 has_zone 但没有规格（不该发生）
+		spec = {"radius": 2.0, "duration": 3.0, "damage": 4.0, "tick_interval": 0.5}
+	spec = spec.duplicate()
+	spec["position"] = pos
+	_zone_spec = spec   # 供测试断言透传
+	DamageZone.spawn(spec, parent)
 
 
 ## ref → 真实对象
@@ -322,6 +341,9 @@ func spawn_from_data(data: Dictionary, faction: String) -> int:
 	}))
 	if id >= 0:
 		active = int(sim.call("get_active_count"))
+		# 记下这发子弹的落地区域规格（事件回来时用）
+		if not zone.is_empty():
+			_zone_specs[id] = zone.duplicate()
 	return id
 
 

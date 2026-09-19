@@ -41,6 +41,7 @@ enum SimFlags : uint32_t {
 	P_ARC = 1u << 1,          // 抛物线轨迹
 	P_FUSE_ARMED = 1u << 2,   // 已进入引信倒计时（冻结移动）
 	P_BOUNCED = 1u << 3,      // 本帧刚弹射过（防止同帧重复弹）
+	P_SPLIT_DONE = 1u << 4,   // 已分裂过（**只分裂一次**，防无限繁殖）
 };
 
 // 阵营：决定打谁
@@ -147,6 +148,8 @@ private:
 	bool on_hit(int id, int target_idx);
 	// 弹射：转向最近未命中目标；找不到则原路反向
 	void do_bounce(int id);
+	// 分裂：以飞行方向为中心散射 N 枚小弹（**只分裂一次**）
+	void do_split(int id);
 	// 记下已命中（去重）
 	void remember_hit(int id, int ref);
 	bool already_hit(int id, int ref) const;
@@ -197,6 +200,13 @@ private:
 	std::vector<int> hit_memory_;   // 长度 = capacity * MAX_HIT_MEMORY
 
 	int cur_buf_ = 0;
+	// 每发子弹的生成序号 + 本帧的序号门槛。
+	// 序号 >= frame_spawn_mark_ 的是"本帧新生成"，跳过本轮命中判定
+	//（见 phase_hit_test 的注释）。用序号而不是 id 区间——
+	// 池复用会让 id 重复使用，id 区间判断不可靠。
+	std::vector<int> spawn_serial_;
+	int spawn_serial_next_ = 0;
+	int frame_spawn_mark_ = 0;
 
 	// 目标表（本帧）
 	std::vector<Target> targets_;

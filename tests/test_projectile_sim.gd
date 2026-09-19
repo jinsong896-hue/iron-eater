@@ -46,6 +46,7 @@ func _ready() -> void:
 	_test_arc_has_y(sim)
 	_test_fuse_explode(sim)
 	_test_expire_without_fuse(sim)
+	_test_split(sim)
 
 	if failed == 0:
 		print("ALL PROJECTILE SIM TESTS PASSED")
@@ -224,6 +225,39 @@ func _test_expire_without_fuse(sim) -> void:
 	_check(expired, "到期发 expire 事件")
 	_check(not bool(sim.call("is_alive", id)), "到期后子弹消失")
 	_check(int(sim.call("get_active_count")) == 0, "活跃数归零")
+
+
+## 分裂：命中时散射 N 枚小弹，且**只分裂一次**（防无限繁殖）
+func _test_split(sim) -> void:
+	sim.call("setup", mini(cap, 64))
+	# 一个目标在路径上，让母弹命中触发分裂
+	sim.call("set_targets",
+		PackedFloat32Array([1.0, 0.0, 0.5, 1.0]),
+		PackedInt32Array([FACTION_ENEMY]))
+	var id := int(sim.call("spawn", {
+		"x": 0.0, "y": 0.0, "z": 0.0, "dx": 1.0, "dz": 0.0,
+		"speed": 20.0, "damage": 10.0, "lifetime": 2.0,
+		"faction": FACTION_ENEMY, "pierce": 9,
+		"split_count": 3, "split_pct": 0.5, "split_spread": 0.35,
+	}))
+	_check(int(sim.call("get_active_count")) == 1, "分裂前只有母弹")
+	sim.call("step", 0.05)
+	# 命中后应多出 3 枚小弹
+	var n := int(sim.call("get_active_count"))
+	_check(n == 4, "命中后散射出 3 枚小弹（活跃 %d，期望 4）" % n)
+	# 小弹伤害是母弹的一半
+	var child_dmg := -1.0
+	for i in mini(cap, 64):
+		if i != id and bool(sim.call("is_alive", i)):
+			child_dmg = float(sim.call("get_damage", i))
+			break
+	_check(absf(child_dmg - 5.0) < 0.01,
+		"小弹伤害 = 母弹 × 50%%（实际 %.1f）" % child_dmg)
+	# 小弹不该再分裂（否则无限繁殖）——再跑一段，数量只减不增
+	for i in 30:
+		sim.call("step", 0.05)
+	_check(int(sim.call("get_active_count")) <= 4,
+		"小弹不再分裂（活跃 %d ≤ 4）" % int(sim.call("get_active_count")))
 
 
 func _check(cond: bool, name: String) -> void:

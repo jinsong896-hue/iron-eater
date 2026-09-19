@@ -45,6 +45,9 @@ void ProjectileCore::setup(int capacity) {
 	has_zone_.assign(n, 0);
 
 	hit_memory_.assign(n * MAX_HIT_MEMORY, -1);
+	spawn_serial_.assign(n, -1);
+	spawn_serial_next_ = 0;
+	frame_spawn_mark_ = 0;
 
 	free_list_.clear();
 	free_list_.reserve(n);
@@ -131,6 +134,7 @@ int ProjectileCore::spawn(const SpawnDesc &d) {
 		hit_memory_[base + k] = -1;
 	}
 
+	spawn_serial_[id] = spawn_serial_next_++;
 	++active_;
 	return id;
 }
@@ -168,6 +172,8 @@ void ProjectileCore::step(float dt) {
 	if (active_ == 0) {
 		return;
 	}
+	// 记下本帧的生成序号门槛：之后新生成的子弹（分裂小弹）跳过本轮命中判定
+	frame_spawn_mark_ = spawn_serial_next_;
 	phase_advance(dt);
 	phase_hit_test();
 	phase_lifetime();
@@ -211,6 +217,13 @@ void ProjectileCore::phase_hit_test() {
 		return;
 	}
 	const int wb = 1 - cur_buf_;
+	// 本帧新生成的小弹跳过本轮判定。
+	//
+	// 分裂出来的小弹生成在母弹位置（就在目标半径内）。若不跳过，它们会
+	// 在同一轮循环里被再次检测、当场命中并消失——表现为"分裂了但看不到
+	// 小弹"。当前靠"新 id 比当前索引大、循环还没走到"侥幸规避，但那是
+	// **依赖 id 分配顺序的巧合**，池复用时就会失效。显式跳过才稳。
+	const int mark = frame_spawn_mark_;
 	// 收集本帧要处理的动作（不能在遍历中改池）
 	std::vector<int> to_explode;
 	std::vector<int> to_kill;
@@ -218,6 +231,9 @@ void ProjectileCore::phase_hit_test() {
 	for (int i = 0; i < capacity_; ++i) {
 		if (!(flags_[i] & P_ALIVE)) {
 			continue;
+		}
+		if (spawn_serial_[i] >= mark) {
+			continue;              // 本帧新生成
 		}
 		flags_[i] &= ~P_BOUNCED;   // 每帧清弹射标记
 		if (flags_[i] & P_FUSE_ARMED) {
@@ -258,6 +274,14 @@ void ProjectileCore::phase_hit_test() {
 
 			remember_hit(i, tg.ref);
 			++hit_count_[i];
+
+			// 分裂：以飞行方向为中心散射 N 枚小弹。
+			// **只分裂一次**——否则小弹命中后继续分裂会无限繁殖。
+			// 与旧实现同口径：小弹清零弹射/穿透、寿命 1.2 秒。
+			if (split_count_[i] > 0 && !(flags_[i] & P_SPLIT_DONE)) {
+				flags_[i] |= P_SPLIT_DONE;
+				do_split(i);
+			}
 
 			// 发命中事件（伤害由 GDScript 结算）
 			SimEvent ev;
@@ -415,6 +439,55 @@ void ProjectileCore::explode(int id) {
 	ev.has_zone = has_zone_[id];
 	events_.push_back(ev);
 	despawn(id);
+}
+
+// 分裂：以飞行方向为中心均匀散射 N 枚小弹。
+//
+// 与旧实现（Projectile._spawn_split）同口径：
+//   · 方向在原方向 ±split_spread 内均匀展开
+//   · 伤害 ×split_pct
+//   · **清零弹射与穿透**（否则小弹会各自再弹射/穿透，数量失控）
+//   · 寿命固定 1.2 秒
+//   · 继承阵营与元素
+void ProjectileCore::do_split(int id) {
+	const int n = split_count_[id];
+	if (n <= 0) {
+		return;
+	}
+	// 基准方向
+	const float bx = dx_[id];
+	const float bz = dz_[id];
+	const float base_ang = std::atan2(bz, bx);
+	const float spread = split_spread_[id];
+	for (int k = 0; k < n; ++k) {
+		// 均匀展开：n=1 时取正前方；n>1 时在 [-spread, +spread] 上等分
+		const float t = (n <= 1) ? 0.0f
+			: (static_cast<float>(k) / static_cast<float>(n - 1)) * 2.0f - 1.0f;
+		const float ang = base_ang + t * spread;
+		SpawnDesc d;
+		d.x = px_[cur_buf_][id];
+		d.y = py_[cur_buf_][id];
+		d.z = pz_[cur_buf_][id];
+		d.dx = std::cos(ang);
+		d.dz = std::sin(ang);
+		d.speed = speed_[id];
+		d.damage = damage_[id] * split_pct_[id];
+		d.lifetime = 1.2f;
+		d.elem = elem_[id];
+		d.faction = faction_[id];
+		d.pierce = 0;        // 小弹不穿透
+		d.bounces = 0;       // 小弹不弹射
+		d.arc = false;
+		d.arc_height = 0.0f;
+		d.fuse = 0.0f;
+		d.explode_radius = 0.0f;
+		d.explode_damage = 0.0f;
+		d.split_count = 0;   // 小弹不再分裂
+		d.split_pct = 0.0f;
+		d.split_spread = 0.0f;
+		d.has_zone = 0;
+		spawn(d);
+	}
 }
 
 void ProjectileCore::remember_hit(int id, int ref) {

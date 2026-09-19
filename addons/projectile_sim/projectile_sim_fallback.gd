@@ -60,6 +60,12 @@ var _split_count := PackedInt32Array()
 var _split_pct := PackedFloat32Array()
 var _split_spread := PackedFloat32Array()
 var _has_zone := PackedInt32Array()
+## 已分裂标记（只分裂一次，防无限繁殖）
+var _split_done := PackedByteArray()
+## 本帧新生成的子弹（跳过本轮命中判定，见 step 的注释）
+var _spawn_guard := {}
+## 是否正在 step 中（spawn 据此决定要不要加守卫）
+var _in_step := false
 
 ## 去重：子弹 id → 已命中 ref 列表
 var _hit_memory := {}
@@ -84,11 +90,13 @@ func setup(capacity: int) -> void:
 	_explode_radius.resize(n); _explode_damage.resize(n)
 	_split_count.resize(n); _split_pct.resize(n); _split_spread.resize(n)
 	_has_zone.resize(n)
+	_split_done.resize(n)
 	for i in n:
 		_alive[i] = 0
 		_fuse_armed[i] = 0
 		_arc[i] = 0
 		_elem[i] = -1
+		_split_done[i] = 0
 	_free.clear()
 	for i in range(n - 1, -1, -1):
 		_free.append(i)
@@ -147,7 +155,11 @@ func spawn(desc: Dictionary) -> int:
 	_split_pct[id] = float(desc.get("split_pct", 0.4))
 	_split_spread[id] = float(desc.get("split_spread", 0.5))
 	_has_zone[id] = int(desc.get("has_zone", 0))
+	_split_done[id] = 0
 	_hit_memory[id] = []
+	# 标记为"本帧新生成"——step 期间新造的子弹跳过本轮命中判定
+	if _in_step:
+		_spawn_guard[id] = true
 	_active += 1
 	return id
 
@@ -181,12 +193,22 @@ func clear_targets() -> void:
 	_targets.clear()
 
 
+## 一帧模拟。
+##
+## `_spawn_guard` 用于标记"本帧新生成、不该在本帧参与命中判定"的子弹。
+## 分裂出来的小弹生成在母弹位置（就在目标半径内），若不跳过本轮检测，
+## 它们会**当场命中并消失**——表现为"分裂了但看不到小弹"（实测踩到）。
+## C++ 侧靠"收集 to_kill 延后处理"天然规避，脚本侧需要显式守卫。
 func step(dt: float) -> void:
 	if _active == 0:
 		return
+	_in_step = true
 	_phase_advance(dt)
 	_phase_hit_test()
 	_phase_lifetime()
+	_in_step = false
+	# 本帧新生成的子弹从下一帧起才参与命中判定
+	_spawn_guard.clear()
 
 
 func _phase_advance(dt: float) -> void:
@@ -213,6 +235,8 @@ func _phase_hit_test() -> void:
 	for i in _capacity:
 		if _alive[i] == 0 or _fuse_armed[i] != 0:
 			continue
+		if _spawn_guard.has(i):
+			continue   # 本帧新生成的小弹跳过本轮判定
 		for t in _targets.size():
 			var tg: Dictionary = _targets[t]
 			if int(tg["faction"]) != _faction[i]:
@@ -232,6 +256,10 @@ func _phase_hit_test() -> void:
 				continue
 			_remember_hit(i, ref)
 			_hit_count[i] += 1
+			# 分裂：只分裂一次（否则小弹继续分裂会无限繁殖）
+			if _split_count[i] > 0 and _split_done[i] == 0:
+				_split_done[i] = 1
+				_do_split(i)
 			_events.append({
 				"type": "hit", "id": i,
 				"pos": Vector3(_px[i], _py[i], _pz[i]),
@@ -303,6 +331,29 @@ func _do_bounce(id: int) -> void:
 	_elapsed[id] = 0.0
 	_lifetime[id] = maxf(_lifetime[id], 1.5)
 	_arc[id] = 0
+
+
+## 分裂：以飞行方向为中心均匀散射 N 枚小弹（只分裂一次）。
+## 与 C++ 侧同口径：小弹清零弹射/穿透、寿命 1.2 秒、继承阵营与元素。
+func _do_split(id: int) -> void:
+	var n := _split_count[id]
+	if n <= 0:
+		return
+	var base_ang := atan2(_dz[id], _dx[id])
+	var spread := _split_spread[id]
+	for k in n:
+		var t := 0.0 if n <= 1 else (float(k) / float(n - 1)) * 2.0 - 1.0
+		var ang := base_ang + t * spread
+		spawn({
+			"x": _px[id], "y": _py[id], "z": _pz[id],
+			"dx": cos(ang), "dz": sin(ang),
+			"speed": _speed[id],
+			"damage": _damage[id] * _split_pct[id],
+			"lifetime": 1.2,
+			"elem": _elem[id],
+			"faction": _faction[id],
+			"pierce": 0, "bounces": 0,
+		})
 
 
 func _explode(id: int) -> void:
