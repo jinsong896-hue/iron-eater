@@ -70,6 +70,7 @@ func _ready() -> void:
 	# 怪物池与词缀（全量 64 种、按层选池、词缀阶段分配）
 	await _run_test(test_monster_pool)
 	await _run_test(test_rusher_dash_range)
+	await _run_test(test_monster_mechanics_wired)
 
 	# 资源系统测试（宝箱/回血/层间恢复/金币产出）
 	await _run_test(test_resource_system)
@@ -1668,6 +1669,95 @@ func test_rusher_dash_range() -> void:
 		e.free()
 	_check(missing.is_empty(), "所有 rusher 都有非零突进距离（不会静默不突进）",
 		[str(missing)])
+
+
+## 怪物专属机制接线测试（分册 4.6 / 4.9 / 9-5）。
+##
+## **为什么需要这一条**：机制名出现在 `_apply_mechanic` 的 `match` 分支里
+## **不等于**行为会触发——`dash_range` 那次就是这么漏的（`match` 有分支、
+## 参数字典却没给键）。所以这里一律断言**参数装配结果**，不是断言分支存在。
+func test_monster_mechanics_wired() -> void:
+	_current_test = "MechWired"
+	print("\n--- %s ---" % _current_test)
+
+	var MDB = _require_script("res://data/monsters/monster_db.gd")
+	var EB = _require_script("res://entities/enemies/enemy_base.gd")
+	if MDB == null or EB == null:
+		return
+	MDB.init()
+
+	# —— 4.6 狱卒猎犬：突进失败后硬直 0.5 秒 ——
+	# 前提是它得先会突进（`dash_range > 0`），否则硬直永远不会发生。
+	var hj: Dictionary = MDB.get_monster("hound_jailer")
+	if not hj.is_empty():
+		var e = EB.new()
+		e.apply_monster_config(hj)
+		_check(is_equal_approx(float(e.get("dash_stun_seconds")), 0.5),
+			"狱卒猎犬 突进失败硬直 = 0.5 秒（分册 4.6）",
+			["实得 %.2f" % float(e.get("dash_stun_seconds"))])
+		_check(float(e.get("dash_range")) > 0.0,
+			"狱卒猎犬有突进距离（否则硬直机制不可达）",
+			["dash_range=%.2f" % float(e.get("dash_range"))])
+		e.free()
+
+	# —— 4.9 熔岩巨兽：每 8 秒熔岩光环（4 米，每秒 20 伤），站熔岩地面每秒回 15 血 ——
+	var lava: Dictionary = MDB.get_monster("rat_p3")
+	if not lava.is_empty():
+		var e = EB.new()
+		e.apply_monster_config(lava)
+		_check(is_equal_approx(float(e.get("aura_interval")), 8.0),
+			"熔岩巨兽 光环间隔 = 8 秒（分册 4.9）",
+			["实得 %.1f" % float(e.get("aura_interval"))])
+		var spec: Dictionary = e.get("aura_spec")
+		_check(is_equal_approx(float(spec.get("radius", 0.0)), 4.0),
+			"熔岩巨兽 光环半径 = 4 米", ["实得 %.1f" % float(spec.get("radius", 0.0))])
+		_check(is_equal_approx(float(spec.get("damage", 0.0)), 20.0),
+			"熔岩巨兽 光环每秒 20 伤", ["实得 %.1f" % float(spec.get("damage", 0.0))])
+		_check(is_equal_approx(float(spec.get("heal", 0.0)), 15.0),
+			"熔岩巨兽 站熔岩地面每秒回 15 血", ["实得 %.1f" % float(spec.get("heal", 0.0))])
+		_check(str(spec.get("friendly_group", "")) == "enemies",
+			"熔岩巨兽 回血作用对象 = enemies（分册原文同区敌方也受益）")
+		e.free()
+
+	# —— 4.9 虚空巨兽：每 6 秒虚空引力（牵引 2 秒，期间每秒 30 伤）——
+	var vg: Dictionary = MDB.get_monster("rat_p4")
+	if not vg.is_empty():
+		var e = EB.new()
+		e.apply_monster_config(vg)
+		_check(is_equal_approx(float(e.get("aura_interval")), 6.0),
+			"虚空巨兽 引力间隔 = 6 秒（分册 4.9）",
+			["实得 %.1f" % float(e.get("aura_interval"))])
+		_check(bool(e.get("gravity_pull")), "虚空巨兽 引力开关已打开")
+		_check(is_equal_approx(float(e.get("gravity_pull_seconds")), 2.0),
+			"虚空巨兽 牵引时长 = 2 秒",
+			["实得 %.1f" % float(e.get("gravity_pull_seconds"))])
+		_check(is_equal_approx(float(e.get("gravity_pull_dps")), 30.0),
+			"虚空巨兽 牵引期间每秒 30 伤",
+			["实得 %.1f" % float(e.get("gravity_pull_dps"))])
+		e.free()
+
+	# 扭曲巨兽（9-3）是**常驻**牵引，没有时长与伤害——不能被上面那套参数串了。
+	var wb: Dictionary = MDB.get_monster("warped_beast")
+	if not wb.is_empty():
+		var e = EB.new()
+		e.apply_monster_config(wb)
+		_check(is_equal_approx(float(e.get("gravity_pull_seconds")), 0.0),
+			"扭曲巨兽 保持常驻牵引（时长 0，不误加 2 秒窗口）",
+			["实得 %.1f" % float(e.get("gravity_pull_seconds"))])
+		e.free()
+
+	# —— 9-5 虚空吞噬者：每击杀一个单位恢复 20% 血、体型增大（伤害 +10%）——
+	var vd: Dictionary = MDB.get_monster("void_devourer")
+	if not vd.is_empty():
+		var e = EB.new()
+		e.apply_monster_config(vd)
+		_check(is_equal_approx(float(e.get("devour_heal_pct")), 0.20),
+			"虚空吞噬者 每次击杀回 20% 血",
+			["实得 %.2f" % float(e.get("devour_heal_pct"))])
+		_check(is_equal_approx(float(e.get("devour_atk_pct")), 0.10),
+			"虚空吞噬者 每次击杀伤害 +10%",
+			["实得 %.2f" % float(e.get("devour_atk_pct"))])
+		e.free()
 
 
 ## 资源系统测试：宝箱/回血/层间恢复/金币产出

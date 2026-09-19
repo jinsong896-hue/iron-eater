@@ -17,9 +17,10 @@ extends RefCounted
 ##
 ## 【假设 3 · 第 9 层无数值】第 6 章只给「类型 + 核心特征」，从阶段四推算。
 ##
-## 机制实现现状：59 个非 none 机制标记中 **54 个已实装**，
-## 仅 5 个仍是纯数据登记：`dash_stun_self` / `lava_aura` / `void_gravity` /
-## `devour_grow` / `boss_skill`（见 docs/progress/PROGRESS_20260919.md 第三节）。
+## 机制实现现状：59 个非 none 机制标记中 **58 个已实装**，
+## 仅 `boss_skill` 仍是纯数据登记——分册 9-8 只说「继承最终 Boss 基础技能 1 个」，
+## **没指明是哪一个**，且最终 Boss 本身（破坏神完全体·终焉之翼）在 `boss_db.gd`
+## 是四机制组合而非"基础技能"列表，无从推导（见 docs/progress/PROGRESS_20260919.md 第三节）。
 
 static var _monsters: Dictionary = {}   ## id -> Dictionary
 static var _initialized := false
@@ -32,7 +33,7 @@ const PHASE_OF_LAYER := {1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 3, 7: 4, 8: 4, 9: 5}
 # 基础怪 10 种 × 4 阶段
 # 行格式：[key, ai, def, scale, weight, range, dodge%, fly_h,
 #          [[名, 血, 攻, 移速%, 间隔, 机制标记] × 4 阶段]]
-# 机制标记 none = 无；其余标记全部已实装，未实装的 5 个见文件头
+# 机制标记 none = 无；其余标记全部已实装，未实装的 1 个（boss_skill）见文件头
 # ============================================================
 const BASE_TYPES := [
 	# ① 缓慢近身（僵尸类）—— 分册 4.1

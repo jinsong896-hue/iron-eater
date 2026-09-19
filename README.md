@@ -40,7 +40,8 @@
 
 ### 待完成（见 docs/progress/ 任务清单）
 
-- 5 个怪物机制（`dash_stun_self` / `lava_aura` / `void_gravity` / `devour_grow` / `boss_skill`）
+- 5 个怪物机制里的 4 个已补（`dash_stun_self` / `lava_aura` / `void_gravity` / `devour_grow`）；
+  剩 `boss_skill` 待策划指明"继承最终 Boss 的哪个技能"
 - 局外养成（天赋树 / 形态解锁 / 局外锻造 / 图鉴）——`main_menu.gd` 仍是"开发中..."
 - 商店出售装备；手柄映射；消耗品体系
 - 等策划给数：元素武器表、红装逐件机制表、稀有度具名后缀
@@ -88,8 +89,8 @@ bash tests/run_all.sh                   # 全量门禁：框架 + 21 套场景/�
 
 ## 下一步建议
 
-1. 5 个怪物专属机制补全（`dash_stun_self` / `lava_aura` 可接现有原语，
-   `void_gravity` / `devour_grow` / `boss_skill` 需先建基础设施）
+1. `boss_skill`（破坏神投影）——需策划指明继承最终 Boss 的哪个技能；
+   其余 4 个怪物专属机制已于 09-19 补齐
 2. 局外养成整块（天赋树 / 形态解锁 / 锻造 / 图鉴）——唯一未动的大系统
 3. 商店出售装备 + 消耗品体系（两者互相牵连：加炸弹道具会动背包/掉落/商店三处）
 4. 手柄映射（`input_manager.gd` 自述解耦但零 joypad 映射）

@@ -27,6 +27,17 @@ signal player_died(killer_name: String)
 signal damage_dealt(source: Node, target: Node, amount: float, element: String, is_crit: bool)
 @warning_ignore("unused_signal")
 signal enemy_died(enemy: Node, world_position: Vector3, loot_table: Array)
+## 有单位死亡（**含敌人被敌人打死**），供「击杀成长」类机制感知。
+##
+## 为什么不能复用 `enemy_died`：那条信号的接收方（玩家击杀统计、掉落、
+## 楼层机制）语义都是「玩家击杀」，把「怪物A 打死 怪物B」也发进去会污染
+## 击杀计数与掉落。而分册 9-5 虚空吞噬者明确要求「每击杀一个单位
+## （**包括其他怪物**）」，故单开一条。
+##
+## 性能：**只在场上有吞噬者时才发**（`EnemyBase._broadcast_death` 标记）——
+## 否则每只怪死亡都要做一次全组查找，白付代价。
+@warning_ignore("unused_signal")
+signal unit_died(victim: Node, killer: Node, world_position: Vector3)
 @warning_ignore("unused_signal")
 signal projectile_hit(projectile: Node, target: Node, hit_position: Vector3)
 

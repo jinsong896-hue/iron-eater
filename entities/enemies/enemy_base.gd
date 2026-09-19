@@ -125,6 +125,7 @@ var hit_healcut_seconds := 0.0   ## 命中使玩家受治疗降低（虚空狂�
 var trap_slow_buff := ""         ## 突进后减速陷阱的词条 id
 var dash_range_mult := 1.0       ## 突进距离倍数（虚空猎犬）
 var hit_root_seconds := 0.0      ## 命中定身（虚空猎犬）
+var dash_stun_seconds := 0.0     ## 突进未命中后的自我硬直（狱卒猎犬，0.5 秒）
 var hit_split_count := 0         ## 受击分裂数量（墓穴蝙蝠）
 var _hit_split_used := false
 var hit_dodge_bonus := 0.0       ## 受击后闪避加成（硫磺蝙蝠）
@@ -151,6 +152,10 @@ var _stealth_bonus_ready := false
 var pulse_invuln := false        ## 脉冲期间自身无敌（熔炉核心）
 var _pulse_timer := 0.0          ## 无敌剩余
 var gravity_pull := false        ## 周期性全屏引力（扭曲巨兽）
+var gravity_pull_seconds := 0.0  ## 引力持续时长（虚空巨兽，2 秒）；0 = 常驻
+var gravity_pull_dps := 0.0      ## 引力期间每秒伤害（虚空巨兽，30）
+var _pull_timer := 0.0           ## 引力剩余时长
+var _pull_tick := 0.0            ## 引力伤害的每秒累加器
 
 # —— 召唤 · 死亡区域变体 · 弹道变体（分册 4.x / 5.x）——
 var pierce_every := 0            ## 每 N 次射击发射穿透箭（符文哨兵，3）
@@ -205,7 +210,21 @@ var _explode_timer := 0.0     ## 自爆前摇倒计时（>0 表示正在蓄爆�
 var _exploding := false
 var _dash_timer := 0.0        ## 突进持续时间
 var _dash_dir := Vector3.ZERO
+## 本次突进是否够到过玩家（狱卒猎犬「突进失败」判定用）
+var _dash_hit := false
 var rng := RandomNumberGenerator.new()
+
+# —— 9-5 虚空吞噬者「吞噬成长」——
+## 每次击杀（**含其他怪物**）恢复的血量比例
+var devour_heal_pct := 0.0
+## 每次击杀的伤害增幅（在 `_base_atk` 上累乘，避免逐次复利叠加）
+var devour_atk_pct := 0.0
+## 每次击杀的体型增幅
+var devour_scale_pct := 0.0
+## 已吞噬数量
+var _devour_stacks := 0
+## 死亡时是否需要广播（有吞噬者在场时才发信号，省掉每只怪一次全表查找）
+var _broadcast_death := false
 
 ## Boss 通用机制（阶段转换/护盾破防/场地/召唤）。
 ## 用无类型声明避免 enemy_base ↔ boss_mechanics 的解析期循环依赖
@@ -247,6 +266,14 @@ func _ready() -> void:
 	_create_visual()
 	if stealth_always or stealth_exit_bonus > 0.0:
 		_apply_stealth_visual()
+	# 虚空吞噬者：接上「有单位死亡」广播。
+	# 放在 `_ready` 而不是 `apply_monster_config`——后者在 add_child **之前**
+	# 调用，那时本节点还不在树里，`get_nodes_in_group` 拿不到东西。
+	if devour_heal_pct > 0.0:
+		var bus = _event_bus()
+		if bus and bus.has_signal("unit_died") \
+				and not bus.unit_died.is_connected(_on_unit_died):
+			bus.unit_died.connect(_on_unit_died)
 
 
 func _find_player() -> void:
@@ -441,6 +468,15 @@ func apply_monster_config(m: Dictionary) -> void:
 	if special.has("shield_amount"):
 		shield_amount = float(special["shield_amount"])
 		shield_on_timer = float(special.get("shield_on_timer", 20.0))
+	if special.has("gravity_pull"):
+		gravity_pull = true
+		gravity_pull_seconds = float(special.get("gravity_pull_seconds", 0.0))
+		gravity_pull_dps = float(special.get("gravity_pull_dps", 0.0))
+	if special.has("devour_grow"):
+		devour_heal_pct = float(special.get("devour_heal_pct", 0.20))
+		devour_atk_pct = float(special.get("devour_atk_pct", 0.10))
+		devour_scale_pct = float(special.get("devour_scale_pct", 0.10))
+		_broadcast_death = true   # 死亡时发信号，供吞噬者感知
 
 	# 词缀（分册第 7 章）：数值型由 AffixDB.apply 写进 monster dict，
 	# 非数值型在这里装配战斗钩子。
@@ -505,9 +541,14 @@ func _apply_mechanic(m: String) -> void:
 			slow_target_seconds = 3.0
 			haste_self_pct = 0.30
 			haste_self_seconds = 3.0
-		# 9-5 虚空吞噬者：击杀单位恢复 20% 血量并增大体型（伤害 +10%）
+		# 9-5 虚空吞噬者：击杀单位恢复 20% 血量并增大体型（伤害 +10%）。
+		# 分册原文「每击杀一个单位（**包括其他怪物**）」——所以不能只认玩家击杀，
+		# 得靠 `unit_died` 广播。参数字典见 `MonsterDB._special_for`。
 		"devour_grow":
-			pass   # 行为在击杀回调里处理
+			devour_heal_pct = 0.20
+			devour_atk_pct = 0.10
+			devour_scale_pct = 0.10
+			_broadcast_death = true
 		# 8-24 熵能浮体：攻击后标记玩家 6 秒
 		"mark_player":
 			hit_mark_seconds = 6.0
@@ -554,6 +595,9 @@ func _apply_mechanic(m: String) -> void:
 		# 4.6 骸骨猎犬：突进后留减速陷阱（50%，3 秒）
 		"dash_slow_trap":
 			trap_slow_buff = "thorn_slow"
+		# 4.6 狱卒猎犬：突进未命中后硬直 0.5 秒（分册原文「突进失败后硬直」）
+		"dash_stun_self":
+			dash_stun_seconds = 0.5
 		# 4.6 虚空猎犬：突进距离翻倍，命中后定身 1.5 秒
 		"dash_root":
 			dash_range_mult = 2.0
@@ -604,10 +648,29 @@ func _apply_mechanic(m: String) -> void:
 			aura_spec = {"radius": 12.0, "duration": 3.0, "damage": 15.0,
 				"color": Color(1.0, 0.6, 0.2, 0.35)}
 			pulse_invuln = true
+		# 4.9 熔岩巨兽：每 8 秒熔岩光环（4 米，每秒 20 伤）；
+		# 站熔岩地面每秒回 15 血（分册原文如此，同区敌方也受益——
+		# 与 4-16 毒腺蛙的毒液区同一口径，不是笔误）。
+		#
+		# 「站熔岩地面回血」= 让光环跟随自身：怪物站在自己制造的光环里自然回血。
+		# 这样不需要给引擎引入「熔岩地面」这个新概念，
+		# 却与分册「站熔岩地面」的语义完全一致（光环就是它脚下那片熔岩）。
+		"lava_aura":
+			aura_interval = 8.0
+			aura_spec = {"radius": 4.0, "duration": 4.0, "damage": 20.0,
+				"heal": 15.0, "friendly_group": "enemies", "follow": true,
+				"color": Color(1.0, 0.35, 0.05, 0.45)}
 		# 9-3 扭曲巨兽：每 10 秒全屏引力（拉向自身，3 秒）
 		"gravity_pull":
 			aura_interval = 10.0
 			gravity_pull = true
+		# 4.9 虚空巨兽：每 6 秒虚空引力（牵引玩家 2 秒，期间每秒 30 伤）。
+		# 与扭曲巨兽共用引力原语，多出的是「持续时长 + 期间伤害」。
+		"void_gravity":
+			aura_interval = 6.0
+			gravity_pull = true
+			gravity_pull_seconds = 2.0
+			gravity_pull_dps = 30.0
 		# 9-4 虚空猎手：突进距离翻倍，命中后定身 1.5 秒
 		"long_dash_root":
 			dash_range_mult = 2.0
@@ -671,8 +734,20 @@ func _tick_aura(delta: float) -> void:
 	# 熔炉核心：脉冲期间自身无敌（需打掉护盾发生器才能破，本版简化）
 	if pulse_invuln:
 		_pulse_timer = float(aura_spec.get("duration", 3.0))
+	# 虚空巨兽：引力的「持续 2 秒」由这里开窗，伤害由 _pull_player 按秒结算
+	if gravity_pull and gravity_pull_seconds > 0.0:
+		_pull_timer = gravity_pull_seconds
+		_pull_tick = 0.0
 	var spec := aura_spec.duplicate()
 	spec["position"] = global_position
+	# 跟随型光环（熔岩巨兽的熔岩地面）：挂到自身身上，随移动而移动。
+	# `follow` 传的是**节点引用**而非布尔——DamageZone 靠 `_follows` 标记
+	# 判断跟随关系（它不能用 `follow != null`，见该类注释）。
+	var follow_self := bool(spec.get("follow", false))
+	spec.erase("follow")
+	if follow_self:
+		spec["follow"] = self
+		spec["duration"] = -1.0   # 跟随型无独立寿命，随施法者一起消失
 	# 水波是「减速」而非伤害：给区域内玩家挂减速词条（分册 4-18，40%）
 	if str(spec.get("slow_buff", "")) != "":
 		_apply_pulse_slow(str(spec["slow_buff"]), float(spec.get("radius", 5.0)))
@@ -958,6 +1033,10 @@ func _physics_process(delta: float) -> void:
 
 	# 突进推进
 	if _current_state == EnemyState.DASH:
+		# 引力窗口不因突进而中断：`_pull_player` 只在 CHASE 分支被调，
+		# 若不在突进里补一次，正在突进的虚空巨兽会**恰好**在引力生效的
+		# 那 2 秒内把拉扯和每秒 30 伤全吞掉（突进期间状态不是 CHASE）。
+		_pull_player(delta)
 		_update_dash(delta)
 		return
 
@@ -1032,6 +1111,11 @@ func _state_chase(delta: float) -> void:
 
 	# 进入攻击范围
 	if dist <= attack_range:
+		# 狱卒猎犬：记下「这一扑够到过玩家」，突进结束时不补硬直（见 _update_dash）。
+		# 注意必须在 `_start_dash()` 之前判断——`_start_dash` 会把状态置为 DASH，
+		# 之后这里就再也看不到「原本是突进态」了。
+		if _current_state == EnemyState.DASH:
+			_dash_hit = true
 		_current_state = EnemyState.ATTACK
 		return
 
@@ -1159,6 +1243,8 @@ func _start_dash() -> void:
 	# 虚空猎犬：突进距离翻倍（乘在基础时长上）
 	_dash_timer = 0.35 * dash_range_mult
 	_attack_timer = eff_attack_interval()  # 冲完进入攻击冷却
+	# 本次突进是否够到过玩家——狱卒猎犬的「突进失败」判定依据（见 _update_dash）
+	_dash_hit = false
 
 
 ## 有效移速：基础值 × 减速系数（寒霜/侵蚀/泥沼等词条）
@@ -1217,6 +1303,15 @@ func _update_dash(delta: float) -> void:
 		# 骸骨猎犬：突进结束后在原地留下减速陷阱（50%，3 秒）
 		if trap_slow_buff != "":
 			_spawn_dash_trap()
+		# 狱卒猎犬：突进**未命中**后硬直 0.5 秒（分册 4.6）。
+		# 「突进失败」的判定口径：突进全程没有进入过攻击距离——
+		# 撞墙与超时都归入这一类（分册没区分，且二者表现一致：
+		# 这一扑没够着玩家）。命中的话 `_perform_attack` 会把状态推到
+		# STAGGERED/CHASE，这里不再补硬直。
+		if dash_stun_seconds > 0.0 and not _dash_hit:
+			_stagger_timer = dash_stun_seconds
+			_current_state = EnemyState.STAGGERED
+			return
 		_current_state = EnemyState.CHASE
 
 
@@ -1323,16 +1418,119 @@ func _try_ambush() -> bool:
 	return true
 
 
-## 引力拉扯：把玩家朝自身拉（扭曲巨兽）
+## 引力拉扯：把玩家朝自身拉（扭曲巨兽 / 虚空巨兽）
+##
+## 两种口径：
+##   · `gravity_pull_seconds == 0`（扭曲巨兽）——常驻拉扯，直到光环再次触发
+##   · `gravity_pull_seconds > 0`（虚空巨兽）——按 `_pull_timer` 开窗，
+##     窗内**每秒**结算 `gravity_pull_dps` 伤害（分册 4.9「牵引玩家 2 秒，
+##     期间每秒 30 伤」）。伤害按秒累加而非每帧结算——
+##     每帧结算会把 30/秒 变成 30×60/秒。
 func _pull_player(delta: float, strength: float = 6.0) -> void:
 	if not gravity_pull or _player == null:
 		return
+	if gravity_pull_seconds > 0.0:
+		if _pull_timer <= 0.0:
+			return
+		_pull_timer = maxf(_pull_timer - delta, 0.0)
+		_pull_tick += delta
+		if gravity_pull_dps > 0.0 and _pull_tick >= 1.0:
+			_pull_tick -= 1.0
+			_damage_pulled_player(gravity_pull_dps)
 	var p := _player as Node3D
 	var to_me: Vector3 = global_position - p.global_position
 	to_me.y = 0.0
 	if to_me.length() < 0.5:
 		return
 	p.global_position += to_me.normalized() * strength * delta
+
+
+## 引力期间的每秒伤害（走玩家自己的 take_damage，与其它伤害同一条结算链）
+func _damage_pulled_player(dmg: float) -> void:
+	var p := _player as Node3D
+	if p == null or not p.has_method("take_damage"):
+		return
+	p.call("take_damage", dmg)
+	var bus = _event_bus()
+	if bus:
+		bus.damage_popup.emit(p.global_position, dmg, "aoe")
+
+
+# ============================================================
+# 9-5 虚空吞噬者：吞噬成长
+# ============================================================
+
+## 场上是否还有活着的吞噬者。
+## 死者用它决定要不要发 `unit_died`——没有吞噬者时全表查找纯属浪费。
+func _has_devourer() -> bool:
+	if not is_inside_tree():
+		return false
+	for n in get_tree().get_nodes_in_group("enemies"):
+		if n == self or not is_instance_valid(n):
+			continue
+		if n.get("devour_heal_pct") != null and float(n.get("devour_heal_pct")) > 0.0:
+			return true
+	return false
+
+
+## 有单位死亡：若凶手是自己，就吞掉它（分册 9-5）。
+##
+## 判定口径：`killer == self` 即「我打死的」，**不区分是玩家助攻还是
+## 怪物互殴**——分册原文「每击杀一个单位（包括其他怪物）」正是要这个口径。
+## 自杀（凶手是自己）也会触发，因为 `take_damage(from=self)` 的来源就是自己。
+func _on_unit_died(victim: Node, killer: Node, _pos: Vector3) -> void:
+	if killer != self or victim == self:
+		return
+	if not is_alive():
+		return
+	_devour_stacks += 1
+	# 回血：按**上限**比例而非当前值，避免残血时吞噬收益递减
+	if _hp < max_hp:
+		_hp = minf(_hp + max_hp * devour_heal_pct, max_hp)
+		_update_health_bar()
+	# 伤害：在 `_base_atk` 上累乘，不用 `atk * (1+pct)` 逐次复利
+	if devour_atk_pct > 0.0:
+		atk = _base_atk * (1.0 + devour_atk_pct * float(_devour_stacks))
+	# 体型：连同碰撞体一起放大（只改 body_scale 会让视觉与判定脱节）
+	_grow_body(devour_scale_pct)
+
+
+## 吞噬后的体型增长：视觉与碰撞体同步放大。
+##
+## 分册只说「增大体型」，未给上限。这里**设 2 倍封顶**——
+## 不封顶的话，第 9 层怪多，吞噬者会在几十次击杀后涨成填满房间的怪物，
+## 碰撞体撑爆房间。2 倍是保守值，策划若要更夸张改 DEVOUR_SCALE_CAP 即可。
+const DEVOUR_SCALE_CAP := 2.0
+
+func _grow_body(pct: float) -> void:
+	if pct <= 0.0:
+		return
+	var next_scale: float = minf(body_scale * (1.0 + pct), DEVOUR_SCALE_CAP)
+	if is_equal_approx(next_scale, body_scale):
+		return
+	body_scale = next_scale
+	_resize_body()
+
+
+## 按当前 body_scale 重建碰撞体与视觉尺寸。
+## 与 `_create_collision` / `_create_visual` 用同一套尺寸公式，
+## 但**原地改已有的节点**而不是重建——重建会丢材质与血条等子节点。
+func _resize_body() -> void:
+	if _collision != null and _collision.shape is CapsuleShape3D:
+		var cs := _collision.shape as CapsuleShape3D
+		cs.radius = 0.4 * body_scale
+		cs.height = maxf(1.8 * body_scale, cs.radius * 2.0 + 0.01)
+		_collision.position = Vector3(0, 0.9 * body_scale, 0)
+	if _model != null and _model.mesh is CapsuleMesh:
+		# 只改 mesh 尺寸，**不动 `_model.scale`**——血条/精英环/词缀标签
+		# 是 `_model` 的兄弟节点，缩放 `_model` 不会带上它们，
+		# 结果会是"身体变大、血条还挂在原来的高度"。
+		var cm := _model.mesh as CapsuleMesh
+		cm.radius = 0.4 * body_scale
+		cm.height = 1.8 * body_scale
+		_model.position = Vector3(0, 0.9 * body_scale, 0)
+	if _hp_bar != null:
+		_hp_bar.position = Vector3(0, 2.15 * body_scale, 0)
 
 
 ## 闪避成功后的位移/隐身效果
@@ -1598,6 +1796,11 @@ func take_damage(amount: float, _is_crit: bool = false,
 	# 熔炉核心：脉冲期间自身无敌
 	if _pulse_timer > 0.0:
 		return
+	# 记下伤害来源：词缀·复仇的反伤、以及虚空吞噬者的「谁杀的」判定都要用。
+	# **必须在各种 early return 之前记**——否则被闪避/被护盾挡掉的那些次
+	# 不会留下来源，最后致命一击恰好被挡时凶手就丢了。
+	if from != null and is_instance_valid(from):
+		_last_attacker = from
 	# 词缀·不朽：低血时短暂免伤（策划 7.2「血量低于阈值时短暂免伤/回血，
 	# 需要爆发斩杀或机制处理」）。**每只怪只触发一次**——否则低血时
 	# 无限免伤会变成打不死的怪。
@@ -1724,6 +1927,11 @@ func die() -> void:
 	if bus:
 		bus.enemy_died.emit(self, global_position, [])
 	died.emit(global_position)
+	# 击杀成长类机制（虚空吞噬者）：广播「有单位死了，凶手是谁」。
+	# 只在场上存在吞噬者时才发（`_broadcast_death`），见 EventBus.unit_died 注释。
+	if _has_devourer():
+		if bus:
+			bus.unit_died.emit(self, _last_attacker, global_position)
 
 	# 死亡区域（分册 4.2 毒系四阶段：普通毒雾 → 扩大 → 硫磺爆炸 → 熵毒领域）
 	if death_zone != DeathZone.NONE:
