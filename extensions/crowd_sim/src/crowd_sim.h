@@ -50,6 +50,12 @@ public:
 	void set_attack_params(float range, float interval, float damage);
 
 	PackedFloat32Array get_render_buffer() const;
+	// 批量取活跃单位坐标：每 4 个 float = x, z, id, alive。
+	//
+	// **为什么需要批量**：投射物的目标表要每帧组装。逐 id 调
+	// `get_position(id)` 在 2000 个单位时就是 2000 次跨语言调用，
+	// 光 FFI 开销就吃掉整帧预算。一次返回全部才是可用形态。
+	PackedFloat32Array get_position_buffer() const;
 	int get_active_count() const;
 	int get_capacity() const;
 	bool is_alive(int id) const;

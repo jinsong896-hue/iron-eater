@@ -23,6 +23,7 @@ void CrowdSim::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("apply_damage", "ids", "amount"), &CrowdSim::apply_damage);
 	ClassDB::bind_method(D_METHOD("drain_events"), &CrowdSim::drain_events);
 	ClassDB::bind_method(D_METHOD("get_render_buffer"), &CrowdSim::get_render_buffer);
+	ClassDB::bind_method(D_METHOD("get_position_buffer"), &CrowdSim::get_position_buffer);
 	ClassDB::bind_method(D_METHOD("get_active_count"), &CrowdSim::get_active_count);
 	ClassDB::bind_method(D_METHOD("get_capacity"), &CrowdSim::get_capacity);
 	ClassDB::bind_method(D_METHOD("is_alive", "id"), &CrowdSim::is_alive);
@@ -162,6 +163,35 @@ PackedFloat32Array CrowdSim::get_render_buffer() const {
 		m[11] = core->pos_z(i);
 	}
 	return buf;
+}
+
+PackedFloat32Array CrowdSim::get_position_buffer() const {
+	// 只返回**存活**的单位（紧凑排列），每 4 个 float = x, z, id, 1.0。
+	// 末尾的 1.0 是占位（保持 4 对齐），便于 GDScript 侧直接喂给
+	// ProjectileSim.set_targets 的 targets 数组格式。
+	PackedFloat32Array out;
+	const int cap = core->capacity();
+	// 先数活跃数，一次分配到位（避免反复 resize）
+	int n = 0;
+	for (int i = 0; i < cap; ++i) {
+		if (core->is_alive(i)) {
+			++n;
+		}
+	}
+	out.resize(n * 4);
+	float *w = out.ptrw();
+	int k = 0;
+	for (int i = 0; i < cap; ++i) {
+		if (!core->is_alive(i)) {
+			continue;
+		}
+		w[k * 4 + 0] = core->pos_x(i);
+		w[k * 4 + 1] = core->pos_z(i);
+		w[k * 4 + 2] = static_cast<float>(i);   // ref（回调 GDScript 用）
+		w[k * 4 + 3] = 1.0f;
+		++k;
+	}
+	return out;
 }
 
 int CrowdSim::get_active_count() const {

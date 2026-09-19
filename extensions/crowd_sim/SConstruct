@@ -12,12 +12,22 @@ env["IO_PATHS"] = Dir(".")
 # godot-cpp 子目录（同仓克隆，非 submodule——CI 环境友好）
 godot_cpp_dir = "#godot-cpp/"
 env.Append(CPPPATH=[godot_cpp_dir + "gdextension/", godot_cpp_dir + "include/"])
+# 兄弟目录的源码也要能被 include（register_types.cpp 引 projectile_sim.h）
+env.Append(CPPPATH=["src/", "../projectile_sim/src/"])
 
 # 链接预编译的 godot-cpp 静态库（SCons 会按 platform/target/arch 找对）
 env["godot_cpp"] = godot_cpp_dir
 SConscript(godot_cpp_dir + "SConstruct", "env")
 
-sources = Glob("src/*.cpp")
+# 源文件：本扩展 + 兄弟目录（投射物核）。
+#
+# **为什么构建根留在这里**：`.gdextension` 里写的是
+# `res://extensions/crowd_sim/bin/libcrowd_sim...dll`，挪目录要同步改路径、
+# 还容易踩 uid 缓存（此前踩过）。源码按职责分目录即可，构建不必跟着分。
+#
+# 新增源码目录时记得在这里加一条 Glob —— 漏了会表现为
+# "类注册了但符号找不到"（编译能过，运行时报未定义）。
+sources = Glob("src/*.cpp") + Glob("../projectile_sim/src/*.cpp")
 
 if env["platform"] == "macos":
     library = env.SharedLibrary(
