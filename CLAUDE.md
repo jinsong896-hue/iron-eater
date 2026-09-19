@@ -92,7 +92,7 @@ GODOT="F:/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe"
 # 修改脚本后必须先重建全局类缓存（.godot/ 被 gitignore，新克隆/清理后不存在）
 "$GODOT" --headless --path . --import
 
-# 【推荐】全量门禁：框架 + 8 套场景/脚本套件，任一失败非 0 退出
+# 【推荐】全量门禁：框架 + 21 套场景/脚本套件（共 22 套），任一失败非 0 退出
 bash tests/run_all.sh
 
 # 或单独跑核心逻辑测试

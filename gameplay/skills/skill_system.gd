@@ -432,8 +432,12 @@ func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float,
 	enemy.call("take_damage", total, crit, push, caster)
 	EventBus.damage_popup.emit(enemy.global_position, total, "crit" if crit else "normal")
 	# 技能也能叠元素（走与普攻相同的阈值/联动路径）。
-	# 元素来源：施法者的攻击元素（武器赋予）——技能自身若声明了 element
-	# 应在这里覆盖，目前战士技能全为物理，留待法系职业实装时扩展。
+	# 元素来源：施法者的攻击元素（武器赋予）。
+	# **近战技能不吃技能自身的 element 声明**——`_deal_damage` 拿不到 `sd`
+	#（它经 `_deal_damage(caster, enemy, mult, kb)` 调用，无技能表参数），
+	# 只能走 `_skill_element(caster, null)`。投射物类技能不同：
+	# `_cast_projectile` 会把 `sd.element` 透传给核。真要统一，
+	# 得给本函数加一个 sd 参数——那会动到全部调用点，另开一轮。
 	# 形态印记（咒焰/虚空印记）叠给**真正被命中的敌人**——放在这个漏斗里
 	# 而不是施法后遍历全场，才不会把没挨打的怪也标记上。
 	_stack_form_marks_on(caster, enemy)
