@@ -91,15 +91,3 @@ static func elemental_attack(atk: float, skill_multiplier: float, bonus: float,
 		"damage_type": dtype,
 		"element": element,
 	}
-
-
-## 受击反馈（伤害弹出 + 消息）
-## 注意：EventBus 是 Autoload，仅在完整游戏运行时可用
-static func emit_damage_result(target: Node3D, amount: float, kind: String) -> void:
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null:
-		return
-	var eb := tree.root.get_node_or_null("EventBus")
-	if eb:
-		eb.damage_popup.emit(target.global_position, amount, kind)
-		eb.damage_dealt.emit(null, target, amount, kind, kind == "crit")

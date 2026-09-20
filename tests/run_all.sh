@@ -84,7 +84,7 @@ run_scene_suite  "mass_text    (海量文本渲染)" "res://tests/test_mass_text
 run_scene_suite  "projectile   (投射物模拟核)" "res://tests/test_projectile_sim.tscn"
 run_scene_suite  "proj_mgr     (投射物接线)" "res://tests/test_projectile_manager.tscn"
 run_scene_suite  "effect_field (特效池)" "res://tests/test_effect_field.tscn"
-run_scene_suite  "combat       (战斗系统)" "res://tests/test_combat_system.tscn"
+run_scene_suite  "player_state (玩家状态机)" "res://tests/test_player_states.tscn"
 run_scene_suite  "room_flow    (房间流程+特殊房)" "res://tests/test_room_flow.tscn"
 run_scene_suite  "special_room (特殊房交互 UI)" "res://tests/test_special_room_ui.tscn"
 run_scene_suite  "debug_mode   (调试模式)" "res://tests/test_debug_mode.tscn"

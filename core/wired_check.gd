@@ -46,7 +46,7 @@ const SIGNAL_TABLE := {
 	"player_moved":        [2, 0, "预留扩展面（脚步声/足迹/教学提示）"],
 	"player_attacked":     [1, 0, "预留扩展面（连击统计/成就）"],
 	"player_skill_cast":   [1, 0, "预留扩展面（技能统计/教学）"],
-	"damage_dealt":        [2, 0, "预留扩展面（统计面板；注意与 GameManager.total_damage 语义冲突）"],
+	"damage_dealt":        [2, 0, "预留扩展面（统计面板；**语义未统一**——两处发射点参数相反，见 EventBus 声明）"],
 	"room_cleared":        [1, 0, "预留扩展面（成就/评分）"],
 	"room_exited":         [1, 0, "预留扩展面"],
 	"door_locked":         [1, 0, "预留扩展面（音效/UI 提示）"],

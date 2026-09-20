@@ -1,6 +1,6 @@
 extends Node
-## 战斗系统集成测试（场景模式）：四段普攻 + 特殊攻击判定
-## 运行：godot --headless --path E:\unity --scene res://tests/test_combat_system.tscn
+## 玩家状态机集成测试（场景模式）：状态切换 / 翻滚无敌 / 取消窗口 / 霸体减伤
+## 运行：godot --headless --path E:\unity --scene res://tests/test_player_states.tscn
 
 var failed := 0
 var player: CharacterBody3D
@@ -10,7 +10,7 @@ func _ready() -> void:
 	var guard := Timer.new()
 	guard.wait_time = 30.0
 	guard.timeout.connect(func():
-		print("COMBAT TESTS FAILED: 超时")
+		print("PLAYER STATES TESTS FAILED: 超时")
 		get_tree().quit(1))
 	add_child(guard)
 	guard.start()
@@ -239,10 +239,10 @@ func _spawn_dummy(pos: Vector3) -> CharacterBody3D:
 ## 结束判定
 func _finish() -> void:
 	if failed == 0:
-		print("ALL COMBAT TESTS PASSED")
+		print("ALL PLAYER STATES TESTS PASSED")
 		get_tree().quit(0)
 	else:
-		print("COMBAT TESTS FAILED: %d" % failed)
+		print("PLAYER STATES TESTS FAILED: %d" % failed)
 		get_tree().quit(1)
 
 

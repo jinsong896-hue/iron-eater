@@ -22,6 +22,13 @@ var consumable_inventory   # ConsumableInventory
 var rng := RandomNumberGenerator.new()
 var gold := 0
 var kills := 0
+## 本局玩家**造成**的总伤害（结算数据用）。
+##
+## 唯一写入点是 `EnemyBase.take_damage()`（敌人受击），而敌人受击只来自
+## 玩家 → 累计的即玩家输出。玩家自己受击走 `attributes.take_damage()`，
+## **不**计入此处。
+##
+## 注意别与 `EventBus.damage_dealt` 混淆——那条信号的语义尚未统一（见其声明）。
 var total_damage := 0.0
 var devoured_count := 0
 var fusion_count := 0

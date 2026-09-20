@@ -23,6 +23,23 @@ signal player_died(killer_name: String)
 # ============================================================
 # 战斗事件
 # ============================================================
+## 伤害发生（**语义尚未统一，接订阅者前先读这段**）。
+##
+## 现有两个发射点的参数语义**相反**：
+##   · `enemy_base.gd` 的 `_perform_attack()`：`emit(self, _player, ...)`
+##     —— source=敌人、target=玩家，即「**玩家承受**」
+##   · `damage_pipeline.gd` 的 `emit_damage_result()`：`emit(null, target, ...)`
+##     —— source=null、target=敌人，即「**玩家造成**」
+##
+## 而且第二条**在生产路径上不会执行**：它的唯一调用者是
+## `CombatSystem`（`gameplay/combat/combat_system.gd`），那是个死类
+## （生产与测试都零引用，player 的近战走自己的 `_hit_enemies_in_cone`）。
+##
+## 故实际只有「玩家承受」那一条会发。目前**零订阅者**，不影响任何可见行为。
+## 将来接统计面板/成就时，**先决定要哪种语义**再统一（用户 2026-09-21 决策：
+## 暂不动代码，仅记录）。
+##
+## 与之相对，`GameManager.total_damage` 的语义是明确的（玩家造成，见其声明）。
 @warning_ignore("unused_signal")
 signal damage_dealt(source: Node, target: Node, amount: float, element: String, is_crit: bool)
 @warning_ignore("unused_signal")
