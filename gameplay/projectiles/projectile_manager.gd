@@ -470,6 +470,10 @@ func _all_targets() -> Array:
 	return out
 
 
+## 本房间的群体管理器（没有则返回 null）
+##
+## 从本节点向上走，找带 `current_room_node` 属性的祖先（GameRoot 特征）。
+## GameRoot 持有的是房间节点的**引用**（不是路径），故 SubViewport 边界不影响它。
 func _crowd_manager():
 	var node: Node = get_parent()
 	while node != null:

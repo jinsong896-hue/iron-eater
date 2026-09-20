@@ -1336,6 +1336,9 @@ func _apply_pierce_line_at(origin: Vector3, damage: float) -> void:
 ## **不能用 `get_tree().current_scene`**：测试场景把 main.tscn 嵌在测试根节点
 ## 之下，current_scene 是那个测试根，拿不到 `current_room_node`（实测踩到）。
 ## 故从玩家自身向上走，找带 `current_room_node` 属性的祖先（GameRoot 特征）。
+##
+## 实测确认：GameRoot 持有的 `current_room_node` 就是 SubViewport 里的活房间
+## ——该属性存的是**引用**而非路径，故子视口边界不影响它。
 func _crowd_manager():
 	var node: Node = get_parent()
 	while node != null:
@@ -2177,6 +2180,14 @@ func _nearest_pickup() -> Node3D:
 
 
 ## 当前房间的掉落物管理器（没有则返回 null）
+##
+## **不能用 `get_tree().current_scene`**：测试场景把 main.tscn 嵌在测试根节点
+## 之下，current_scene 是那个测试根，拿不到 `current_room_node`（实测踩到）。
+## 故从玩家自身向上走，找带 `current_room_node` 属性的祖先（GameRoot 特征）。
+##
+## **返回 null 是正常状态**：开局房间没有 PickupField —— 它由
+## `LootSystem._field_for()` 在**第一次掉落时**懒创建。此时由
+## `_nearest_pickup()` 的全量遍历兜底，链路并未断。
 func _pickup_field() -> PickupField:
 	var node: Node = get_parent()
 	while node != null:
