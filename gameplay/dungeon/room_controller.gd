@@ -502,10 +502,23 @@ func _ensure_projectile_mgr() -> void:
 ##
 ## 模拟核只报"打了多少"，护甲/减伤/无敌帧/护盾全由 player.take_damage 处理。
 ## 若在核里直接扣血，玩家堆防御就对群体单位无效——那种不一致极难察觉。
-func _on_crowd_attacked(_pos: Vector3, damage: float) -> void:
+##
+## `attacker_id` 用来把攻击者节点补上：`player.take_damage` 的 `from`
+## 参与「伤害反弹」词条（分册第 5 章，限定近战来源），传 null 就等于
+## 该词条对 swarm 怪永久失效。群体单位不是节点，故拿 `CrowdUnitHost`
+## 当代理——它有 `take_damage`，能把反伤原样转回 `damage_unit`。
+func _on_crowd_attacked(_pos: Vector3, damage: float, attacker_id: int = -1) -> void:
 	var p = get_tree().get_first_node_in_group("player")
-	if p != null and p.has_method("take_damage"):
-		p.call("take_damage", damage, null)
+	if p == null or not p.has_method("take_damage"):
+		return
+	var from: Node3D = null
+	if _crowd_mgr != null and is_instance_valid(_crowd_mgr) and attacker_id >= 0:
+		# `host_of` 会顺带建宿主（近战命中时本就建过，这里通常直接命中缓存）。
+		# 取不到就退化为 null——反弹失效好过整条受击链路报错。
+		var host = _crowd_mgr.call("host_of", attacker_id)
+		if host is Node3D and is_instance_valid(host):
+			from = host
+	p.call("take_damage", damage, from)
 
 
 ## 群体死亡：同步计数 + 掉落 + 特效。

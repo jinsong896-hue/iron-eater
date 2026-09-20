@@ -56,3 +56,26 @@ func eff_ap() -> float:
 ## **刻意不提供 `add_modifier`**：群体单位没有属性层，stat 型词条无处可挂。
 ## `BuffHolder._sync_modifier` 会因找不到该方法而早退——
 ## 这与敌人侧行为完全一致，是有意的，不是遗漏。
+
+
+## 承接**打回本单位**的伤害（玩家侧「伤害反弹」词条用）。
+##
+## ## 为什么需要它
+## `player._reflect_damage` 拿 `from` 当攻击者，调的是**节点式敌人的四参签名**
+## `take_damage(amount, is_crit, knockback, from)`。群体单位没有节点，
+## 于是 `room_controller._on_crowd_attacked` 一直传 `from = null`，
+## 玩家装备上的「受到近战伤害时反弹 N%」对 swarm 怪**完全失效**——
+## 而 swarm 怪打的正是近战，这是该词条最主要的使用场景。
+##
+## 本函数把回流的伤害原样转交 `CrowdManager.damage_unit`，故复仇/不朽
+## 等词缀照常参与结算（与玩家直接打它是同一条路）。
+##
+## **返回值刻意是 void**：`EnemyBase.take_damage` 也是 void，
+## 调用方（`_reflect_damage`）不看返回值。多返回一个数只会让两侧签名分叉。
+func take_damage(amount: float, _is_crit: bool = false,
+		_knockback: Vector3 = Vector3.ZERO, from: Node3D = null) -> void:
+	if mgr == null or not is_instance_valid(mgr) or unit_id < 0:
+		return
+	if not bool(mgr.call("is_alive", unit_id)):
+		return
+	mgr.call("damage_unit", unit_id, amount, from, world_position())

@@ -322,7 +322,8 @@ func _explode_crowd(pos: Vector3, radius: float, dmg: float, elem: int) -> void:
 		var def_v := float((crowd.call("monster_of", id) as Dictionary).get("defense", 0.0))
 		var result := DamagePipeline.elemental_attack(dmg, 1.0, 0.0, def_v, elem)
 		var amount := float(result.damage)
-		crowd.call("apply_damage", PackedInt32Array([id]), amount)
+		# 走 damage_unit 而不是 apply_damage：词缀·复仇/不朽要在扣血之前介入
+		crowd.call("damage_unit", id, amount, _player, crowd.call("unit_position", id))
 		var at: Vector3 = crowd.call("unit_position", id)
 		EventBus.damage_popup.emit(at, amount, "normal")
 		projectile_hit.emit(at, amount, "normal")
@@ -384,9 +385,10 @@ func _is_crowd_ref(ref: int) -> bool:
 
 ## 对群体单位结算投射物伤害。
 ##
-## 群体单位不是场景节点，拿不到 `take_damage`，走 `CrowdManager.apply_damage`
-## 批量接口——与玩家近战打群体单位**同一套口径**（`player._apply_hit_crowd`）：
-## 用怪物表里的 defense 过 DamagePipeline，然后按 id 扣血。
+## 群体单位不是场景节点，拿不到 `take_damage`，走 `CrowdManager.damage_unit`
+## ——与玩家近战打群体单位**同一套口径**（`player._apply_hit_crowd`）：
+## 用怪物表里的 defense 过 DamagePipeline，再交给管理器结算
+##（管理器负责词缀·复仇的反伤与词缀·不朽的免伤，故不能直接 apply_damage）。
 ##
 ## 元素叠层走 `CrowdManager.buffs_of(id)` 拿到的 BuffHolder
 ##（群体单位本身没有 buff 槽，管理器按需给它们挂宿主 Node）。
@@ -399,7 +401,8 @@ func _apply_damage_to_crowd(ref: int, dmg: float, elem: int, popup_pos: Vector3)
 		return
 	var target_def := float((crowd.call("monster_of", id) as Dictionary).get("defense", 0.0))
 	var result := DamagePipeline.elemental_attack(dmg, 1.0, 0.0, target_def, elem)
-	crowd.call("apply_damage", PackedInt32Array([id]), float(result.damage))
+	# 走 damage_unit 而不是 apply_damage：词缀·复仇/不朽要在扣血之前介入
+	crowd.call("damage_unit", id, float(result.damage), _player, popup_pos)
 	EventBus.damage_popup.emit(popup_pos, result.damage, "normal")
 	projectile_hit.emit(popup_pos, result.damage, "normal")
 

@@ -78,6 +78,7 @@ run_scene_suite  "class_mech   (职业/形态机制)" "res://tests/test_class_me
 # GDScript fallback（见 addons/crowd_sim/crowd_sim_loader.gd）。
 # 故本套件在 CI / 新克隆的机器上**照样跑逻辑断言**，不是整片 SKIP。
 run_scene_suite  "crowd_sim    (海量单位模拟)" "res://tests/test_crowd_sim.tscn"
+run_scene_suite  "crowd_affix  (群体单位词缀)" "res://tests/test_crowd_affix.tscn"
 run_scene_suite  "pickup_field (掉落物规模化)" "res://tests/test_pickup_field.tscn"
 run_scene_suite  "mass_text    (海量文本渲染)" "res://tests/test_mass_text.tscn"
 run_scene_suite  "projectile   (投射物模拟核)" "res://tests/test_projectile_sim.tscn"

@@ -1195,6 +1195,8 @@ func _compute_basic_damage(multiplier: float, knockback: float,
 func _apply_hit_crowd(mgr, id: int, multiplier: float, knockback: float) -> void:
 	var pos: Vector3 = mgr.call("unit_position", id)
 	var monster: Dictionary = mgr.call("monster_of", id)
+	# 先判存活：`damage_unit` 对已死单位返回 0，那会让下面的 kills 判定失效
+	var alive_before := bool(mgr.call("is_alive", id))
 	var target_def := float(monster.get("defense", 0.0))
 	var hp: float = float(mgr.call("unit_hp", id))
 	var max_hp := maxf(float(monster.get("hp", hp)), 1.0)
@@ -1202,7 +1204,11 @@ func _apply_hit_crowd(mgr, id: int, multiplier: float, knockback: float) -> void
 		0.0, 0.0, 0.0, clampf(hp / max_hp, 0.0, 1.0), false)
 	var total: float = calc["damage"]
 	var crit: bool = calc["crit"]
-	var kills: int = int(mgr.call("apply_damage", PackedInt32Array([id]), total))
+	# 走 CrowdManager.damage_unit 而不是直接 apply_damage：
+	# 词缀·复仇（反伤）与不朽（致命伤免伤+回血）必须在扣血之前介入，
+	# 直接扣血会让这两种词缀在群体路径上静默失效。
+	mgr.call("damage_unit", id, total, self, pos)
+	var kills: int = 1 if (alive_before and not bool(mgr.call("is_alive", id))) else 0
 	# 生命偷取（不依赖目标节点）
 	var ls: float = float(_equip_special_mods().get("life_steal", 0.0))
 	if ls > 0.0:

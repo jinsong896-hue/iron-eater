@@ -18,7 +18,13 @@ extends Node3D
 ## 死亡事件（供 room_controller 结算计数与掉落）
 signal crowd_died(position: Vector3, is_elite: bool)
 ## 群体单位攻击玩家（供 room_controller 走正常受击结算）
-signal crowd_attacked(position: Vector3, damage: float)
+##
+## **带上 `id` 是必需的**：接收方要据此拿到 `CrowdUnitHost` 当攻击者节点，
+## 玩家的「伤害反弹」词条才能打回这只怪。丢了 id 就只能传 null，
+## 那条词缀在群体路径上会静默失效。
+signal crowd_attacked(position: Vector3, damage: float, id: int)
+## 群体单位触发了不朽免伤（回血后发，供特效/调试）
+signal crowd_immortal(position: Vector3)
 
 ## 核产出的渲染缓冲：每实例 12 个 float（3×4 变换矩阵）。
 ## **这是核的契约，两侧核实现一致**（C++ `crowd_sim.cpp:get_render_buffer`、
@@ -32,6 +38,12 @@ const RENDER_STRIDE := 12
 ## 表现为群体单位一只都不显示 + 每帧一条错误日志。
 const INSTANCE_STRIDE := 16
 
+## 攻击参数的核默认值（`_ready` 里设的那组）。单位生成时按怪物配置收敛，
+## 故这里留一份"没有怪物数据时"的基准。
+const DEFAULT_ATTACK_RANGE := 1.4
+const DEFAULT_ATTACK_INTERVAL := 1.2
+const DEFAULT_ATTACK_ATK := 8.0
+
 ## 模拟核实例（真扩展或 GDScript 降级）
 var sim: Node = null
 ## MultiMesh 渲染节点
@@ -44,6 +56,21 @@ var _capacity := 0
 var _player: Node3D = null
 ## id → 该单位的怪物配置（掉落时要用原始 monster dict）
 var _spawn_meta: Dictionary = {}
+## id → 该单位的词缀状态（`CrowdAffixStore`；没有词缀的怪不登记）。
+##
+## 词缀本来挂在 `EnemyBase` 节点上，群体单位没有节点，故收在这里。
+## 见 `gameplay/enemies/crowd_affix_store.gd`。
+var _affixes: Dictionary = {}
+## id → 该单位的基础移速（混沌改速度时要按基准值乘，不能原地累乘）
+var _base_speed: Dictionary = {}
+## 词缀计时用的随机源（不共享全局 rng——那个被地图生成占着）
+var _affix_rng := RandomNumberGenerator.new()
+## 单位攻击力合计（含词缀·强壮的加成），每次生成/死亡时重算并写回核
+var _atk_total := 0.0
+## 当前生效的攻击间隔（全体最小值；核里是全局单值）
+var _atk_interval := DEFAULT_ATTACK_INTERVAL
+## 上一帧的模拟增量——`damage_unit` 需要它来推进词缀计时器
+var _last_delta := 1.0 / 60.0
 ## id → buff 宿主（按需创建，见 buffs_of）
 var _hosts: Dictionary = {}
 
@@ -57,10 +84,13 @@ func _ready() -> void:
 	add_child(sim)
 	_capacity = CrowdSimLoader.capacity_limit()
 	sim.call("setup", _capacity, 2.0)
+	_affix_rng.randomize()
 	# 攻击参数：进 1.4 米每 1.2 秒打 8 点。
 	# 数值取"基础杂兵"档——真正的差异化等批次 6 把怪物类型带进核里再说。
 	if sim.has_method("set_attack_params"):
-		sim.call("set_attack_params", 1.4, 1.2, 8.0)
+		sim.call("set_attack_params", DEFAULT_ATTACK_RANGE, DEFAULT_ATTACK_INTERVAL,
+			DEFAULT_ATTACK_ATK)
+	_atk_interval = DEFAULT_ATTACK_INTERVAL
 	_setup_multimesh()
 	_ensure_player()
 
@@ -124,6 +154,11 @@ func set_obstacles(aabbs: PackedFloat32Array) -> void:
 
 ## 生成一个群体单位。返回 id（-1 = 池满或后端不可用）。
 ## monster：MonsterDB 条目（用于掉落与数值），可为空。
+##
+## **词缀在这里落地**：`AffixDB.apply()` 早把数值型词缀写进了 monster dict，
+## 但群体路径此前只读到 `speed_pct`（生成时读一次），
+## `attack_interval` / `knockback_mult` 与全部非数值词缀都无处生效。
+## 本函数把攻击间隔与攻击力写进核，非数值词缀登记进 `CrowdAffixStore`。
 func spawn_unit(pos: Vector3, hp: float, speed: float, radius: float,
 		scale: float, monster: Dictionary = {}) -> int:
 	if sim == null:
@@ -132,8 +167,67 @@ func spawn_unit(pos: Vector3, hp: float, speed: float, radius: float,
 	if id < 0:
 		return -1
 	_spawn_meta[id] = monster
+	_base_speed[id] = speed
+	# 先把单位的基础移速按词缀·快速调好，再交给核——核里 speed 只在 spawn
+	# 时能写。早期版本漏了这一步，「快速」词缀挂到 swarm 怪上会**静默失效**
+	#（词缀登记了、状态也对，就是速度没变）。
+	_apply_spawn_affixes(id, monster)
+	_set_unit_speed(id, _base_speed[id])
 	active += 1
 	return id
+
+
+## 把某单位的当前移速写回模拟核。
+##
+## **核没有 `set_speed` 接口**（C++ 侧 `crowd_sim.cpp` 只暴露
+## setup/spawn/despawn/step/set_obstacles/set_attack_params/set_stagger/
+## set_elite/set_target），而 `speed` 是**每单位独立的数组、只在 spawn 时能写**。
+## 故这里沿用 `teleport_unit` 那条路数：despawn + 在同位 spawn 更大的 hp，
+## 池是 LIFO，刚释放的 id 会被下一次 spawn 立刻取回，故 id 不变、登记不用搬。
+##
+## 只给低频事件用（生成时一次、词缀·混沌改动时一次）。**攻击冷却与硬直会被
+## 重置**——这正是混沌改速度时想要的（"突变"应当同时打断当前动作）。
+func _set_unit_speed(id: int, speed: float) -> void:
+	if sim == null or not bool(sim.call("is_alive", id)):
+		return
+	var hp := float(sim.call("get_hp", id))
+	var pos: Vector3 = sim.call("get_position", id)
+	sim.call("despawn", id)
+	var new_id := int(sim.call("spawn", pos.x, pos.z, hp, speed, 0.35, 1.0))
+	if new_id != id:
+		# LIFO 池理论上必然同 id；真出现偏差就把登记搬过去，
+		# 否则词缀/掉落数据会跟丢（静默失效，极难察觉）。
+		_migrate_registration(id, new_id)
+
+
+## 把生成时的词缀效果落到核与状态表上。
+##
+## 攻击间隔取**全体最小值**：核里 `attack_interval` 是全局单值，
+## 做不到"这只快那只慢"。取最小值是刻意的保守选择——
+## 宁可整批略快，也不让带「快速」词缀的怪比不带的还慢（那才是真 bug）。
+##
+## 调用方必须在返回后立刻调 `_set_unit_speed(id, _base_speed[id])`：
+## 本函数只负责算出速度，写进核是调用方的事（`spawn_unit` 已经这么做了）。
+func _apply_spawn_affixes(id: int, monster: Dictionary) -> void:
+	var store := CrowdAffixStore.from_monster(monster)
+	if store != null:
+		# 词缀·快速由 AffixDB.apply 写成 `speed_pct`（百分比，基准 100）。
+		# 记进 `spawn_mult` 而不是直接乘进 `base_speed`：混沌重掷要围绕
+		# "生成时的速度"抖动，丢了这一项会把快速加成抹掉。
+		var pct := float(monster.get("speed_pct", 100.0))
+		store.base_speed = float(_base_speed.get(id, 4.0))
+		store.spawn_mult = pct / 100.0 if pct > 0.0 else 1.0
+		store.speed_mult = store.spawn_mult
+		_base_speed[id] = store.base_speed * store.spawn_mult
+		_affixes[id] = store
+	var interval := float(monster.get("attack_interval", DEFAULT_ATTACK_INTERVAL))
+	_atk_total += float(monster.get("atk", DEFAULT_ATTACK_ATK))
+	_recompute_attack_params()
+	# **顺序有讲究**：`_recompute_attack_params` 在 active<=0 时会**复位**成
+	# 默认间隔，而本函数是在 `spawn_unit` 里 `active += 1` **之前**调的，
+	# 故间隔必须写在它之后，否则第一个单位生成时会被复位覆盖
+	#（表现为"攻击间隔永远是默认的 1.2，怪物的 attack_interval 不生效"）。
+	_atk_interval = minf(_atk_interval, interval)
 
 
 func despawn_unit(id: int) -> void:
@@ -142,8 +236,7 @@ func despawn_unit(id: int) -> void:
 	if bool(sim.call("is_alive", id)):
 		active = maxi(active - 1, 0)
 	sim.call("despawn", id)
-	_spawn_meta.erase(id)
-	_free_host(id)
+	_forget_unit(id)
 
 
 func is_alive(id: int) -> bool:
@@ -173,6 +266,52 @@ func unit_hp(id: int) -> float:
 ## 该单位对应的怪物配置（掉落用）
 func monster_of(id: int) -> Dictionary:
 	return _spawn_meta.get(id, {})
+
+
+## 该单位的词缀状态（没有词缀时返回 null）
+func affixes_of(id: int) -> CrowdAffixStore:
+	return _affixes.get(id, null)
+
+
+## 把单位移到新坐标。
+##
+## **核没有直接设坐标的接口**（`set_stagger` / `set_target` 都不是），
+## 故这里用「despawn + spawn」在同一 id 上重建——池是 LIFO，刚释放的 id
+## 会被下一次 spawn 立刻取回，所以 id 不变，`_spawn_meta` 等登记也不用动。
+##
+## 只给低频事件用（当前唯一调用方是词缀·虚空的换位）。
+## **攻击冷却与硬直会被重置**，对换位这种语义是可接受的。
+func teleport_unit(id: int, pos: Vector3) -> void:
+	if sim == null or not bool(sim.call("is_alive", id)):
+		return
+	var store: CrowdAffixStore = _affixes.get(id, null)
+	var speed := float(_base_speed.get(id, 4.0))
+	if store != null:
+		speed *= store.speed_mult
+	var hp := float(sim.call("get_hp", id))
+	sim.call("despawn", id)
+	var new_id := int(sim.call("spawn", pos.x, pos.z, hp, speed, 0.35, 1.0))
+	if new_id != id:
+		# LIFO 池理论上必然同 id；真出现偏差就把登记搬过去，
+		# 否则词缀/掉落数据会跟丢（静默失效，极难察觉）。
+		_migrate_registration(id, new_id)
+
+
+## 清掉某单位在本管理器里的全部登记（死亡/移除时调）。
+##
+## 收在一个函数里：单位在 `_spawn_meta` / `_affixes` / `_base_speed` /
+## `_hosts` 四处都有登记，漏清任何一处都是静默泄漏——
+## 而 id 会被池复用，泄漏的旧登记会**串到新单位上**（表现为
+## "这只怪莫名其妙带着上一只的词缀/掉落"）。
+func _forget_unit(id: int) -> void:
+	# 攻击力合计要同步扣掉，否则平均值会随死亡越算越低
+	var m := monster_of(id)
+	if not m.is_empty():
+		_atk_total = maxf(_atk_total - float(m.get("atk", DEFAULT_ATTACK_ATK)), 0.0)
+	_spawn_meta.erase(id)
+	_affixes.erase(id)
+	_base_speed.erase(id)
+	_free_host(id)
 
 
 ## 取（或创建）某单位的 buff 宿主。
@@ -209,6 +348,18 @@ func buffs_of(id: int) -> BuffHolder:
 	return holder
 
 
+## 取（或创建）某单位的节点代理 `CrowdUnitHost`。
+##
+## 存在的理由：`player.take_damage(amount, from)` 的 `from` 要一个 Node3D，
+## 群体单位不是节点，只能拿宿主顶替（它有 `take_damage`，把反伤转回核）。
+## 走 `buffs_of` 那条路要再穿一层 `BuffHolder._target`，那是私有字段；
+## 这里直接把宿主暴露出来，语义清楚也不会随 BuffHolder 内部改名而断。
+func host_of(id: int) -> CrowdUnitHost:
+	if buffs_of(id) == null:
+		return null
+	return _hosts.get(id, null)
+
+
 ## 单位攻击力（从 monster 配置取；缺省 10）
 func _unit_atk(id: int) -> float:
 	return float(monster_of(id).get("atk", 10.0))
@@ -222,7 +373,9 @@ func position_of(id: int) -> Vector3:
 func _physics_process(delta: float) -> void:
 	if sim == null or active == 0:
 		return
+	_last_delta = delta
 	_ensure_player()
+	_tick_affixes(delta)
 	var px := 0.0
 	var pz := 0.0
 	if _player != null and is_instance_valid(_player):
@@ -231,6 +384,45 @@ func _physics_process(delta: float) -> void:
 	sim.call("step", delta, px, pz)
 	_sync_render()
 	_drain_deaths()
+
+
+## 推进词缀计时器。
+##
+## 只为**真正带词缀**的单位建条目（`CrowdAffixStore.from_monster` 没词缀返回
+## null），所以这里绝大多数时候是空字典遍历，开销可忽略。
+##
+## 混沌改了移速时必须**立刻写回核**：核里 `speed` 只在 spawn 时能写，
+## 故走 `_set_unit_speed`（despawn + 同位 spawn，LIFO 保证 id 不变）。
+## 代价是这次"突变"会顺带重置该单位的攻击冷却——对混沌这种
+## "随机突变"的语义反而是想要的。
+func _tick_affixes(delta: float) -> void:
+	if _affixes.is_empty():
+		return
+	for raw_id in _affixes:
+		var id := int(raw_id)
+		var store: CrowdAffixStore = _affixes[raw_id]
+		if store.tick(delta, _affix_rng):
+			# 混沌真的改了移速——按新的倍率写回核（走 despawn+spawn 那条路）
+			_base_speed[id] = float(_base_speed.get(id, 4.0))
+			_set_unit_speed(id, _base_speed[id])
+
+
+## 重算并写回核的攻击参数。
+##
+## 核只有一组全局 `attack_*`，做不到逐单位差异化，故：
+##   · 间隔取所有单位的**最小值**（宁可整批略快，也不让带「快速」的怪更慢）
+##   · 攻击力取**存活单位的平均值**（含「强壮」加成）
+## 纯基础怪时两者退化为同一档，与旧行为一致。
+func _recompute_attack_params() -> void:
+	if sim == null or not sim.has_method("set_attack_params"):
+		return
+	if active <= 0:
+		sim.call("set_attack_params", DEFAULT_ATTACK_RANGE, DEFAULT_ATTACK_INTERVAL,
+			DEFAULT_ATTACK_ATK)
+		_atk_interval = DEFAULT_ATTACK_INTERVAL
+		return
+	sim.call("set_attack_params", DEFAULT_ATTACK_RANGE, _atk_interval,
+		_atk_total / float(active))
 
 
 ## 把模拟结果写进 MultiMesh（一次 buffer 拷贝，不逐实例 set_transform）
@@ -276,14 +468,137 @@ func _drain_deaths() -> void:
 	for e in evs:
 		var d: Dictionary = e
 		if str(d.get("type", "")) == "attack":
-			crowd_attacked.emit(d.get("pos", Vector3.ZERO),
-				float(d.get("damage", 0.0)))
+			var atk_id := int(d.get("id", -1))
+			var pos: Vector3 = d.get("pos", Vector3.ZERO)
+			var dmg := float(d.get("damage", 0.0))
+			# 词缀·吸血：这一击按比例回自己的血
+			_apply_lifesteal(atk_id, dmg)
+			# 词缀·燃烧/冰冻/虚空：作用于玩家，必须在发信号之前——
+			# `crowd_attacked` 的接收方（room_controller）只负责结算玩家受击，
+			# 不知道词缀的存在，混在一起会让"谁该处理什么"变模糊。
+			_apply_on_hit_affixes(atk_id, pos)
+			crowd_attacked.emit(pos, dmg, atk_id)
 			continue
 		active = maxi(active - 1, 0)
 		var dead_id := int(d.get("id", -1))
-		_spawn_meta.erase(dead_id)
-		_free_host(dead_id)
+		_forget_unit(dead_id)
+		_recompute_attack_params()
 		crowd_died.emit(d.get("pos", Vector3.ZERO), bool(d.get("is_elite", false)))
+
+
+## 词缀·吸血：按本次造成的伤害回自己的血。
+##
+## 核没有"回血"接口（`apply_damage` 只扣），故这里用
+## 「当前血量 + 回复量」重新 spawn——与 `teleport_unit` 同一条路数。
+## 只对**带吸血词缀**的单位走，其余单位零开销。
+func _apply_lifesteal(id: int, damage: float) -> void:
+	var store: CrowdAffixStore = _affixes.get(id, null)
+	if store == null or store.lifesteal_pct <= 0.0 or damage <= 0.0:
+		return
+	if not bool(sim.call("is_alive", id)):
+		return
+	var heal := damage * store.lifesteal_pct
+	var hp := float(sim.call("get_hp", id)) + heal
+	var pos: Vector3 = sim.call("get_position", id)
+	var speed := float(_base_speed.get(id, 4.0)) * store.speed_mult
+	sim.call("despawn", id)
+	var new_id := int(sim.call("spawn", pos.x, pos.z, hp, speed, 0.35, 1.0))
+	if new_id != id:
+		_migrate_registration(id, new_id)
+
+
+## 词缀·燃烧/冰冻/虚空：单位打中玩家时作用于玩家。
+##
+## 燃烧/冰冻走玩家侧既有的 `BuffHolder` 词条（`burn` / `frost`），
+## 与节点侧 `enemy_base._apply_melee_mechanics` 施加的是同一套。
+func _apply_on_hit_affixes(id: int, _pos: Vector3) -> void:
+	var store: CrowdAffixStore = _affixes.get(id, null)
+	if store == null or not (store.burn or store.freeze or store.void_hit):
+		return
+	_ensure_player()
+	store.on_hit_player(_player)
+	if store.void_hit and _player != null and is_instance_valid(_player):
+		var plan := store.plan_swap(_player, unit_position(id))
+		if not plan.is_empty():
+			teleport_unit(id, plan["unit_to"])
+			# 直接写 `global_position`，**不要调 `force_position`**：
+			# 那个方法全项目都不存在（`enemy_base._swap_with_player` 里的
+			# `has_method` 检查永远走 else 分支），调它只会静默失败——
+			# 单位瞬移走了、玩家留在原地，看起来像"虚空词缀把怪送走了"。
+			(_player as Node3D).global_position = plan["player_to"]
+
+
+## 把某单位在本管理器里的登记从 old_id 搬到 new_id。
+##
+## 只在池没按 LIFO 返回同一 id 时走（理论上不会），但漏了会**静默**丢词缀/掉落。
+func _migrate_registration(old_id: int, new_id: int) -> void:
+	if _spawn_meta.has(old_id):
+		_spawn_meta[new_id] = _spawn_meta[old_id]
+		_spawn_meta.erase(old_id)
+	if _affixes.has(old_id):
+		_affixes[new_id] = _affixes[old_id]
+		_affixes.erase(old_id)
+	if _base_speed.has(old_id):
+		_base_speed[new_id] = _base_speed[old_id]
+		_base_speed.erase(old_id)
+	if _hosts.has(old_id):
+		_hosts[new_id] = _hosts[old_id]
+		_hosts.erase(old_id)
+
+
+## 回复单位血量（词缀·不朽用）。
+##
+## 核没有"回血"接口（`apply_damage` 只扣），故走与 `teleport_unit` 同一条
+## 路数：despawn + 在同位 spawn 更大的 hp，池 LIFO 保证 id 不变。
+## 移速按当前 `speed_mult` 带入，免得回一次血把混沌的改动抹掉。
+func heal_unit(id: int, amount: float) -> void:
+	if sim == null or amount <= 0.0 or not bool(sim.call("is_alive", id)):
+		return
+	var store: CrowdAffixStore = _affixes.get(id, null)
+	var speed := float(_base_speed.get(id, 4.0))
+	if store != null:
+		speed *= store.speed_mult
+	var pos: Vector3 = sim.call("get_position", id)
+	var hp := float(sim.call("get_hp", id)) + amount
+	sim.call("despawn", id)
+	var new_id := int(sim.call("spawn", pos.x, pos.z, hp, speed, 0.35, 1.0))
+	if new_id != id:
+		_migrate_registration(id, new_id)
+
+
+## 结算一次**由 GDScript 侧发起**的伤害（玩家近战/投射物命中群体单位时调）。
+##
+## **词缀·复仇与不朽必须在扣血之前介入**，否则：
+##   · 复仇会漏掉"这一击把人打死了"的那次反伤
+##   · 不朽来不及把致命伤挡下来（扣完血单位已经没了）
+##
+## `attacker` 是玩家节点（复仇反伤用），`pos` 是伤害数字的位置。
+## 返回实际造成的伤害（不朽免伤后可能是 0）。
+func damage_unit(id: int, amount: float, attacker: Node, pos: Vector3) -> float:
+	if sim == null or not bool(sim.call("is_alive", id)):
+		return 0.0
+	var store: CrowdAffixStore = _affixes.get(id, null)
+	var dealt := amount
+	if store != null:
+		# 先推进计时器：不朽的免伤窗口靠它递减。群体单位可能被"打了就死"
+		# 而一直没轮到物理帧，不能指望 `_physics_process` 一定跑过。
+		store.tick(_last_delta, _affix_rng)
+		var m: Dictionary = _spawn_meta.get(id, {})
+		var hp := float(sim.call("get_hp", id))
+		var max_hp := maxf(float(m.get("hp", hp)), 0.001)
+		var r := store.note_damage(amount, hp, max_hp, attacker, pos)
+		if r < 0.0:
+			# 不朽触发：本次免伤，改为回血
+			heal_unit(id, store.immortal_heal_amount(max_hp))
+			crowd_immortal.emit(pos)
+			return 0.0
+		dealt = r
+	if dealt > 0.0:
+		sim.call("apply_damage", PackedInt32Array([id]), dealt)
+	# 立刻排空事件：调用方（玩家/投射物）当帧不会跑物理帧，
+	# 不排空的话死亡事件要等下一帧才消费，`enemies_alive` 会短暂多算一只。
+	_drain_deaths()
+	return dealt
 
 
 ## 释放单位对应的 buff 宿主（单位死亡时调，避免宿主节点泄漏）
@@ -305,6 +620,10 @@ func _free_host(id: int) -> void:
 ##
 ## **走 `apply_damage` 而不是 `despawn_unit`**：后者是静默移除，不产死亡事件，
 ## 调用方（掉落、计数、特效）全都收不到通知——那正是"清场清不干净"的成因。
+##
+## **刻意绕过 `damage_unit`**：清场是"无条件移除"，不该被词缀·不朽
+## 的免伤挡下来（那会让清场漏掉恰好处于免伤期的单位，房间永远清不空）。
+## 换句话说这里的语义是「移除」，不是「造成伤害」。
 func kill_all_units() -> int:
 	if sim == null or active == 0:
 		return 0
