@@ -128,6 +128,9 @@ func _ready() -> void:
 	# 音效接线（语义名映射表 + 素材存在）
 	await _run_test(test_audio_wiring)
 
+	# 测试 probe 覆盖率（重构报警器）
+	await _run_test(test_probe_coverage)
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -3855,3 +3858,30 @@ func test_audio_wiring() -> void:
 
 	holder.free()
 	inst.free()
+
+
+## 测试 probe 覆盖率 —— 重构报警器。
+##
+## `tests/helpers/probe.gd` 是测试访问私有成员的**唯一入口**。
+## 它登记的名字若在对应脚本里被搬走/改名（重构时的常见事故），
+## 这里会**指名道姓**报出来，而不是等某个测试莫名其妙地红。
+func test_probe_coverage() -> void:
+	_current_test = "ProbeCoverage"
+	print("\n--- %s ---" % _current_test)
+
+	var probe = _require_script("res://tests/helpers/probe.gd")
+	if probe == null:
+		return
+
+	var missing: Array = probe.assert_coverage()
+	_check(missing.is_empty(),
+		"probe 登记的名字全部存在于对应脚本（缺 %d 个）" % missing.size(),
+		missing)
+
+	# 反向核对：本文件确实读到了四个脚本的源码（防止路径写错导致空跑）
+	var reg: Dictionary = probe.REGISTERED
+	_check(reg.size() >= 4, "probe 至少登记了 4 类宿主", [reg.keys()])
+	var total := 0
+	for k in reg:
+		total += (reg[k] as Array).size()
+	_check(total >= 50, "probe 登记名字总数 >= 50（实际 %d）" % total)

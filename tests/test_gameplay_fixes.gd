@@ -1,7 +1,10 @@
 extends Node
 ## 运行时行为回归：穿门落点 / 拾取 / 门重入 / HP 刷新 / 受击反馈 / hitstop
 ## 这些是门禁漏掉的运行时行为（纯逻辑单测覆盖不到），专门固化防回归
+##
+## 私有成员访问一律经 `TestProbe`（重构时只改 probe，本文件零改动）。
 var failed := 0
+var probe := TestProbe.new()
 func _c(cond: bool, name: String, extra := "") -> void:
 	if cond: print("  [OK] %s" % name)
 	else:
@@ -52,7 +55,7 @@ func _ready() -> void:
 	loot.generate_chest_loot(p.global_position + Vector3(0.8, 0, 0), room, 1)
 	await get_tree().process_frame
 	var inv0: int = GameManager.equipment_manager.get_inventory().size()
-	p._pickup_nearby()
+	probe.pickup_nearby(p)
 	await get_tree().process_frame
 	_c(GameManager.equipment_manager.get_inventory().size() > inv0, "拾取掉落物成功",
 		"背包 %d→%d" % [inv0, GameManager.equipment_manager.get_inventory().size()])
@@ -95,7 +98,7 @@ func _ready() -> void:
 	var hud = get_tree().current_scene.find_child("HUD", true, false)
 	if hud:
 		GameManager.attributes.hp = 400.0
-		hud._on_player_hit(100.0, Vector3.ZERO)
+		probe.hud_on_player_hit(hud, 100.0, Vector3.ZERO)
 		await get_tree().process_frame
 		var shown: String = hud.health_label.text if hud.health_label else ""
 		_c(shown == "400", "玩家受伤后 HUD 血量刷新", "显示=%s" % shown)
@@ -108,11 +111,11 @@ func _ready() -> void:
 		_c(fm != null, "本层有 FloorMechanic")
 		if fm:
 			fm.set("gas_layers", 3)
-			hud._update_gas_label()
+			probe.hud_update_gas_label(hud)
 			_c(hud.gas_label.text.contains("毒气") and hud.gas_label.text.contains("3/"),
 				"毒气层数显示到 HUD", "实际=%s" % hud.gas_label.text)
 			fm.set("gas_layers", 0)
-			hud._update_gas_label()
+			probe.hud_update_gas_label(hud)
 			_c(hud.gas_label.text == "", "无层数时毒气标签清空",
 				"实际=%s" % hud.gas_label.text)
 
@@ -166,7 +169,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 
 	# --- #1 hitstop 不泄漏 ---
-	p._hitstop(0.05)
+	probe.hitstop(p, 0.05)
 	await get_tree().physics_frame
 	for i in range(30): await get_tree().physics_frame
 	_c(absf(Engine.time_scale - 1.0) < 0.01, "hitstop 后 time_scale 还原", "=%.3f" % Engine.time_scale)
@@ -199,8 +202,8 @@ func _ready() -> void:
 	GameManager.attributes.hp = GameManager.attributes.max_hp
 	p.take_damage(50.0)
 	await get_tree().process_frame
-	_c(p._flash_timer > 0.0, "玩家受击进入闪红状态")
-	var pmat = p._model.material_override if p._model else null
+	_c(probe.flash_timer(p) > 0.0, "玩家受击进入闪红状态")
+	var pmat = probe.model(p).material_override if probe.model(p) else null
 	_c(pmat != null, "玩家模型有独立材质（闪红可控）")
 	# 模型已换用卡通着色器（ToonMaterial），本色存在 ShaderMaterial 参数里，
 	# 没有 `albedo_color` 属性可读——统一走 ToonMaterial.get_color
@@ -275,7 +278,7 @@ func _test_sprint_triggering(p) -> void:
 	for f in 30:
 		Input.action_press("move_right")
 		await get_tree().physics_frame
-		if p._is_sprinting and false_trigger < 0:
+		if probe.is_sprinting(p) and false_trigger < 0:
 			false_trigger = f + 1
 	Input.action_release("move_right")
 	_c(false_trigger < 0, "持续按住方向不误触发奔跑",
@@ -291,7 +294,7 @@ func _test_sprint_triggering(p) -> void:
 	Input.action_press("move_right")
 	await get_tree().physics_frame
 	await get_tree().physics_frame
-	_c(p._is_sprinting, "快速双击同方向触发奔跑")
+	_c(probe.is_sprinting(p), "快速双击同方向触发奔跑")
 	Input.action_release("move_right")
 	await get_tree().physics_frame
 
@@ -312,9 +315,9 @@ func _test_attack_grace(p) -> void:
 	_c(p.sprint_hold < threshold, "短奔跑未达冲撞阈值",
 		"hold=%.3f 阈值=%.2f" % [p.sprint_hold, threshold])
 	await _fire_attack(p)
-	_c(p._state_machine.current_state_name() == "MoveState",
+	_c(probe.state_machine(p).current_state_name() == "MoveState",
 		"短奔跑时攻击走普攻（不误触冲撞）",
-		"实际状态=%s" % p._state_machine.current_state_name())
+		"实际状态=%s" % probe.state_machine(p).current_state_name())
 	_release_all()
 
 	# 奔跑超过阈值 → 应进 SprintAttackState（冲撞）
@@ -326,9 +329,9 @@ func _test_attack_grace(p) -> void:
 		await get_tree().physics_frame
 		frames += 1
 	await _fire_attack(p)
-	_c(p._state_machine.current_state_name() == "SprintAttackState",
+	_c(probe.state_machine(p).current_state_name() == "SprintAttackState",
 		"持续奔跑后攻击走冲撞",
-		"hold=%.3f 状态=%s" % [p.sprint_hold, p._state_machine.current_state_name()])
+		"hold=%.3f 状态=%s" % [p.sprint_hold, probe.state_machine(p).current_state_name()])
 	_release_all()
 
 
@@ -358,10 +361,10 @@ func _sprint_reset(p) -> void:
 		im.set("attack_direction", Vector2.ZERO)
 		im.set("_buffered_attack", Vector2.ZERO)
 		im.set("_buffered_attack_time", -999.0)
-	p._is_sprinting = false
+	probe.set_sprinting(p, false)
 	p.sprint_hold = 0.0
 	p.prev_raw_input = Vector3.ZERO
 	p.since_dir_press = 99.0
-	p._attack_timer = 0.0
-	p._current_attack_cooldown = 0.0
+	probe.set_attack_timer(p, 0.0)
+	probe.set_current_attack_cooldown(p, 0.0)
 	p.velocity = Vector3.ZERO
