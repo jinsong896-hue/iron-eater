@@ -30,6 +30,7 @@ func _ready() -> void:
 		add_to_group("settings_panel")
 	_setup_tabs()
 	_setup_game_toggles()
+	AudioManager.connect_buttons(self)
 	_switch_tab(Tab.DISPLAY)
 
 

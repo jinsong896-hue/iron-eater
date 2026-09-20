@@ -125,6 +125,9 @@ func _ready() -> void:
 	await _run_test(test_class_base_and_start_gear)
 	await _run_test(test_class_resource)
 
+	# 音效接线（语义名映射表 + 素材存在）
+	await _run_test(test_audio_wiring)
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -3792,3 +3795,63 @@ func test_dungeon_template_coverage() -> void:
 	for t in produced.keys():
 		_check(int(pool.get(t, 0)) > 0,
 			"生成器产出的房型 %s 有对应模板" % t, ["模板数 = %d" % int(pool.get(t, 0))])
+
+
+# ============================================================
+# 音效接线
+# ============================================================
+
+## 音效语义名映射表必须真的能用。
+##
+## ## 为什么值得一条测试
+## 这条链路此前**完全断开且完全静默**：`AudioManager.play()` 里的
+## `match name` 匹配的是**节点名**（本 autoload 叫 "AudioManager"），
+## 不是参数 `_sfx_name`——四个分支永远进不去；而分支里写的
+## `res://assets/audio/*.wav` 全项目也不存在。
+## 结果：玩家受击 / 击杀 / 拾取 / 死亡四处调用**一声不响**，
+## 不报错、不警告，看起来像"音效还没做"。
+##
+## 所以这里守两件事：
+##   ① 调用点用到的语义名，映射表里必须有，且素材文件真实存在
+##   ② `connect_buttons` 真的会把子树的按钮接上（UI 点击音）
+func test_audio_wiring() -> void:
+	_current_test = "AudioWiring"
+	print("\n--- %s ---" % _current_test)
+
+	var am = _require_script("res://core/audio_manager.gd")
+	if am == null:
+		return
+	var inst = am.new()
+
+	# ① 玩家侧四个调用点的语义名（与 player.gd 里的字面量一一对应）
+	var used := ["hit", "pickup", "death", "menu_click"]
+	for nm in used:
+		_check(bool(inst.call("has_sfx", nm)),
+			"音效 %s 已登记且素材存在" % nm)
+
+	# 未登记的名字必须安全返回 false（而不是报错）
+	_check(not bool(inst.call("has_sfx", "definitely_not_a_sound")),
+		"未登记的音效名安全返回 false")
+
+	# ② 按钮接线：造一个两层嵌套的子树，确认递归覆盖到深层按钮
+	var holder := Node.new()
+	root.add_child(holder)
+	var mid := Control.new()
+	holder.add_child(mid)
+	var b1 := Button.new()
+	holder.add_child(b1)
+	var b2 := Button.new()
+	mid.add_child(b2)          # 深层：只在顶层遍历会漏掉它
+	inst.call("connect_buttons", holder)
+	_check(b1.pressed.is_connected(Callable(inst, "_on_ui_button_pressed")),
+		"按钮点击音：直接子节点已接线")
+	_check(b2.pressed.is_connected(Callable(inst, "_on_ui_button_pressed")),
+		"按钮点击音：深层子节点也接线（递归而非只扫一层）")
+
+	# 幂等：再调一次不该重复连接（重复连会让一次点击放两声）
+	inst.call("connect_buttons", holder)
+	_check(b1.pressed.get_connections().size() == 1,
+		"按钮接线幂等（重复调用不叠加连接）")
+
+	holder.free()
+	inst.free()

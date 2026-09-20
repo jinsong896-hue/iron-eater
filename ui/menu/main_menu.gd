@@ -83,6 +83,9 @@ func _ready() -> void:
 	_setup_new_game()
 	_setup_upgrade()
 	_setup_settings()
+	# 全部子页面建完之后再统一接按钮音：上面几个 _setup_* 会动态建按钮
+	#（存档卡的进入/删除/新建、升级页），提前接会漏掉它们。
+	AudioManager.connect_buttons(self)
 	_switch_state(MenuState.MAIN)
 
 

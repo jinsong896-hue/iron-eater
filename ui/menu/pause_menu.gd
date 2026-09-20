@@ -27,6 +27,7 @@ func _ready() -> void:
 		btn_abandon.pressed.connect(_on_abandon)
 	if btn_quit:
 		btn_quit.pressed.connect(_on_quit)
+	AudioManager.connect_buttons(self)
 
 
 func _input(event: InputEvent) -> void:
