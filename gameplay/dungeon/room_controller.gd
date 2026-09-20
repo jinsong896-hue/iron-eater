@@ -29,6 +29,8 @@ var _shop_stock = null
 var _shop_stock_key := ""
 ## 特殊房业务组件（商店/泉水/事件/赌徒）。在 `_ready()` 里经 `_setup_shop()` 装配。
 var shop: ShopController = null
+## Boss 生成组件。在 `_ready()` 里经 `_setup_spawner()` 装配。
+var spawner: SpawnDirector = null
 ## 群体模拟管理器（只在有 swarm 怪的房间创建，见 _crowd()）
 var _crowd_mgr: CrowdManager = null
 ## 投射物模拟管理器（与群体管理器同生命周期）
@@ -45,7 +47,16 @@ static var CROWD_FORCE_SWARM := false
 func _ready() -> void:
 	_special_service = load("res://gameplay/dungeon/special_room_service.gd").new()
 	_setup_shop()
+	_setup_spawner()
 	_collect_nodes()
+
+
+## 装配 Boss 生成组件
+func _setup_spawner() -> void:
+	spawner = SpawnDirector.new()
+	spawner.name = "SpawnDirector"
+	add_child(spawner)
+	spawner.setup(self)
 
 
 ## 装配特殊房业务组件。**必须在 _collect_nodes 之前**——本类的公开 API
@@ -687,130 +698,36 @@ func _spawn_enemy_at(point: Marker3D, difficulty_mult: float, m: Dictionary = {}
 ## 现在：Boss 个体（名字/机制/相对强度）来自 BossDB，
 ## 层难度（boss_hp 基准）来自 FloorDefs，两者相乘。
 ## 第 8 层固定破坏神化身、第 9 层三连战由 BossDB 的 pool 直接决定。
-func _spawn_boss() -> void:
-	# 策划 6.7：Boss 战期间**暂停**硫磺毒气累积。
-	# 挂在这里而不是"进 Boss 房时"——只有真的刷出 Boss 才算 Boss 战，
-	# 空 Boss 房（异常数据）不该白暂停。
-	_set_gas_paused(true)
-	if _boss_spawn == null:
-		return
-	var mult := _difficulty_mult()
-	var layer := _current_layer()
-	MonsterDB.init()
-
-	# **读生成阶段预抽的 Boss**，不在这里现抽。
-	# 原因：Boss 决定房间模板尺寸（策划 7 章），而房间是预建的——
-	# 必须先生成阶段定下来。这里现抽的话会出现「房间按 A 的尺寸建、
-	# 却刷出 B」的错配，且同一种子两次进入可能刷不同 Boss。
-	var boss_def := _preassigned_boss()
-
-	_boss = EnemyBase.new()
-	_boss.position = _boss_spawn.global_position
-	if boss_def.is_empty():
-		# 兜底：房间数据缺 boss_def（旧存档 / 手工构造的图）时现场抽一个
-		var rng := RandomNumberGenerator.new()
-		var gm_rng = _game_manager()
-		if gm_rng != null and gm_rng.get("rng") != null:
-			rng.seed = gm_rng.rng.randi()
-		else:
-			rng.randomize()
-		boss_def = BossDB.random_for_floor(layer, rng)
-	if boss_def.is_empty():
-		_boss.apply_monster_config(MonsterDB.boss_monster())
-	else:
-		var cfg := BossDB.to_monster_config(boss_def, layer, FloorDefs.boss_hp(layer))
-		_boss.apply_monster_config(cfg)
-		# 装配 Boss 通用机制（阶段/护盾/场地/召唤）
-		var bm_script = load("res://entities/enemies/boss_mechanics.gd")
-		if bm_script != null:
-			_boss.boss_mech = bm_script.attach(_boss, boss_def)
-	_boss.max_hp *= mult
-	_boss.atk *= mult
-	_boss.attack_range = 2.6
-	_boss.gold_min = 50
-	_boss.gold_max = 120
-	# Boss 必掉装备：掉落表指向随机白装由 LootSystem 处理，这里用必掉标记
-	_boss.set_meta("boss_loot", true)
-	_boss.died.connect(_on_boss_died)
-	add_child(_boss)
-	# 通知 HUD 显示顶部 Boss 血条栏
-	var bus_boss = _event_bus()
-	if bus_boss:
-		var bname: String = str(_boss.get("monster_name"))
-		if bname.is_empty():
-			bname = "BOSS"
-		bus_boss.boss_engaged.emit(bname, _boss.max_hp)
-	enemies_alive += 1
-	_living_enemies.append(_boss)
+# ============================================================
+# Boss 生成族转发（实现已拆到 SpawnDirector）
+# ============================================================
+#
+# **字段留在本类**（_boss / _boss_spawn / _boss_kill_counted）：
+# _on_cleared（清空判定）与 _show_portal（传送门）都要读 _boss。
+#
 
 
-## Boss 死亡：必掉两件装备 + 房间清空
-func _on_boss_died(world_position: Vector3) -> void:
-	enemies_alive = maxf(enemies_alive - 1, 0)
-	# **Boss 击杀计数在 Boss 死时结算，不放 _on_cleared**：
-	# _on_cleared 可能因「Boss 死后分裂/召唤出新的敌人」而再次执行
-	# （register_summoned_enemy 会把 is_cleared 重置，见其注释），
-	# 挂在里面会让 boss_kills 重复累加（实测同一只 Boss 计了 2 次）。
-	if not _boss_kill_counted:
-		_boss_kill_counted = true
-		var gm_k = _game_manager()
-		if gm_k:
-			gm_k.boss_kills += 1
-	# 通知 HUD 隐藏顶部 Boss 血条栏
-	var bus_b = _event_bus()
-	if bus_b:
-		bus_b.boss_state_changed.emit(true)
-	_show_portal()
-	if enemies_alive <= 0:
-		_on_cleared()
-
-
-## 进入 Boss 房前自动存档（策划 5.3）。取不到存档系统时静默跳过（测试/无头环境）。
+## Boss 战前自动存档（转发；策划 5.3 唯一的存档时机）
 func _autosave_before_boss() -> void:
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null or tree.root == null:
-		return
-	var sm := tree.root.get_node_or_null("SaveManager")
-	if sm == null or not sm.has_method("save"):
-		return
-	sm.call("save", int(sm.get("current_slot")))
+	spawner._autosave_before_boss()
 
 
-## 读生成阶段预抽的 Boss 定义（房间数据里的 boss_def）。
-## 取不到时返回空字典，由调用方兜底。
-func _preassigned_boss() -> Dictionary:
-	var gr = _game_root()
-	if gr == null:
-		return {}
-	var graph = gr.get("dungeon_graph")
-	var idx: int = int(gr.get("current_room_index"))
-	if graph == null or idx < 0 or idx >= graph.size():
-		return {}
-	return graph[idx].get("boss_def", {})
-
-
-## 难度倍率 = 玩家难度选择 × 层因子。
-##
-## **层因子是必须的**：怪物池虽然按 `PHASE_OF_LAYER` 换阶段（1~2 层阶段一、
-## 3~4 层阶段二…），但同阶段内 2 层共用一个池，若不给层因子，
-## 第 2 层与第 1 层强度完全相同、第 4 层与第 3 层相同——
-## 策划书 5.3 的「前慢后快」曲线就断了。
-## 层因子来自 FloorDefs（1.0 → 3.30，第 9 层最高）。
+## 难度系数（转发；Boss 生成读它）
 func _difficulty_mult() -> float:
-	var layer_factor: float = FloorDefs.monster_mult(_current_layer())
-	var gm = _game_manager()
-	if gm == null:
-		return layer_factor
-	# 玩家难度选择与层因子**相乘**：easy/hard 是全局手感，层是进度曲线
-	match str(gm.run_info.get("difficulty", "normal")):
-		"easy":
-			return layer_factor * 0.8
-		"hard":
-			return layer_factor * 1.35
-	return layer_factor
+	return spawner._difficulty_mult()
+# 其余刷怪部分（_collect_nodes / _spawn_enemies / _spawn_enemy_at /
+# _spawn_crowd_at）与房间生命周期耦合更紧，**未搬**（见组件文件头）。
+
+## Boss 生成（转发）
+func _spawn_boss() -> void:
+	spawner._spawn_boss()
 
 
-## 生成下一层传送门（Boss 房清空后出现，触碰进入下一层）
+## Boss 死亡结算（转发）
+func _on_boss_died(world_position: Vector3) -> void:
+	spawner._on_boss_died(world_position)
+
+
 func _show_portal() -> void:
 	if _portal != null and is_instance_valid(_portal):
 		_portal.visible = true
