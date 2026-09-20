@@ -3,11 +3,12 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://cvrmu2po36kb0"
-valid=false
+path="res://.godot/imported/switch-b.ogg-1a4f3a205e589dc5fb6f902c7698c521.oggvorbisstr"
 
 [deps]
 
 source_file="res://assets/ui-pack/Sounds/switch-b.ogg"
+dest_files=["res://.godot/imported/switch-b.ogg-1a4f3a205e589dc5fb6f902c7698c521.oggvorbisstr"]
 
 [params]
 

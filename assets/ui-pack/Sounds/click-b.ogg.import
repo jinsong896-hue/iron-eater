@@ -3,11 +3,12 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://c4bd6qtl05r14"
-valid=false
+path="res://.godot/imported/click-b.ogg-6c1ca585ab1387a1622e856e321fc2d3.oggvorbisstr"
 
 [deps]
 
 source_file="res://assets/ui-pack/Sounds/click-b.ogg"
+dest_files=["res://.godot/imported/click-b.ogg-6c1ca585ab1387a1622e856e321fc2d3.oggvorbisstr"]
 
 [params]
 

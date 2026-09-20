@@ -3,11 +3,12 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://bxevwe53bhake"
-valid=false
+path="res://.godot/imported/dropLeather.ogg-f8a02948b4aefd060658ffc866da2355.oggvorbisstr"
 
 [deps]
 
 source_file="res://assets/rpg-audio/Audio/dropLeather.ogg"
+dest_files=["res://.godot/imported/dropLeather.ogg-f8a02948b4aefd060658ffc866da2355.oggvorbisstr"]
 
 [params]
 

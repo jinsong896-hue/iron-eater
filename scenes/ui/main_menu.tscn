@@ -224,16 +224,16 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 300.0
+offset_left = 750.0
 offset_top = 60.0
 offset_right = -60.0
 offset_bottom = -60.0
-theme_override_constants/separation = 15
+theme_override_constants/separation = 10
 
 [node name="Label" type="Label" parent="NewGamePanel/VBox"]
 layout_mode = 2
 text = "开始新的探索"
-theme_override_font_sizes/font_size = 32
+theme_override_font_sizes/font_size = 28
 theme_override_colors/font_color = Color(0.72, 0.59, 0.38, 1)
 
 [node name="CharLabel" type="Label" parent="NewGamePanel/VBox"]
@@ -243,7 +243,7 @@ text = "职业"
 [node name="CharSelect" type="ItemList" parent="NewGamePanel/VBox"]
 layout_mode = 2
 size_flags_horizontal = 3
-custom_minimum_size = Vector2(0, 120)
+custom_minimum_size = Vector2(0, 92)
 
 [node name="FormLabel" type="Label" parent="NewGamePanel/VBox"]
 layout_mode = 2
@@ -252,11 +252,11 @@ text = "形态"
 [node name="FormSelect" type="ItemList" parent="NewGamePanel/VBox"]
 layout_mode = 2
 size_flags_horizontal = 3
-custom_minimum_size = Vector2(0, 120)
+custom_minimum_size = Vector2(0, 92)
 
 [node name="CharDesc" type="Label" parent="NewGamePanel/VBox"]
 layout_mode = 2
-custom_minimum_size = Vector2(0, 80)
+custom_minimum_size = Vector2(0, 74)
 text = ""
 theme_override_colors/font_color = Color(0.6, 0.58, 0.55, 1)
 autowrap_mode = 3
@@ -267,7 +267,7 @@ text = "模式"
 
 [node name="ModeSelect" type="ItemList" parent="NewGamePanel/VBox"]
 layout_mode = 2
-custom_minimum_size = Vector2(0, 60)
+custom_minimum_size = Vector2(0, 56)
 
 [node name="DiffLabel" type="Label" parent="NewGamePanel/VBox"]
 layout_mode = 2
@@ -275,7 +275,7 @@ text = "难度"
 
 [node name="DifficultySelect" type="ItemList" parent="NewGamePanel/VBox"]
 layout_mode = 2
-custom_minimum_size = Vector2(0, 60)
+custom_minimum_size = Vector2(0, 56)
 
 [node name="BtnStartGame" type="Button" parent="NewGamePanel/VBox"]
 layout_mode = 2

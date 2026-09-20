@@ -93,10 +93,16 @@ func play(_sfx_name: String) -> void:
 	play_sfx(SFX_DIR + file)
 
 
-## 语义名是否已登记且素材存在（测试/调试用）
+## 语义名是否已登记**且素材真的能加载**（测试/调试用）。
+##
+## **不能用 `ResourceLoader.exists()`**：它对"文件在、但导入失败"的资源
+## 同样返回 true。本项目 58 个 ogg 一度全部处于这种状态——`exists()` 为真、
+## `load()` 为 null——用它当判据会让测试**假绿**，而运行时静默无声。
 func has_sfx(sfx_name: String) -> bool:
 	var file: String = SFX_MAP.get(sfx_name, "")
-	return not file.is_empty() and ResourceLoader.exists(SFX_DIR + file)
+	if file.is_empty():
+		return false
+	return _load_audio(SFX_DIR + file) != null
 
 
 ## 递归给一棵 UI 子树里的所有按钮接上点击音。
@@ -121,16 +127,27 @@ func _on_ui_button_pressed() -> void:
 	play("menu_click")
 
 
+## 加载音频资源。
+##
+## **加载失败要告警，不能静默**：文件在、但导入失败（`valid=false`）时
+## `ResourceLoader.exists()` 仍返回 true，`load()` 却给 null。若这里默默
+## 返回 null，整条音效链会退化成"什么都不发生"——本项目已经因为这种
+## 静默失败吃过一次亏（`play()` 匹配错变量名，四处调用全无声）。
 func _load_audio(path: String) -> AudioStream:
 	if path.is_empty():
 		return null
 	if _sound_cache.has(path):
 		return _sound_cache[path]
 	if not ResourceLoader.exists(path):
+		push_warning("[AudioManager] 音频不存在：%s" % path)
 		return null
 	var stream := ResourceLoader.load(path, "AudioStream", ResourceLoader.CACHE_MODE_REUSE) as AudioStream
-	if stream:
-		_sound_cache[path] = stream
+	if stream == null:
+		# 文件在但加载不出来 ⇒ 该资源没有成功导入（.import 里 valid=false）。
+		# 处理办法：在编辑器里对素材跑一次重新导入，或删掉 .godot/ 后重新打开项目。
+		push_warning("[AudioManager] 音频加载失败（可能未成功导入）：%s" % path)
+		return null
+	_sound_cache[path] = stream
 	return stream
 
 

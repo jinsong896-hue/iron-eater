@@ -3,11 +3,12 @@
 importer="oggvorbisstr"
 type="AudioStreamOggVorbis"
 uid="uid://cu1kb5f4xh6tc"
-valid=false
+path="res://.godot/imported/knifeSlice2.ogg-ccdf3fd892dd09b49dc16fcc35cb897c.oggvorbisstr"
 
 [deps]
 
 source_file="res://assets/rpg-audio/Audio/knifeSlice2.ogg"
+dest_files=["res://.godot/imported/knifeSlice2.ogg-ccdf3fd892dd09b49dc16fcc35cb897c.oggvorbisstr"]
 
 [params]
 
