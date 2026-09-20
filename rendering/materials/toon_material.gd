@@ -47,6 +47,10 @@ static func _outline() -> Shader:
 ## emission       —— 自发光色，energy 为 0 时等于没有
 ## outline        —— 是否挂反壳描边
 ## outline_width  —— 描边视空间外扩量
+##
+## 未显式写入的着色器参数（cuts / steepness / wrap / diffuse_strength 等）
+## 渲染时取 toon.gdshader 里 `uniform` 声明的默认值。这是正常的，
+## `get_shader_parameter` 会返回 null，**不代表参数没生效**，别当成 bug 去"修"。
 static func create(color: Color = Color.WHITE, texture: Texture2D = null,
 		texture_tint: Color = Color.WHITE, emission: Color = Color.BLACK,
 		emission_energy: float = 0.0, outline: bool = true,
@@ -66,11 +70,12 @@ static func create(color: Color = Color.WHITE, texture: Texture2D = null,
 
 
 ## 只造描边 pass（一般不用单独调，create 里已经挂上）
-static func create_outline(width: float = 0.012) -> ShaderMaterial:
+static func create_outline(width: float = 0.012, alpha: float = 1.0) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = _outline()
 	mat.set_shader_parameter("grow_amount", width)
 	mat.set_shader_parameter("outline_color", Color.BLACK)
+	mat.set_shader_parameter("outline_alpha", clampf(alpha, 0.0, 1.0))
 	return mat
 
 
@@ -106,9 +111,18 @@ static func get_color(mat: ShaderMaterial) -> Color:
 ## 又会让屏幕空间描边读到的深度缓冲缺这一块，边缘检测在隐身怪周围失效。
 ## 改走 `GeometryInstance3D.transparency`：Godot 对不透明材质做 alpha 混合，
 ## 且**保持写入深度**，两条通道都不受影响。
+##
+## **描边 pass 要单独同步**：`transparency` 只作用于主 pass，next_pass 上的
+## 反壳描边不受影响。不同步的话隐身怪会留一圈实心黑边（比不隐身还显眼），
+## 所以这里顺手把 alpha 写进描边材质。
 static func set_model_transparency(mesh: MeshInstance3D, alpha: float) -> void:
-	if mesh != null:
-		mesh.transparency = clampf(1.0 - alpha, 0.0, 1.0)
+	if mesh == null:
+		return
+	mesh.transparency = clampf(1.0 - alpha, 0.0, 1.0)
+	if mesh.material_override is ShaderMaterial:
+		var np: ShaderMaterial = mesh.material_override.next_pass
+		if np != null:
+			np.set_shader_parameter("outline_alpha", clampf(alpha, 0.0, 1.0))
 
 
 ## 读模型当前的透明混合量（0 = 完全不透明）

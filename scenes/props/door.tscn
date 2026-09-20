@@ -1,12 +1,32 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://world/rooms/door_trigger.gd" id="1_door_script"]
+[ext_resource type="Shader" path="res://rendering/shaders/toon.gdshader" id="2_toon_shader"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_door"]
 size = Vector3(2, 3, 0.3)
 
-[sub_resource type="StandardMaterial3D" id="Material_door"]
-albedo_color = Color(0.3, 0.22, 0.15, 1)
+[sub_resource type="ShaderMaterial" id="Material_door"]
+shader = ExtResource("2_toon_shader")
+shader_parameter/albedo = Color(0.3, 0.22, 0.15, 1)
+shader_parameter/use_albedo_texture = false
+shader_parameter/albedo_texture = null
+shader_parameter/clamp_diffuse_to_max = false
+shader_parameter/cuts = 3
+shader_parameter/wrap = 0.0
+shader_parameter/steepness = 1.0
+shader_parameter/use_attenuation = true
+shader_parameter/diffuse_strength = 0.25
+shader_parameter/use_specular = false
+shader_parameter/specular_strength = 0.4
+shader_parameter/specular_shininess = 8.0
+shader_parameter/use_rim = false
+shader_parameter/rim_width = 6.0
+shader_parameter/rim_color = Color(1, 1, 1, 0.15)
+shader_parameter/use_borders = false
+shader_parameter/border_width = 0.01
+shader_parameter/emission_color = Color(0, 0, 0, 1)
+shader_parameter/emission_energy = 0.0
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_door"]
 size = Vector3(2, 3, 1.5)

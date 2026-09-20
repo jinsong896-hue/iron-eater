@@ -21,11 +21,22 @@ shader_type spatial;
 // MODELVIEW_MATRIX / INV_VIEW_MATRIX / INV_PROJECTION_MATRIX 等）。这里走
 // 「视空间算完再乘回模型空间」的等价写法：视图矩阵是正交的，转置即逆。
 
-render_mode unshaded, cull_front, shadows_disabled;
+render_mode unshaded, cull_front, shadows_disabled, blend_mix;
 
 // 视空间外扩量。0.01 在 640×360 的 SubViewport 下约合 1 个像素
 uniform float grow_amount : hint_range(0.0, 0.1) = 0.012;
 uniform vec4 outline_color : source_color = vec4(0.0, 0.0, 0.0, 1.0);
+
+// 描边整体不透明度。**必须显式写 ALPHA 并开混合**：
+//
+// 反壳描边挂在 next_pass 上，而 `GeometryInstance3D.transparency`
+// （隐身怪用的那条路，见 rendering/materials/toon_material.gd）
+// **只作用于主 pass，不会传导到 next_pass**。不在这里补一个 alpha，
+// 隐身怪就会变成「本体几乎透明、外圈一圈实心黑边」——比不隐身还显眼。
+//
+// 显式写 ALPHA 会让这支 pass 掉进透明队列（不写深度），这对 next_pass
+// 没有副作用：它本来就只画外壳、不参与任何后续读取。
+uniform float outline_alpha : hint_range(0.0, 1.0) = 1.0;
 
 
 void vertex() {
@@ -39,4 +50,5 @@ void vertex() {
 
 void fragment() {
 	ALBEDO = outline_color.rgb;
+	ALPHA = outline_color.a * outline_alpha;
 }
