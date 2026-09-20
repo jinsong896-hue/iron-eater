@@ -93,7 +93,7 @@ func interact_hidden_wall() -> bool:
 		if w.has_method("can_interact_with") and bool(w.call("can_interact_with", player)):
 			var ok: bool = bool(w.call("break_wall", player))
 			if ok:
-				AudioManager.play("hit")
+				PlayerSfx.on_break_wall()
 				EventBus.message.emit("你破开了墙壁")
 				return true
 	return false
@@ -184,6 +184,6 @@ func devour_nearby() -> void:
 		var result: Dictionary = nearest.call("devour")
 		if result.get("ok", false):
 			EventBus.message.emit("吞噬成功！")
-			AudioManager.play("pickup")
+			PlayerSfx.on_devour()
 		else:
 			EventBus.message.emit(result.get("reason", "吞噬失败"))

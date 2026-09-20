@@ -1659,7 +1659,7 @@ func _refresh_attack_element() -> void:
 func _finish_attack_feedback(hit_any: bool) -> void:
 	if hit_any:
 		EventBus.player_attacked.emit(_facing, "")
-		AudioManager.play("hit")
+		PlayerSfx.on_hit_landed()
 
 
 ## Hitstop：短暂全局减速制造顿帧感
@@ -2011,7 +2011,7 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	GameManager.attributes.take_damage(amount)
 	EventBus.player_hit.emit(amount, global_position)
 	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")
-	AudioManager.play("hit")
+	PlayerSfx.on_hurt()
 	# 受击闪红：玩家此前没有任何受击视觉，扣血了却看不出来
 	_flash_timer = HIT_FLASH_DURATION
 	_update_flash()
@@ -2053,7 +2053,7 @@ func apply_knockback(force: Vector3) -> void:
 func die() -> void:
 	if not is_inside_tree():
 		return
-	AudioManager.play("death")
+	PlayerSfx.on_death()
 	# 切到死亡状态：即便物理帧因故仍在跑，也不再有每帧行为
 	if _state_machine:
 		_state_machine.transition_to("DeadState")
