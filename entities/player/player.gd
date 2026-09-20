@@ -681,19 +681,11 @@ func _is_backstab(enemy: Node3D) -> bool:
 		return false
 	if enemy == null or not is_instance_valid(enemy):
 		return false
-	var to_me: Vector3 = global_position - enemy.global_position
-	to_me.y = 0.0
-	if to_me.length_squared() < 0.0001:
-		return false
-	var enemy_forward: Vector3 = -enemy.global_transform.basis.z
-	enemy_forward.y = 0.0
-	if enemy_forward.length_squared() < 0.0001:
-		return false
-	return to_me.normalized().dot(enemy_forward.normalized()) < -BACKSTAB_DOT_THRESHOLD
+	# 几何判据走 CombatGeometry（纯函数，可单测）
+	return CombatGeometry.is_behind(
+		enemy.global_position, -enemy.global_transform.basis.z, global_position)
 
 
-## 背刺判定的点积阈值：要求"确实绕到身后"，而不是"在侧面"也算。
-const BACKSTAB_DOT_THRESHOLD := 0.3
 
 
 ## 形态·远近切换无冷却（策划 6.1 追猎者「远近切换无冷却；切换后移速 +10%」）。
@@ -841,8 +833,6 @@ func _on_basic_attack_landed(enemy: Node3D, damage: float) -> void:
 
 ## 影子攻击的触发间隔（策划 8.3：每 4 次攻击）
 const SHADOW_ATTACK_EVERY := 4
-## 直线穿透的长度与伤害比例（策划 6.4 鹰眼：身后 2 米、40% 伤害）
-const PIERCE_LINE_LENGTH := 2.0
 
 
 ## 6.4 鹰眼：命中后沿攻击方向在目标**身后**再打一条直线，
@@ -854,28 +844,18 @@ func _apply_pierce_line(origin: Node3D, damage: float) -> void:
 	var pct := ClassDefs.special_num(class_id, form_slot, "pierce_line", 0.0)
 	if pct <= 0.0 or damage <= 0.0:
 		return
-	var dir := _facing
-	dir.y = 0.0
-	if dir.length_squared() < 0.0001:
+	var dir := CombatGeometry.flat_normalized(_facing)
+	if dir == Vector3.ZERO:
 		return
-	dir = dir.normalized()
 	var line_start: Vector3 = origin.global_position
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if e == origin or not _is_valid_enemy(e):
 			continue
-		var to_e: Vector3 = (e as Node3D).global_position - line_start
-		to_e.y = 0.0
-		var along := to_e.dot(dir)
-		if along <= 0.0 or along > PIERCE_LINE_LENGTH:
-			continue
-		# 侧向偏移要够小才算"在这条线上"
-		if (to_e - dir * along).length() > PIERCE_LINE_HALF_WIDTH:
+		# 判据走 CombatGeometry —— 与群体路径**同一份实现**（见该文件头）
+		if not CombatGeometry.is_on_pierce_line(line_start, dir, (e as Node3D).global_position):
 			continue
 		_deal_bonus_damage(e as Node3D, damage * pct, "pierce")
 
-
-## 直线穿透的判定宽度（策划只给了长度 2 米，宽度按"一条线"取 0.6 米）
-const PIERCE_LINE_HALF_WIDTH := 0.6
 
 
 ## 对目标结算一笔"附加伤害"（不走普攻的连击/暴击链路，独立结算）。
@@ -1188,25 +1168,18 @@ func _apply_pierce_line_at(origin: Vector3, damage: float) -> void:
 	var pct := ClassDefs.special_num(class_id, form_slot, "pierce_line", 0.0)
 	if pct <= 0.0 or damage <= 0.0:
 		return
-	var dir := _facing
-	dir.y = 0.0
-	if dir.length_squared() < 0.0001:
+	var dir := CombatGeometry.flat_normalized(_facing)
+	if dir == Vector3.ZERO:
 		return
-	dir = dir.normalized()
 	var mgr = _crowd_manager()
 	if mgr == null or int(mgr.get("active")) <= 0:
 		return
-	# 用锥形查询取沿线候选，再按侧向偏移过滤（与节点版判据一致）
+	# 用锥形查询取沿线候选，再按侧向偏移过滤（与节点版**同一份判据**）
 	var ids = mgr.call("query_cone", origin.x, origin.z, dir.x, dir.z,
-		deg_to_rad(30.0), PIERCE_LINE_LENGTH)
+		deg_to_rad(30.0), CombatGeometry.PIERCE_LINE_LENGTH)
 	for id in ids:
 		var up: Vector3 = mgr.call("unit_position", int(id))
-		var to_e: Vector3 = up - origin
-		to_e.y = 0.0
-		var along := to_e.dot(dir)
-		if along <= 0.0 or along > PIERCE_LINE_LENGTH:
-			continue
-		if (to_e - dir * along).length() > PIERCE_LINE_HALF_WIDTH:
+		if not CombatGeometry.is_on_pierce_line(origin, dir, up):
 			continue
 		var result := DamagePipeline.physical(damage * pct, 1.0, 0.0, 0.0)
 		mgr.call("apply_damage", PackedInt32Array([int(id)]), float(result.damage))
