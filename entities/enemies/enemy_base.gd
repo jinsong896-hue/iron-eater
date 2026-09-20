@@ -258,6 +258,10 @@ var _knockback_velocity := Vector3.ZERO  # 硬直期间击退速度（摩擦衰�
 ## 在 `_ready()` 里经 `_setup_visuals()` 装配。
 var visuals: EnemyVisuals = null
 
+## 位移机制组件（突进/瞬移/潜伏/引力）。
+## 在 `_ready()` 里经 `_setup_movement()` 装配。
+var movement: EnemyMovement = null
+
 
 ## 装配视觉组件。**必须在 _create_visual 之前**——后者经它转发。
 func _setup_visuals() -> void:
@@ -267,18 +271,27 @@ func _setup_visuals() -> void:
 	visuals.setup(self)
 
 
+## 装配位移机制组件
+func _setup_movement() -> void:
+	movement = EnemyMovement.new()
+	movement.name = "MovementComponent"
+	add_child(movement)
+	movement.setup(self)
+
+
 func _ready() -> void:
 	add_to_group("enemies")
 	_hp = max_hp
 	rng.randomize()
 	_setup_visuals()
+	_setup_movement()
 	# 词条/元素容器：挂在敌人身上，玩家攻击时读它的易伤与减伤
 	if buffs == null:
 		buffs = BuffHolder.new(self)
 	_find_player()
 	visuals.build()
 	if stealth_always or stealth_exit_bonus > 0.0:
-		_apply_stealth_visual()
+		movement.apply_stealth_visual()
 	# 虚空吞噬者：接上「有单位死亡」广播。
 	# 放在 `_ready` 而不是 `apply_monster_config`——后者在 add_child **之前**
 	# 调用，那时本节点还不在树里，`get_nodes_in_group` 拿不到东西。
@@ -683,7 +696,7 @@ func _physics_process(delta: float) -> void:
 			move_speed /= 1.3
 	_tick_aura(delta)
 	_tick_mech_timers(delta)
-	_tick_stealth_timers(delta)
+	movement.tick_stealth_timers(delta)
 
 	# 受击闪红衰减（每帧都要走，包括硬直/死亡前）
 	if _flash_timer > 0.0:
@@ -695,8 +708,8 @@ func _physics_process(delta: float) -> void:
 		# 引力窗口不因突进而中断：`_pull_player` 只在 CHASE 分支被调，
 		# 若不在突进里补一次，正在突进的虚空巨兽会**恰好**在引力生效的
 		# 那 2 秒内把拉扯和每秒 30 伤全吞掉（突进期间状态不是 CHASE）。
-		_pull_player(delta)
-		_update_dash(delta)
+		movement.pull_player(delta)
+		movement.update_dash(delta)
 		return
 
 	# 自爆前摇倒计时（蓄爆完成后引爆）
@@ -736,9 +749,9 @@ func _physics_process(delta: float) -> void:
 		EnemyState.IDLE:
 			_state_idle()
 		EnemyState.CHASE:
-			if _try_ambush():
+			if movement.try_ambush():
 				return
-			_pull_player(delta)
+			movement.pull_player(delta)
 			_check_melee_haste()
 			_state_chase(delta)
 		EnemyState.WINDUP:
@@ -765,13 +778,13 @@ func _state_chase(delta: float) -> void:
 	# 突进触发：距离在 [attack_range, dash_range] 外且冷却好 → 冲刺
 	if behavior == AIBehavior.RUSHER and dash_range > 0.0:
 		if dist > attack_range + 1.0 and dist < dash_range + 4.0 and _attack_timer <= 0.0:
-			_start_dash()
+			movement.start_dash()
 			return
 
 	# 进入攻击范围
 	if dist <= attack_range:
 		# 狱卒猎犬：记下「这一扑够到过玩家」，突进结束时不补硬直（见 _update_dash）。
-		# 注意必须在 `_start_dash()` 之前判断——`_start_dash` 会把状态置为 DASH，
+		# 注意必须在 `movement.start_dash()` 之前判断——`_start_dash` 会把状态置为 DASH，
 		# 之后这里就再也看不到「原本是突进态」了。
 		if _current_state == EnemyState.DASH:
 			_dash_hit = true
@@ -889,23 +902,6 @@ func _update_stagger(delta: float) -> void:
 		_current_state = EnemyState.CHASE
 
 
-## 开始突进冲刺
-func _start_dash() -> void:
-	if _player == null:
-		return
-	_dash_dir = (_player.global_position - global_position)
-	_dash_dir.y = 0.0
-	_dash_dir = _dash_dir.normalized()
-	_current_state = EnemyState.DASH
-	# 虚空猎犬：突进距离翻倍（乘在基础时长上）
-	_dash_timer = 0.35 * dash_range_mult
-	_attack_timer = eff_attack_interval()  # 冲完进入攻击冷却
-	# 本次突进是否够到过玩家——狱卒猎犬的「突进失败」判定依据（见 _update_dash）
-	_dash_hit = false
-
-
-## 有效移速：基础值 × 减速系数（寒霜/侵蚀/泥沼等词条）
-## 所有移动都走这里，减速才会真正生效
 func eff_speed() -> float:
 	if buffs == null:
 		return move_speed
@@ -947,176 +943,13 @@ func _note_damage_taken(amount: float) -> void:
 	if boss_mech != null and boss_mech.has_method("on_damaged"):
 		boss_mech.call("on_damaged", amount)
 
-
-## 突进推进
-func _update_dash(delta: float) -> void:
-	_dash_timer -= delta
-	velocity = _dash_dir * eff_speed() * 2.2
-	move_and_slide()
-	# 熔岩猎犬：突进沿途留岩浆轨迹
-	_tick_trail(delta)
-
-	if _dash_timer <= 0.0:
-		# 骸骨猎犬：突进结束后在原地留下减速陷阱（50%，3 秒）
-		if trap_slow_buff != "":
-			_spawn_dash_trap()
-		# 狱卒猎犬：突进**未命中**后硬直 0.5 秒（分册 4.6）。
-		# 「突进失败」的判定口径：突进全程没有进入过攻击距离——
-		# 撞墙与超时都归入这一类（分册没区分，且二者表现一致：
-		# 这一扑没够着玩家）。命中的话 `_perform_attack` 会把状态推到
-		# STAGGERED/CHASE，这里不再补硬直。
-		if dash_stun_seconds > 0.0 and not _dash_hit:
-			_stagger_timer = dash_stun_seconds
-			_current_state = EnemyState.STAGGERED
-			return
-		_current_state = EnemyState.CHASE
-
-
-## 突进减速陷阱：一片地面区域，玩家进入即被减速
-func _spawn_dash_trap() -> void:
-	var parent := get_parent()
-	if parent == null:
-		return
-	var spec := {
-		"position": global_position, "radius": 2.0, "duration": 3.0,
-		"damage": 0.0, "slow_buff": trap_slow_buff,
-		"color": Color(0.6, 0.5, 0.2, 0.4),
-	}
-	DamageZone.spawn(spec, parent)
-
-
-# ============================================================
-# 传送/位移 · 潜伏 · 护盾（分册 4.x / 5.x / 6.x）
-# ============================================================
-
-## 瞬移到目标背后：取目标前向的反方向落点
-func _teleport_behind_target() -> void:
-	if _player == null or not is_instance_valid(_player):
-		return
-	var back: Vector3 = -(_player as Node3D).global_transform.basis.z
-	back.y = 0.0
-	if back.length_squared() < 0.001:
-		back = Vector3.BACK
-	global_position = (_player as Node3D).global_position + back.normalized() * 1.5
-
-
-## 射击后瞬移：朝远离玩家的方向闪 3 米（熵能幽灵）
-func _blink_after_shot(dist: float) -> void:
-	if _player == null or dist <= 0.0:
-		return
-	var away: Vector3 = global_position - (_player as Node3D).global_position
-	away.y = 0.0
-	if away.length_squared() < 0.001:
-		away = Vector3.FORWARD
-	global_position += away.normalized() * dist
-
-
-## 与玩家交换位置（熵能幽魂，限 ≤8 米）
-func _swap_with_player(max_dist: float = 8.0) -> void:
-	if _player == null or not is_instance_valid(_player):
-		return
-	var mine := global_position
-	var theirs: Vector3 = (_player as Node3D).global_position
-	if mine.distance_to(theirs) > max_dist:
-		return
-	global_position = theirs
-	if _player.has_method("force_position"):
-		_player.call("force_position", mine)
-	else:
-		(_player as Node3D).global_position = mine
-
-
-## 隐身视觉：常态半透明（暗影潜伏者）
-##
-## 用 `GeometryInstance3D.transparency` 而非材质 alpha——见
-## ToonMaterial.set_model_transparency 的注释（改材质 alpha 会掉进透明队列，
-## 既拖慢几何又破坏屏幕空间描边读的深度缓冲）。
-func _apply_stealth_visual() -> void:
-	ToonMaterial.set_model_transparency(_model, 0.35)
-
-
-## 推进潜伏/隐身/护盾计时器
-func _tick_stealth_timers(delta: float) -> void:
-	# 受击显形计时结束后回到隐身
-	if _reveal_timer > 0.0:
-		_reveal_timer = maxf(_reveal_timer - delta, 0.0)
-		if _reveal_timer == 0.0:
-			_apply_stealth_visual()
-	# 脉冲无敌
-	if _pulse_timer > 0.0:
-		_pulse_timer = maxf(_pulse_timer - delta, 0.0)
-	# 护盾冷却
-	if shield_on_timer > 0.0 and _shield <= 0.0:
-		_shield_cd -= delta
-		if _shield_cd <= 0.0:
-			_shield = shield_amount
-			_shield_cd = shield_on_timer
-
-
-## 潜伏突袭（湿地伏击者）：玩家进入 3 米内则高伤害突袭
-## 返回 true 表示本次已触发突袭（调用方应跳过常规攻击）
-func _try_ambush() -> bool:
-	if not ambush or not _ambush_armed or _player == null:
-		return false
-	if global_position.distance_to((_player as Node3D).global_position) > ambush_range:
-		return false
-	_ambush_armed = false
-	# 显形（潜伏态结束）
-	ToonMaterial.set_model_transparency(_model, 1.0)
-	# 突袭伤害：高倍率
-	var dmg := atk * ambush_damage_pct
-	if (_player as Node3D).has_method("take_damage"):
-		(_player as Node3D).call("take_damage", dmg, self)
-	var bus = _event_bus()
-	if bus:
-		bus.damage_popup.emit((_player as Node3D).global_position, dmg, "crit")
-	return true
-
-
-## 引力拉扯：把玩家朝自身拉（扭曲巨兽 / 虚空巨兽）
-##
-## 两种口径：
-##   · `gravity_pull_seconds == 0`（扭曲巨兽）——常驻拉扯，直到光环再次触发
-##   · `gravity_pull_seconds > 0`（虚空巨兽）——按 `_pull_timer` 开窗，
-##     窗内**每秒**结算 `gravity_pull_dps` 伤害（分册 4.9「牵引玩家 2 秒，
-##     期间每秒 30 伤」）。伤害按秒累加而非每帧结算——
-##     每帧结算会把 30/秒 变成 30×60/秒。
-func _pull_player(delta: float, strength: float = 6.0) -> void:
-	if not gravity_pull or _player == null:
-		return
-	if gravity_pull_seconds > 0.0:
-		if _pull_timer <= 0.0:
-			return
-		_pull_timer = maxf(_pull_timer - delta, 0.0)
-		_pull_tick += delta
-		if gravity_pull_dps > 0.0 and _pull_tick >= 1.0:
-			_pull_tick -= 1.0
-			_damage_pulled_player(gravity_pull_dps)
-	var p := _player as Node3D
-	var to_me: Vector3 = global_position - p.global_position
-	to_me.y = 0.0
-	if to_me.length() < 0.5:
-		return
-	p.global_position += to_me.normalized() * strength * delta
-
-
-## 引力期间的每秒伤害（走玩家自己的 take_damage，与其它伤害同一条结算链）
-func _damage_pulled_player(dmg: float) -> void:
-	var p := _player as Node3D
-	if p == null or not p.has_method("take_damage"):
-		return
-	p.call("take_damage", dmg)
-	var bus = _event_bus()
-	if bus:
-		bus.damage_popup.emit(p.global_position, dmg, "aoe")
-
-
 # ============================================================
 # 9-5 虚空吞噬者：吞噬成长
 # ============================================================
 
 ## 场上是否还有活着的吞噬者。
 ## 死者用它决定要不要发 `unit_died`——没有吞噬者时全表查找纯属浪费。
+
 func _has_devourer() -> bool:
 	if not is_inside_tree():
 		return false
@@ -1192,7 +1025,7 @@ func _resize_body() -> void:
 func _on_dodged() -> void:
 	# 虚空蝠群 / 虚空魅影：闪避成功后瞬移到玩家背后
 	if teleport_behind or dodge_teleport:
-		_teleport_behind_target()
+		movement.teleport_behind_target()
 	# 迷雾幽灵：破除玩家闪避（下次命中必中）
 	if dodge_break and _player != null:
 		var pb = _player.get("buffs")
@@ -1200,7 +1033,7 @@ func _on_dodged() -> void:
 			pb.apply("expose", "monster")
 	# 虚空魅影：进入隐身，退出时获得突袭加成
 	if stealth_exit_bonus > 0.0:
-		_apply_stealth_visual()
+		movement.apply_stealth_visual()
 		_stealth_bonus_ready = true
 		_reveal_timer = 3.0
 
@@ -1298,11 +1131,11 @@ func _apply_melee_mechanics() -> void:
 		pb.apply("entangle", "monster")
 	# 熵能幽魂：命中后与玩家交换位置
 	if hit_swap_positions:
-		_swap_with_player(8.0)
+		movement.swap_with_player(8.0)
 	# 词缀·虚空（策划 7.2「传送/空间干扰类效果，打乱站位」）。
 	# 复用现成的 _swap_with_player，不另造轮子。
 	if affix_void:
-		_swap_with_player(10.0)
+		movement.swap_with_player(10.0)
 
 
 ## 每帧推进本怪的攻击/突进附加效果计时器
@@ -1420,7 +1253,7 @@ func _fire_projectile() -> void:
 		_spawn_void_echo()
 	# 熵能幽灵：射击后瞬移 3 米
 	if teleport_after_shot > 0.0:
-		_blink_after_shot(teleport_after_shot)
+		movement.blink_after_shot(teleport_after_shot)
 
 
 # ============================================================
