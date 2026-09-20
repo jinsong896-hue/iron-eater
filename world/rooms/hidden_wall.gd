@@ -139,25 +139,6 @@ func _player_node() -> Node3D:
 	return ps[0] as Node3D
 
 
+## GameRoot 引用。查找逻辑统一在 `GameRef.game_root()`（跨层引用的唯一入口）。
 func _game_root() -> Node:
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null or tree.root == null:
-		return null
-	var by_name := tree.root.get_node_or_null("GameRoot")
-	if by_name != null:
-		return by_name
-	# 测试场景把 main.tscn 嵌在别的父节点下，按特征属性回退查找
-	var scene := tree.current_scene
-	if scene != null:
-		return _find_game_root(scene)
-	return null
-
-
-func _find_game_root(node: Node) -> Node:
-	if node.get("dungeon_graph") != null:
-		return node
-	for child in node.get_children():
-		var hit: Node = _find_game_root(child)
-		if hit != null:
-			return hit
-	return null
+	return GameRef.game_root()

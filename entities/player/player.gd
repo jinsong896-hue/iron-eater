@@ -1333,26 +1333,10 @@ func _apply_pierce_line_at(origin: Vector3, damage: float) -> void:
 
 ## 本房间的群体管理器（没有则返回 null）
 ##
-## **不能用 `get_tree().current_scene`**：测试场景把 main.tscn 嵌在测试根节点
-## 之下，current_scene 是那个测试根，拿不到 `current_room_node`（实测踩到）。
-## 故从玩家自身向上走，找带 `current_room_node` 属性的祖先（GameRoot 特征）。
-##
-## 实测确认：GameRoot 持有的 `current_room_node` 就是 SubViewport 里的活房间
-## ——该属性存的是**引用**而非路径，故子视口边界不影响它。
+## 查找逻辑统一在 `GameRef.crowd_manager()`（跨层引用的唯一入口）。
+## 房间未启用群体路径时返回 null 是正常状态，见该函数注释。
 func _crowd_manager():
-	var node: Node = get_parent()
-	while node != null:
-		if node.get("current_room_node") != null:
-			var room = node.get("current_room_node")
-			if is_instance_valid(room):
-				var ctrl = room.get_node_or_null("RoomController")
-				if ctrl != null:
-					var mgr = ctrl.get("_crowd_mgr")
-					if mgr != null and is_instance_valid(mgr):
-						return mgr
-			return null
-		node = node.get_parent()
-	return null
+	return GameRef.crowd_manager()
 
 
 ## 对单个敌人结算伤害与击退
@@ -2181,25 +2165,12 @@ func _nearest_pickup() -> Node3D:
 
 ## 当前房间的掉落物管理器（没有则返回 null）
 ##
-## **不能用 `get_tree().current_scene`**：测试场景把 main.tscn 嵌在测试根节点
-## 之下，current_scene 是那个测试根，拿不到 `current_room_node`（实测踩到）。
-## 故从玩家自身向上走，找带 `current_room_node` 属性的祖先（GameRoot 特征）。
-##
-## **返回 null 是正常状态**：开局房间没有 PickupField —— 它由
-## `LootSystem._field_for()` 在**第一次掉落时**懒创建。此时由
+## 查找逻辑统一在 `GameRef.pickup_field()`（跨层引用的唯一入口）。
+## **返回 null 是正常状态**：开局房间没有 PickupField——它由
+## `LootSystem._field_for()` 在第一次掉落时懒创建，此时由
 ## `_nearest_pickup()` 的全量遍历兜底，链路并未断。
 func _pickup_field() -> PickupField:
-	var node: Node = get_parent()
-	while node != null:
-		if node.get("current_room_node") != null:
-			var room = node.get("current_room_node")
-			if is_instance_valid(room):
-				var f: Node = room.get_node_or_null("PickupField")
-				if f is PickupField:
-					return f
-			return null
-		node = node.get_parent()
-	return null
+	return GameRef.pickup_field()
 
 
 ## 拾取最近掉落物进背包

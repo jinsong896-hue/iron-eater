@@ -55,6 +55,8 @@ func _find_scene_node(node_name: String) -> Node3D:
 func _ready() -> void:
 	# 小地图数据源（HUD MinimapView 自动拉取）
 	add_to_group("game_root")
+	# 新一局开始，作废上一局的 GameRef 缓存（防跨局持有旧节点）
+	GameRef.invalidate()
 	# 直跑场景兜底：未经主菜单 start_new_run 时初始化局内数据
 	if GameManager.attributes == null:
 		GameManager.start_new_run(GameManager.run_info.duplicate())

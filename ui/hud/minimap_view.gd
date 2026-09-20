@@ -45,22 +45,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 
 
+## 绑定 GameRoot。查找逻辑统一在 `GameRef.game_root()`（跨层引用的唯一入口）。
+##
+## 旧实现的兜底是 `current.get_node_or_null("MainScene")` —— 若 current 已经是
+## MainScene 本身，其子节点里并没有叫 "MainScene" 的节点，该分支恒为 null。
+## GameRef 用「game_root 组 + dungeon_graph 特征递归」两段查找，两条路都可靠。
 func _bind_game_root() -> void:
 	if _game_root != null:
 		return
-	var tree := get_tree()
-	if tree == null:
-		return
-	for node in tree.get_nodes_in_group("game_root"):
-		_game_root = node
-		break
-	if _game_root == null:
-		# 兜底：从当前场景找
-		var current := tree.current_scene
-		if current and current.has_method("next_floor"):
-			_game_root = current
-		elif current:
-			_game_root = current.get_node_or_null("MainScene")
+	_game_root = GameRef.game_root()
 	if _game_root:
 		_refresh_from_game_root()
 

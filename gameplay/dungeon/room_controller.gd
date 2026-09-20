@@ -342,21 +342,9 @@ func _get_room_state_flag(key: String) -> bool:
 	return bool(states[idx].get(key, false))
 
 
-## GameRoot 引用（运行时获取，--script 测试模式兼容）
-## 优先按节点名找；测试场景把 main.tscn 嵌在别的父节点下，故回退到脚本属性探测
+## GameRoot 引用。查找逻辑统一在 `GameRef.game_root()`（跨层引用的唯一入口）。
 func _game_root():
-	var tree := Engine.get_main_loop() as SceneTree
-	if tree == null or tree.root == null:
-		return null
-	var by_name := tree.root.get_node_or_null("GameRoot")
-	if by_name != null:
-		return by_name
-	var scene := tree.current_scene
-	if scene != null:
-		var found: Node = _find_game_root(scene)
-		if found != null:
-			return found
-	return null
+	return GameRef.game_root()
 
 
 ## 泉水清空硫磺毒气（策划 6.7 的三种减层方式之一）。
@@ -382,18 +370,6 @@ func _floor_mechanic():
 	var fm = gr.get("floor_mechanic")
 	if fm != null and is_instance_valid(fm):
 		return fm
-	return null
-
-
-## 递归查找带 room_state 属性的节点（GameRoot 特征）
-
-func _find_game_root(node: Node) -> Node:
-	if node.get("room_state") != null:
-		return node
-	for child in node.get_children():
-		var hit: Node = _find_game_root(child)
-		if hit != null:
-			return hit
 	return null
 
 

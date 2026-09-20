@@ -26,9 +26,6 @@ var item_buttons: Array[Button] = []
 var _boss_entity: Node = null
 var _boss_max_hp := 1.0
 
-## GameRoot 缓存（`_update_gas_label` 每帧要用，避免每帧全场景查找）
-var _gr_cache: Node = null
-
 
 func _ready() -> void:
 	_collect_skill_buttons()
@@ -90,34 +87,10 @@ func _update_gas_label() -> void:
 		layers, int(info.get("max", 10)), dps, suffix]
 
 
-## GameRoot 引用（每帧调用，故缓存）。
-##
-## 先走 `game_root` 组；测试场景把 main.tscn 嵌在别的父节点下时，
-## 从 current_scene 按特征属性兜底查找。
+## GameRoot 引用。查找逻辑统一在 `GameRef.game_root()`（跨层引用的唯一入口），
+## 该函数自带缓存，故这里每帧调用也无额外开销。
 func _game_root() -> Node:
-	if _gr_cache != null and is_instance_valid(_gr_cache):
-		return _gr_cache
-	var tree := get_tree()
-	if tree == null:
-		return null
-	for node in tree.get_nodes_in_group("game_root"):
-		_gr_cache = node
-		return _gr_cache
-	var scene := tree.current_scene
-	if scene != null:
-		_gr_cache = _find_game_root(scene)
-	return _gr_cache
-
-
-## 递归查找带 `dungeon_graph` 属性的节点（GameRoot 特征）
-func _find_game_root(node: Node) -> Node:
-	if node.get("dungeon_graph") != null:
-		return node
-	for c in node.get_children():
-		var found := _find_game_root(c)
-		if found != null:
-			return found
-	return null
+	return GameRef.game_root()
 
 
 # ============================================================
