@@ -78,6 +78,9 @@ var pickup: PickupComponent = null
 ## 在 `_ready()` 里经 `_setup_fx()` 装配；它同时接管模型材质。
 var fx: PlayerFx = null
 
+## 屏幕震动组件。在 `_ready()` 里经 `_setup_fx()` 装配。
+var cam_fx: PlayerCameraFx = null
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -394,13 +397,17 @@ func eff_ap() -> float:
 	return stat_value("ap")
 
 
-## 装配视觉反馈组件（受击闪红 / 挥砍扇形特效）。
-## 组件的 setup 会接管模型材质——闪红可控的前提。
+## 装配视觉反馈组件（受击闪红 / 挥砍扇形特效 / 屏幕震动）。
+## FxComponent 的 setup 会接管模型材质——闪红可控的前提。
 func _setup_fx() -> void:
 	fx = PlayerFx.new()
 	fx.name = "FxComponent"
 	add_child(fx)
 	fx.setup(self)
+	cam_fx = PlayerCameraFx.new()
+	cam_fx.name = "CameraFxComponent"
+	add_child(cam_fx)
+	cam_fx.setup(self)
 
 
 ## 装配拾取/交互组件（E 键交互、自动拾取、就近查找）。
@@ -1736,29 +1743,11 @@ var _damage_multiplier := 1.0    ## 出手伤害倍率
 var _force_crit := false         ## 强制暴击（故意绕过 can_crit，便于观察法术暴击顿帧）
 
 
-## 屏幕震动：给 rig 下的 Camera3D 一个短促位置脉冲，指数衰减回零。
-## **偏移加在相机节点上而非 rig**：rig 的 position 由 CameraRig._process
-## 每帧 lerp 向玩家——直接改 rig.position 会被跟随逻辑对抗（先被拉走一半、
-## tween 又往回补，0.2s 内来回震荡，俯视投影下是大幅斜向抖动）。
-## 相机是 rig 的子节点，改它的局部位置不影响跟随。
+## 屏幕震动转发（实现已拆到 CameraFx）。
+##
+## **偏移加在相机节点上而非 rig** 的原因见 entities/player/camera_fx.gd 文件头。
 func _screen_shake(strength: float) -> void:
-	var rig := get_node_or_null("../CameraRig")
-	if rig == null:
-		return
-	var cam := rig.get_node_or_null("Camera3D") as Node3D
-	if cam == null:
-		return
-	var offset := Vector3(
-		rng_shake.randf_range(-strength, strength),
-		0.0,
-		rng_shake.randf_range(-strength, strength)
-	)
-	cam.position += offset
-	var tween := create_tween()
-	tween.tween_property(cam, "position", Vector3.ZERO, 0.2)\
-		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-
-var rng_shake := RandomNumberGenerator.new()
+	cam_fx.shake(strength)
 
 
 ## 挥砍视觉转发（实现已拆到 FxComponent）。
