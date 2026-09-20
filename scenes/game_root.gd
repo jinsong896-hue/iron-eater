@@ -40,6 +40,9 @@ var floor_mechanic: FloorMechanic = null
 @onready var camera_rig: Node3D = _find_scene_node("CameraRig")
 @onready var player: Node3D = _find_scene_node("Player")
 
+## 环境管理器（楼层雾色/环境光）。在 `_ready()` 里经 `_setup_environment()` 装配。
+var environment_manager: WorldEnvironmentManager = null
+
 
 ## 在本场景内按名递归查找节点。
 ##
@@ -66,6 +69,7 @@ func _ready() -> void:
 	if GameManager.attributes == null:
 		GameManager.start_new_run(GameManager.run_info.duplicate())
 	_register_templates()
+	_setup_environment()
 	EventBus.door_opened.connect(_on_door_entered)
 	# 延迟生成地下城
 	call_deferred("_init_dungeon")
@@ -289,18 +293,26 @@ func generate_dungeon(seed_value: int, count: int = -1) -> void:
 	preload_all()
 
 
-## 按当前层应用世界环境主题（雾色/环境光）。取不到 WorldEnvironment 时静默跳过。
+## 按当前层应用世界环境主题（雾色/环境光）。
+##
+## 实现在 `WorldEnvironmentManager`（环境配置的唯一归属处）——
+## 本函数只负责把楼层号传过去。
 func _apply_floor_environment(floor_num: int) -> void:
-	var we := _find_world_environment()
-	if we == null or we.environment == null:
+	if environment_manager == null:
 		return
-	var env := we.environment
-	env.fog_light_color = FloorDefs.color_of(floor_num, "fog")
-	env.ambient_light_color = FloorDefs.color_of(floor_num, "ambient")
-	# 环境光强度随主题明度走：偏暗的层（虚空/裂隙）压暗，明亮层（熔炉/王座）提亮
-	var amb := FloorDefs.color_of(floor_num, "ambient")
-	var lum := (amb.r + amb.g + amb.b) / 3.0
-	env.ambient_light_energy = clampf(0.4 + lum * 1.6, 0.3, 0.9)
+	environment_manager.apply_floor(floor_num)
+
+
+## 装配环境管理器并把场景里的 WorldEnvironment 注入进去。
+##
+## **注入而非让它自己找**：WorldEnvironment 挂在 SubViewport 子树下，
+## 而管理器是本节点的子节点——`find_children` 只搜自己的后代，
+## 找不到兄弟分支里的节点。**必须在 add_child 之后 setup**。
+func _setup_environment() -> void:
+	environment_manager = WorldEnvironmentManager.new()
+	environment_manager.name = "EnvironmentManager"
+	add_child(environment_manager)
+	environment_manager.setup(_find_world_environment())
 
 
 ## 取本场景的 WorldEnvironment。
