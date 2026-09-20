@@ -81,6 +81,9 @@ var fx: PlayerFx = null
 ## 屏幕震动组件。在 `_ready()` 里经 `_setup_fx()` 装配。
 var cam_fx: PlayerCameraFx = null
 
+## 职业/形态/技能组件。在 `_ready()` 里经 `_setup_skills()` 装配。
+var skills: PlayerSkills = null
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -88,6 +91,8 @@ func _ready() -> void:
 	# 词条/元素容器：敌人的元素攻击会往这里叠层，控制/易伤也从这里读
 	if buffs == null:
 		buffs = BuffHolder.new(self)
+	# 技能组件必须在 _setup_class 之前装配——后者要经它转发
+	_setup_skills()
 	_setup_class()
 	_setup_state_machine()
 	_setup_fx()
@@ -142,10 +147,9 @@ func _on_game_started() -> void:
 # 职业 / 形态 / 技能（策划《角色设计分册》）
 # ============================================================
 
-## 职业资源容器（怒气/魔力/专注/裁决/气劲）
+## 职业资源容器（怒气/魔力/专注/裁决/气劲）。
+## **留在 Player 上**：45 处战斗逻辑直接读它，且它是实体身份的一部分。
 var class_resource: ClassResource = null
-## 技能执行器（冷却 + kind 分派）
-var _skills: SkillSystem = null
 ## 当前职业 id（来自 GameManager.run_info["character"]）
 var class_id := ""
 ## 当前形态槽位（0 初始 / 1~3 进阶 / 4 终极）
@@ -173,179 +177,65 @@ var _light_layers := 0
 var _dark_layers := 0
 
 
-## 装配职业与初始形态。取不到 run_info 时回退战士（保证任何场景都能玩）。
-##
-## 职业与形态都在**选人界面**选定（策划口径：形态是衍生职业的说法），
-## 开局读取，整局固定——局内没有切换入口。
+
+
+## 装配职业与初始形态（实现已拆到 PlayerSkills）。
 func _setup_class() -> void:
-	var gm: Node = get_node_or_null("/root/GameManager")
-	if gm != null:
-		class_id = str(gm.run_info.get("character", "warrior"))
-		form_slot = int(gm.run_info.get("form", 0))
-	if class_id.is_empty():
-		class_id = "warrior"
-	class_resource = ClassResource.create(class_id)
-	_skills = SkillSystem.new()
-	form_slot = clampi(form_slot, 0, ClassDefs.FORM_SLOTS - 1)
-	_apply_class_base()
-	_apply_form_modifiers()
-	_grant_start_gear()
+	skills.setup_class()
 
 
-## 把职业基础属性写进 AttributeSystem。
-##
-## 必须在 _apply_form_modifiers 之前跑：形态的 mods 是**在职业基础之上**
-## 的百分比修正（get_value = base + flat + base×percent），
-## 顺序反了会让百分比按旧的默认基础算，数值全错。
-##
-## 用 set_base 而不是 add_modifier：职业基础是"起点"不是"增益"，
-## 挂成 modifier 的话会被任何一次 remove_modifiers 连带清掉。
-func _apply_class_base() -> void:
-	var gm: Node = get_node_or_null("/root/GameManager")
-	if gm == null or gm.attributes == null:
-		return
-	var table := ClassBase.full_table(class_id)
-	for stat_id in table:
-		gm.attributes.set_base(int(stat_id), float(table[stat_id]))
+## 装配技能组件。**必须在 _setup_class 之前**——后者的转发要经 skills。
+func _setup_skills() -> void:
+	skills = PlayerSkills.new()
+	skills.name = "SkillsComponent"
+	add_child(skills)
+	skills.setup(self)
 
 
-## 发放当前形态的初始装备（策划每个形态都列了 start_gear）。
-##
-## 时机：必须在 EquipmentManager 就绪之后，且用 `resolve_or_white_fallback`
-## 解析——策划点名的款式（如 A12 铁制护手）在白装层没有注册，
-## 直接 get_template 会拿到 null 并静默跳过，玩家开局少装备却看不出来。
-## 降级到同槽位白装后，"这个部位有装备"这件事仍然成立。
-##
-## 跳过已占用的槽位：切房重建玩家时会重跑本函数，不能反复塞装备。
-func _grant_start_gear() -> void:
-	var gm: Node = get_node_or_null("/root/GameManager")
-	if gm == null:
-		return
-	var em = gm.equipment_manager
-	if em == null:
-		return
-	var form := ClassDefs.get_form(class_id, form_slot)
-	for tid in form.get("start_gear", []):
-		var tpl := EquipmentDB.resolve_or_white_fallback(StringName(str(tid)))
-		if tpl == null:
-			continue   # 连槽位都定位不到 = 真的打错了 id，静默跳过
-		var slot_id: int = tpl.slot
-		if em.get_equipped().has(slot_id):
-			continue
-		em.equip(slot_id, EquipmentInstance.create(tpl))
-
-
-## 把当前形态的专属增益挂到属性系统上。
-## 先清旧的（source="form"）再加新的——切换形态时不会叠加残留。
+## 把当前形态的专属增益挂到属性系统上（转发到 PlayerSkills）。
+## **保留公开名**：形态切换与开局装配都走它。
 func _apply_form_modifiers() -> void:
-	var gm: Node = get_node_or_null("/root/GameManager")
-	if gm == null or gm.attributes == null:
-		return
-	gm.attributes.remove_modifiers("form")
-	gm.attributes.remove_modifiers("form_special")
-	# 形态若提高了资源上限，同样要清掉再加（见下）
-	if class_resource != null:
-		class_resource.clear_max_bonus()
-	var form := ClassDefs.get_form(class_id, form_slot)
-	if form.is_empty():
-		return
-	for m in form.get("mods", []):
-		var key := str(m.get("stat", ""))
-		var sid: int = int(AttributeSystem.STAT_BY_NAME.get(key, -1))
-		if sid < 0:
-			continue
-		gm.attributes.add_modifier("form", sid,
-			float(m.get("flat", 0.0)), float(m.get("percent", 0.0)))
-	_apply_form_resource()
+	skills.apply_form_modifiers()
 
 
-## 形态对职业资源的修正（回复速度 / 上限）。
-##
-## 单独一个函数而不是塞进上面的 mods 循环：资源不是 AttributeSystem 的属性，
-## 它有自己的容器（ClassResource）。策划里「回蓝效率 +20%」「魔力上限 +1.5」
-## 这类增益必须落在资源对象上，挂到属性系统是无效的。
-##
-## `mana_regen_up` / `mana_regen_stack` 都是"回复速度乘区"，语义相同
-##（前者是虚空化身的 +1.5 倍率，后者是奥术师的 +20%/层），合并累加。
-func _apply_form_resource() -> void:
-	if class_resource == null:
-		return
-	var regen := ClassDefs.special_num(class_id, form_slot, "mana_regen_up", 0.0)
-	regen += ClassDefs.special_num(class_id, form_slot, "mana_regen_stack", 0.0)
-	class_resource.set_regen_mult(1.0 + regen)
-
-
-## 当前形态的技能范围乘区（策划 4.1 元素使 +15%、4.5 共鸣师 +30%）。
-## SkillSystem 在施法前用它放大技能的 reach/radius/range/dash_dist。
+## 当前形态的技能范围乘区（转发；SkillSystem 经 has_method 调用它）
 func skill_range_mult() -> float:
-	return 1.0 + ClassDefs.special_num(class_id, form_slot, "skill_range_pct", 0.0)
+	return skills.skill_range_mult()
 
 
-## 切换形态（策划：按通关层数解锁）。返回是否切换成功。
+## 切换形态（转发）
 func switch_form(slot: int) -> bool:
-	if slot == form_slot:
-		return false
-	var gm: Node = get_node_or_null("/root/GameManager")
-	var cleared := 0
-	if gm != null:
-		# 「通关 N 层」= 当前层数 - 1（打过的层）
-		cleared = maxi(int(gm.run_info.get("floor", 1)) - 1, 0)
-	if slot > ClassDefs.max_available_form(cleared):
-		return false
-	form_slot = clampi(slot, 0, ClassDefs.FORM_SLOTS - 1)
-	_apply_form_modifiers()
-	EventBus.message.emit("切换形态：%s" % str(ClassDefs.get_form(class_id, form_slot).get("name", "?")))
-	EventBus.stats_changed.emit()
-	return true
+	return skills.switch_form(slot)
 
 
-## 当前形态的技能列表（HUD 技能条与输入派发共用）
+## 当前形态的技能列表（转发；HUD 技能条经 has_method 调用它）
 func current_skills() -> Array:
-	return ClassDefs.skills_of(class_id, form_slot)
+	return skills.current_skills()
 
 
-## 释放技能（对外入口：HUD 点击 / 测试直调）。
-## 返回 {ok, reason?}；方向缺省用面朝方向。
+## 释放技能（转发；HUD / 测试 / 技能系统经 has_method 调用它）
 func cast_skill(skill_id: String, direction: Vector3 = Vector3.ZERO) -> Dictionary:
-	if _skills == null:
-		return {"ok": false, "reason": "技能系统未初始化"}
-	var dir := direction
-	if dir.length_squared() < 0.001:
-		dir = InputManager.get_attack_direction_3d()
-	if dir.length_squared() < 0.001:
-		dir = _facing
-	var r: Dictionary = _skills.cast_skill(self, skill_id, dir, class_resource)
-	if bool(r.get("ok", false)):
-		EventBus.player_skill_cast.emit(skill_id, dir)
-	else:
-		EventBus.message.emit(str(r.get("reason", "无法施放")))
-	return r
+	return skills.cast_skill(skill_id, direction)
 
 
-## 按槽位放技能（HUD 技能条 1~6 键）
+## 按槽位放技能（转发）
 func cast_skill_slot(slot: int) -> Dictionary:
-	var list := current_skills()
-	if slot < 0 or slot >= list.size():
-		return {"ok": false, "reason": "该槽位无技能"}
-	return cast_skill(str(list[slot].get("id", "")))
+	return skills.cast_skill_slot(slot)
 
 
-## 技能剩余冷却（HUD 冷却遮罩用）
+## 技能剩余冷却（转发）
 func skill_cooldown_left(skill_id: String) -> float:
-	return _skills.get_cooldown_remaining(skill_id) if _skills else 0.0
+	return skills.skill_cooldown_left(skill_id)
 
 
-## 冲刺类技能的位移执行（SkillSystem 判定完伤害后回调这里）。
-## 用速度脉冲而不是直接改位置——否则会穿过墙体。
+## 冲刺类技能的位移执行（转发；SkillSystem 经 has_method 回调它）
 func apply_skill_dash(dir: Vector3, dist: float) -> void:
-	if dir.length_squared() < 0.001:
-		return
-	# 以固定速度冲刺：把速度设为 dir × (距离 / 假设冲刺时长)
-	var dur := 0.18
-	velocity.x = dir.normalized().x * (dist / dur)
-	velocity.z = dir.normalized().z * (dist / dur)
+	skills.apply_skill_dash(dir, dist)
 
 
+## 技能输入轮询（转发；打字时不调，见 _physics_process）
+func _poll_skill_input() -> void:
+	skills.poll_input()
 ## 装配受击闪红用的模型引用。
 ## 复制一份材质再挂到模型上——直接改 scene 里的共享材质会让
 ## 同场景的多个玩家实例（或复用的资源）互相影响。
@@ -470,8 +360,7 @@ func enter_state(state_name: String) -> void:
 func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 	# 职业资源：击杀积攒（策划 6.1 判官「击杀 +20」）。
 	# 与命中积攒同属"打怪回资源"链路，此前同样从未被调用。
-	if class_resource != null:
-		class_resource.on_kill()
+	skills.on_kill()
 	if GameBalance.KILL_HEAL <= 0.0:
 		return
 	if GameManager.attributes and not GameManager.attributes.is_dead():
@@ -482,19 +371,6 @@ func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 			bus.damage_popup.emit(global_position, healed, "heal")
 
 
-## 技能输入轮询：1~6 键 → 当前形态的技能槽。
-## 走轮询而非信号，与普攻派发（MoveState._attack）保持一致——
-## InputManager 的 pressed 标记在 _process 里置位、_physics_process 里消费，
-## 时间戳缓存已解决不同频问题。
-func _poll_skill_input() -> void:
-	for slot in range(6):
-		if not InputManager.skill_pressed(slot):
-			continue
-		# 先消费再施放：即使施放被拒（冷却/资源不足）也不该在同一缓冲窗口里
-		# 反复重试——那是「按一次放好几次」或「一直提示冷却中」的来源
-		InputManager.consume_skill(slot)
-		cast_skill_slot(slot)
-		return   # 一帧只放一个技能，避免多键同按时连放
 
 
 ## 控制台是否正在接收文本（打字时不该触发放技能）
@@ -521,10 +397,7 @@ func _physics_process(delta: float) -> void:
 
 	# 职业资源与技能（策划《角色设计分册》）
 	# 资源自然回复（法师回蓝）+ 技能冷却推进，都在这里无条件走
-	if class_resource != null:
-		class_resource.tick(delta)
-	if _skills != null:
-		_skills.update_cooldowns(delta)
+	skills.tick(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
 	if not _typing_input():
 		_poll_skill_input()
@@ -866,8 +739,7 @@ func _on_player_hurt(amount: float) -> void:
 	if ClassDefs.special_flag(class_id, form_slot, "light_dark_layers"):
 		_gain_dark_layer()
 	# 职业资源：战士怒气等（原本就在 take_damage 里调，这里保持同口径）
-	if class_resource != null:
-		class_resource.on_damage_taken(amount)
+	skills.on_damage_taken(amount)
 
 
 ## 连击≥10 时铁身的反击翻倍（策划 7.2）
@@ -1224,8 +1096,7 @@ func _apply_hit_crowd(mgr, id: int, multiplier: float, knockback: float) -> void
 	var ls: float = float(_equip_special_mods().get("life_steal", 0.0))
 	if ls > 0.0:
 		_lifesteal_heal(total * ls)
-	if class_resource != null:
-		class_resource.on_hit(crit)
+	skills.on_hit(crit)
 	if kills > 0:
 		_register_hit_combo()
 	EventBus.damage_popup.emit(pos, total, "crit" if crit else "normal")
@@ -1390,8 +1261,7 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	# 此前 on_hit() 只在 SkillSystem._deal_damage 里调过——普攻命中从不积攒。
 	# 于是除法师/武僧（有自然回复）外，战士/猎人/判官**只能靠挨打或放技能**
 	# 攒资源，而放技能本身又要资源：死循环。实机表现就是"蓝量不能恢复"。
-	if class_resource != null:
-		class_resource.on_hit(crit)
+	skills.on_hit(crit)
 	# 形态·直线穿透（策划 6.4 鹰眼「所有攻击附带范围穿透：
 	# 身后 2 米直线 40% 伤害」）——沿攻击方向在目标身后再打一条线
 	_apply_pierce_line(enemy, total)
