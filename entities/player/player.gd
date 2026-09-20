@@ -62,13 +62,7 @@ var _finisher_armor_timer := 0.0     # 终结技霸体剩余时间
 # 每个状态 = 原分支的逐行搬移；数据与共享动作仍留在 Player 上
 var _state_machine: StateMachine = null
 
-# 受击闪红（与敌人同款反馈；玩家此前完全没有任何受击视觉）
-var _model: MeshInstance3D = null       # 模型节点（player.tscn 的 Model）
-var _flash_timer := 0.0                 # 闪红剩余时间
-## 模型本色（闪红结束后还原）
-var _base_color := Color.WHITE
-## 受击闪红时长（秒）
-const HIT_FLASH_DURATION := 0.18
+# 视觉反馈（受击闪红 / 挥砍扇形特效）已拆到 FxComponent，见 entities/player/fx_component.gd
 
 const ATTACK_REACH := 2.0
 
@@ -80,6 +74,10 @@ const HITSTOP_TIME_SCALE := 0.05
 ## 作用距离常量住在组件里（`PickupComponent.PICKUP_RANGE`）。
 var pickup: PickupComponent = null
 
+## 视觉反馈组件（受击闪红 / 挥砍扇形特效）。
+## 在 `_ready()` 里经 `_setup_fx()` 装配；它同时接管模型材质。
+var fx: PlayerFx = null
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -89,7 +87,7 @@ func _ready() -> void:
 		buffs = BuffHolder.new(self)
 	_setup_class()
 	_setup_state_machine()
-	_setup_hit_model()
+	_setup_fx()
 	# 拾取/交互组件（E 键交互、自动拾取、就近查找）
 	_setup_pickup()
 	# 击杀回血（监听全局敌死信号）
@@ -396,18 +394,13 @@ func eff_ap() -> float:
 	return stat_value("ap")
 
 
-func _setup_hit_model() -> void:
-	_model = get_node_or_null("Model") as MeshInstance3D
-	if _model == null:
-		return
-	# 取原本的纯色（player.tscn 的 Model 没挂材质，取到 null 就用白色兜底），
-	# 再换成卡通材质。反壳描边挂在它的 next_pass 上。
-	var src := _model.get_active_material(0) as StandardMaterial3D
-	if src != null:
-		_base_color = src.albedo_color
-	else:
-		_base_color = Color.WHITE
-	_model.material_override = ToonMaterial.create(_base_color)
+## 装配视觉反馈组件（受击闪红 / 挥砍扇形特效）。
+## 组件的 setup 会接管模型材质——闪红可控的前提。
+func _setup_fx() -> void:
+	fx = PlayerFx.new()
+	fx.name = "FxComponent"
+	add_child(fx)
+	fx.setup(self)
 
 
 ## 装配拾取/交互组件（E 键交互、自动拾取、就近查找）。
@@ -514,10 +507,8 @@ func _physics_process(delta: float) -> void:
 	_dodge_cooldown_timer = maxf(_dodge_cooldown_timer - delta, 0.0)
 	_sprint_attack_timer = maxf(_sprint_attack_timer - delta, 0.0)
 	_finisher_armor_timer = maxf(_finisher_armor_timer - delta, 0.0)
-	# 受击闪红衰减
-	if _flash_timer > 0.0:
-		_flash_timer = maxf(_flash_timer - delta, 0.0)
-		_update_flash()
+	# 受击闪红衰减（视觉反馈已拆到 FxComponent）
+	fx.tick(delta)
 	# 自动拾取（设置开启时生效）与 E 键交互已拆到 PickupComponent
 	pickup.update(delta)
 
@@ -626,9 +617,9 @@ func _start_normal_attack() -> void:
 	_perform_melee_attack(params[1], reach, deg_to_rad(params[3]), params[4])
 	# 挥砍视觉：终结技（第 4 段）金色大扇形，其余白
 	if stage == combo_stages_size():
-		_spawn_slash_visual(reach, deg_to_rad(params[3]), Color(1.0, 0.8, 0.2, 0.55))
+		fx.spawn_slash(reach, deg_to_rad(params[3]), Color(1.0, 0.8, 0.2, 0.55))
 	else:
-		_spawn_slash_visual(reach, deg_to_rad(params[3]))
+		fx.spawn_slash(reach, deg_to_rad(params[3]))
 	_combo.end_attack()
 
 
@@ -684,7 +675,7 @@ func _start_sprint_attack() -> void:
 
 	_perform_charge_attack(params[1], params[2], params[3], params[4])
 	# 冲撞视觉：橙红色宽扇形
-	_spawn_slash_visual(params[2], deg_to_rad(55.0), Color(1.0, 0.45, 0.15, 0.5))
+	fx.spawn_slash(params[2], deg_to_rad(55.0), Color(1.0, 0.45, 0.15, 0.5))
 	_combo.end_attack()
 
 
@@ -712,7 +703,7 @@ func _perform_jump_landing() -> void:
 	var params: Array = GameBalance.JUMP_ATTACK
 	_perform_aoe_attack(params[1], params[4], params[5])
 	# 落地视觉：青色全向扇形（360°）+ 强震屏
-	_spawn_slash_visual(params[4], PI, Color(0.4, 0.9, 1.0, 0.5))
+	fx.spawn_slash(params[4], PI, Color(0.4, 0.9, 1.0, 0.5))
 	_screen_shake(0.3)
 	# 视觉反馈：落地消息
 	var bus := get_node_or_null("/root/EventBus")
@@ -1770,110 +1761,13 @@ func _screen_shake(strength: float) -> void:
 var rng_shake := RandomNumberGenerator.new()
 
 
-## 挥砍视觉：面前渐隐扇形 mesh（普攻/奔跑/跳跃攻击调用）
-## 挥砍视觉：面前渐隐发光扇形。
+## 挥砍视觉转发（实现已拆到 FxComponent）。
 ##
-## 性能设计（原先每次攻击都新建 ImmediateMesh + StandardMaterial3D）：
-## 真实 GPU 上「新的 StandardMaterial3D」首次使用会同步编译着色器变体，
-## 而本函数每次攻击都建新材质 → 攻击瞬间掉帧。故做三层复用：
-##   1. 材质按颜色缓存（全场共用 5 种，不再新建）
-##   2. 网格按 (reach, half_angle) 缓存（形状只由这两者决定）
-##   3. 节点用池复用（避免每次 add_child/queue_free）
-## 渐隐改为 tween 调制节点的 modulate.a，不再改材质 albedo——
-## 否则调完 alpha 材质就废了，无法给下一个复用的节点用。
-static var _slash_mat_cache := {}
-static var _slash_mesh_cache := {}
-var _slash_pool: Array[MeshInstance3D] = []
-var _slash_free: Array[MeshInstance3D] = []
-
-
-func _spawn_slash_visual(reach: float, half_angle: float, color: Color = Color(1, 1, 0.85, 0.5)) -> void:
-	var node := _acquire_slash_node()
-	node.mesh = _get_slash_mesh(reach, half_angle)
-	# 每种颜色一个独立缓存的材质实例（渐隐会改它的 alpha，故不能与其他颜色共用）
-	var mat := _get_slash_material(color)
-	mat.albedo_color = color          # 复用前复位 alpha（上次渐隐可能改成了 0）
-	node.material_override = mat
-	node.visible = true
-
-	var rot_y := atan2(_facing.x, _facing.z)
-	node.position = global_position + Vector3(0, 1.0, 0)
-	node.rotation.y = rot_y
-
-	# 渐隐：调该颜色专属材质的 alpha，结束后归还池
-	var tween := create_tween()
-	tween.tween_property(mat, "albedo_color:a", 0.0, 0.12)
-	tween.tween_callback(func(): _release_slash_node(node))
-
-
-## 取一个挥砍节点（池空则新建）
-func _acquire_slash_node() -> MeshInstance3D:
-	var node: MeshInstance3D
-	if _slash_free.is_empty():
-		node = MeshInstance3D.new()
-		node.name = "SlashVisual"
-		_slash_pool.append(node)
-		get_parent().add_child(node)
-	else:
-		node = _slash_free.pop_back()
-		node.visible = true
-	return node
-
-
-## 归还挥砍节点（隐藏而非销毁，供下次复用）
-func _release_slash_node(node: MeshInstance3D) -> void:
-	if not is_instance_valid(node):
-		return
-	node.visible = false
-	if not _slash_free.has(node):
-		_slash_free.append(node)
-
-
-## 材质按颜色缓存（r/g/b 作键；alpha 由节点 modulate 控制，故键里不含 a）
-static func _get_slash_material(color: Color) -> StandardMaterial3D:
-	var key := "%.3f_%.3f_%.3f" % [color.r, color.g, color.b]
-	if _slash_mat_cache.has(key):
-		return _slash_mat_cache[key]
-	var mat := StandardMaterial3D.new()
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.emission_energy_multiplier = 1.5
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_slash_mat_cache[key] = mat
-	return mat
-
-
-## 扇形网格按 (reach, half_angle) 缓存（形状只由这两个参数决定）
-static func _get_slash_mesh(reach: float, half_angle: float) -> ArrayMesh:
-	var key := "%.2f_%.3f" % [reach, half_angle]
-	if _slash_mesh_cache.has(key):
-		return _slash_mesh_cache[key]
-
-	var steps := 12
-	var verts := PackedVector3Array()
-	var indices := PackedInt32Array()
-	for i in range(steps):
-		var a0 := -half_angle + (2.0 * half_angle * i / steps)
-		var a1 := -half_angle + (2.0 * half_angle * (i + 1) / steps)
-		var base := verts.size()
-		verts.push_back(Vector3.ZERO)
-		verts.push_back(Vector3(sin(a1) * reach, 0.0, cos(a1) * reach))
-		verts.push_back(Vector3(sin(a0) * reach, 0.0, cos(a0) * reach))
-		indices.push_back(base + 0)
-		indices.push_back(base + 1)
-		indices.push_back(base + 2)
-
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_INDEX] = indices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	_slash_mesh_cache[key] = mesh
-	return mesh
-
+## 性能设计（材质按色缓存 / 网格按形状缓存 / 节点池复用）见
+## entities/player/fx_component.gd 的文件头。
+func _spawn_slash_visual(reach: float, half_angle: float,
+		color: Color = Color(1, 1, 0.85, 0.5)) -> void:
+	fx.spawn_slash(reach, half_angle, color)
 
 ## 敌人有效性检查
 func _is_valid_enemy(enemy: Node) -> bool:
@@ -1920,24 +1814,6 @@ func add_hit_combo(n: int) -> void:
 	_hit_combo_time = 2.0
 
 
-## 受击闪红：前 40% 全红，剩余时间线性退回本色
-func _update_flash() -> void:
-	if _model == null or _model.material_override == null:
-		return
-	# 卡通材质是 ShaderMaterial，改色走 ToonMaterial 的 set_color
-	# （原先 as StandardMaterial3D 的写法在这里会静默拿到 null）
-	var mat := _model.material_override as ShaderMaterial
-	if mat == null:
-		return
-	if _flash_timer <= 0.0:
-		ToonMaterial.set_color(mat, _base_color)
-		return
-	var t := _flash_timer / HIT_FLASH_DURATION
-	var blend := clampf(t / 0.4, 0.0, 1.0)
-	ToonMaterial.set_color(mat, Color(1.0, 0.15, 0.15).lerp(_base_color, 1.0 - blend))
-
-
-## 玩家受击。
 ## from：攻击者（可选）。仅用于**伤害反弹**词条（分册限定「受到近战伤害时」），
 ## 传 null 表示无来源（区域伤害/DOT 等），不触发反弹。
 ## 保持默认值以兼容既有调用（敌人 AI、DamageZone、测试）。
@@ -1962,8 +1838,7 @@ func take_true_damage(amount: float) -> void:
 	attrs.take_damage(amount)
 	EventBus.player_hit.emit(amount, global_position)
 	EventBus.damage_popup.emit(global_position, amount, "true")
-	_flash_timer = HIT_FLASH_DURATION
-	_update_flash()
+	fx.flash()
 	EventBus.stats_changed.emit()
 	if attrs.is_dead():
 		die()
@@ -1979,8 +1854,7 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	if _dodge_immune_ready:
 		_dodge_immune_ready = false
 		EventBus.player_hit.emit(0.0, global_position)
-		_flash_timer = HIT_FLASH_DURATION
-		_update_flash()
+		fx.flash()
 		EventBus.message.emit("闪避！免疫本次伤害")
 		return
 	# 终结技霸体：减伤 30%，不掉连段节奏（无硬直状态，攻击照常续接）
@@ -1992,8 +1866,7 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	# 否则没法用它观察命中判定。
 	if _god_mode:
 		EventBus.player_hit.emit(0.0, global_position)
-		_flash_timer = HIT_FLASH_DURATION
-		_update_flash()
+		fx.flash()
 		return
 	# 护盾先吃伤害（形态「溢出转护盾」产生）。全被护盾吸收时不掉血，
 	# 但仍照常走受击反馈——玩家要看得出"护盾挡了一下"。
@@ -2013,8 +1886,7 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")
 	PlayerSfx.on_hurt()
 	# 受击闪红：玩家此前没有任何受击视觉，扣血了却看不出来
-	_flash_timer = HIT_FLASH_DURATION
-	_update_flash()
+	fx.flash()
 	# HUD 血量刷新：玩家受伤不发 stats_changed，HUD 数值不会变
 	EventBus.stats_changed.emit()
 	# 伤害反弹（分册第 5 章通用词条「受到近战伤害时反弹 5%~15%」）。
@@ -2117,3 +1989,8 @@ func _pickup_nearby() -> void:
 ## 吞噬最近掉落物（本局永久成长）
 func _devour_nearby() -> void:
 	pickup.devour_nearby()
+
+
+## 受击闪红剩余时间（转发到 FxComponent；测试与 HUD 读它判断反馈是否在跑）
+func flash_timer() -> float:
+	return fx.flash_timer() if fx != null else 0.0

@@ -189,6 +189,9 @@ func spawn_forest_domain(p: Node) -> void:
 	p.call("_spawn_forest_domain")
 
 ## 生成挥砍视觉（扇形）
+##
+## 实现已拆到 `entities/player/fx_component.gd`；player 侧留薄转发，
+## 故仍走 `_spawn_slash_visual`（转发存在期间测试零改动）。
 func spawn_slash_visual(p: Node, reach: float, half_angle: float) -> void:
 	p.call("_spawn_slash_visual", reach, half_angle)
 
@@ -204,12 +207,20 @@ func state_machine(p: Node):
 	return p.get("_state_machine")
 
 ## 模型节点
+##
+## 实现已拆到 `FxComponent`（`_model` 不再是 Player 的字段）。
+## 走组件的公开访问器 `model()`，**不要再 `p.get("_model")`**——
+## 那样在拆分后会静默拿到 null（本项目最典型的静默失效）。
 func model(p: Node) -> Node:
-	return p.get("_model")
+	var c = p.get("fx")
+	return c.model() if c != null else null
 
 ## 受击闪红剩余时间
+##
+## 同上：`_flash_timer` 已随闪红逻辑搬进 `FxComponent`。
 func flash_timer(p: Node) -> float:
-	return float(p.get("_flash_timer"))
+	var c = p.get("fx")
+	return float(c.flash_timer()) if c != null else 0.0
 
 ## 拾取最近掉落物（E 键路径）
 func pickup_nearby(p: Node) -> void:
@@ -591,7 +602,7 @@ const REGISTERED := {
 		"_on_basic_attack_landed", "_lifesteal_heal", "_reflect_damage",
 		"_chain_spell_damage", "_refresh_light_dark_balance", "_gain_light_layer",
 		"_maybe_trigger_break_limit", "_spawn_forest_domain", "_spawn_slash_visual",
-		"_jump_phase", "_state_machine", "_model", "_flash_timer", "_pickup_nearby",
+		"_jump_phase", "_state_machine", "_pickup_nearby",
 	],
 	"enemy": [
 		"_hp", "_flash_timer", "_hp_bar", "_hp_bar_bg", "_hp_bar_fill", "_apply_affix",
