@@ -196,8 +196,11 @@ func spawn_slash_visual(p: Node, reach: float, half_angle: float) -> void:
 func jump_phase(p: Node) -> int:
 	return int(p.get("_jump_phase"))
 
-## 状态机实例
-func state_machine(p: Node) -> Node:
+## 状态机实例（**StateMachine 是 RefCounted，不是 Node**）
+##
+## 返回类型必须写宽：写成 `Node` 时 Godot 对 RefCounted 返回值**静默返回 null**，
+## 调用方随即报 "Nonexistent function in base 'Nil'"。
+func state_machine(p: Node):
 	return p.get("_state_machine")
 
 ## 模型节点

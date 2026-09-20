@@ -75,8 +75,10 @@ const ATTACK_REACH := 2.0
 ## 顿帧时的时间缩放（配合 _hitstop，必须保证还原）
 const HITSTOP_TIME_SCALE := 0.05
 
-## 拾取/吞噬的可达距离（米）
-const PICKUP_RANGE := 2.5
+## 拾取/交互组件（E 键交互、自动拾取、就近查找）。
+## 在 `_ready()` 里经 `_setup_pickup()` 装配。
+## 作用距离常量住在组件里（`PickupComponent.PICKUP_RANGE`）。
+var pickup: PickupComponent = null
 
 
 func _ready() -> void:
@@ -88,6 +90,8 @@ func _ready() -> void:
 	_setup_class()
 	_setup_state_machine()
 	_setup_hit_model()
+	# 拾取/交互组件（E 键交互、自动拾取、就近查找）
+	_setup_pickup()
 	# 击杀回血（监听全局敌死信号）
 	var bus := get_node_or_null("/root/EventBus")
 	if bus and bus.has_signal("enemy_died"):
@@ -406,6 +410,15 @@ func _setup_hit_model() -> void:
 	_model.material_override = ToonMaterial.create(_base_color)
 
 
+## 装配拾取/交互组件（E 键交互、自动拾取、就近查找）。
+## **必须在 add_child 之后 setup**：组件要在场景树里才能 get_tree()。
+func _setup_pickup() -> void:
+	pickup = PickupComponent.new()
+	pickup.name = "PickupComponent"
+	add_child(pickup)
+	pickup.setup(self)
+
+
 ## 装配状态机：注册五个状态并进入默认的 MoveState
 ## 用 load() 而非 preload()：状态类引用 Player（PlayerState.player 的类型），
 ## preload 会让 player.gd ↔ 状态类在解析期形成循环依赖，缓存失效时无法解析
@@ -505,8 +518,8 @@ func _physics_process(delta: float) -> void:
 	if _flash_timer > 0.0:
 		_flash_timer = maxf(_flash_timer - delta, 0.0)
 		_update_flash()
-	# 自动拾取（设置开启时生效）
-	_update_auto_pickup(delta)
+	# 自动拾取（设置开启时生效）与 E 键交互已拆到 PickupComponent
+	pickup.update(delta)
 
 	# 职业资源与技能（策划《角色设计分册》）
 	# 资源自然回复（法师回蓝）+ 技能冷却推进，都在这里无条件走
@@ -2047,156 +2060,60 @@ func die() -> void:
 	# finish_run 内部已发 run_finished（结算面板监听显示）
 	GameManager.finish_run("defeated")
 	set_physics_process(false)
-	hide()
 
+# ============================================================
+# 拾取 / 交互（转发到 PickupComponent）
+# ============================================================
+#
+# 实现已搬到 `entities/player/pickup_component.gd`。
+# 这里保留**同名同签名的转发**，外部调用点（`_unhandled_input` 的键位分发、
+# 测试的 `probe.pickup_nearby`）零改动。
 
-## 自动拾取：开启后走到掉落物上即自动捡起，无需按 E
-## 由 _physics_process 每帧调用；关闭时立即返回（开销可忽略）
-const AUTO_PICKUP_INTERVAL := 0.25   # 检测间隔（秒），避免每帧遍历
-var _auto_pickup_timer := 0.0
-
-
-func _update_auto_pickup(delta: float) -> void:
-	var sm := get_node_or_null("/root/SettingsManager")
-	if sm == null or not bool(sm.get_setting("auto_pickup")):
-		return
-	_auto_pickup_timer -= delta
-	if _auto_pickup_timer > 0.0:
-		return
-	_auto_pickup_timer = AUTO_PICKUP_INTERVAL
-	var nearest := _nearest_pickup()
-	if nearest == null:
-		return
-	if nearest.has_method("pick_up"):
-		nearest.call("pick_up")   # 失败（背包满等）静默，等玩家腾出位置再来
-
-
+## E 键等输入分发。拾取相关的三条分支转发到组件。
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("toggle_inventory"):
 		EventBus.message.emit("背包")
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("interact"):
-		# 交互优先级：破墙（隐藏房）→ 特殊房 → 拾取
-		if not _interact_hidden_wall() and not _interact_special_room():
-			_pickup_nearby()
+		# 交互优先级：破墙（隐藏房）→ 特殊房 → 拾取（顺序见组件注释）
+		pickup.try_interact()
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("devour"):
-		_devour_nearby()
+		pickup.try_devour()
 		get_viewport().set_input_as_handled()
 
 
-## 切换拾取方式（按 E 手动 ↔ 自动拾取）。
-## 仅由设置面板调用——不再绑定按键，避免与游戏内操作抢键。
+## 切换拾取方式（按 E 手动 ↔ 自动拾取）。仅由设置面板调用。
 func _toggle_auto_pickup() -> void:
-	var sm := get_node_or_null("/root/SettingsManager")
-	if sm == null:
-		return
-	var now: bool = not bool(sm.get_setting("auto_pickup"))
-	sm.set_setting("auto_pickup", now)
-	EventBus.message.emit("自动拾取：%s" % ("开" if now else "关"))
+	pickup.toggle_auto_pickup()
 
-## 破墙进入隐藏房（策划 3.2：靠近出现裂缝 → 破开）。
-## 返回 true 表示本次交互已被处理（破墙成功），调用方不再尝试其它交互。
+
+## 破墙进入隐藏房。返回 true 表示本次交互已被处理。
 func _interact_hidden_wall() -> bool:
-	var walls := get_tree().get_nodes_in_group("hidden_walls")
-	for w in walls:
-		if not is_instance_valid(w):
-			continue
-		if w.has_method("can_interact_with") and bool(w.call("can_interact_with", self)):
-			var ok: bool = bool(w.call("break_wall", self))
-			if ok:
-				AudioManager.play("hit")
-				EventBus.message.emit("你破开了墙壁")
-				return true
-	return false
+	return pickup.interact_hidden_wall()
 
 
-## 交互当前房间的商店、泉水或事件服务。
-## 返回 false 表示"本房不是特殊房"，让位给 _pickup_nearby()——
-## 注意每个房间都有控制器（activate 对所有房型都加组），
-## 若无条件返回 true，拾取逻辑将永不执行。
+## 交互当前房间的商店/泉水/事件服务。
+## 返回 false 表示"本房不是特殊房"，让位给拾取。
 func _interact_special_room() -> bool:
-	var controller := get_tree().get_first_node_in_group("current_room_controller")
-	if controller == null or not controller.has_method("is_special_room"):
-		return false
-	if not bool(controller.call("is_special_room")):
-		return false
-
-	# 打开交互面板；面板缺失时回退到旧的"按 E 直接结算"
-	var ui := get_tree().get_first_node_in_group("special_room_ui")
-	if ui != null and ui.has_method("open"):
-		var ctx: Dictionary = controller.call("get_special_context")
-		if ctx.get("ok", false):
-			ui.call("open", ctx, controller)
-			return true
-		EventBus.message.emit(ctx.get("reason", "无法交互"))
-		return true
-
-	var result: Dictionary = controller.interact_special()
-	if result.get("ok", false):
-		EventBus.message.emit("特殊房交互完成")
-	else:
-		EventBus.message.emit(result.get("reason", "无法交互"))
-	return true
+	return pickup.interact_special_room()
 
 
 ## 查找最近的掉落物（拾取/吞噬共用）
-## 有距离上限：超过则视为够不着（原先返回全场景最近的，隔着半张地图也能捡）
-##
-## **走 PickupField 的空间分桶查询**，不再遍历 `group("pickups")`：
-## 大规模团战下掉落物可达数百件，全量遍历是每帧的固定开销。
-## 分桶后只查玩家所在格及邻格。
 func _nearest_pickup() -> Node3D:
-	var field := _pickup_field()
-	if field != null:
-		return field.nearest(global_position, PICKUP_RANGE)
-	# 兜底：没有 PickupField（旧场景/测试直建）时退回全量遍历
-	var nearest: Node3D = null
-	var nearest_d := PICKUP_RANGE
-	for node in get_tree().get_nodes_in_group("pickups"):
-		if not is_instance_valid(node):
-			continue
-		var d: float = (node as Node3D).global_position.distance_to(global_position)
-		if d < nearest_d:
-			nearest_d = d
-			nearest = node
-	return nearest
+	return pickup.nearest_pickup()
 
 
-## 当前房间的掉落物管理器（没有则返回 null）
-##
-## 查找逻辑统一在 `GameRef.pickup_field()`（跨层引用的唯一入口）。
-## **返回 null 是正常状态**：开局房间没有 PickupField——它由
-## `LootSystem._field_for()` 在第一次掉落时懒创建，此时由
-## `_nearest_pickup()` 的全量遍历兜底，链路并未断。
+## 当前房间的掉落物管理器（没有则返回 null，**null 是正常状态**）
 func _pickup_field() -> PickupField:
-	return GameRef.pickup_field()
+	return pickup.pickup_field()
 
 
 ## 拾取最近掉落物进背包
 func _pickup_nearby() -> void:
-	var nearest := _nearest_pickup()
-	if nearest == null:
-		EventBus.message.emit("附近没有可拾取的掉落物")
-		return
-
-	if nearest.has_method("pick_up"):
-		var result: Dictionary = nearest.call("pick_up")
-		if not result.get("ok", false):
-			EventBus.message.emit(result.get("reason", "拾取失败"))
+	pickup.pickup_nearby()
 
 
 ## 吞噬最近掉落物（本局永久成长）
 func _devour_nearby() -> void:
-	var nearest := _nearest_pickup()
-	if nearest == null:
-		EventBus.message.emit("附近没有可吞噬的掉落物")
-		return
-
-	if nearest.has_method("devour"):
-		var result: Dictionary = nearest.call("devour")
-		if result.get("ok", false):
-			EventBus.message.emit("吞噬成功！")
-			AudioManager.play("pickup")
-		else:
-			EventBus.message.emit(result.get("reason", "吞噬失败"))
+	pickup.devour_nearby()
