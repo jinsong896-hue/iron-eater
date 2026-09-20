@@ -254,16 +254,29 @@ var _windup_timer := 0.0        # 前摇剩余
 var _stagger_timer := 0.0       # 硬直剩余
 var _knockback_velocity := Vector3.ZERO  # 硬直期间击退速度（摩擦衰减）
 
+## 视觉表现组件（模型/精英光环/词缀标签/血条/受击闪红）。
+## 在 `_ready()` 里经 `_setup_visuals()` 装配。
+var visuals: EnemyVisuals = null
+
+
+## 装配视觉组件。**必须在 _create_visual 之前**——后者经它转发。
+func _setup_visuals() -> void:
+	visuals = EnemyVisuals.new()
+	visuals.name = "VisualsComponent"
+	add_child(visuals)
+	visuals.setup(self)
+
 
 func _ready() -> void:
 	add_to_group("enemies")
 	_hp = max_hp
 	rng.randomize()
+	_setup_visuals()
 	# 词条/元素容器：挂在敌人身上，玩家攻击时读它的易伤与减伤
 	if buffs == null:
 		buffs = BuffHolder.new(self)
 	_find_player()
-	_create_visual()
+	visuals.build()
 	if stealth_always or stealth_exit_bonus > 0.0:
 		_apply_stealth_visual()
 	# 虚空吞噬者：接上「有单位死亡」广播。
@@ -350,7 +363,7 @@ func _trigger_immortal() -> void:
 	_immortal_used = true
 	_immortal_timer = AFFIX_IMMORTAL_SHIELD_TIME
 	_hp = minf(_hp + max_hp * AFFIX_IMMORTAL_HEAL_PCT, max_hp)
-	_update_health_bar()
+	visuals.update_health_bar()
 	var bus = _event_bus()
 	if bus:
 		bus.damage_popup.emit(global_position, max_hp * AFFIX_IMMORTAL_HEAL_PCT, "heal")
@@ -366,7 +379,7 @@ func _affix_lifesteal(amount: float) -> void:
 	var before := _hp
 	_hp = minf(_hp + amount * affix_lifesteal_pct, max_hp)
 	if _hp > before:
-		_update_health_bar()
+		visuals.update_health_bar()
 
 
 ## 词缀·混沌：周期性随机改自身属性（策划 7.2「随机增益/减益组合，不可预测性」）。
@@ -638,171 +651,18 @@ const WORLD_LAYER := 1
 const ENEMY_LAYER := 2
 
 
+## 视觉表现（模型/精英光环/词缀标签/血条/受击闪红）已拆到 EnemyVisuals。
+##
+## **字段留在本类**（_model / _hp_bar / _elite_ring / _affix_label /
+## _flash_timer / _visual_color）——测试直接读它们，故组件按鸭子类型写
+## `owner_enemy.xxx`。血条的三个陷阱见 enemy_visuals.gd 文件头。
 func _create_visual() -> void:
-	_create_collision()
-	var model := MeshInstance3D.new()
-	model.name = "Model"
-	var capsule := CapsuleMesh.new()
-	capsule.radius = 0.4 * body_scale
-	capsule.height = 1.8 * body_scale
-	model.mesh = capsule
-	model.position = Vector3(0, 0.9 * body_scale, 0)
-	var color := Color(0.5, 0.3, 0.7)  # 紫色特殊（默认）
-	match behavior:
-		AIBehavior.MELEE_CHASE:
-			color = Color(0.8, 0.2, 0.2)  # 红色近战
-		AIBehavior.RANGED_KITE:
-			color = Color(0.2, 0.2, 0.8)  # 蓝色远程
-		AIBehavior.SENTRY:
-			color = Color(0.2, 0.6, 0.6)  # 青色哨兵
-		AIBehavior.RUSHER:
-			color = Color(0.85, 0.5, 0.1)  # 橙色突进
-	# 卡通材质 + 反壳描边（毒怪带绿色自发光提示）
-	var mat := ToonMaterial.create(color, null, Color.WHITE,
-		Color(0.2, 0.8, 0.2) if death_poison else Color.BLACK,
-		0.4 if death_poison else 0.0)
-	model.material_override = mat
-	add_child(model)
-	_model = model
-	_visual_color = color  # 记录本色，闪红后还原用
-	_create_health_bar()
-	_create_elite_marker()
+	visuals.build()
 
 
-## 精英标识（策划 7.2：词缀的用意是「威胁特征」，玩家识别不出来就达不到设计目的）。
-##
-## 做法：脚下一圈金色光环（billboard 贴地，与血条同一套纯脚本图元方案）。
-## **不动模型材质**——那会与受击闪红、毒怪发光等已有逻辑打架。
-func _create_elite_marker() -> void:
-	if not is_elite:
-		return
-	var ring := MeshInstance3D.new()
-	ring.name = "EliteRing"
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.55 * body_scale
-	torus.outer_radius = 0.72 * body_scale
-	ring.mesh = torus
-	# 平铺在地上（TorusMesh 默认竖立）
-	ring.rotation_degrees = Vector3(90.0, 0.0, 0.0)
-	ring.position = Vector3(0, 0.05, 0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.82, 0.25)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.75, 0.2)
-	mat.emission_energy_multiplier = 0.8
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ring.material_override = mat
-	add_child(ring)
-	_elite_ring = ring
-	_create_affix_label()
-
-
-## 词缀名标签（策划 7.2 的「威胁特征」要让玩家看得见）。
-##
-## 用 `Label3D` + billboard——项目里已有先例（`damage_popup.gd`），
-## 不需要自建字形图集或屏幕空间投影。
-## 挂在血条上方，只对精英显示（普通怪没有词缀，第 1~2 层连精英也没有）。
-func _create_affix_label() -> void:
-	if not is_elite:
-		return
-	var names: Array[String] = []
-	for id in affixes:
-		names.append(AffixDB.affix_name(str(id)))
-	if names.is_empty():
-		return
-	var lb := Label3D.new()
-	lb.name = "AffixLabel"
-	lb.text = " · ".join(names)
-	lb.font_size = 48
-	lb.modulate = Color(1.0, 0.88, 0.45)
-	lb.outline_size = 8
-	lb.outline_modulate = Color.BLACK
-	lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	lb.no_depth_test = true          # 不被墙挡住，玩家始终看得到威胁信息
-	lb.pixel_size = 0.006            # 世界单位下的字高（约 0.3 米）
-	lb.position = Vector3(0, 2.75 * body_scale, 0)
-	add_child(lb)
-	_affix_label = lb
-
-
-## 敌人头顶血条（billboard 四边形，纯脚本图元，无贴图依赖）
-## 受伤后才显示；满血时隐藏，避免满屏血条
-func _create_health_bar() -> void:
-	_hp_bar = Node3D.new()
-	_hp_bar.name = "HealthBar"
-	_hp_bar.position = Vector3(0, 2.15 * body_scale, 0)
-
-	# 底：深色背景 + 细黑边（优先级 0，排在填充之后画）
-	_hp_bar_bg = _make_bar_quad(Vector3(BAR_WIDTH, BAR_HEIGHT, 0), Color(0.05, 0.05, 0.07, 0.9), 0)
-	# 填充：红色（受击反馈里也用这个色系）；优先级 1 → 一定画在背景之上
-	_hp_bar_fill = _make_bar_quad(Vector3(BAR_WIDTH, BAR_HEIGHT, 0), Color(0.85, 0.2, 0.2, 1.0), 1)
-	# 填充略微前移，避免与底 z-fighting
-	_hp_bar_fill.position.z = 0.01
-
-	_hp_bar.add_child(_hp_bar_bg)
-	_hp_bar.add_child(_hp_bar_fill)
-	add_child(_hp_bar)
-	# 满血也显示（见 _update_health_bar 注释：懒显示是首击跳变误会的根源）
-	_hp_bar.visible = true
-	_update_health_bar()
-
-
-## 生成一个 billboard 四边形（始终面向相机）。
-## **收缩与左对齐一律在 mesh 顶点数据里做**（size + center_offset），
-## 不用节点 scale / position：
-##   · 节点 scale —— billboard 渲染时被忽略（实测改了屏幕像素宽纹丝不动）
-##   · 节点 position —— 世界空间偏移在俯视透视下投影成斜向位移（「血条往上跑」）
-## center_offset 的取值见 _update_health_bar（必须随 size 同步更新）。
-##
-## priority 显式指定透明渲染顺序：背景与填充是**同一位置的两个半透明 quad**，
-## 俯视相机下 z=0.01 的深度差小到不足以裁决先后，Godot 会退回按
-## 场景树顺序/实例 id 排——而这个顺序在 mesh 被重建（改 size）后会翻转，
-## 表现为「受击后整条血条变暗（暗色背景盖住了红色填充）」且不再复原。
-## 给填充更高优先级把顺序钉死，不再依赖深度平局裁决。
-func _make_bar_quad(quad_size: Vector3, col: Color, priority: int = 0) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	var q := QuadMesh.new()
-	q.size = Vector2(quad_size.x, quad_size.y)
-	mi.mesh = q
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = col
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.no_depth_test = true  # 不被墙体遮挡
-	mat.render_priority = priority  # 显式排序，见上方注释
-	mi.material_override = mat
-	return mi
-
-
-## 按当前血量刷新血条长度（从左向右收缩）与可见性。
-##
-## 两个量必须**同时**改，缺一不可：
-##   size.x         = BAR_WIDTH × ratio        —— 可见长度
-##   center_offset.x = (size.x - BAR_WIDTH) / 2 —— 把左缘钉死在 -BAR_WIDTH/2
-##
-## **左对齐公式推导**（这是曾经的核心 bug）：
-##   顶点左缘 = center_offset.x - size.x / 2
-##   要求左缘恒等于 -BAR_WIDTH / 2 →
-##   center_offset.x = size.x / 2 - BAR_WIDTH / 2 = (size.x - BAR_WIDTH) / 2
-## 满血时该值为 0（与背景条天然重合）；只设 size 不设 offset 的话，
-## 填充会整体左移出背景条，玩家在暗条内只看到约一半长度——
-## 表现为「60% 血量看起来只有 30%」，且血量越低偏移越明显。
-##
-## 满血也显示（旧版「受伤后才显示」让血条在已失血状态下凭空出现，
-## 玩家看不到从 100% 掉下来的过程）。仅死亡隐藏。
+## 按当前血量刷新血条（转发）
 func _update_health_bar() -> void:
-	if _hp_bar == null or _hp_bar_fill == null:
-		return
-	var maxv: float = maxf(max_hp, 0.001)
-	var ratio := clampf(_hp / maxv, 0.0, 1.0)
-	_hp_bar.visible = _hp > 0.0
-	var q := _hp_bar_fill.mesh as QuadMesh
-	if q == null:
-		return
-	var w: float = maxf(BAR_WIDTH * ratio, 0.001)
-	q.size = Vector2(w, BAR_HEIGHT)
-	q.center_offset = Vector3((w - BAR_WIDTH) * 0.5, 0.0, 0.0)
+	visuals.update_health_bar()
 
 
 func _physics_process(delta: float) -> void:
@@ -828,7 +688,7 @@ func _physics_process(delta: float) -> void:
 	# 受击闪红衰减（每帧都要走，包括硬直/死亡前）
 	if _flash_timer > 0.0:
 		_flash_timer = maxf(_flash_timer - delta, 0.0)
-		_update_flash()
+		visuals.tick_flash(delta)
 
 	# 突进推进
 	if _current_state == EnemyState.DASH:
@@ -1282,7 +1142,7 @@ func _on_unit_died(victim: Node, killer: Node, _pos: Vector3) -> void:
 	# 回血：按**上限**比例而非当前值，避免残血时吞噬收益递减
 	if _hp < max_hp:
 		_hp = minf(_hp + max_hp * devour_heal_pct, max_hp)
-		_update_health_bar()
+		visuals.update_health_bar()
 	# 伤害：在 `_base_atk` 上累乘，不用 `atk * (1+pct)` 逐次复利
 	if devour_atk_pct > 0.0:
 		atk = _base_atk * (1.0 + devour_atk_pct * float(_devour_stacks))
@@ -1662,8 +1522,8 @@ func take_damage(amount: float, _is_crit: bool = false,
 		_do_explode()
 		return
 	_current_state = EnemyState.STAGGERED
-	_flash_hit()
-	_update_health_bar()
+	visuals.flash_hit()
+	visuals.update_health_bar()
 
 
 ## 当前血量比例（0~1）；HUD 的 Boss 血条栏靠它刷新，无需触碰私有字段
@@ -1677,28 +1537,6 @@ func is_alive() -> bool:
 
 
 ## 受击闪红：模型短暂染红再还原（给出明确的打击反馈）
-func _flash_hit() -> void:
-	if _model == null:
-		return
-	_flash_timer = HIT_FLASH_DURATION
-	_update_flash()
-
-
-func _update_flash() -> void:
-	if _model == null or _model.material_override == null:
-		return
-	var mat := _model.material_override as ShaderMaterial
-	if mat == null:
-		return
-	if _flash_timer <= 0.0:
-		ToonMaterial.set_color(mat, _visual_color)
-		return
-	# 前 40% 全红，剩余时间线性退回本色
-	var t := _flash_timer / HIT_FLASH_DURATION
-	var blend := clampf(t / 0.4, 0.0, 1.0)
-	ToonMaterial.set_color(mat, Color(1.0, 0.15, 0.15).lerp(_visual_color, 1.0 - blend))
-
-
 func die() -> void:
 	# **重入保护**：同一帧内可能有多个来源同时打死敌人——DOT 结算 + 普攻、
 	# AOE + 投射物、自爆连锁等。没有这道闸门时 die() 会跑多次：
