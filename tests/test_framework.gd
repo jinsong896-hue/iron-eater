@@ -131,6 +131,9 @@ func _ready() -> void:
 	# 测试 probe 覆盖率（重构报警器）
 	await _run_test(test_probe_coverage)
 
+	# 接线自检表与 event_bus 声明的一一对应
+	await _run_test(test_wired_check_table)
+
 	print("=".repeat(60))
 	if _failed == 0:
 		print("ALL %d TESTS PASSED" % _passed)
@@ -3885,3 +3888,27 @@ func test_probe_coverage() -> void:
 	for k in reg:
 		total += (reg[k] as Array).size()
 	_check(total >= 50, "probe 登记名字总数 >= 50（实际 %d）" % total)
+
+
+## WiredCheck 信号表与 event_bus.gd 声明的一一对应。
+##
+## 守住"新增了 EventBus 信号却忘了在 WiredCheck 表里登记"——
+## 新信号最容易有发无收，登记动作本身就是一次接线自查。
+func test_wired_check_table() -> void:
+	_current_test = "WiredCheck"
+	print("\n--- %s ---" % _current_test)
+
+	var WC = _require_script("res://core/wired_check.gd")
+	if WC == null:
+		return
+
+	var issues: Array = WC.verify_table()
+	_check(issues.is_empty(),
+		"WiredCheck 信号表与 event_bus.gd 一一对应（差异 %d 项）" % issues.size(),
+		issues)
+
+	# 审计能跑且给出合理结果
+	var r: Dictionary = WC.audit_event_bus()
+	_check(int(r.get("wired", 0)) > 0, "审计识别出正常接线的信号", [str(r.get("wired"))])
+	_check((r.get("dead", []) as Array).size() > 0,
+		"审计能列出「有发无收」的信号（本项目的典型缺陷）")

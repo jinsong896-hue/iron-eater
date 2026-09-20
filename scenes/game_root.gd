@@ -57,6 +57,11 @@ func _ready() -> void:
 	add_to_group("game_root")
 	# 新一局开始，作废上一局的 GameRef 缓存（防跨局持有旧节点）
 	GameRef.invalidate()
+	# 接线自检：把"有发无收"的信号点名打到输出。
+	# **只在 debug 构建跑**（导出后的 release 不做无谓的字符串拼接）。
+	# 不改任何行为、不报错、不影响门禁判据——只是让静默失效可见。
+	if OS.is_debug_build():
+		WiredCheck.audit_event_bus()
 	# 直跑场景兜底：未经主菜单 start_new_run 时初始化局内数据
 	if GameManager.attributes == null:
 		GameManager.start_new_run(GameManager.run_info.duplicate())
