@@ -73,12 +73,23 @@ func _ready() -> void:
 			# 门触发器有几何复核（玩家不在触发区内 → 判为幽灵派发丢弃），
 			# 远距离直调会被拦掉。
 			p.global_position = (trig as Node3D).global_position + Vector3(0, -1.5, 0)
+			# 数 door_opened 的发射次数，而不是看房间号。
+			# 房间号断言会被 GameRoot 的**全局防抖**（TRANSITION_COOLDOWN）兜住，
+			# 即使 `_triggered` 重入保护失效也照样"不叠加"——测不到本机制。
+			# 信号次数直接反映 `_triggered` 这道闸，两者互不遮蔽。
+			var bus := get_node_or_null("/root/EventBus")
+			var fired := [0]
+			var cb := func(_d, _i): fired[0] += 1
+			bus.door_opened.connect(cb)
 			trig._on_body_entered(p)
 			_c(trig._triggered, "门触发后置位")
+			_c(fired[0] == 1, "首次触发发出门信号", "次数=%d" % fired[0])
 			var idx_before: int = gr.current_room_index
 			trig._on_body_entered(p)   # 二次触发应当被忽略
 			await get_tree().process_frame
-			_c(gr.current_room_index == idx_before or true, "二次触发不叠加")
+			_c(fired[0] == 1, "二次触发不叠加（door_opened 只发一次）", "次数=%d" % fired[0])
+			_c(gr.current_room_index == idx_before, "二次触发未再次切房")
+			bus.door_opened.disconnect(cb)
 
 	# --- #6 HUD 血量刷新 ---
 	var hud = get_tree().current_scene.find_child("HUD", true, false)
@@ -88,6 +99,22 @@ func _ready() -> void:
 		await get_tree().process_frame
 		var shown: String = hud.health_label.text if hud.health_label else ""
 		_c(shown == "400", "玩家受伤后 HUD 血量刷新", "显示=%s" % shown)
+
+		# 毒气层数必须显示到 HUD。
+		# 层数住在 GameRoot 的 FloorMechanic 上，而 GameRoot 是
+		# current_scene(MainScene) 的**子节点**——旧实现用 current_scene 取，
+		# 恒为 null，标签永远空白（毒气照常扣真伤，玩家却看不到数字）。
+		var fm = gr.get("floor_mechanic")
+		_c(fm != null, "本层有 FloorMechanic")
+		if fm:
+			fm.set("gas_layers", 3)
+			hud._update_gas_label()
+			_c(hud.gas_label.text.contains("毒气") and hud.gas_label.text.contains("3/"),
+				"毒气层数显示到 HUD", "实际=%s" % hud.gas_label.text)
+			fm.set("gas_layers", 0)
+			hud._update_gas_label()
+			_c(hud.gas_label.text == "", "无层数时毒气标签清空",
+				"实际=%s" % hud.gas_label.text)
 
 	# --- #5/#7 敌人闪红 + 血条 ---
 	var EB = load("res://entities/enemies/enemy_base.gd")
@@ -143,6 +170,29 @@ func _ready() -> void:
 	await get_tree().physics_frame
 	for i in range(30): await get_tree().physics_frame
 	_c(absf(Engine.time_scale - 1.0) < 0.01, "hitstop 后 time_scale 还原", "=%.3f" % Engine.time_scale)
+
+	# --- 屏幕震动接线 ---
+	# 旧实现：`EventBus.screen_shake` 有 2 处 emit（投射物命中/引信爆炸）但
+	# **零订阅者**，`CameraRig.shake()` 也无人调用 —— 爆炸没有任何画面反馈。
+	# 且 `shake()` 本身是坏的：`_shake_offset` 把相机局部 y 写成
+	# `camera_height ± y`（20 上下），而 `_setup_camera` 已把局部位置归零，
+	# 一旦被调用相机会瞬间弹到 20 米高再掉回来。
+	var rig = gr.find_child("CameraRig", true, false)
+	if rig:
+		var cam: Node3D = rig.get_node_or_null("Camera3D")
+		_c(cam != null, "相机架下有 Camera3D")
+		var bus := get_node_or_null("/root/EventBus")
+		_c(bus != null and bus.screen_shake.is_connected(Callable(rig, "shake")),
+			"CameraRig 已订阅 EventBus.screen_shake")
+		if cam:
+			rig.call("shake", 0.2, 0.15)
+			await get_tree().process_frame
+			_c(absf(cam.position.y) < 0.5,
+				"震动不改变相机高度（旧实现在此处弹到 20）", "y=%.2f" % cam.position.y)
+			# 等震动播完，相机必须精确回到零基
+			for i in range(40): await get_tree().process_frame
+			_c(cam.position.distance_to(Vector3.ZERO) < 0.01,
+				"震动结束后相机回到零基", "pos=%s" % str(cam.position))
 
 	# --- #2 玩家受击闪红 ---
 	# 玩家此前完全没有受击视觉：扣了血却看不出来

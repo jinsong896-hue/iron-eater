@@ -26,6 +26,9 @@ var item_buttons: Array[Button] = []
 var _boss_entity: Node = null
 var _boss_max_hp := 1.0
 
+## GameRoot 缓存（`_update_gas_label` 每帧要用，避免每帧全场景查找）
+var _gr_cache: Node = null
+
 
 func _ready() -> void:
 	_collect_skill_buttons()
@@ -60,10 +63,16 @@ func _process(_delta: float) -> void:
 ## 第 6 层硫磺毒气层数（策划 6.7）。
 ## **必须显示**——玩家在持续掉真伤，不给数字就变成"莫名其妙在死"。
 ## 层数住在整层的 FloorMechanic 上，故从 GameRoot 取而不是从玩家取。
+##
+## **不能用 `get_tree().current_scene`**：main.tscn 的根是 `MainScene`（无脚本），
+## GameRoot 是它的**子节点**，故 `current_scene.get("floor_mechanic")` 恒为 null，
+## 毒气标签永远空白（毒气照常扣真伤，玩家却看不到任何数字）。
+## 与 room_controller / hidden_wall / minimap 一致：先走 `game_root` 组
+##（`game_root.gd:57` 注册），再按特征属性兜底测试场景。
 func _update_gas_label() -> void:
 	if gas_label == null:
 		return
-	var gr := get_tree().current_scene
+	var gr := _game_root()
 	var fm = null
 	if gr != null:
 		fm = gr.get("floor_mechanic")
@@ -79,6 +88,36 @@ func _update_gas_label() -> void:
 	var suffix := "（暂停）" if bool(info.get("paused", false)) else ""
 	gas_label.text = "毒气 %d/%d 层 · %d/秒%s" % [
 		layers, int(info.get("max", 10)), dps, suffix]
+
+
+## GameRoot 引用（每帧调用，故缓存）。
+##
+## 先走 `game_root` 组；测试场景把 main.tscn 嵌在别的父节点下时，
+## 从 current_scene 按特征属性兜底查找。
+func _game_root() -> Node:
+	if _gr_cache != null and is_instance_valid(_gr_cache):
+		return _gr_cache
+	var tree := get_tree()
+	if tree == null:
+		return null
+	for node in tree.get_nodes_in_group("game_root"):
+		_gr_cache = node
+		return _gr_cache
+	var scene := tree.current_scene
+	if scene != null:
+		_gr_cache = _find_game_root(scene)
+	return _gr_cache
+
+
+## 递归查找带 `dungeon_graph` 属性的节点（GameRoot 特征）
+func _find_game_root(node: Node) -> Node:
+	if node.get("dungeon_graph") != null:
+		return node
+	for c in node.get_children():
+		var found := _find_game_root(c)
+		if found != null:
+			return found
+	return null
 
 
 # ============================================================

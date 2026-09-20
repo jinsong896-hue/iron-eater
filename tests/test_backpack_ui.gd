@@ -85,8 +85,12 @@ func _test_enhance_flow() -> void:
 	_check(result.get("ok", false), "强化成功")
 	_check(helm.enhancement_level == 1, "强化等级 +1")
 	_check(GameManager.gold < 500, "强化扣金币（剩 %d）" % GameManager.gold)
-	await get_tree().process_frame
-	_check(ui._detail_meta.text.contains("强化 +1") or true, "详情含强化等级")
+	# 选中刚强化的头盔并刷详情，确认面板真的把强化等级写进去了。
+	# （此前这条是 `... or true` 的恒真断言，面板即使不刷新也照样绿灯。）
+	ui._selected = helm
+	ui._refresh_detail()
+	_check(ui._detail_meta.text.contains("强化 +1"), "详情含强化等级",
+		"实际=%s" % ui._detail_meta.text)
 
 
 ## 融合流程：同部位材料 → 融合成功；异部位 → 拒绝

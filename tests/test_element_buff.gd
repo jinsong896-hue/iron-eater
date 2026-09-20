@@ -80,7 +80,11 @@ func _test_element_defs() -> void:
 	_check(not ED.can_crit(ED.Elem.POISON), "毒不可暴击")
 	# 无视护甲：法术与真实部分
 	_check(ED.ignores_armor(ED.Elem.FIRE), "火无视护甲")
-	_check(not ED.ignores_armor(ED.Elem.EARTH) or true, "土为混合（物理+法术）")
+	# damage_type=mixed 的**法术部分**无视护甲 ⇒ `ignores_armor` 为 true。
+	# 物理部分不无视，那是 `can_crit`/伤害拆分的事，与本函数无关。
+	# （此前写成 `... or true` 的恒真断言，等于没测。）
+	_check(ED.ignores_armor(ED.Elem.EARTH), "土含法术部分（无视护甲为真）")
+	_check(ED.ignores_armor(ED.Elem.WIND), "风含法术部分（无视护甲为真）")
 
 
 ## ---------- 元素叠层与阈值触发 ----------
