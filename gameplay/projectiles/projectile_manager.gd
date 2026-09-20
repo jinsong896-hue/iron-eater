@@ -33,6 +33,18 @@ const EV_HIT := 0
 const EV_EXPLODE := 1
 const EV_EXPIRE := 2
 
+## 核产出的渲染缓冲：每实例 12 个 float（3×4 变换矩阵）。
+## **这是核的契约，两侧核实现一致**（C++ `projectile_core.cpp:fill_render_buffer`、
+## 降级侧 `projectile_sim_fallback.gd:get_render_buffer`），别改。
+const RENDER_STRIDE := 12
+## 本管理器 MultiMesh 的实例步长：12 个变换 + 4 个颜色 = 16。
+##
+## **必须与 `use_colors` 相符**：开了颜色通道实例就是 16 个 float，
+## 给 `multimesh.buffer` 赋 12 步长的数组会被 Godot 直接拒收
+##（"different size from the Multimesh's existing buffer"），
+## 表现为子弹一发都不显示 + 每帧一条错误日志。
+const INSTANCE_STRIDE := 16
+
 var sim: Node = null
 var mmi: MultiMeshInstance3D = null
 var active := 0
@@ -46,6 +58,12 @@ var _refs: Array = []
 ## 核只报 `has_zone` 布尔（它不关心区域参数），具体参数在这里存着。
 ## 用完即删（事件到达后清），避免长期占用。
 var _zone_specs: Dictionary = {}
+## 投射物 id → 元素枚举（供 `_color_of` 上色）。
+##
+## 核里也存了（`get_elem`），但那要每帧逐条发跨语言调用；
+## 元素一经生成就不变，故本地留一份。**在本表里按存活剪枝**，
+## 见 `_color_of`。
+var _bullet_elem: Dictionary = {}
 ## 最近一次 _spawn_zone 用的规格（供测试断言参数确实透传了）
 var _zone_spec: Dictionary = {}
 
@@ -70,14 +88,39 @@ func _setup_multimesh() -> void:
 	mmi.name = "Projectiles"
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	# **必须在 instance_count 之前开**：Godot 不允许在已有实例时切换
+	# custom_data / colors 开关（报 "Instance count must be 0 to toggle"）。
+	#
+	# 这里用 `use_colors` 而不是 `use_custom_data`，理由是**卡不卡取决于
+	# 开几个通道，而不是开哪一个**：开任意一个都会让实例步长变成 16，
+	# 与群体单位侧的缓冲布局一致，共用同一支 `unit_billboard.gdshader`。
+	# 顺带这个选择让核不用改——`get_render_buffer` 保持原样，颜色由
+	# GDScript 每帧按元素填（见 `_color_of`）。
+	mm.use_colors = true
 	mm.instance_count = CAPACITY
-	var mesh := SphereMesh.new()
-	mesh.radius = 0.5
-	mesh.height = 1.0
-	mm.mesh = mesh
+	# billboard 平面：顶点是**单位**尺寸，实际大小由核写进缓冲的缩放决定
+	#（核里是 `base_scale`，引信期会放大 1.4 倍）。
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.0, 1.0)
+	mm.mesh = quad
 	mmi.multimesh = mm
+	mmi.material_override = _build_bullet_material()
 	_multimesh = mm
 	add_child(mmi)
+
+
+## 造弹丸材质。
+##
+## **不用贴图**：图集里没有弹丸类小图（tiny-dungeon 的角色行只有单位），
+## 为子弹单独烤一张 1 格贴图不值得。用纯色 + 元素配色——
+## 配色直接复用 `Projectile.element_color()`，那是全项目既有的唯一真相源
+##（近战/旧投射物路径都用它），这里另起一套会立刻产生不一致。
+func _build_bullet_material() -> ShaderMaterial:
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://rendering/shaders/unit_billboard.gdshader")
+	mat.set_shader_parameter("use_instance_color", true)
+	mat.set_shader_parameter("contact_shadow", 0.0)
+	return mat
 
 
 func _ensure_player() -> void:
@@ -149,10 +192,51 @@ func _sync_targets() -> void:
 	sim.call("set_targets", targets, factions)
 
 
+## 把核的渲染缓冲搬进 MultiMesh，并补上颜色。
+##
+## **不能直接赋值**：核按每实例 12 个 float 产出（3×4 变换），而本 MultiMesh
+## 开了 `use_colors` ⇒ 每条实例 16 个 float。长度对不上，Godot 会报
+## "Cannot set a buffer on a Multimesh that is a different size" 并**整个丢弃**
+## 这次赋值——表现为子弹一发都不显示，且每帧刷一条错误日志。
+##
+## 所以这里做一次 12→16 的重排：逐条把 12 个变换 float 拷到前面，
+## 颜色写在末尾 4 个。2048 发弹幕下这是一次 32768 float 的拷贝，可忽略。
 func _sync_render() -> void:
 	if _multimesh == null:
 		return
-	_multimesh.buffer = sim.call("get_render_buffer")
+	var src: PackedFloat32Array = sim.call("get_render_buffer")
+	var dst := PackedFloat32Array()
+	dst.resize(CAPACITY * INSTANCE_STRIDE)
+	for i in CAPACITY:
+		var s := i * RENDER_STRIDE
+		var d := i * INSTANCE_STRIDE
+		for k in RENDER_STRIDE:
+			dst[d + k] = src[s + k]
+		var c := _color_of(i)
+		dst[d + 12] = c.r
+		dst[d + 13] = c.g
+		dst[d + 14] = c.b
+		dst[d + 15] = 1.0
+	_multimesh.buffer = dst
+
+
+## 取某条实例的弹丸颜色。
+##
+## 元素取自 `_bullet_elem`（`spawn_from_data` 时记下）而不是回头调核的
+## `get_elem(id)`：元素一经生成就不再变，每帧为每条存活子弹发一次跨语言
+## 调用纯属浪费。代价是本表要自己维护——所以这里顺手用 `is_alive` 剪掉
+## 已死的 id，否则这张表会随游戏时长无限涨（这是它唯一的泄漏口）。
+##
+## 配色复用 `Projectile.element_color()`——全项目既有的唯一真相源
+##（近战/旧投射物路径都用它），这里另起一套会立刻产生不一致。
+## 查不到元素的实例（如核内部生成的子母弹）留白，白色在深色场景里最显眼。
+func _color_of(id: int) -> Color:
+	if not _bullet_elem.has(id):
+		return Color.WHITE
+	if not bool(sim.call("is_alive", id)):
+		_bullet_elem.erase(id)
+		return Color.WHITE
+	return Projectile.element_color(ElementDamage.key_from_elem(int(_bullet_elem[id])))
 
 
 ## 消费事件：命中 / 爆炸 / 到期
@@ -436,7 +520,8 @@ func spawn_from_data(data: Dictionary, faction: String) -> int:
 	}))
 	if id >= 0:
 		active = int(sim.call("get_active_count"))
-		# 记下这发子弹的落地区域规格（事件回来时用）
+		# 记下这发子弹的元素（上色用）与落地区域规格（事件回来时用）
+		_bullet_elem[id] = elem_enum
 		if not zone.is_empty():
 			_zone_specs[id] = zone.duplicate()
 	return id

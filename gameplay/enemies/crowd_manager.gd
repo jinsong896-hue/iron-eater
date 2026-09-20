@@ -20,6 +20,18 @@ signal crowd_died(position: Vector3, is_elite: bool)
 ## 群体单位攻击玩家（供 room_controller 走正常受击结算）
 signal crowd_attacked(position: Vector3, damage: float)
 
+## 核产出的渲染缓冲：每实例 12 个 float（3×4 变换矩阵）。
+## **这是核的契约，两侧核实现一致**（C++ `crowd_sim.cpp:get_render_buffer`、
+## 降级侧 `crowd_sim_fallback.gd:get_render_buffer`），别改。
+const RENDER_STRIDE := 12
+## 本管理器 MultiMesh 的实例步长：12 个变换 + 4 个精灵格 = 16。
+##
+## **必须与 `use_custom_data` 相符**：开了 custom_data 实例就是 16 个 float，
+## 给 `multimesh.buffer` 赋 12 步长的数组会被 Godot 直接拒收
+##（"different size from the Multimesh's existing buffer"），
+## 表现为群体单位一只都不显示 + 每帧一条错误日志。
+const INSTANCE_STRIDE := 16
+
 ## 模拟核实例（真扩展或 GDScript 降级）
 var sim: Node = null
 ## MultiMesh 渲染节点
@@ -55,20 +67,46 @@ func _ready() -> void:
 
 ## 配置 MultiMesh：实例数固定 = 容量，未存活的靠"缩放写 0"隐藏
 ##（与批次 1 调试场景同方案，见 world/debug/crowd_sim_debug.gd）
+##
+## ## 精灵格怎么传给着色器
+## 核给的渲染缓冲每条实例只有 12 个 float（3×4 变换），**没有精灵格的位置**。
+## 精灵格走 MultiMesh 自带的 `custom_data`：开 `use_custom_data` 后每条实例
+## 变成 16 个 float，末尾 4 个自由使用（已实测确认偏移是 [12..15]）。
+##
+## 核的缓冲**长度对不上本 MultiMesh**（12 vs 16），故 `_sync_render` 里
+## 必须做一次 12→16 的重排，不能直接把核的数组赋给 `multimesh.buffer`。
 func _setup_multimesh() -> void:
 	mmi = MultiMeshInstance3D.new()
 	mmi.name = "Swarm"
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	# **必须在 instance_count 之前开**：Godot 不允许在已有实例时切换
+	# custom_data / colors 开关（报 "Instance count must be 0 to toggle"）。
+	mm.use_custom_data = true
 	mm.instance_count = _capacity
-	# 占位网格：后续接角色图集时换成 billboard QuadMesh
-	var mesh := CapsuleMesh.new()
-	mesh.radius = 0.3
-	mesh.height = 0.9
-	mm.mesh = mesh
+	# billboard 平面：顶点是**单位**尺寸，实际大小由核写进缓冲的缩放决定。
+	# 1.0 米见方 ≈ 一格（CELL_SIZE=1.0），与旧胶囊占位同量级。
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1.0, 1.0)
+	mm.mesh = quad
 	mmi.multimesh = mm
+	mmi.material_override = _build_billboard_material()
 	_multimesh = mm
 	add_child(mmi)
+
+
+## 造 billboard 材质。拿不到精灵表时返回 null——
+## 此时 MultiMesh 会用 QuadMesh 的默认白材质，单位显示为白方块，
+## 比整批不渲染好排查（至少能看到数量与位置是对的）。
+func _build_billboard_material() -> ShaderMaterial:
+	var tex := SpriteDefs.sheet()
+	if tex == null:
+		push_warning("CrowdManager：精灵表 %s 加载失败，单位退化为白色方块" % SpriteDefs.SHEET_PATH)
+		return null
+	var mat := ShaderMaterial.new()
+	mat.shader = load("res://rendering/shaders/unit_billboard.gdshader")
+	mat.set_shader_parameter("albedo_texture", tex)
+	return mat
 
 
 func _ensure_player() -> void:
@@ -196,10 +234,33 @@ func _physics_process(delta: float) -> void:
 
 
 ## 把模拟结果写进 MultiMesh（一次 buffer 拷贝，不逐实例 set_transform）
+##
+## **不能直接赋值**：核按每实例 12 个 float 产出（3×4 变换），而本 MultiMesh
+## 开了 `use_custom_data` ⇒ 每条实例 16 个 float。长度对不上时 Godot 会报
+## "Cannot set a buffer on a Multimesh that is a different size" 并**整个丢弃**
+## 这次赋值——表现为群体单位一只都不显示 + 每帧刷一条错误日志。
+##
+## 故这里做一次 12→16 的重排：逐条拷 12 个变换 float，精灵格写在末尾 4 个。
+## 2048 单位下这是一次 32768 float 的拷贝，可忽略。
 func _sync_render() -> void:
 	if _multimesh == null:
 		return
-	_multimesh.buffer = sim.call("get_render_buffer")
+	var src: PackedFloat32Array = sim.call("get_render_buffer")
+	var dst := PackedFloat32Array()
+	dst.resize(_capacity * INSTANCE_STRIDE)
+	for i in _capacity:
+		var s := i * RENDER_STRIDE
+		var d := i * INSTANCE_STRIDE
+		for k in RENDER_STRIDE:
+			dst[d + k] = src[s + k]
+		# 精灵格：只给存活单位写。死单位的缩放是 0（着色器会塌掉顶点），
+		# 写不写都画不出来，跳过省一次查表。
+		var rect := SpriteDefs.uv_rect_for_monster(_spawn_meta.get(i, {}))
+		dst[d + 12] = rect.x
+		dst[d + 13] = rect.y
+		dst[d + 14] = rect.z
+		dst[d + 15] = rect.w
+	_multimesh.buffer = dst
 
 
 ## 消费死亡/攻击事件。
