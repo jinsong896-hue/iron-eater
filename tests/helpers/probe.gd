@@ -438,8 +438,12 @@ func skill_system_cast_projectile(ss: Node, data: Dictionary) -> void:
 # 背包 UI —— 30 个（数量最多的宿主）
 # ============================================================
 
-## 当前选中项
-func ui_selected(ui: Node) -> Node:
+## 当前选中项（EquipmentInstance，**不是 Node**）
+##
+## **返回类型必须写宽**：写成 `Node` 时 Godot 会对不符的返回值**静默返回 null**
+## （不报错、不警告），调用方的断言就会莫名其妙地失败。
+## 本项目已多次被这类"类型撒谎"咬到，故此处一律用无类型返回。
+func ui_selected(ui: Node):
 	return ui.get("_selected")
 
 ## 置当前选中项
@@ -450,8 +454,8 @@ func set_ui_selected(ui: Node, item) -> void:
 func ui_slot_grid(ui: Node) -> Node:
 	return ui.get("_slot_grid")
 
-## 所有装备槽网格
-func ui_slot_grids(ui: Node) -> Array:
+## 所有装备槽网格（**Dictionary**：slot_id → BackpackItem，不是 Array）
+func ui_slot_grids(ui: Node) -> Dictionary:
 	return ui.get("_slot_grids")
 
 ## 背包网格
@@ -482,12 +486,12 @@ func ui_equip_page(ui: Node) -> Node:
 func ui_craft_page(ui: Node) -> Node:
 	return ui.get("_craft_page")
 
-## 融合材料来源
-func ui_fusion_source(ui: Node) -> Node:
+## 融合材料来源（EquipmentInstance，**不是 Node**——类型写窄会静默返回 null）
+func ui_fusion_source(ui: Node):
 	return ui.get("_fusion_source")
 
-## 多选状态
-func ui_multi(ui: Node) -> Array:
+## 多选状态（**Dictionary**：EquipmentInstance → true，不是 Array）
+func ui_multi(ui: Node) -> Dictionary:
 	return ui.get("_multi")
 
 ## 清空多选
@@ -559,8 +563,8 @@ func ui_on_slot_clicked(ui: Node, index: int) -> void:
 	ui.call("_on_slot_clicked", index)
 
 ## 回调：动作请求（统一入口）
-func ui_on_action_requested(ui: Node, action: String) -> void:
-	ui.call("_on_action_requested", action)
+func ui_on_action_requested(ui: Node, action: String, index: int) -> void:
+	ui.call("_on_action_requested", action, index)
 
 
 # ============================================================
