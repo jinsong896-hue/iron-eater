@@ -31,6 +31,9 @@ var _shop_stock_key := ""
 var shop: ShopController = null
 ## Boss 生成组件。在 `_ready()` 里经 `_setup_spawner()` 装配。
 var spawner: SpawnDirector = null
+## 刷怪编排组件（生成点收集 / 敌人与群体单位分流）。
+## 在 `_ready()` 里经 `_setup_spawner()` 装配——与 Boss 组件同批。
+var room_spawner: RoomSpawner = null
 ## 群体模拟管理器（只在有 swarm 怪的房间创建，见 _crowd()）
 var _crowd_mgr: CrowdManager = null
 ## 投射物模拟管理器（与群体管理器同生命周期）
@@ -48,15 +51,22 @@ func _ready() -> void:
 	_special_service = load("res://gameplay/dungeon/special_room_service.gd").new()
 	_setup_shop()
 	_setup_spawner()
-	_collect_nodes()
+	room_spawner.collect_nodes()
 
 
-## 装配 Boss 生成组件
+## 装配生成组件（Boss 生成族 + 刷怪编排）。
+##
+## 两个组件同批装配：Boss 分支与普通刷怪分支在 `activate()` 里二选一，
+## 拆成两个字段只是为了各自内聚，装配时机没有差别。
 func _setup_spawner() -> void:
 	spawner = SpawnDirector.new()
 	spawner.name = "SpawnDirector"
 	add_child(spawner)
 	spawner.setup(self)
+	room_spawner = RoomSpawner.new()
+	room_spawner.name = "RoomSpawner"
+	add_child(room_spawner)
+	room_spawner.setup(self)
 
 
 ## 装配特殊房业务组件。**必须在 _collect_nodes 之前**——本类的公开 API
@@ -68,46 +78,45 @@ func _setup_shop() -> void:
 	shop.setup(self)
 
 
-## 收集生成点（房间根下的 SpawnPoints 容器）与门节点（Doors 容器）
-## 只有真正的敌人标记才算刷怪点。
-## 修复：原先「非 boss_spawn 就当作刷怪点」会把 player_spawn / chest_spawn /
-## shop_npc / heal_shrine 一并收进来 —— 起始房于是刷出一只怪（刷在玩家脚下），
-## 宝箱房/特殊房也会多刷怪。白名单收口，其余标记一律忽略。
-const ENEMY_SPAWN_GROUPS := ["enemy_spawn", "elite_spawn"]
+# ============================================================
+# 刷怪编排转发（实现已拆到 RoomSpawner）
+# ============================================================
+#
+# **字段留在本类**（_spawn_points / _living_enemies / _crowd_mgr / _walls_fed）：
+# 清场（debug_clear_enemies）、死亡计数（on_enemy_died）、清空判定（_on_cleared）
+# 都要读它们，故组件按 room.xxx 访问。
+#
+# 以下转发保留公开名——测试与 SpawnDirector 直接按名调用。
 
 
+## 收集生成点与门节点（转发）
 func _collect_nodes() -> void:
-	var room_root := get_parent()
-	if room_root == null:
-		return
-
-	var spawns_node := room_root.get_node_or_null("SpawnPoints")
-	if spawns_node:
-		for child in spawns_node.get_children():
-			if not (child is Marker3D):
-				continue
-			var m := child as Marker3D
-			if m.is_in_group("boss_spawn"):
-				_boss_spawn = m
-			elif _is_enemy_spawn(m):
-				_spawn_points.append(m)
-
-	# 门在房间根下的 Doors 容器内（Door_* 命名）
-	var doors_node := room_root.get_node_or_null("Doors")
-	if doors_node:
-		for child in doors_node.get_children():
-			if child.name.begins_with("Door_"):
-				_doors.append(child)
-
-	is_boss_room = _boss_spawn != null or _room_type() == "boss"
+	room_spawner.collect_nodes()
 
 
-## 该标记是否为敌人刷怪点（白名单，避免把出生点/宝箱/交互物当成怪）
-func _is_enemy_spawn(marker: Marker3D) -> bool:
-	for g in ENEMY_SPAWN_GROUPS:
-		if marker.is_in_group(g):
-			return true
-	return false
+## 刷怪（转发）
+func _spawn_enemies() -> void:
+	room_spawner.spawn_enemies()
+
+
+## 该怪是否走群体模拟（转发）
+func _should_use_crowd(m: Dictionary, is_elite_room: bool) -> bool:
+	return room_spawner.should_use_crowd(m, is_elite_room)
+
+
+## 在指定生成点创建群体单位（转发）
+func _spawn_crowd_at(point: Marker3D, m: Dictionary, difficulty_mult: float) -> bool:
+	return room_spawner.spawn_crowd_at(point, m, difficulty_mult)
+
+
+## 在指定生成点创建节点式敌人（转发）
+func _spawn_enemy_at(point: Marker3D, difficulty_mult: float, m: Dictionary = {}) -> EnemyBase:
+	return room_spawner.spawn_enemy_at(point, difficulty_mult, m)
+
+
+## 当前层数（转发；SpawnDirector 也经本方法取）
+func _current_layer() -> int:
+	return room_spawner.current_layer()
 
 
 ## 激活房间（玩家进入）
@@ -414,47 +423,6 @@ func deactivate() -> void:
 ## `{"mechanic": mech}`——那是给未来引擎实现用的**登记键**，不是已实现行为。
 ## 于是每只怪都有非空 special，一刀切会把所有怪都拒掉（实测踩到）。
 ## 只有下面这些键代表"这只怪真的有行为机制"，必须留在 EnemyBase 节点上。
-const ENEMY_MECHANIC_KEYS := [
-	"death_poison", "death_explode", "death_split", "summon",
-	"stealth_always", "ambush", "slow_target_pct", "haste_self_pct",
-	"healcut_on_hit", "knockback_on_hit", "aura_spec", "shield_spec",
-	"pulse_slow", "enrage_below_pct", "teleport_spec", "ranged_spec",
-]
-
-
-## 该怪是否走群体模拟（而非 EnemyBase 节点）。
-##
-## 判据刻意保守——**只有明确标了 swarm 的基础怪**才走：
-##   · 精英一律走节点（词缀行为、视觉差异、掉落规则都在节点侧）
-##   · Boss 一律走节点（阶段机制）
-##   · 带**已实现机制**的怪走节点（自爆/分裂/召唤/隐身等在 EnemyBase 里）
-## 这样"搬走"的永远是行为最简单的近战追击型基础怪。
-##
-## **测试/调试开关** `CROWD_FORCE_SWARM`：置 true 时所有符合条件的
-## 基础怪都走群体模拟，不必逐个给 MonsterDB 条目加 swarm 标记。
-## 这让路由本身可被测试覆盖——否则"默认没有怪带 swarm"意味着
-## 这条路径永远测不到，等于没有防线。
-func _should_use_crowd(m: Dictionary, is_elite_room: bool) -> bool:
-	if is_elite_room or bool(m.get("is_elite", false)):
-		return false
-	if not (CROWD_FORCE_SWARM or bool(m.get("swarm", false))):
-		return false
-	# 带已实现机制的怪不搬（机制还没进模拟核）
-	if _has_enemy_mechanic(m):
-		return false
-	if _crowd() == null:
-		return false
-	return true
-
-
-## 该怪是否带引擎已实现的机制（→ 必须留在 EnemyBase 节点上）
-func _has_enemy_mechanic(m: Dictionary) -> bool:
-	var sp: Dictionary = m.get("special", {})
-	for key in ENEMY_MECHANIC_KEYS:
-		if sp.has(key):
-			return true
-	return false
-
 
 ## 本房的特效池（惰性创建，全房共用一个）。
 ##
@@ -540,156 +508,6 @@ func _on_crowd_died(pos: Vector3, _is_elite: bool) -> void:
 		_on_cleared()
 
 
-## 在指定生成点创建群体单位。返回是否成功。
-func _spawn_crowd_at(point: Marker3D, m: Dictionary, difficulty_mult: float) -> bool:
-	var mgr := _crowd()
-	if mgr == null:
-		return false
-	# **把本房墙体喂给模拟核**——否则群体单位没有墙的碰撞，
-	# 会被斥力一路挤出房间，玩家清不掉也追不上（实机症状：
-	# "敌人过多时被挤到边界外，游戏无法继续"）。
-	# 每房都要重设：切房后障碍全变了。
-	_feed_walls_to_crowd(mgr)
-	var hp := float(m.get("hp", 100.0)) * difficulty_mult
-	var speed := 4.0 * float(m.get("speed_pct", 50)) / 100.0
-	var pos := point.global_position
-	var id := mgr.spawn_unit(pos, hp, speed, 0.35, 1.0, m)
-	if id < 0:
-		return false
-	enemies_alive += 1
-	return true
-
-
-## 把本房墙体转成 AABB 喂给群体模拟核。
-##
-## 障碍格式：每 4 个 float 一组 = min_x, min_z, max_x, max_z（世界坐标）。
-## 房间 JSON 的墙是格子坐标 + 方向，每格 1 米（CELL_SIZE=1.0），
-## 故直接把格子边界当 AABB 用，不做缩放换算。
-##
-## 房间外墙若在 JSON 里没写全（部分模板只记了内墙），再补一圈房间边界，
-## 保证单位跑不出房间——这是"被挤出边界"的最后一道防线。
-func _feed_walls_to_crowd(mgr) -> void:
-	if mgr == null or _walls_fed:
-		return
-	_walls_fed = true
-	var out := PackedFloat32Array()
-	var d = room_data
-	if d == null:
-		return
-	# room_data 可能是原始 JSON 字典（game_root 传的是 jd），
-	# 也可能是 RoomData 对象（编辑器/测试路径）。两种都要支持。
-	var width := 0.0
-	var height := 0.0
-	var walls: Array = []
-	if d is Dictionary:
-		width = float((d as Dictionary).get("width", 0))
-		height = float((d as Dictionary).get("height", 0))
-		walls = (d as Dictionary).get("walls", [])
-	else:
-		width = float(d.get("width"))
-		height = float(d.get("height"))
-		var w = d.get("walls")
-		if w is Array:
-			walls = w
-	for w in walls:
-		var wx := float(w.get("x", 0))
-		var wy := float(w.get("y", 0))
-		# 墙占 1 格；向外扩 0.1 留厚度，避免高速单位在单帧内穿过
-		out.append(wx - 0.1)
-		out.append(wy - 0.1)
-		out.append(wx + 1.1)
-		out.append(wy + 1.1)
-	if width > 0.0 and height > 0.0:
-		# 房间四边各补一条厚墙：JSON 若漏记外墙，这是最后一道防线，
-		# 保证单位不会跑出房间（"被挤到边界外"的直接兜底）。
-		var t := 0.5
-		out.append(-t); out.append(-t); out.append(width + t); out.append(0.0)
-		out.append(-t); out.append(height); out.append(width + t); out.append(height + t)
-		out.append(-t); out.append(-t); out.append(0.0); out.append(height + t)
-		out.append(width); out.append(-t); out.append(width + t); out.append(height + t)
-	mgr.set_obstacles(out)
-
-
-## 生成敌人（70% 概率/点；怪物从 MonsterDB 第一层池按房间类型选）
-func _spawn_enemies() -> void:
-	if _spawn_points.is_empty():
-		return
-
-	var difficulty_mult := _difficulty_mult()
-	var gm = _game_manager()
-	var rng := RandomNumberGenerator.new()
-	if gm and gm.rng:
-		rng.seed = gm.rng.randi()
-	MonsterDB.init()
-
-	# 本层怪物池（分册 3.1：基础怪按阶段、独特怪只在本层及相邻层、第9层独立池）
-	var layer := _current_layer()
-
-	for point in _spawn_points:
-		if rng.randf() < 0.7:
-			var m: Dictionary
-			# 生成点带 monster_id meta 时用指定怪，否则按本层池加权随机
-			var custom_id := str(point.get_meta("monster_id", ""))
-			var is_elite_room := _room_type() == "elite" or str(point.get_meta("elite", "")) == "true"
-			if not custom_id.is_empty():
-				m = MonsterDB.get_monster(custom_id)
-			elif is_elite_room:
-				m = MonsterDB.random_elite_for_layer(layer, rng)
-			else:
-				m = MonsterDB.random_for_layer(layer, rng)
-			if m.is_empty():
-				continue
-			# 词缀按阶段与是否精英分配（分册第 7 章）
-			var phase: int = MonsterDB.PHASE_OF_LAYER.get(clampi(layer, 1, 9), 1)
-			var affix_ids := AffixDB.roll(phase, is_elite_room, rng)
-			if not affix_ids.is_empty():
-				AffixDB.apply(m, affix_ids)
-			# **swarm 分流**（海量单位优化）：MonsterDB 条目带 swarm:true 的
-			# 基础怪走 CrowdSim（C++ 模拟 + MultiMesh 渲染），其余（精英/
-			# 带机制怪/Boss）仍走 EnemyBase 节点。
-			#
-			# 默认没有任何怪带这个标记——路由能力就位但不改变现有行为，
-			# 真正启用是"给选定基础怪加 swarm 标记"这一数据决定。
-			# 这是刻意的分批迁移：第一版只搬"移动+碰撞+渲染"，
-			# 机制/词缀行为留给后续批次。
-			if _should_use_crowd(m, is_elite_room) and _spawn_crowd_at(point, m, difficulty_mult):
-				continue
-			var enemy := _spawn_enemy_at(point, difficulty_mult, m)
-			if enemy:
-				enemies_alive += 1
-				_living_enemies.append(enemy)
-
-
-## 当前层数（取不到时按第 1 层）
-func _current_layer() -> int:
-	var gm = _game_manager()
-	if gm == null:
-		return 1
-	var info = gm.get("run_info")
-	if info is Dictionary:
-		return int(info.get("floor", 1))
-	return 1
-
-
-## 在生成点创建敌人（应用 MonsterDB 配置 + 难度缩放）
-func _spawn_enemy_at(point: Marker3D, difficulty_mult: float, m: Dictionary = {}) -> EnemyBase:
-	var enemy := EnemyBase.new()
-	enemy.position = point.global_position
-	# 精英房刷出的怪标记为精英，掉落走 ELITE_DROP_CHANCE
-	if _room_type() == "elite" or str(point.get_meta("elite", "")) == "true":
-		enemy.is_elite = true
-	if not m.is_empty():
-		enemy.apply_monster_config(m)
-		# 难度缩放（在怪物基准数值之上）
-		enemy.max_hp *= difficulty_mult
-		enemy.atk *= difficulty_mult
-	else:
-		enemy.max_hp = 100.0 * difficulty_mult
-		enemy.atk = 10.0 * difficulty_mult
-		enemy.move_speed = 2.0
-	enemy.died.connect(on_enemy_died)
-	add_child(enemy)
-	return enemy
 
 
 ## 生成 Boss（按层从 BossDB 抽取——每层 7 个轮换，不同局不同）。
