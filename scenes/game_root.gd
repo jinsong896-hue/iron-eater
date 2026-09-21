@@ -48,6 +48,9 @@ var factory: RoomFactory = null
 ## 预建调度器（逐帧/一次性建房间，消切房卡顿）。
 ## 在 `_ready()` 里经 `_setup_factory()` 装配。
 var preloader: PreloadScheduler = null
+## 切房服务（门触发/防抖/重入保护/落点协调）。
+## 在 `_ready()` 里经 `_setup_factory()` 装配。
+var transition_svc: RoomTransitionService = null
 
 
 ## 在本场景内按名递归查找节点。
@@ -84,6 +87,10 @@ func _setup_factory() -> void:
 	preloader.name = "PreloadScheduler"
 	add_child(preloader)
 	preloader.setup(self)
+	transition_svc = RoomTransitionService.new()
+	transition_svc.name = "RoomTransitionService"
+	add_child(transition_svc)
+	transition_svc.setup(self)
 
 
 # ============================================================
@@ -103,6 +110,59 @@ func _register_templates() -> void:
 ## 构建房间节点（不入树；转发）
 func _build_room(idx: int) -> Node3D:
 	return factory.build_room(idx)
+
+
+# ============================================================
+# 切房服务转发（实现已拆到 RoomTransitionService）
+# ============================================================
+#
+# 这一族外部引用最多（测试大量按名直呼），故**全部保留同名转发**。
+# 实现与四道防线的说明见 gameplay/dungeon/room_transition_service.gd。
+
+
+## 门触发（转发；EventBus.door_opened 的订阅方）
+func _on_door_entered(direction: String, _door_id: String) -> void:
+	transition_svc.on_door_entered(direction, _door_id)
+
+
+## 按方向找邻接房（转发）
+func _find_room_in_direction(direction: String) -> int:
+	return transition_svc.find_room_in_direction(direction)
+
+
+## 切到目标房（转发）
+func _transition_to_room(target_idx: int, enter_direction: String = "") -> void:
+	transition_svc.transition_to_room(target_idx, enter_direction)
+
+
+## 把本房所有门临时标为「已触发」（转发）
+func _suppress_all_doors() -> void:
+	transition_svc.suppress_all_doors()
+
+
+## 解除门抑制（转发）
+func _release_suppressed_doors() -> void:
+	transition_svc.release_suppressed_doors()
+
+
+## 本房所有门触发器（转发）
+func _room_door_triggers() -> Array:
+	return transition_svc.room_door_triggers()
+
+
+## 让门短暂失效（转发）
+func _disarm_entry_door(enter_direction: String) -> void:
+	transition_svc.disarm_entry_door(enter_direction)
+
+
+## 玩家是否压在门触发器上（转发）
+func _player_touches_door(trig: Node) -> bool:
+	return transition_svc.player_touches_door(trig)
+
+
+## 激活当前房间控制器（转发）
+func _activate_current_room() -> void:
+	transition_svc.activate_current_room()
 
 
 func _ready() -> void:
@@ -439,187 +499,6 @@ func _current_floor_num() -> int:
 	return 1
 
 
-func _on_door_entered(direction: String, _door_id: String) -> void:
-	if not dungeon_generated:
-		return
-	# 全局防抖：刚切完房的一小段时间内忽略所有门信号。
-	# 落点靠近门、或奔跑时一帧位移大，都可能在同一帧/紧邻帧再次踩门；
-	# 旧房间的门要到帧末才销毁，也在此时仍可被触发 → 「进一格穿两房」。
-	# 单靠入口门自身的失效不够，这里再加一道与门无关的总闸。
-	var now := Time.get_ticks_msec() / 1000.0
-	if now - _last_transition_time < TRANSITION_COOLDOWN:
-		return
-	var target_idx := _find_room_in_direction(direction)
-	if target_idx < 0:
-		return
-	# 只在「门触发的切房」时启动防抖；程序性切房（下一层、测试直调）不启动，
-	# 否则会误伤正常玩法与测试里的连续切房
-	_last_transition_time = now
-	_transition_to_room(target_idx, direction)
-
-
-func _find_room_in_direction(direction: String) -> int:
-	var data := get_current_room_data()
-	if data.is_empty():
-		return -1
-	var current_pos: Vector2i = data.get("position", Vector2i.ZERO)
-	var dir_vec := Vector2i.ZERO
-	match direction:
-		"north": dir_vec = Vector2i(0, -1)
-		"south": dir_vec = Vector2i(0, 1)
-		"west":  dir_vec = Vector2i(-1, 0)
-		"east":  dir_vec = Vector2i(1, 0)
-	var target_pos := current_pos + dir_vec
-	for i in dungeon_graph.size():
-		var pos: Vector2i = dungeon_graph[i].get("position", Vector2i.ZERO)
-		if pos == target_pos:
-			return i
-	return -1
-
-
-func _transition_to_room(target_idx: int, enter_direction: String = "") -> void:
-	if target_idx == current_room_index:
-		return
-	# 重入保护：一次触发只切一次房。
-	# 旧房间的门在本帧内仍然活着（queue_free 要到帧末），落点又靠近门，
-	# 没有这道闸门时同一帧可能被第二扇门再触发一次 → 「进一格却穿两房」。
-	if _is_transitioning:
-		return
-	_is_transitioning = true
-
-	# 离开当前房间
-	if current_room_node:
-		var ctrl := current_room_node.get_node_or_null("RoomController")
-		if ctrl and ctrl is RoomController:
-			(ctrl as RoomController).deactivate()
-
-	# 销毁旧房间
-	if current_room_node:
-		current_room_node.queue_free()
-		current_room_node = null
-
-	# 更新索引
-	current_room_index = target_idx
-
-	# 加载新房间
-	load_current_room()
-	_activate_current_room()
-	# 顺序关键：**先把门标记为已触发，再放玩家**。
-	# Godot 在 Area3D 进树时会对「已与其重叠的 body」派发 body_entered。
-	# 若先放玩家、出生点又恰在某扇门的触发区内，信号会在我们能禁用之前就发出去
-	# → 切房连锁（实测：期望房10 实际房8，玩家落在 (11,0,2) 的出生点、并不在门旁）。
-	# _is_transitioning 只挡同一次调用的重入，跨调用无效，挡不住这个。
-	_suppress_all_doors()
-	_place_player(enter_direction)
-	_release_suppressed_doors()
-	# 再按落点收尾：只禁玩家真正压着的那扇（保留回头路）
-	_disarm_entry_door(enter_direction)
-
-	_is_transitioning = false
-
-
-## 把本房所有门临时标为「已触发」，挡住 Area3D 进树时对重叠 body 的派发。
-## 必须配合 _release_suppressed_doors()：否则门会一直哑掉，正常穿门失灵。
-func _suppress_all_doors() -> void:
-	for trig in _room_door_triggers():
-		trig.set("_triggered", true)
-
-
-## 解除抑制，但**保留玩家当前压着的那扇**（否则会被重叠派发再次触发）
-func _release_suppressed_doors() -> void:
-	for trig in _room_door_triggers():
-		if not _player_touches_door(trig):
-			if trig.has_method("reset_trigger"):
-				trig.call("reset_trigger")
-
-
-## 本房所有门触发器
-func _room_door_triggers() -> Array:
-	var out: Array = []
-	if current_room_node == null:
-		return out
-	var doors_node := current_room_node.get_node_or_null("Doors")
-	if doors_node == null:
-		return out
-	for door in doors_node.get_children():
-		if not str(door.name).begins_with("Door_"):
-			continue
-		var trig = door.get_node_or_null("DoorTrigger")
-		if trig != null:
-			out.append(trig)
-	return out
-
-	_is_transitioning = false
-
-
-## 让门短暂失效，避免玩家落点踩门导致连锁切房。
-##
-## 两种落点都会踩门，必须都覆盖：
-##  ① 穿门切房：落点在本房入口门内侧（DOOR_ENTRY_OFFSET=2.0，不重叠），
-##     但为稳妥仍把入口那扇禁用。
-##  ② **无方向切房**（开局 / 传送门 / 直接调用）：走 player_spawn 分支，
-##     而绝大多数模板的 player_spawn 距南门只有 1 格——门在**格边缘**
-##     （world z = 格子 +0.5），触发器 Z 跨度 ±0.75，于是出生点实际**落在
-##     触发器内**（重叠约 0.25m）。若本房恰有南邻，门立刻触发 → 连传两格。
-##     （只有有南邻时才会连，故表现为偶发）
-##
-## 判定用**几何**而非 get_overlapping_bodies()：刚设置完 player 位置的
-## 那一帧，Area3D 的重叠列表还没更新（要等物理帧），用重叠检测会漏判。
-func _disarm_entry_door(enter_direction: String) -> void:
-	if current_room_node == null:
-		return
-	var doors_node := current_room_node.get_node_or_null("Doors")
-	if doors_node == null:
-		return
-
-	var entry_dir := "" if enter_direction.is_empty() else _opposite_dir(enter_direction)
-	for door in doors_node.get_children():
-		if not str(door.name).begins_with("Door_"):
-			continue
-		var trig = door.get_node_or_null("DoorTrigger")
-		if trig == null or not trig.has_method("disarm_until_clear"):
-			continue
-		# 禁用条件：玩家正压在门上（任何情况都要），或有方向时的入口那扇。
-		# 注意**不要**在无方向时无差别禁用全部门——那会挡掉紧随其后的合法切房。
-		var touching: bool = _player_touches_door(trig)
-		var is_entry: bool = entry_dir != "" and str(trig.get("direction")) == entry_dir
-		if not touching and not is_entry:
-			continue
-		trig.call("disarm_until_clear")
-
-
-## 玩家是否压在某个门触发器上（在触发器局部空间做盒判定，自动兼容门朝向）
-## 触发器尺寸 2×3×1.5（半长 1.0 / 1.5 / 0.75），放宽容差。
-## 玩家是否压在某个门触发器上（在触发器局部空间做盒判定，自动兼容门朝向）。
-##
-## **容差必须 ≥ 物理重叠包络**，否则会漏判：
-##   物理包络 = 触发盒半长 + 玩家胶囊半径 = x ±(1.0+0.5) / z ±(0.75+0.5)
-##            = x ±1.5 / z ±1.25
-## 原先取的是 x±1.3 / z±1.05（比物理窄 0.2 米），留下的**缝隙带**会导致：
-## 落点物理上压着门（Area3D 会派发 body_entered）、几何上却判"没碰"
-## → _release_suppressed_doors 把这扇门 reset 释放 → 下一物理帧
-## 幽灵派发穿透 → 连锁切房（表现为 room_flow 偶发「期望房 N 实际房 M」）。
-## 这与 door_trigger 里的几何复核是同一个包络口径，两处必须一致。
-const DOOR_TOUCH_HALF_X := 1.5
-const DOOR_TOUCH_HALF_Z := 1.25
-
-
-func _player_touches_door(trig: Node) -> bool:
-	if player == null or not is_instance_valid(player):
-		return false
-	if not (trig is Node3D):
-		return false
-	var t := trig as Node3D
-	var local: Vector3 = t.global_transform.affine_inverse() * player.global_position
-	return absf(local.x) <= DOOR_TOUCH_HALF_X and absf(local.z) <= DOOR_TOUCH_HALF_Z
-
-
-func _activate_current_room() -> void:
-	if current_room_node == null:
-		return
-	var ctrl := current_room_node.get_node_or_null("RoomController")
-	if ctrl and ctrl is RoomController:
-		(ctrl as RoomController).activate()
 
 
 # ============================================================
