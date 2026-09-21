@@ -13,6 +13,9 @@ extends Node
 ##
 ## 运行：godot --headless --path . res://tests/test_crowd_affix.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 ## 测试用的房间控制器（群体管理器的宿主）
 var ctrl = null
@@ -43,7 +46,7 @@ func _ready() -> void:
 		print("CROWD AFFIX TESTS FAILED: 找不到 RoomController")
 		get_tree().quit(1)
 		return
-	crowd = ctrl.call("_crowd")
+	crowd = probe.ctrl_crowd(ctrl)
 	if crowd == null:
 		print("CROWD AFFIX TESTS FAILED: CrowdManager 不可用（两条后端都缺）")
 		get_tree().quit(1)
@@ -151,7 +154,7 @@ func _test_lifesteal() -> void:
 	# 先打掉 50 血，留出回血空间
 	crowd.call("damage_unit", id, 50.0, null, Vector3.ZERO)
 	var before := float(crowd.call("unit_hp", id))
-	crowd.call("_apply_lifesteal", id, 40.0)
+	probe.apply_lifesteal(crowd, id, 40.0)
 	var after := float(crowd.call("unit_hp", id))
 	# 20% × 40 = 8
 	_check(absf((after - before) - 8.0) < 0.01,
@@ -205,7 +208,7 @@ func _test_burn_on_player() -> void:
 	# 按 id 逐个移除（元素层数是另一套存储，这里用不到）。
 	for bid in tb.call("active_ids"):
 		tb.call("remove", str(bid))
-	crowd.call("_apply_on_hit_affixes", id, Vector3.ZERO)
+	probe.apply_on_hit_affixes(crowd, id, Vector3.ZERO)
 	_check(int(tb.call("stacks_of", "burn")) > 0, "命中给玩家挂上灼烧")
 	_check(int(tb.call("stacks_of", "frost")) > 0, "命中给玩家叠上寒霜")
 	for bid in tb.call("active_ids"):
@@ -240,7 +243,7 @@ func _test_void_swap() -> void:
 	var plan: Dictionary = store.plan_swap(p, unit_before)
 	_check(not plan.is_empty(), "虚空换位计划非空（距离 %.2f，上限 10）"
 		% unit_before.distance_to(player_pos))
-	crowd.call("_apply_on_hit_affixes", id, Vector3.ZERO)
+	probe.apply_on_hit_affixes(crowd, id, Vector3.ZERO)
 	var unit_after: Vector3 = crowd.call("unit_position", id)
 	var p_after: Vector3 = (p as Node3D).global_position
 	_check(unit_after.distance_to(player_pos) < 1.5,
@@ -368,9 +371,9 @@ func _test_room_routing_end_to_end() -> void:
 		if m.is_empty():
 			continue
 		AffixDB.apply(m, ["revenge", "immortal"])
-		if ctrl.call("_should_use_crowd", m, false):
+		if probe.ctrl_should_use_crowd(ctrl, m, false):
 			total += 1
-			if ctrl.call("_spawn_crowd_at", point, m, 1.0):
+			if probe.ctrl_spawn_crowd_at(ctrl, point, m, 1.0):
 				# 刚生成的那个 id 就是池里最新的活跃单位
 				var id := _last_alive_id()
 				if id >= 0 and crowd.call("affixes_of", id) != null:

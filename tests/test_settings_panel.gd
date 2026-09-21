@@ -2,6 +2,9 @@ extends Node
 ## 设置面板测试：打开/关闭/暂停接管/模态/自动拾取开关持久化
 ## 运行：godot --headless --path E:\unity --scene res://tests/test_settings_panel.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 
 @onready var panel: Control = $SettingsPanel
@@ -106,7 +109,7 @@ func _test_tabs() -> void:
 func _test_pause_menu_settings_button() -> void:
 	pause_menu.visible = true
 	panel.visible = false
-	pause_menu._on_settings()
+	probe.pause_menu_on_settings(pause_menu)
 	await get_tree().process_frame
 	_check(panel.visible, "暂停菜单「设置」打开面板")
 	_check(not pause_menu.visible, "面板打开时暂停菜单让位")

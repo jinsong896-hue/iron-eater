@@ -2,6 +2,9 @@ extends Node
 ## 回归测试：①连锁切房 ②伤害数字链路 ③设置开关生效
 ## 运行：godot --headless --path E:\unity --scene res://tests/test_gameplay_fixes2.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 var _popups: Array = []
 
@@ -49,7 +52,7 @@ func _test_no_chain_transition(gr) -> void:
 	for i in gr.dungeon_graph.size():
 		if str(gr.dungeon_graph[i].get("type", "")) == "start":
 			start_idx = i; break
-	gr._transition_to_room(start_idx)
+	probe.gr_transition_to_room(gr, start_idx)
 	await get_tree().process_frame
 
 	var player = gr.find_child("Player", true, false)
@@ -58,20 +61,20 @@ func _test_no_chain_transition(gr) -> void:
 	# 届时不能再访问旧门节点。
 	var door_dir := ""
 	var door_pos := Vector3.ZERO
-	for d in ctrl._doors:
+	for d in probe.ctrl_doors(ctrl):
 		var t = d.get_node_or_null("DoorTrigger")
-		if t and not t.is_locked and gr._find_room_in_direction(str(t.direction)) >= 0:
+		if t and not t.is_locked and probe.gr_find_room_in_direction(gr, str(t.direction)) >= 0:
 			door_dir = str(t.direction)
 			door_pos = (d as Node3D).global_position
 			break
 	if door_dir.is_empty():
 		_check(false, "找到可通行的门")
 		return
-	var entry_dir: String = gr._opposite_dir(door_dir)
+	var entry_dir: String = probe.gr_opposite_dir(gr, door_dir)
 
 	# 用真实物理把玩家推进门内
 	var before: int = gr.current_room_index
-	var inward: Vector3 = -gr._dir_vector(door_dir)
+	var inward: Vector3 = -probe.gr_dir_vector(gr, door_dir)
 	player.global_position = door_pos + inward * 0.3
 	for i in 20:
 		await get_tree().physics_frame
@@ -88,7 +91,7 @@ func _test_no_chain_transition(gr) -> void:
 	var nc = gr.current_room_node.get_node_or_null("RoomController")
 	if nc:
 		var entry_trig = null
-		for d in nc._doors:
+		for d in probe.ctrl_doors(nc):
 			var t = d.get_node_or_null("DoorTrigger")
 			if t and str(t.direction) == entry_dir:
 				entry_trig = t
@@ -105,7 +108,7 @@ func _test_no_chain_transition(gr) -> void:
 			bus2.door_opened.connect(cb)
 
 			entry_trig.call("disarm_until_clear")
-			entry_trig.call("_on_body_entered", player)
+			probe.door_trigger_body_entered(entry_trig, player)
 			await get_tree().process_frame
 			_check(fired.is_empty(), "失效期间门被踩也不触发切房")
 			_check(gr.current_room_index == after_first, "失效期间房间未变")
@@ -116,7 +119,7 @@ func _test_no_chain_transition(gr) -> void:
 	# 注意先手动把时间戳设为"刚刚切过房"，否则前面等待的物理帧已让窗口过期。
 	var room_now: int = gr.current_room_index
 	gr.set("_last_transition_time", Time.get_ticks_msec() / 1000.0)
-	gr._on_door_entered("north", "x")
+	probe.gr_on_door_entered(gr, "north", "x")
 	await get_tree().process_frame
 	_check(gr.current_room_index == room_now,
 		"防抖窗口内门信号被忽略（仍为 %d）" % gr.current_room_index)
@@ -126,13 +129,13 @@ func _test_no_chain_transition(gr) -> void:
 	var target_dir := ""
 	var ctrl_t = gr.current_room_node.get_node_or_null("RoomController")
 	if ctrl_t:
-		for d in ctrl_t._doors:
+		for d in probe.ctrl_doors(ctrl_t):
 			var t = d.get_node_or_null("DoorTrigger")
-			if t and not t.is_locked and gr._find_room_in_direction(str(t.direction)) >= 0:
+			if t and not t.is_locked and probe.gr_find_room_in_direction(gr, str(t.direction)) >= 0:
 				target_dir = str(t.direction)
 				break
 	if target_dir != "":
-		gr._on_door_entered(target_dir, "y")
+		probe.gr_on_door_entered(gr, target_dir, "y")
 		await get_tree().process_frame
 		_check(gr.current_room_index != room_now, "窗口过期后门恢复正常切换")
 
@@ -141,9 +144,9 @@ func _test_no_chain_transition(gr) -> void:
 	if ctrl2:
 		var d_dir := ""
 		var d_pos := Vector3.ZERO
-		for d in ctrl2._doors:
+		for d in probe.ctrl_doors(ctrl2):
 			var t = d.get_node_or_null("DoorTrigger")
-			if t and not t.is_locked and gr._find_room_in_direction(str(t.direction)) >= 0:
+			if t and not t.is_locked and probe.gr_find_room_in_direction(gr, str(t.direction)) >= 0:
 				d_dir = str(t.direction)
 				d_pos = (d as Node3D).global_position
 				break
@@ -151,10 +154,10 @@ func _test_no_chain_transition(gr) -> void:
 			# 等过防抖窗口
 			await get_tree().create_timer(0.35).timeout
 			var r_before: int = gr.current_room_index
-			player.global_position = d_pos - gr._dir_vector(d_dir) * 0.4
+			player.global_position = d_pos - probe.gr_dir_vector(gr, d_dir) * 0.4
 			# 奔跑速度持续推向门（模拟按住冲刺）
 			for i in 12:
-				player.velocity = gr._dir_vector(d_dir) * 8.0
+				player.velocity = probe.gr_dir_vector(gr, d_dir) * 8.0
 				await get_tree().physics_frame
 			var r_after: int = gr.current_room_index
 			for i in 20:
@@ -235,10 +238,10 @@ func _test_damage_setting_toggle(gr) -> void:
 	var r = renderers[0]
 
 	sm.set_setting("show_damage_numbers", true)
-	_check(bool(r.call("_damage_numbers_enabled")), "开启时 _damage_numbers_enabled = true")
+	_check(probe.damage_numbers_enabled(r), "开启时 _damage_numbers_enabled = true")
 
 	sm.set_setting("show_damage_numbers", false)
-	_check(not bool(r.call("_damage_numbers_enabled")), "关闭时 _damage_numbers_enabled = false")
+	_check(not probe.damage_numbers_enabled(r), "关闭时 _damage_numbers_enabled = false")
 
 	# 关闭状态下发信号，渲染器不应新增飘字
 	var before_count: int = int(r.get("_count")) if r.get("_count") != null else 0
@@ -266,7 +269,7 @@ func _test_room_build_is_merged(gr) -> void:
 	if target < 0:
 		_check(false, "有可切换的房间")
 		return
-	gr._transition_to_room(target)
+	probe.gr_transition_to_room(gr, target)
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -367,15 +370,15 @@ func _test_slash_reuses_resources(gr) -> void:
 
 	# 打多种招式：普攻 4 段（含金色终结技）+ 奔跑冲撞 + 跳跃落地斩
 	for i in 12:
-		player._attack_timer = 0.0
-		player._current_attack_cooldown = 0.0
-		player._start_normal_attack()
+		probe.set_attack_timer(player, 0.0)
+		probe.set_current_attack_cooldown(player, 0.0)
+		probe.start_normal_attack(player)
 		await get_tree().process_frame
-	player._attack_timer = 0.0
-	player._current_attack_cooldown = 0.0
-	player._spawn_slash_visual(2.0, deg_to_rad(60.0), Color(1.0, 0.45, 0.15, 0.5))
-	player._spawn_slash_visual(3.0, PI, Color(0.4, 0.9, 1.0, 0.5))
-	player._spawn_slash_visual(2.5, deg_to_rad(55.0), Color(1.0, 0.8, 0.2, 0.55))
+	probe.set_attack_timer(player, 0.0)
+	probe.set_current_attack_cooldown(player, 0.0)
+	probe.spawn_slash_visual(player, 2.0, deg_to_rad(60.0), Color(1.0, 0.45, 0.15, 0.5))
+	probe.spawn_slash_visual(player, 3.0, PI, Color(0.4, 0.9, 1.0, 0.5))
+	probe.spawn_slash_visual(player, 2.5, deg_to_rad(55.0), Color(1.0, 0.8, 0.2, 0.55))
 	await get_tree().process_frame
 
 	# 统计场上挥砍节点的材质去重数
@@ -394,9 +397,9 @@ func _test_slash_reuses_resources(gr) -> void:
 
 	# 连打 40 次后，材质实例数不应随之增长（验证确实是复用而非每次新建）
 	for i in 40:
-		player._attack_timer = 0.0
-		player._current_attack_cooldown = 0.0
-		player._start_normal_attack()
+		probe.set_attack_timer(player, 0.0)
+		probe.set_current_attack_cooldown(player, 0.0)
+		probe.start_normal_attack(player)
 		await get_tree().process_frame
 	var seen2 := {}
 	for ch in player.get_parent().get_children():
@@ -460,12 +463,12 @@ func _test_room_preload(gr) -> void:
 	# 命中缓存的切房：必须能正常挂载且落点正确
 	var target := -1
 	for i in gr.dungeon_graph.size():
-		if gr._room_cache.has(i) and i != gr.current_room_index:
+		if probe.gr_room_cache(gr).has(i) and i != gr.current_room_index:
 			target = i
 			break
 	_check(target >= 0, "有可用的缓存房间")
 	if target >= 0:
-		gr._transition_to_room(target, "")
+		probe.gr_transition_to_room(gr, target, "")
 		_check(gr.current_room_index == target, "命中缓存的切房落点正确")
 		if gr.current_room_node != null:
 			_check(gr.current_room_node.is_inside_tree(), "缓存房间已挂载入树")

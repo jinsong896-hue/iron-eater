@@ -3,6 +3,9 @@ extends Node
 ## 验证分册第 3/4/5/7 章的数据与运行时行为。
 ## 全部纯逻辑（BuffHolder 不需要场景树），便于回归。
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 var _test := ""
 
@@ -775,18 +778,18 @@ func _test_monster_mechanics() -> void:
 	_check(absf(e.armor_break_at - 300.0) < 0.001, "护甲碎裂阈值 300")
 
 	# 护甲减伤生效：100 伤害只吃 70
-	e._hp = 1000.0
+	probe.set_enemy_hp(e, 1000.0)
 	e.take_damage(100.0)
-	_check(absf(e._hp - 930.0) < 0.5, "护甲减伤 30%（1000-70=930）", [str(e._hp)])
+	_check(absf(probe.enemy_hp(e) - 930.0) < 0.5, "护甲减伤 30%（1000-70=930）", [str(probe.enemy_hp(e))])
 
 	# 累计伤害达 300 后护甲碎裂
 	for _i in 5:
 		e.take_damage(100.0)
 	_check(e.armor_plates == 0.0, "累计受伤达阈值后护甲碎裂（减伤失效）",
 		[str(e.armor_plates)])
-	var hp_before: float = e._hp
+	var hp_before: float = probe.enemy_hp(e)
 	e.take_damage(100.0)
-	_check(absf((hp_before - e._hp) - 100.0) < 0.5, "碎裂后全额受伤（无减伤）")
+	_check(absf((hp_before - probe.enemy_hp(e)) - 100.0) < 0.5, "碎裂后全额受伤（无减伤）")
 
 	# 虚无守卫：每受击 +5% 攻击，最多 10 层
 	var g = EB.new()
@@ -872,15 +875,15 @@ func _test_projectile_mechanics() -> void:
 	_check(absf(bomb.fuse - 3.0) < 0.01, "引信 3 秒（分册 2-12 轨道投弹手）",
 		[str(bomb.fuse)])
 	_check(absf(bomb.explode_radius - 2.5) < 0.01, "爆炸半径 2.5")
-	_check(not bomb._fuse_armed, "初始未进入引信阶段")
+	_check(not probe.bomb_fuse_armed(bomb), "初始未进入引信阶段")
 	bomb.queue_free()
 
 	# 命中目标过滤：玩家侧投射物只打 enemies 组
 	var pe: Node3D = P.spawn({"direction": Vector3.FORWARD, "damage": 10.0}, host, P.TARGET_ENEMY)
-	_check(pe._owner_faction == "enemies", "玩家投射物目标组 = enemies")
+	_check(probe.owner_faction(pe) == "enemies", "玩家投射物目标组 = enemies")
 	pe.queue_free()
 	var pp: Node3D = P.spawn({"direction": Vector3.FORWARD, "damage": 10.0}, host, P.TARGET_PLAYER)
-	_check(pp._owner_faction == "player", "怪物投射物目标组 = player（此前打不到玩家）")
+	_check(probe.owner_faction(pp) == "player", "怪物投射物目标组 = player（此前打不到玩家）")
 	pp.queue_free()
 
 	# 兼容入口：ProjectileSystem 仍可用且走同一实现
@@ -984,7 +987,7 @@ func _test_projectile_advanced() -> void:
 
 	var before := host.get_child_count()
 	# 直接触发命中分裂（不经物理，避免依赖真实碰撞）
-	p._spawn_split()
+	probe.projectile_spawn_split(p)
 	var after := host.get_child_count()
 	_check(after > before, "命中分裂出小弹（%d → %d）" % [before, after])
 
@@ -992,7 +995,7 @@ func _test_projectile_advanced() -> void:
 	var child = host.get_child(before)
 	_check(absf(float(child.damage) - 50.0) < 0.01, "小弹伤害 = 本体 50%",
 		[str(child.damage)])
-	_check(child._owner_faction == PJ.TARGET_PLAYER, "小弹继承阵营（仍打玩家）")
+	_check(probe.owner_faction(child) == PJ.TARGET_PLAYER, "小弹继承阵营（仍打玩家）")
 	_check(int(child.bounces) == 0 and int(child.pierce_count) == 0,
 		"小弹不继承弹射/穿透（避免爆炸式增长）")
 
@@ -1003,7 +1006,7 @@ func _test_projectile_advanced() -> void:
 	}, host, PJ.TARGET_PLAYER)
 	_check(not (p2.zone_on_land as Dictionary).is_empty(), "命中留区域已配置")
 	var zones_before := get_tree().get_nodes_in_group("damage_zones").size()
-	p2._spawn_land_zone()
+	probe.projectile_spawn_land_zone(p2)
 	var zones_after := get_tree().get_nodes_in_group("damage_zones").size()
 	_check(zones_after > zones_before, "命中后生成区域（%d → %d）" % [zones_before, zones_after])
 

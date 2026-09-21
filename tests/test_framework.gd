@@ -9,6 +9,12 @@ var _failed := 0
 var _passed := 0
 var _current_test := ""
 
+## 私有成员访问一律经 TestProbe（重构搬方法时只改 probe，本文件零改动）。
+##
+## **必须用 load() 而不是 class_name**：本套件跑在 `--script` 模式下，
+## 该模式不注册全局类缓存，直接写 `TestProbe.new()` 会解析失败。
+var probe = load("res://tests/helpers/probe.gd").new()
+
 
 ## 测试入口。
 ## 注意：必须用 _ready 而非 _init —— _init 不是协程上下文，
@@ -2301,7 +2307,7 @@ func test_dungeon_generation_rules() -> void:
 	g.generate(12345)
 	# 总房间数 = 13（隐藏房计入配额：连通房 11 + 隐藏房 2，见 generate 注释）
 	_check(g.rooms.size() == 13, "生成 13 房间（含隐藏房配额）", [g.rooms.size()])
-	var d0: Dictionary = g._bfs_distances(g.start_room_index)
+	var d0: Dictionary = probe.gen_bfs_distances(g, g.start_room_index)
 	_check(int(d0.get(g.start_room_index, -1)) == 0, "起点到自身距离 0")
 	# 相邻房间距离必为 1
 	var adj: Array = g.get_adjacent_rooms(g.start_room_index)
@@ -2334,8 +2340,8 @@ func test_dungeon_generation_rules() -> void:
 		gen.min_rooms = 13
 		gen.max_rooms = 13
 		gen.generate(s)
-		var ds: Dictionary = gen._bfs_distances(gen.start_room_index)
-		var db: Dictionary = gen._bfs_distances(gen.boss_room_index)
+		var ds: Dictionary = probe.gen_bfs_distances(gen, gen.start_room_index)
+		var db: Dictionary = probe.gen_bfs_distances(gen, gen.boss_room_index)
 		# 排除 Boss（它按规则必须占最深处）后，从起点可达的最远距离
 		# 宝藏是特殊房里第一个被放置的，应当拿到这个最深位置
 		var deepest_non_boss := 0
@@ -2413,7 +2419,7 @@ func test_weighted_loot() -> void:
 	var N := 20000
 	var counts := {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
 	for i in N:
-		var r: int = loot._roll_rarity(1)
+		var r: int = probe.loot_roll_rarity(loot, 1)
 		counts[r] = int(counts.get(r, 0)) + 1
 	var expected := [57.0, 26.0, 11.0, 4.0, 2.0, 0.0]
 	for r in 5:
@@ -2428,11 +2434,11 @@ func test_weighted_loot() -> void:
 	var high_high := 0
 	var M := 20000
 	for i in M:
-		var r: int = loot._roll_rarity(1)
+		var r: int = probe.loot_roll_rarity(loot, 1)
 		if r >= 2:
 			high_low += 1
 	for i in M:
-		var r2: int = loot._roll_rarity(9)
+		var r2: int = probe.loot_roll_rarity(loot, 9)
 		if r2 >= 2:
 			high_high += 1
 	_check(high_high > high_low, "第 9 层高稀有度占比高于第 1 层",
@@ -2448,30 +2454,30 @@ func test_weighted_loot() -> void:
 	# 症状：后期"击杀一个敌人就掉落过量装备"。层数越高房间/怪密度越大，
 	# 恒定掉落率的乘积会让每层到手装备量随层数膨胀，背包长期爆满。
 	# 不变量：掉落概率必须随层数单调不增，且有下限防止后期完全断供。
-	var c1: float = loot._floor_decayed_chance(GameBalance.BASE_DROP_CHANCE, 1)
-	var c5: float = loot._floor_decayed_chance(GameBalance.BASE_DROP_CHANCE, 5)
-	var c9: float = loot._floor_decayed_chance(GameBalance.BASE_DROP_CHANCE, 9)
+	var c1: float = probe.loot_floor_decayed_chance(loot, GameBalance.BASE_DROP_CHANCE, 1)
+	var c5: float = probe.loot_floor_decayed_chance(loot, GameBalance.BASE_DROP_CHANCE, 5)
+	var c9: float = probe.loot_floor_decayed_chance(loot, GameBalance.BASE_DROP_CHANCE, 9)
 	_check(absf(c1 - GameBalance.BASE_DROP_CHANCE) < 0.0001,
 		"第 1 层掉落率不衰减（%.3f）" % c1)
 	_check(c5 < c1 and c9 < c5, "掉落率随层单调递减（%.3f → %.3f → %.3f）" % [c1, c5, c9])
 	_check(c9 >= GameBalance.DROP_CHANCE_MIN, "掉落率不低于下限（%.3f）" % c9)
-	var ce9: float = loot._floor_decayed_chance(GameBalance.ELITE_DROP_CHANCE, 9)
+	var ce9: float = probe.loot_floor_decayed_chance(loot, GameBalance.ELITE_DROP_CHANCE, 9)
 	_check(ce9 > c9, "精英掉落率仍高于杂兵（%.3f > %.3f）" % [ce9, c9])
 
 	# --- Boss 保底 ---
-	_check(loot._boss_pity_rarity(1) == ED.Rarity.ORANGE, "第 1 层 Boss 保底橙装")
-	_check(loot._boss_pity_rarity(5) == ED.Rarity.ORANGE, "第 5 层 Boss 保底橙装")
-	_check(loot._boss_pity_rarity(6) == ED.Rarity.RED, "第 6 层 Boss 保底红装")
-	_check(loot._boss_pity_rarity(8) == ED.Rarity.RED, "第 8 层 Boss 保底红装")
+	_check(probe.loot_boss_pity_rarity(loot, 1) == ED.Rarity.ORANGE, "第 1 层 Boss 保底橙装")
+	_check(probe.loot_boss_pity_rarity(loot, 5) == ED.Rarity.ORANGE, "第 5 层 Boss 保底橙装")
+	_check(probe.loot_boss_pity_rarity(loot, 6) == ED.Rarity.RED, "第 6 层 Boss 保底红装")
+	_check(probe.loot_boss_pity_rarity(loot, 8) == ED.Rarity.RED, "第 8 层 Boss 保底红装")
 
 	# --- 精英/普通概率分支 ---
-	_check(loot._is_elite({"elite": true}), "识别精英标记（Dictionary）")
-	_check(not loot._is_elite({}), "非精英不误判")
-	_check(loot._is_boss({"boss": true}), "识别 Boss 标记")
-	_check(not loot._is_boss({}), "非 Boss 不误判")
+	_check(probe.loot_is_elite(loot, {"elite": true}), "识别精英标记（Dictionary）")
+	_check(not probe.loot_is_elite(loot, {}), "非精英不误判")
+	_check(probe.loot_is_boss(loot, {"boss": true}), "识别 Boss 标记")
+	_check(not probe.loot_is_boss(loot, {}), "非 Boss 不误判")
 
 	# --- 显式掉落表优先 ---
-	var explicit = loot._roll_template({"loot": "W01"})
+	var explicit = probe.loot_roll_template(loot, {"loot": "W01"})
 	_check(explicit != null and explicit.id == &"W01", "显式掉落表优先生效")
 
 	# --- 高稀有度池可选（加权掉落的前提）---
@@ -2939,7 +2945,7 @@ func test_layer9_structure() -> void:
 	# 注意：不能断言「所有 Boss 都比大厅远」——起始房通常扇形连 2~3 个房间，
 	# 距离 1 的位置不止一个，大厅占其一后必然还有 Boss 并列在距离 1。
 	# 能保证且该保证的是「大厅就在起始房旁边」，玩家进门第一间就能搜刮。
-	var dist := gen._bfs_distances(gen.start_room_index)
+	var dist: Dictionary = probe.gen_bfs_distances(gen, gen.start_room_index)
 	var hall_dist := -1
 	for i in gen.rooms.size():
 		if str(gen.rooms[i].get("type", "")) == "reward_hall":
@@ -3012,7 +3018,7 @@ func _test_max_hp_balance() -> void:
 
 	# hp_up buff：挂上要涨，清除要精确回落
 	var holder := BuffHolder.new()
-	holder._target = null   # 无宿主的 holder 只验账本，不验 modifier 同步
+	probe.set_field(holder, "_target", null)   # 无宿主的 holder 只验账本，不验 modifier 同步
 	_check(holder.apply("gen_hp_up", "test", 1).get("ok", false), "gen_hp_up 可施加")
 	_check(holder.stacks_of("gen_hp_up") == 1, "gen_hp_up 叠 1 层")
 	holder.clear()
@@ -3024,7 +3030,7 @@ func _test_max_hp_balance() -> void:
 ## 重复即代表"加了没减"的泄漏。
 func _has_duplicate_source(attrs) -> String:
 	var counts := {}
-	for m in attrs._modifiers:
+	for m in probe.attrs_modifiers(attrs):
 		var src := str(m.get("source", "?"))
 		counts[src] = int(counts.get(src, 0)) + 1
 		if int(counts[src]) > 1:
@@ -3140,7 +3146,7 @@ func test_key_fragments() -> void:
 	_check(gm.meta_key_fragments == 8, "局外累积同步", [gm.meta_key_fragments])
 
 	# 新局重置局内计数，但局外保留
-	gm._reset_run()
+	probe.gm_reset_run(gm)
 	_check(gm.run_key_fragments == 0, "新局重置局内碎片")
 	_check(gm.meta_key_fragments == 8, "新局保留局外碎片（跨局）",
 		[gm.meta_key_fragments])
@@ -3749,7 +3755,7 @@ func test_boss_room_sizes() -> void:
 	gen9.floor_num = 9
 	gen9.generate(31)
 	var seq_ids: Array = []
-	var d9 := gen9._bfs_distances(gen9.start_room_index)
+	var d9: Dictionary = probe.gen_bfs_distances(gen9, gen9.start_room_index)
 	var order9: Array = []
 	for i in gen9.rooms.size():
 		if str(gen9.rooms[i].get("type", "")) == "boss":

@@ -2,6 +2,9 @@ extends Node
 ## 背包 UI 集成测试（游戏模式）：四页签 + 装备/强化/融合/吞噬全流程
 ## 运行：godot --headless --path E:\unity --scene res://tests/test_backpack_ui.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 @onready var ui: CanvasLayer = $BackpackUI
 
@@ -43,10 +46,10 @@ func _ready() -> void:
 ## 初始状态：左栏装备槽常驻、右栏背包网格、详情占位
 func _test_initial_state() -> void:
 	await get_tree().process_frame
-	_check(ui._detail_name.text == "选择装备查看详情", "详情面板初始占位")
+	_check(probe.ui_detail_name(ui).text == "选择装备查看详情", "详情面板初始占位")
 	# 装备槽常驻（左右分栏：左装备右背包，无需切页）
-	_check(ui._slot_grid.get_child_count() == 10, "装备槽常驻 10 格")
-	_check(ui._grids.size() > 0, "背包网格已构建")
+	_check(probe.ui_slot_grid(ui).get_child_count() == 10, "装备槽常驻 10 格")
+	_check(probe.ui_grids(ui).size() > 0, "背包网格已构建")
 
 
 ## 装备流程：加装备 → 左键选中详情 → 穿戴
@@ -59,13 +62,13 @@ func _test_equip_flow() -> void:
 	await get_tree().process_frame
 
 	# 左键第一格 → 详情显示
-	ui._on_item_clicked(0)
-	_check(ui._detail_name.text == "铁制单手剑", "左键选中显示装备名", ui._detail_name.text)
-	_check(ui._detail_meta.text.contains("白色"), "详情显示稀有度")
-	_check(ui._detail_affix.text.contains("攻击力"), "详情显示词条")
+	probe.ui_on_item_clicked(ui, 0)
+	_check(probe.ui_detail_name(ui).text == "铁制单手剑", "左键选中显示装备名", probe.ui_detail_name(ui).text)
+	_check(probe.ui_detail_meta(ui).text.contains("白色"), "详情显示稀有度")
+	_check(probe.ui_detail_affix(ui).text.contains("攻击力"), "详情显示词条")
 
 	# 穿戴
-	ui._on_action_requested("equip", 0)
+	probe.ui_on_action_requested(ui, "equip", 0)
 	await get_tree().process_frame
 	var equipped: Dictionary = em.get_equipped()
 	_check(equipped.has(EquipmentDefs.Slot.WEAPON_1), "单手剑穿到武器1")
@@ -87,10 +90,10 @@ func _test_enhance_flow() -> void:
 	_check(GameManager.gold < 500, "强化扣金币（剩 %d）" % GameManager.gold)
 	# 选中刚强化的头盔并刷详情，确认面板真的把强化等级写进去了。
 	# （此前这条是 `... or true` 的恒真断言，面板即使不刷新也照样绿灯。）
-	ui._selected = helm
-	ui._refresh_detail()
-	_check(ui._detail_meta.text.contains("强化 +1"), "详情含强化等级",
-		"实际=%s" % ui._detail_meta.text)
+	probe.set_ui_selected(ui, helm)
+	probe.ui_refresh_detail(ui)
+	_check(probe.ui_detail_meta(ui).text.contains("强化 +1"), "详情含强化等级",
+		"实际=%s" % probe.ui_detail_meta(ui).text)
 
 
 ## 融合流程：同部位材料 → 融合成功；异部位 → 拒绝
@@ -137,22 +140,22 @@ func _test_equip_page() -> void:
 	await get_tree().process_frame
 	# 左栏装备槽显示已穿戴武器（不再需要切页）
 	var w1 := int(EquipmentDefs.Slot.WEAPON_1)
-	var slot_node: BackpackItem = ui._slot_grids.get(w1)
+	var slot_node: BackpackItem = probe.ui_slot_grids(ui).get(w1)
 	_check(slot_node != null and slot_node.has_item(), "装备槽显示已穿戴武器")
 	if slot_node != null and slot_node.has_item():
 		_check(slot_node.item.display_name() == "铁制单手剑",
 			"槽内是铁制单手剑", slot_node.item.display_name())
 		# 点装备槽 → 详情（这是"免切页"的关键路径）
-		ui._on_slot_clicked(ui.SLOT_INDEX_BASE + w1)
-		_check(ui._detail_name.text == "铁制单手剑", "点装备槽可看详情")
+		probe.ui_on_slot_clicked(ui, ui.SLOT_INDEX_BASE + w1)
+		_check(probe.ui_detail_name(ui).text == "铁制单手剑", "点装备槽可看详情")
 		# 角色属性已拆到独立的常驻面板（不随选中变化、不会被词条挤出视野）
-		_check(ui._stats.text.contains("攻击力"), "常驻面板显示角色属性",
-			ui._stats.text.substr(0, 40))
+		_check(probe.ui_stats(ui).text.contains("攻击力"), "常驻面板显示角色属性",
+			probe.ui_stats(ui).text.substr(0, 40))
 	# 卸下（走左栏按钮路径）
-	ui._on_slot_clicked(ui.SLOT_INDEX_BASE + w1)
-	ui._on_btn_equip()   # 已穿戴 → 按钮为"卸下"
+	probe.ui_on_slot_clicked(ui, ui.SLOT_INDEX_BASE + w1)
+	probe.ui_on_btn_equip(ui)   # 已穿戴 → 按钮为"卸下"
 	await get_tree().process_frame
-	_check(ui._btn_equip.text == "穿戴", "卸下后按钮回到「穿戴」")
+	_check(probe.ui_btn_equip(ui).text == "穿戴", "卸下后按钮回到「穿戴」")
 
 
 ## 分类筛选：切到武器后，非武器格被清空
@@ -163,20 +166,20 @@ func _test_filter() -> void:
 	em.add_item(armor)
 	await get_tree().process_frame
 
-	ui._on_filter_weapon()
+	probe.ui_on_filter_weapon(ui)
 	await get_tree().process_frame
 	var has_armor := false
-	for g in ui._grids:
+	for g in probe.ui_grids(ui):
 		if g.has_item():
 			var t = g.item.get_template()
 			if t != null and t.category != EquipmentDefs.Category.WEAPON:
 				has_armor = true
 	_check(not has_armor, "武器筛选后不显示非武器")
 
-	ui._on_filter_all()
+	probe.ui_on_filter_all(ui)
 	await get_tree().process_frame
 	var any := false
-	for g in ui._grids:
+	for g in probe.ui_grids(ui):
 		if g.has_item():
 			any = true
 	_check(any, "切回全部后有物品显示")
@@ -189,21 +192,21 @@ func _test_multi_select() -> void:
 	for i in 3:
 		em.add_item(_make_item("A03"))
 	await get_tree().process_frame
-	ui._clear_multi()
+	probe.ui_clear_multi(ui)
 	# 模拟 Ctrl+左键：直接调 _toggle_multi
 	var inv: Array = em.get_inventory()
 	for idx in range(mini(3, inv.size())):
-		ui._toggle_multi(inv[idx])
-	_check(ui._multi.size() == 3, "多选 3 件", str(ui._multi.size()))
-	_check(ui._btn_devour.text.contains("3"), "吞噬按钮显示批量数量",
-		ui._btn_devour.text)
+		probe.ui_toggle_multi(ui, inv[idx])
+	_check(probe.ui_multi(ui).size() == 3, "多选 3 件", str(probe.ui_multi(ui).size()))
+	_check(probe.ui_btn_devour(ui).text.contains("3"), "吞噬按钮显示批量数量",
+		probe.ui_btn_devour(ui).text)
 	# 批量吞噬
 	var before: int = em.get_inventory().size()
-	ui._on_btn_devour()
+	probe.ui_on_btn_devour(ui)
 	await get_tree().process_frame
 	_check(em.get_inventory().size() < before, "批量吞噬后背包减少",
 		"%d → %d" % [before, em.get_inventory().size()])
-	_check(ui._multi.is_empty(), "操作后多选已清空")
+	_check(probe.ui_multi(ui).is_empty(), "操作后多选已清空")
 
 
 ## 按钮可达性 + 点击真实生效（实机问题 1：「强化/融合两个功能都无法使用」）。
@@ -218,21 +221,21 @@ func _test_button_reachability() -> void:
 	await get_tree().process_frame
 	var view: Rect2 = ui.get_node("Root").get_global_rect()
 
-	ui._switch_page(ui.Page.EQUIP)
+	probe.ui_switch_page(ui, ui.Page.EQUIP)
 	await get_tree().process_frame
 	for n in ["BtnEquip", "BtnDevour", "BtnDrop"]:
-		var b: Button = _find_button(ui._equip_page, n)
+		var b: Button = _find_button(probe.ui_equip_page(ui), n)
 		_check(b != null, "装备页按钮 %s 存在" % n)
 		if b != null:
 			_check(b.get_global_rect().intersection(view).get_area() > 1.0,
 				"装备页 %s 在屏内 %s" % [n, str(b.get_global_rect())])
-	_check(ui._equip_page.visible and not ui._craft_page.visible, "默认显示装备页")
+	_check(probe.ui_equip_page(ui).visible and not probe.ui_craft_page(ui).visible, "默认显示装备页")
 
-	ui._switch_page(ui.Page.CRAFT)
+	probe.ui_switch_page(ui, ui.Page.CRAFT)
 	await get_tree().process_frame
-	_check(ui._craft_page.visible and not ui._equip_page.visible, "可切到强化·融合页")
+	_check(probe.ui_craft_page(ui).visible and not probe.ui_equip_page(ui).visible, "可切到强化·融合页")
 	for n in ["BtnPick", "BtnEnhance", "BtnFuse"]:
-		var b2: Button = _find_button(ui._craft_page, n)
+		var b2: Button = _find_button(probe.ui_craft_page(ui), n)
 		_check(b2 != null, "强化页按钮 %s 存在" % n)
 		if b2 != null:
 			_check(b2.get_global_rect().intersection(view).get_area() > 1.0,
@@ -247,20 +250,20 @@ func _test_button_reachability() -> void:
 	em.add_item(b)
 	await get_tree().process_frame
 
-	ui._selected = a
-	ui._on_btn_pick()
-	_check(ui._fusion_source == a, "「设为主装备」按钮生效")
-	_check(not ui._btn_enhance.disabled, "选主装备后「强化」按钮解禁")
+	probe.set_ui_selected(ui, a)
+	probe.ui_on_btn_pick(ui)
+	_check(probe.ui_fusion_source(ui) == a, "「设为主装备」按钮生效")
+	_check(not probe.ui_btn_enhance(ui).disabled, "选主装备后「强化」按钮解禁")
 	var lv: int = a.enhancement_level
-	ui._on_btn_enhance()
+	probe.ui_on_btn_enhance(ui)
 	_check(a.enhancement_level == lv + 1,
 		"点「强化」后等级 %d → %d" % [lv, a.enhancement_level])
 
 	# —— 走按钮路径：融合（主装备吃同部位材料）——
-	_check(not ui._btn_fuse.disabled, "选主装备后「融合」按钮解禁")
+	_check(not probe.ui_btn_fuse(ui).disabled, "选主装备后「融合」按钮解禁")
 	var fc: int = a.fusion_count
-	ui._selected = b
-	ui._on_btn_fuse()
+	probe.set_ui_selected(ui, b)
+	probe.ui_on_btn_fuse(ui)
 	_check(a.fusion_count == fc + 1,
 		"点「融合」后融合数 %d → %d" % [fc, a.fusion_count])
 

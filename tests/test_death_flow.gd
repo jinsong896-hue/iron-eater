@@ -2,6 +2,9 @@ extends Node
 ## 死亡结算流程集成测试：玩家死亡 → run_finished → 结算面板显示 → 继续回主菜单
 ## 运行：godot --headless --path E:\unity --scene res://tests/test_death_flow.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 
 
@@ -47,7 +50,7 @@ func _ready() -> void:
 
 		# 先出结果再切场景（切场景会释放本测试节点）
 		_finish()
-		settlement._on_continue()
+		probe.settlement_on_continue(settlement)
 
 
 ## 结束判定

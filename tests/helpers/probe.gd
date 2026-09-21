@@ -192,8 +192,9 @@ func spawn_forest_domain(p: Node) -> void:
 ##
 ## 实现已拆到 `entities/player/fx_component.gd`；player 侧留薄转发，
 ## 故仍走 `_spawn_slash_visual`（转发存在期间测试零改动）。
-func spawn_slash_visual(p: Node, reach: float, half_angle: float) -> void:
-	p.call("_spawn_slash_visual", reach, half_angle)
+func spawn_slash_visual(p: Node, reach: float, half_angle: float,
+		color: Color = Color(1, 1, 0.85, 0.5)) -> void:
+	p.call("_spawn_slash_visual", reach, half_angle, color)
 
 ## 跳跃阶段
 func jump_phase(p: Node) -> int:
@@ -225,6 +226,60 @@ func flash_timer(p: Node) -> float:
 ## 拾取最近掉落物（E 键路径）
 func pickup_nearby(p: Node) -> void:
 	p.call("_pickup_nearby")
+
+
+# ============================================================
+# 补全的访问器（阶段 6 迁移时发现测试仍在直呼、probe 未覆盖的 11 个）
+# ============================================================
+
+## 重挂当前形态的专属增益（测试切换形态后手动刷新用）
+func apply_form_modifiers(p: Node) -> void:
+	p.call("_apply_form_modifiers")
+
+## 扇形命中判定（返回是否有命中）
+func hit_enemies_in_cone(p: Node, mult: float, reach: float,
+		half_angle: float, knockback: float) -> bool:
+	return bool(p.call("_hit_enemies_in_cone", mult, reach, half_angle, knockback))
+
+## 直线穿透（按世界坐标，群体路径）
+func apply_pierce_line_at(p: Node, origin: Vector3, damage: float) -> void:
+	p.call("_apply_pierce_line_at", origin, damage)
+
+## 对群体单位结算一笔附加伤害
+func deal_bonus_damage_crowd(p: Node, pos: Vector3, amount: float,
+		kind: String, ignore_armor: bool) -> void:
+	p.call("_deal_bonus_damage_crowd", pos, amount, kind, ignore_armor)
+
+## 生命偷取（群体单位：按 id 结算，命中时回血）
+func apply_lifesteal(crowd: Node, id: int, damage: float) -> void:
+	crowd.call("_apply_lifesteal", id, damage)
+
+## 装备触发型词条（群体单位：按 id 结算，命中时按概率施加状态）
+func apply_on_hit_affixes(crowd: Node, id: int, pos: Vector3) -> void:
+	crowd.call("_apply_on_hit_affixes", id, pos)
+
+## 伤害数字开关是否生效（读设置）
+##
+## 宿主是**渲染器**（damage_text_renderer / mass_text_renderer），
+## 不是 root——两者各有一份同名实现。
+func damage_numbers_enabled(renderer: Node) -> bool:
+	return bool(renderer.call("_damage_numbers_enabled"))
+
+## 敌人：生成精英标记环
+##
+## 实现已拆到 `EnemyVisuals`（阶段 2），故走组件的公开名 `create_elite_marker`。
+func create_elite_marker(e: Node) -> void:
+	var v = e.get("visuals")
+	if v != null:
+		v.call("create_elite_marker")
+
+## 敌人：执行一次攻击
+func perform_attack(e: Node) -> void:
+	e.call("_perform_attack")
+
+## 敌人：推进混沌词缀计时（每次重掷移速）
+func tick_chaos(e: Node, delta: float) -> void:
+	e.call("_tick_chaos", delta)
 
 
 # ============================================================
@@ -270,7 +325,9 @@ func ctrl_doors(ctrl: Node) -> Array:
 
 ## 本房是否为特殊房
 func ctrl_is_special_room(ctrl: Node) -> bool:
-	return bool(ctrl.get("_is_special_room"))
+	# **必须 call 而不是 get**：`_is_special_room` 是方法不是字段，
+	# `get()` 会静默返回 null（→ false），断言看起来"功能坏了"而实为探针写错。
+	return bool(ctrl.call("_is_special_room"))
 
 ## 触发「房间已清空」流程
 func ctrl_on_cleared(ctrl: Node) -> void:

@@ -3,6 +3,9 @@ extends Node
 ## 验证：Area3D 信号真实触发（非直接调用）、房间切换、小地图更新
 ## 运行：godot --headless --path E:\unity --scene res://tests/test_door_physics.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 
 
@@ -44,7 +47,7 @@ func _ready() -> void:
 		await get_tree().process_frame
 
 	# --- 真实物理穿门（Area3D 信号链）---
-	var door = ctrl._doors[0]
+	var door = probe.ctrl_doors(ctrl)[0]
 	var trig = door.get_node_or_null("DoorTrigger")
 	var player = gr.find_child("Player", true, false)
 	var room_before: int = gr.current_room_index

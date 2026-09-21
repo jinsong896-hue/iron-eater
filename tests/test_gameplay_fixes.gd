@@ -21,12 +21,19 @@ func _ready() -> void:
 	await get_tree().process_frame
 
 	# --- #8 穿门落点：进房后必须在门内侧，不能是房中央/房外 ---
-	var tr = gr._find_room_in_direction("north")
-	if tr < 0:
-		tr = gr._find_room_in_direction("south")
+	#
+	# **四个方向都试**：地牢是随机生成的，起始房未必有南北邻接房。
+	# 原先只试 north/south，地图恰好没这两向时测试会**随机失败**
+	# （间歇性红，与代码无关，属测试脆弱性）。
+	var dir := ""
+	var tr := -1
+	for d in ["north", "south", "east", "west"]:
+		tr = probe.gr_find_room_in_direction(gr, d)
+		if tr >= 0:
+			dir = d
+			break
 	if tr >= 0:
-		var dir := "north" if gr._find_room_in_direction("north") == tr else "south"
-		gr._transition_to_room(tr, dir)
+		probe.gr_transition_to_room(gr, tr, dir)
 		await get_tree().process_frame
 		await get_tree().process_frame
 		var ctrl = gr.current_room_node.get_node_or_null("RoomController")
@@ -39,12 +46,18 @@ func _ready() -> void:
 		# 不是房中央（原 bug 表现为落在中心）
 		var center := Vector3(W*0.5, 0, H*0.5)
 		_c(pos.distance_to(center) > 2.0, "落点不是房间正中", "距中心 %.1f" % pos.distance_to(center))
-		# 靠入口那一侧
-		# 约定：北 = -Z。向北走进入的是本房的**南门**（z 大的一侧），故落点应在 z > H/2
-		if dir == "north":
-			_c(pos.z > H * 0.5, "从北进入→落在南门内侧", "z=%.1f H=%.1f" % [pos.z, H])
-		else:
-			_c(pos.z < H * 0.5, "从南进入→落在北门内侧", "z=%.1f" % pos.z)
+		# 靠入口那一侧（四个方向都要覆盖）
+		# 约定：北 = -Z、南 = +Z、西 = -X、东 = +X。
+		# 向北走进入的是本房的**南门**（z 大的一侧），故落点应在 z > H/2；其余同理。
+		match dir:
+			"north":
+				_c(pos.z > H * 0.5, "从北进入→落在南门内侧", "z=%.1f H=%.1f" % [pos.z, H])
+			"south":
+				_c(pos.z < H * 0.5, "从南进入→落在北门内侧", "z=%.1f" % pos.z)
+			"west":
+				_c(pos.x > W * 0.5, "从西进入→落在东门内侧", "x=%.1f W=%.1f" % [pos.x, W])
+			"east":
+				_c(pos.x < W * 0.5, "从东进入→落在西门内侧", "x=%.1f" % pos.x)
 	else:
 		_c(false, "找到可通行邻接房")
 
@@ -71,7 +84,7 @@ func _ready() -> void:
 			trig.is_open = true
 			trig.set("_disarmed", false)
 			trig.set("_disarm_timer", 0.0)
-			_c(not trig._triggered, "门触发器初始未触发")
+			_c(not probe.door_trigger_triggered(trig), "门触发器初始未触发")
 			# 模拟真实穿门：玩家先站进触发区再触发。
 			# 门触发器有几何复核（玩家不在触发区内 → 判为幽灵派发丢弃），
 			# 远距离直调会被拦掉。
@@ -84,11 +97,11 @@ func _ready() -> void:
 			var fired := [0]
 			var cb := func(_d, _i): fired[0] += 1
 			bus.door_opened.connect(cb)
-			trig._on_body_entered(p)
-			_c(trig._triggered, "门触发后置位")
+			probe.door_trigger_body_entered(trig, p)
+			_c(probe.door_trigger_triggered(trig), "门触发后置位")
 			_c(fired[0] == 1, "首次触发发出门信号", "次数=%d" % fired[0])
 			var idx_before: int = gr.current_room_index
-			trig._on_body_entered(p)   # 二次触发应当被忽略
+			probe.door_trigger_body_entered(trig, p)   # 二次触发应当被忽略
 			await get_tree().process_frame
 			_c(fired[0] == 1, "二次触发不叠加（door_opened 只发一次）", "次数=%d" % fired[0])
 			_c(gr.current_room_index == idx_before, "二次触发未再次切房")
@@ -127,8 +140,8 @@ func _ready() -> void:
 	await get_tree().process_frame
 	# 满血也显示血条（旧版懒显示让首击血条「凭空出现在半血位」，
 	# 玩家看不到从 100% 掉下来的过程，被当成「血条不是实时血量」）
-	var full_mesh := e._hp_bar_fill.mesh as QuadMesh
-	_c(e._hp_bar != null and e._hp_bar.visible, "满血时血条已显示")
+	var full_mesh := probe.hp_bar_fill(e).mesh as QuadMesh
+	_c(probe.hp_bar(e) != null and probe.hp_bar(e).visible, "满血时血条已显示")
 	_c(full_mesh != null and absf(full_mesh.size.x - 1.1) < 0.01, "满血血条为满宽",
 		"size.x=%.2f" % (full_mesh.size.x if full_mesh else -1.0))
 	# **左缘必须落在背景条左端**（曾漏测位置只测宽度，导致「60% 血量看起来
@@ -137,18 +150,18 @@ func _ready() -> void:
 		"center_offset.x=%.3f" % full_mesh.center_offset.x)
 	e.take_damage(10.0)
 	await get_tree().process_frame
-	_c(e._flash_timer > 0.0, "受击进入闪红状态")
+	_c(probe.enemy_flash_timer(e) > 0.0, "受击进入闪红状态")
 	# 断言 **mesh.size.x**（真实渲染量）而非节点 scale：billboard 材质
 	# 渲染时忽略节点 scale（实测 scale 改了屏幕像素宽纹丝不动），
 	# 旧断言读 scale.x 时曾把这种视觉冻结放行成绿灯。
-	var fill_mesh := e._hp_bar_fill.mesh as QuadMesh
+	var fill_mesh := probe.hp_bar_fill(e).mesh as QuadMesh
 	_c(fill_mesh != null and fill_mesh.size.x < 1.09, "血条长度按血量收缩（mesh.size）",
 		"size.x=%.2f" % (fill_mesh.size.x if fill_mesh else -1.0))
 	# 填充必须**压过背景条**（否则整条血条发暗、看不清血量）。
 	# 两个 quad 同位置、俯视下深度差不足以裁决先后 → 排序会翻转。
 	# 用 render_priority 钉死，这里断言它确实生效。
-	var fill_mat := e._hp_bar_fill.material_override as StandardMaterial3D
-	var bg_mat := e._hp_bar_bg.material_override as StandardMaterial3D
+	var fill_mat := probe.hp_bar_fill(e).material_override as StandardMaterial3D
+	var bg_mat := probe.hp_bar_bg(e).material_override as StandardMaterial3D
 	_c(fill_mat != null and bg_mat != null and fill_mat.render_priority > bg_mat.render_priority,
 		"填充渲染优先级高于背景（血条不发暗）",
 		"fill=%d bg=%d" % [
@@ -162,7 +175,7 @@ func _ready() -> void:
 	var size1: float = fill_mesh.size.x
 	e.take_damage(20.0)
 	await get_tree().process_frame
-	var fill_mesh2 := e._hp_bar_fill.mesh as QuadMesh
+	var fill_mesh2 := probe.hp_bar_fill(e).mesh as QuadMesh
 	_c(fill_mesh2.size.x < size1 - 0.05, "再次受击血条继续收缩",
 		"%.2f → %.2f" % [size1, fill_mesh2.size.x])
 	e.take_damage(999999.0)
@@ -236,14 +249,14 @@ func _ready() -> void:
 	var start_ctrl = null
 	for i in gr.dungeon_graph.size():
 		if str(gr.dungeon_graph[i].get("type", "")) == "start":
-			gr._transition_to_room(i)
+			probe.gr_transition_to_room(gr, i)
 			await get_tree().process_frame
 			await get_tree().process_frame
 			start_ctrl = gr.current_room_node.get_node_or_null("RoomController")
 			break
 	if start_ctrl:
-		_c(start_ctrl._spawn_points.size() == 0, "起始房无刷怪点（player_spawn 不再被误收）",
-			"点数=%d" % start_ctrl._spawn_points.size())
+		_c(probe.ctrl_spawn_points(start_ctrl).size() == 0, "起始房无刷怪点（player_spawn 不再被误收）",
+			"点数=%d" % probe.ctrl_spawn_points(start_ctrl).size())
 		_c(start_ctrl.enemies_alive == 0, "起始房不刷怪", "敌人=%d" % start_ctrl.enemies_alive)
 
 	# --- 自动拾取开关 ---

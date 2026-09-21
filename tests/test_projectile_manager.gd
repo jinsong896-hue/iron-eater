@@ -13,6 +13,9 @@ extends Node
 ##
 ## 运行：godot --headless --path . res://tests/test_projectile_manager.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 
 
@@ -46,7 +49,7 @@ func _ready() -> void:
 	if idx < 0:
 		_check(false, "有普通房可测")
 		_finish(); return
-	gr._transition_to_room(idx)
+	probe.gr_transition_to_room(gr, idx)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await get_tree().physics_frame

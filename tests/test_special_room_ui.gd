@@ -2,6 +2,9 @@ extends Node
 ## 特殊房 UI 集成测试：商店/泉水/事件 三大流程 + 输入锁 + 拾取回归
 ## 运行：godot --headless --path E:\unity --scene res://tests/test_special_room_ui.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 var _gold_signals := 0
 
@@ -54,7 +57,7 @@ func _make_controller(kind: String, interaction: Dictionary):
 		"interaction": interaction,
 	})
 	add_child(ctrl)
-	ctrl._special_service = load("res://gameplay/dungeon/special_room_service.gd").new()
+	probe.set_field(ctrl, "_special_service", load("res://gameplay/dungeon/special_room_service.gd").new())
 	return ctrl
 
 
@@ -69,7 +72,7 @@ func _test_shop_equipment() -> void:
 	var ctrl = _make_controller("shop", {"price": 25, "heal": 80})
 	GameManager.gold = 99999
 	# get_inventory() 返回副本，清它无效——直接清内部数组重置背包
-	var inv: Array = GameManager.equipment_manager._inventory
+	var inv: Array = probe.em_inventory(GameManager.equipment_manager)
 	inv.clear()
 
 	var stock: Array = ctrl.get_shop_stock()
@@ -104,7 +107,7 @@ func _test_shop_equipment() -> void:
 	# 满包不吞钱：塞满背包后购买必须被拒且金币不变。
 	# 用 _inventory 直接塞——add_item 自身会在满 40 件时拒绝。
 	for _i in 45:
-		GameManager.equipment_manager._inventory.append(EquipmentInstance.new())
+		probe.em_inventory(GameManager.equipment_manager).append(EquipmentInstance.new())
 	var gold_full: int = GameManager.gold
 	var r4: Dictionary = ctrl.purchase_equipment(1)
 	_check(not r4.get("ok", false), "背包满时购买被拒", [r4])
@@ -282,17 +285,17 @@ func _test_reentry_no_duplicate() -> void:
 
 	# 第一次进入：领取
 	var c1 = _make_controller("event", {"event_type": "memory_shard", "reward": 100})
-	c1.set("_special_used", c1._special_was_used())
+	c1.set("_special_used", probe.ctrl_special_was_used(c1))
 	GameManager.gold = 0
 	var r1: Dictionary = c1.claim_memory_shard()
 	_check(r1.get("ok", false), "首次领取成功")
 	_check(GameManager.gold == 100, "首次获得 100 金币")
-	_check(c1._special_was_used(), "领取状态已落盘到 room_state")
+	_check(probe.ctrl_special_was_used(c1), "领取状态已落盘到 room_state")
 	c1.queue_free()
 
 	# 模拟离开后重建房间（新控制器实例，同 index）
 	var c2 = _make_controller("event", {"event_type": "memory_shard", "reward": 100})
-	c2.set("_special_used", c2._special_was_used())
+	c2.set("_special_used", probe.ctrl_special_was_used(c2))
 	_check(c2.get("_special_used"), "新实例从 room_state 读回已用状态（不重置）")
 
 	GameManager.gold = 100

@@ -13,6 +13,9 @@ extends Node
 ##
 ## 运行：godot --headless --path . res://tests/test_pickup_field.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 
 
@@ -113,7 +116,7 @@ func _test_anim_driven_by_field() -> void:
 	# 管理器推进一帧后，掉落物的姿态应被改写
 	var before_y: float = p.position.y
 	var before_rot: float = p.rotation.y
-	field._process(0.5)
+	probe.field_process(field, 0.5)
 	_check(p.rotation.y != before_rot or p.position.y != before_y,
 		"PickupField._process 驱动了掉落物姿态")
 	field.queue_free()

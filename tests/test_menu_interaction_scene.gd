@@ -3,6 +3,9 @@ extends Node
 ## 运行：godot --headless --path E:\unity --scene res://tests/test_menu_interaction_scene.tscn
 ## 注意：脚本错误会使函数中止但不计 failed —— 断言失败必须显式 _check，不要依赖属性访问报错
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 @onready var menu: Control = $MainMenu
 
@@ -48,7 +51,7 @@ func _test_open_save_select_and_back() -> void:
 	await get_tree().process_frame
 	_check(menu.save_panel.visible, "点击『开始游戏』进入存档选择")
 	_check(not menu.main_panel.visible, "主菜单面板隐藏")
-	menu._go_back()
+	probe.menu_go_back(menu)
 	await get_tree().process_frame
 	_check(menu.main_panel.visible, "返回后主菜单可见")
 
@@ -58,7 +61,7 @@ func _test_settings_and_back() -> void:
 	menu.btn_settings.pressed.emit()
 	await get_tree().process_frame
 	_check(menu.settings_panel.visible, "设置面板可见")
-	menu._go_back()
+	probe.menu_go_back(menu)
 	await get_tree().process_frame
 	_check(menu.main_panel.visible, "ESC 从设置返回主菜单")
 
@@ -95,7 +98,7 @@ func _test_new_game_panel() -> void:
 	_check(menu.new_game_panel.visible, "从存档主页进入新游戏配置")
 	_check(menu.char_select.item_count == 5, "新游戏配置显示五职业")
 	_check(menu.btn_start_game != null, "存在开始游戏按钮")
-	menu._go_back()
+	probe.menu_go_back(menu)
 	await get_tree().process_frame
 	_check(menu.profile_panel.visible, "返回回到存档主页")
 

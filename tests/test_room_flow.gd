@@ -1,5 +1,8 @@
 extends Node
 ## 完整房间流程验证：进战斗房 → 锁门刷怪 → 清怪开门 → 过门切房
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 
 func _ready() -> void:
@@ -24,17 +27,17 @@ func _ready() -> void:
 		_finish(); return
 
 	# 切过去
-	gr._transition_to_room(target_idx)
+	probe.gr_transition_to_room(gr, target_idx)
 	await get_tree().process_frame
 	await get_tree().process_frame
 
 	var ctrl = gr.current_room_node.get_node_or_null("RoomController")
 	_check(ctrl != null, "新房间控制器就绪")
 	_check(ctrl.is_active, "房间激活")
-	_check(ctrl._doors.size() > 0, "门已收集（%d 个）" % ctrl._doors.size())
+	_check(probe.ctrl_doors(ctrl).size() > 0, "门已收集（%d 个）" % probe.ctrl_doors(ctrl).size())
 
 	# 刷怪是概率性的（每个生成点 70%），空房属正常；分别验证"有怪"与"无怪"两条路径
-	var spawn_points: int = ctrl._spawn_points.size()
+	var spawn_points: int = probe.ctrl_spawn_points(ctrl).size()
 	_check(spawn_points > 0, "房间有生成点（%d 个）" % spawn_points)
 	_check(ctrl.enemies_alive > 0 or ctrl.is_cleared,
 		"空房已直接放行（生成点 %d / 敌人 %d）" % [spawn_points, ctrl.enemies_alive])
@@ -43,7 +46,7 @@ func _ready() -> void:
 		_check(true, "刷出敌人（%d 只）" % ctrl.enemies_alive)
 		# 验证锁门
 		var any_locked := false
-		for door in ctrl._doors:
+		for door in probe.ctrl_doors(ctrl):
 			var trig = door.get_node_or_null("DoorTrigger")
 			if trig and trig.is_locked:
 				any_locked = true
@@ -56,7 +59,7 @@ func _ready() -> void:
 		_check(ctrl.is_cleared, "清怪后房间标记清空")
 
 		var any_open := false
-		for door in ctrl._doors:
+		for door in probe.ctrl_doors(ctrl):
 			var trig = door.get_node_or_null("DoorTrigger")
 			if trig and not trig.is_locked:
 				any_open = true
@@ -65,7 +68,7 @@ func _ready() -> void:
 		# 空房（全部生成点都未触发）应直接标记清空且门是开的
 		_check(ctrl.is_cleared, "空房直接标记清空")
 		var door_open := false
-		for door in ctrl._doors:
+		for door in probe.ctrl_doors(ctrl):
 			var trig = door.get_node_or_null("DoorTrigger")
 			if trig and not trig.is_locked:
 				door_open = true
@@ -116,7 +119,7 @@ func _test_room_template_stable(gr) -> void:
 		return
 
 	# 第一次进：记录房间尺寸与门位（布局的可观测特征）
-	gr._transition_to_room(idx)
+	probe.gr_transition_to_room(gr, idx)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var ctrl1 = gr.current_room_node.get_node_or_null("RoomController")
@@ -131,10 +134,10 @@ func _test_room_template_stable(gr) -> void:
 		if i != idx:
 			other = i
 			break
-	gr._transition_to_room(other)
+	probe.gr_transition_to_room(gr, other)
 	await get_tree().process_frame
 	await get_tree().process_frame
-	gr._transition_to_room(idx)
+	probe.gr_transition_to_room(gr, idx)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var ctrl2 = gr.current_room_node.get_node_or_null("RoomController")
@@ -181,19 +184,19 @@ func _test_no_dead_doors(gr) -> void:
 	var detail: Array[String] = []
 
 	for i in gr.dungeon_graph.size():
-		gr._transition_to_room(i)
+		probe.gr_transition_to_room(gr, i)
 		await get_tree().process_frame
 		await get_tree().process_frame
 
 		var ctrl = gr.current_room_node.get_node_or_null("RoomController")
 		if ctrl == null:
 			continue
-		for door in ctrl._doors:
+		for door in probe.ctrl_doors(ctrl):
 			var trig = door.get_node_or_null("DoorTrigger")
 			if trig == null or str(trig.direction).is_empty():
 				continue
 			total_doors += 1
-			if gr._find_room_in_direction(str(trig.direction)) < 0:
+			if probe.gr_find_room_in_direction(gr, str(trig.direction)) < 0:
 				dead_doors += 1
 				detail.append("房%d %s" % [i, trig.direction])
 
@@ -209,14 +212,14 @@ func _test_cleared_state_persists(gr, cleared_idx: int) -> void:
 		if i != cleared_idx:
 			other = i
 			break
-	gr._transition_to_room(other)
+	probe.gr_transition_to_room(gr, other)
 	await get_tree().process_frame
 	await get_tree().process_frame
 
 	_check(bool(gr.room_state.get(cleared_idx, {}).get("cleared", false)),
 		"房间清空状态已落盘 room_state")
 
-	gr._transition_to_room(cleared_idx)
+	probe.gr_transition_to_room(gr, cleared_idx)
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -228,7 +231,7 @@ func _test_cleared_state_persists(gr, cleared_idx: int) -> void:
 	_check(ctrl.enemies_alive == 0, "[回访] 不重新刷怪（敌人 %d）" % ctrl.enemies_alive)
 
 	var any_locked := false
-	for door in ctrl._doors:
+	for door in probe.ctrl_doors(ctrl):
 		var trig = door.get_node_or_null("DoorTrigger")
 		if trig and trig.is_locked:
 			any_locked = true
@@ -239,7 +242,7 @@ func _test_cleared_state_persists(gr, cleared_idx: int) -> void:
 ## 若门仍开着，玩家就能带着满屋的怪走出房间。实机症状即「敌人还在却能离开」。
 ## 不变量：只要 enemies_alive > 0，所有门就必须是锁定态。
 func _test_respawn_relocks(gr, idx: int) -> void:
-	gr._transition_to_room(idx)
+	probe.gr_transition_to_room(gr, idx)
 	await get_tree().process_frame
 	await get_tree().process_frame
 
@@ -260,19 +263,19 @@ func _test_respawn_relocks(gr, idx: int) -> void:
 	await get_tree().process_frame
 
 	var locked_count := 0
-	for door in ctrl._doors:
+	for door in probe.ctrl_doors(ctrl):
 		var trig = door.get_node_or_null("DoorTrigger")
 		if trig and trig.is_locked:
 			locked_count += 1
 	_check(locked_count > 0, "[补刷] 有敌人时门重新锁死（%d/%d 扇）"
-		% [locked_count, ctrl._doors.size()])
+		% [locked_count, probe.ctrl_doors(ctrl).size()])
 
 	# 再杀一只，只要还有活口，门不许开
 	if ctrl.debug_living_enemies().size() > 1:
 		ctrl.debug_living_enemies()[0].take_damage(999999.0)
 		await get_tree().process_frame
 		var still_locked := false
-		for door in ctrl._doors:
+		for door in probe.ctrl_doors(ctrl):
 			var trig = door.get_node_or_null("DoorTrigger")
 			if trig and trig.is_locked:
 				still_locked = true
@@ -306,7 +309,7 @@ func _test_crowd_routing(gr) -> void:
 		return
 
 	RoomController.CROWD_FORCE_SWARM = true
-	gr._transition_to_room(idx)
+	probe.gr_transition_to_room(gr, idx)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	# **必须等物理帧**：CrowdManager 在 _physics_process 里 step，
@@ -356,7 +359,7 @@ func _test_crowd_routing(gr) -> void:
 			p.global_position = upos - fwd * 1.2
 			hp_before = float(mgr.call("unit_hp", first_id))
 			# 走玩家的扇形命中入口（普攻的真实路径）
-			p.call("_hit_enemies_in_cone", 1.0, 2.5, deg_to_rad(60.0), 0.0)
+			probe.hit_enemies_in_cone(p, 1.0, 2.5, deg_to_rad(60.0), 0.0)
 			var hp_after := float(mgr.call("unit_hp", first_id))
 			_check(hp_after < hp_before,
 				"[crowd] 玩家普攻能打到群体单位（hp %.1f → %.1f）" % [hp_before, hp_after])
@@ -407,7 +410,7 @@ func _test_crowd_stays_in_bounds(gr) -> void:
 		return
 
 	RoomController.CROWD_FORCE_SWARM = true
-	gr._transition_to_room(idx)
+	probe.gr_transition_to_room(gr, idx)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await get_tree().physics_frame
@@ -482,14 +485,14 @@ func _test_crowd_form_extras(p, mgr) -> void:
 	# **附加伤害要小**：这条断言只验证"伤害落到了群体单位身上"，
 	# 打太狠会把测试对象打死，后面的 buff 宿主断言就没了目标（实测踩到）。
 	var hp0: float = mgr.call("unit_hp", tid)
-	p.call("_deal_bonus_damage_crowd", upos, 5.0, "spell", false)
+	probe.deal_bonus_damage_crowd(p, upos, 5.0, "spell", false)
 	var hp1: float = mgr.call("unit_hp", tid)
 	_check(hp1 < hp0,
 		"[crowd-form] 附加伤害落到群体单位（hp %.1f → %.1f）" % [hp0, hp1])
 
 	# 穿透线：从单位位置沿玩家朝向打一条线，应能命中该单位本身
 	var hp2: float = mgr.call("unit_hp", tid)
-	p.call("_apply_pierce_line_at", upos, 100.0)
+	probe.apply_pierce_line_at(p, upos, 100.0)
 	var hp3: float = mgr.call("unit_hp", tid)
 	_check(hp3 <= hp2, "[crowd-form] 穿透线按位置结算不报错（hp %.1f → %.1f）" % [hp2, hp3])
 
@@ -545,7 +548,7 @@ func _test_special_room(gr) -> void:
 
 	for idx in targets:
 		var special_type := str(gr.dungeon_graph[idx].get("type", ""))
-		gr._transition_to_room(idx)
+		probe.gr_transition_to_room(gr, idx)
 		await get_tree().process_frame
 		await get_tree().process_frame
 		# 落点断言：切过去后必须停在目标房。
@@ -564,8 +567,8 @@ func _check_one_special_room(gr, special_type: String) -> void:
 	if ctrl == null:
 		return
 
-	_check(ctrl._is_special_room(), "[%s] 识别为特殊房" % special_type)
-	_check(ctrl._doors.size() > 0, "[%s] 有门（%d 个）" % [special_type, ctrl._doors.size()])
+	_check(probe.ctrl_is_special_room(ctrl), "[%s] 识别为特殊房" % special_type)
+	_check(probe.ctrl_doors(ctrl).size() > 0, "[%s] 有门（%d 个）" % [special_type, probe.ctrl_doors(ctrl).size()])
 
 	# 交互物实体已生成（商店 NPC / 泉水 / 祭坛）
 	var prop_count := 0
@@ -581,7 +584,7 @@ func _check_one_special_room(gr, special_type: String) -> void:
 	# 商店因金币不足而交互失败时会把玩家永久关在房里
 	var locked_before := false
 	var locked_dirs: Array[String] = []
-	for door in ctrl._doors:
+	for door in probe.ctrl_doors(ctrl):
 		var trig = door.get_node_or_null("DoorTrigger")
 		if trig and trig.is_locked:
 			locked_before = true
@@ -616,11 +619,11 @@ func _check_one_special_room(gr, special_type: String) -> void:
 	_check(_special_state(gm, special_type) == before_state, "[%s] 重复交互后状态未变" % special_type)
 
 	# 交互失败不应影响通行：把房间还原成未交互，再验证门仍然通行
-	ctrl._special_used = false
-	ctrl._on_cleared()
+	probe.set_field(ctrl, "_special_used", false)
+	probe.ctrl_on_cleared(ctrl)
 	_check(ctrl.is_cleared, "[%s] 房间标记清空" % special_type)
 	var opened := false
-	for door in ctrl._doors:
+	for door in probe.ctrl_doors(ctrl):
 		var trig = door.get_node_or_null("DoorTrigger")
 		if trig and not trig.is_locked:
 			opened = true
@@ -630,7 +633,7 @@ func _check_one_special_room(gr, special_type: String) -> void:
 	ctrl.deactivate()
 	ctrl.activate()
 	var reentry_locked := false
-	for door in ctrl._doors:
+	for door in probe.ctrl_doors(ctrl):
 		var trig = door.get_node_or_null("DoorTrigger")
 		if trig and trig.is_locked:
 			reentry_locked = true
@@ -678,11 +681,11 @@ func _test_door_transition(gr) -> void:
 	for attempt in 8:
 		ctrl = gr.current_room_node.get_node_or_null("RoomController")
 		if ctrl:
-			for d in ctrl._doors:
+			for d in probe.ctrl_doors(ctrl):
 				var t = d.get_node_or_null("DoorTrigger")
 				if t == null or str(t.direction).is_empty():
 					continue
-				if gr._find_room_in_direction(str(t.direction)) >= 0:
+				if probe.gr_find_room_in_direction(gr, str(t.direction)) >= 0:
 					trig = t
 					break
 		if trig != null:
@@ -691,7 +694,7 @@ func _test_door_transition(gr) -> void:
 		var nxt: int = (gr.current_room_index + 1) % gr.dungeon_graph.size()
 		if nxt == gr.current_room_index:
 			break
-		gr._transition_to_room(nxt)
+		probe.gr_transition_to_room(gr, nxt)
 		await get_tree().process_frame
 		await get_tree().process_frame
 
@@ -709,7 +712,7 @@ func _test_door_transition(gr) -> void:
 	var p := gr.find_child("Player", true, false) as Node3D
 	if p:
 		p.global_position = (trig as Node3D).global_position + Vector3(0, -1.5, 0)
-	trig._on_body_entered(p)
+	probe.door_trigger_body_entered(trig, p)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	_check(gr.current_room_index != before_idx, "门触发后切到新房间（%d → %d）" % [before_idx, gr.current_room_index])

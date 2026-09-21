@@ -2,6 +2,9 @@ extends Node
 ## 玩家状态机集成测试（场景模式）：状态切换 / 翻滚无敌 / 取消窗口 / 霸体减伤
 ## 运行：godot --headless --path E:\unity --scene res://tests/test_player_states.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 var player: CharacterBody3D
 
@@ -62,14 +65,14 @@ func _test_state_transitions() -> void:
 	player.enter_state("DodgeState")
 	_check(player.current_state_name() == "DodgeState",
 		"已切到 DodgeState", player.current_state_name())
-	_check(player._is_dodging, "翻滚 enter 同步置 _is_dodging")
+	_check(probe.is_dodging(player), "翻滚 enter 同步置 _is_dodging")
 
 	# 翻滚时长 0.2s，跑 20 物理帧（约 0.33s）后应自动回到 MoveState
 	for i in range(20):
 		await get_tree().physics_frame
 	_check(player.current_state_name() == "MoveState",
 		"翻滚结束自动回到 MoveState", player.current_state_name())
-	_check(not player._is_dodging, "翻滚结束后 _is_dodging 清除")
+	_check(not probe.is_dodging(player), "翻滚结束后 _is_dodging 清除")
 
 	# 死亡态：无每帧行为（比对前后位置不变）
 	player.enter_state("DeadState")
@@ -88,40 +91,40 @@ func _test_state_transitions() -> void:
 ## 连段动作系统：取消窗口/派生/霸体/连击加成
 func _test_combo_action_system() -> void:
 	# --- 取消窗口判定 ---
-	player._attack_timer = 0.0
-	player._current_attack_cooldown = 0.28
+	probe.set_attack_timer(player, 0.0)
+	probe.set_current_attack_cooldown(player, 0.28)
 	# 冷却前半段：elapsed=0.05 < 0.28*0.45=0.126 → 不可取消
-	player._attack_timer = 0.23
-	_check(not player._in_cancel_window(), "冷却前半段不可取消")
+	probe.set_attack_timer(player, 0.23)
+	_check(not probe.in_cancel_window(player), "冷却前半段不可取消")
 	# 冷却后半段：elapsed=0.20 > 0.126 → 可取消
-	player._attack_timer = 0.08
-	_check(player._in_cancel_window(), "冷却后半段进入取消窗口")
+	probe.set_attack_timer(player, 0.08)
+	_check(probe.in_cancel_window(player), "冷却后半段进入取消窗口")
 
 	# --- 取消清冷却 ---
-	player._cancel_current_attack()
-	_check(player._attack_timer == 0.0, "取消清空攻击冷却")
+	probe.cancel_current_attack(player)
+	_check(probe.attack_timer(player) == 0.0, "取消清空攻击冷却")
 
 	# --- 终结技霸体 ---
-	player._finisher_armor_timer = 0.5
+	probe.set_field(player, "_finisher_armor_timer", 0.5)
 	var hp_before: float = GameManager.attributes.hp
 	player.take_damage(100.0)
 	_check(GameManager.attributes.hp > hp_before - 100.0, "霸体期受击减伤 30%")
 	_check(GameManager.attributes.hp == hp_before - 70.0, "霸体减伤精确 70%")
-	player._finisher_armor_timer = 0.0
+	probe.set_field(player, "_finisher_armor_timer", 0.0)
 
 	# --- 连击伤害加成 ---
-	player._hit_combo_count = 0
+	probe.set_field(player, "_hit_combo_count", 0)
 	var combo_bonus_0: float = minf(0 * GameBalance.COMBO_DAMAGE_PER_HIT, GameBalance.COMBO_DAMAGE_CAP)
 	_check(combo_bonus_0 == 0.0, "0 连击无加成")
-	player._hit_combo_count = 20
+	probe.set_field(player, "_hit_combo_count", 20)
 	var combo_bonus_20: float = minf(20 * GameBalance.COMBO_DAMAGE_PER_HIT, GameBalance.COMBO_DAMAGE_CAP)
 	_check(combo_bonus_20 == 0.30, "20 连击加成触顶 30%", str(combo_bonus_20))
-	player._hit_combo_count = 0
+	probe.set_field(player, "_hit_combo_count", 0)
 
 	# --- 连击数计数与衰减 ---
-	player._register_hit_combo()
+	probe.register_hit_combo(player)
 	_check(player.get_hit_combo() == 1, "命中计数 +1")
-	player._hit_combo_time = 0.0
+	probe.set_field(player, "_hit_combo_time", 0.0)
 	_check(GameBalance.COMBO_DAMAGE_CAP == 0.30, "连击加成上限配置 30%")
 
 
@@ -147,30 +150,30 @@ func _test_normal_combo_damage() -> void:
 	var enemy := _spawn_dummy(player.global_position + Vector3(0, 0, -1.5))
 	enemy.max_hp = 10000.0
 	enemy.take_damage(0.0)  # 初始化 _hp
-	enemy._hp = 10000.0
+	probe.set_enemy_hp(enemy, 10000.0)
 
 	# 第一段普攻（面向敌人：敌人在 -Z 即 UP 方向）
-	player._facing = Vector3(0, 0, -1)
-	var hp_before: float = enemy._hp
-	player._perform_melee_attack(1.0, 2.0, deg_to_rad(60.0), 0.0)
+	probe.set_field(player, "_facing", Vector3(0, 0, -1))
+	var hp_before: float = probe.enemy_hp(enemy)
+	probe.perform_melee_attack(player, 1.0, 2.0, deg_to_rad(60.0), 0.0)
 	await get_tree().process_frame
-	_check(enemy._hp < hp_before, "普攻判定命中面前敌人")
-	var dmg1: float = hp_before - enemy._hp
+	_check(probe.enemy_hp(enemy) < hp_before, "普攻判定命中面前敌人")
+	var dmg1: float = hp_before - probe.enemy_hp(enemy)
 
 	# 第四段（更大范围）在稍远距离也命中
 	enemy.global_position = player.global_position + Vector3(0, 0, -3.0)
-	var hp_before4: float = enemy._hp
-	player._perform_melee_attack(1.8, 3.2, deg_to_rad(90.0), 4.0)
+	var hp_before4: float = probe.enemy_hp(enemy)
+	probe.perform_melee_attack(player, 1.8, 3.2, deg_to_rad(90.0), 4.0)
 	await get_tree().process_frame
-	var dmg4: float = hp_before4 - enemy._hp
+	var dmg4: float = hp_before4 - probe.enemy_hp(enemy)
 	_check(dmg4 > 0.0, "普攻4 大范围命中 3m 外敌人")
 	_check(dmg4 > dmg1, "普攻4（1.8x）伤害 > 普攻1（1.0x）", "%.1f vs %.1f" % [dmg4, dmg1])
 
 	# 背后敌人不命中（扇形判定）
 	enemy.global_position = player.global_position + Vector3(0, 0, 1.5)  # 背后
-	var hp_back: float = enemy._hp
-	player._perform_melee_attack(1.0, 2.0, deg_to_rad(60.0), 0.0)
-	_check(enemy._hp == hp_back, "扇形判定不命中背后敌人")
+	var hp_back: float = probe.enemy_hp(enemy)
+	probe.perform_melee_attack(player, 1.0, 2.0, deg_to_rad(60.0), 0.0)
+	_check(probe.enemy_hp(enemy) == hp_back, "扇形判定不命中背后敌人")
 
 	enemy.queue_free()
 
@@ -183,22 +186,22 @@ func _test_jump_attack_phases() -> void:
 	var start_pos: Vector3 = player.global_position
 	# 敌人放在俯冲落点（前方 4m，关碰撞避免挡住玩家位移）
 	var enemy := _spawn_dummy(start_pos + Vector3(0, 0, -4.0))
-	enemy._hp = 10000.0
-	var hp_before: float = enemy._hp
+	probe.set_enemy_hp(enemy, 10000.0)
+	var hp_before: float = probe.enemy_hp(enemy)
 	for col in enemy.find_children("", "CollisionShape3D", true, false):
 		(col as CollisionShape3D).disabled = true
 
-	player._facing = Vector3(0, 0, -1)
+	probe.set_field(player, "_facing", Vector3(0, 0, -1))
 	# 经状态机进入跳跃攻击：enter() 会调用 _start_jump_attack() 同步置位
 	player.enter_state("JumpAttackState")
-	_check(player._jump_phase == player.JumpPhase.BACKHOP, "跳跃攻击进入后跳阶段")
+	_check(probe.jump_phase(player) == player.JumpPhase.BACKHOP, "跳跃攻击进入后跳阶段")
 
 	# 推进阶段（每帧 16ms 左右，跑完三阶段约 0.5s）
 	for i in range(60):
 		await get_tree().physics_frame
 
-	_check(player._jump_phase == player.JumpPhase.NONE, "三阶段后结束", str(player._jump_phase))
-	_check(enemy._hp < hp_before, "落地 AOE 命中落点敌人")
+	_check(probe.jump_phase(player) == player.JumpPhase.NONE, "三阶段后结束", str(probe.jump_phase(player)))
+	_check(probe.enemy_hp(enemy) < hp_before, "落地 AOE 命中落点敌人")
 	# 俯冲位移验证：玩家应在前方
 	_check(player.global_position.distance_to(start_pos) > 1.0, "俯冲产生位移")
 
@@ -209,20 +212,20 @@ func _test_jump_attack_phases() -> void:
 func _test_sprint_attack_charge() -> void:
 	var start_pos: Vector3 = player.global_position
 	var enemy := _spawn_dummy(start_pos + Vector3(0, 0, -2.0))
-	enemy._hp = 10000.0
-	var hp_before: float = enemy._hp
+	probe.set_enemy_hp(enemy, 10000.0)
+	var hp_before: float = probe.enemy_hp(enemy)
 
-	player._facing = Vector3(0, 0, -1)
-	player._is_sprinting = true
+	probe.set_field(player, "_facing", Vector3(0, 0, -1))
+	probe.set_sprinting(player, true)
 	# 经状态机进入冲撞：enter() 会调用 _start_sprint_attack() 同步置位
 	player.enter_state("SprintAttackState")
-	_check(player._sprint_attack_timer > 0.0, "奔跑攻击进入冲撞状态")
-	_check(not player._is_sprinting, "奔跑攻击消耗冲刺状态")
+	_check(probe.sprint_attack_timer(player) > 0.0, "奔跑攻击进入冲撞状态")
+	_check(not probe.is_sprinting(player), "奔跑攻击消耗冲刺状态")
 
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 
-	_check(enemy._hp < hp_before, "冲撞矩形判定命中路径上敌人")
+	_check(probe.enemy_hp(enemy) < hp_before, "冲撞矩形判定命中路径上敌人")
 	enemy.queue_free()
 
 

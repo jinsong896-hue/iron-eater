@@ -11,6 +11,9 @@ extends Node
 ##
 ## 运行：godot --headless --path . res://tests/test_class_mechanics.tscn
 
+## 私有成员访问一律经 `TestProbe`（重构搬方法时只改 probe，本文件零改动）
+var probe := TestProbe.new()
+
 var failed := 0
 
 
@@ -129,11 +132,11 @@ func _test_warrior_melee_pct() -> void:
 ## 全程锁死随机性与连击加成，保证两次测量只有形态一个变量。
 func _measure(p, enemy, form: int) -> float:
 	p.set("form_slot", form)
-	p.call("_apply_form_modifiers")
+	probe.apply_form_modifiers(p)
 	p.set("_hit_combo_count", 0)
 	p.set("_force_crit", false)
 	var before: float = float(enemy.get("_hp"))
-	p.call("_apply_hit", enemy, 1.0, 0.0)
+	probe.apply_hit(p, enemy, 1.0, 0.0)
 	return before - float(enemy.get("_hp"))
 
 
@@ -208,13 +211,13 @@ func _test_form_stack_marks() -> void:
 		_check(false, "敌人有 buffs 容器"); return
 
 	# ① 普攻叠层
-	p.call("_apply_hit", enemy, 1.0, 0.0)
+	probe.apply_hit(p, enemy, 1.0, 0.0)
 	var after_basic := int(eb.call("stacks_of", "flame_mark"))
 	_check(after_basic > 0,
 		"普攻给敌人叠上了 flame_mark（%d 层）" % after_basic)
 
 	# ② 连打两次 → 层数上升（证明是可累积的，不是一次性的）
-	p.call("_apply_hit", enemy, 1.0, 0.0)
+	probe.apply_hit(p, enemy, 1.0, 0.0)
 	_check(int(eb.call("stacks_of", "flame_mark")) > after_basic,
 		"再打一次层数继续上升（%d → %d）" % [
 			after_basic, int(eb.call("stacks_of", "flame_mark"))])
@@ -319,9 +322,9 @@ func _test_monk_mechanisms() -> void:
 	# —— 徒手射程 / 护甲穿透 ——
 	await _start("monk", 0)
 	var p = _player()
-	_check(absf(float(p.call("_fist_reach_bonus")) - 0.5) < 0.0001,
+	_check(absf(float(probe.fist_reach_bonus(p)) - 0.5) < 0.0001,
 		"拳师普攻射程 +0.5 米")
-	_check(absf(float(p.call("_basic_attack_pierce")) - 0.05) < 0.0001,
+	_check(absf(float(probe.basic_attack_pierce(p)) - 0.05) < 0.0001,
 		"拳师普攻无视 5% 护甲")
 
 	# —— 受伤反击（铁身 slot 1，×2.0）——
@@ -444,7 +447,7 @@ func _test_judge_mechanisms() -> void:
 	# 光暗均 ≥5 → 挂 verdict_balance
 	p4.set("_light_layers", 5)
 	p4.set("_dark_layers", 5)
-	p4.call("_refresh_light_dark_balance")
+	probe.refresh_light_dark_balance(p4)
 	var pb = p4.get("buffs")
 	_check(pb != null and pb.call("has", "verdict_balance"),
 		"光暗均 ≥5 时挂上光暗平衡")
@@ -464,7 +467,7 @@ func _hit_from_behind(p, enemy) -> float:
 func _hit_once(p, enemy) -> float:
 	p.set("_hit_combo_count", 0)
 	var before: float = float(enemy.get("_hp"))
-	p.call("_apply_hit", enemy, 1.0, 0.0)
+	probe.apply_hit(p, enemy, 1.0, 0.0)
 	return before - float(enemy.get("_hp"))
 
 
@@ -494,7 +497,7 @@ func _test_resource_system() -> void:
 	enemy.set("_hp", 1000000.0)
 	enemy.set("defense", 0.0)
 	enemy.set("dodge_pct", 0.0)
-	p2.call("_apply_hit", enemy, 1.0, 0.0)
+	probe.apply_hit(p2, enemy, 1.0, 0.0)
 	_check(r2.value > 0.0, "普攻命中积攒怒气（0 → %.0f）" % r2.value)
 
 	# —— 击杀积攒（判官 +20）——
@@ -687,7 +690,7 @@ func _test_affix_hooks() -> void:
 		ls.set("_hp", float(ls.get("max_hp")) * 0.5)
 		_place_near(ls, p, 1.0)
 		var before: float = float(ls.get("_hp"))
-		ls.call("_perform_attack")
+		probe.perform_attack(ls)
 		_check(float(ls.get("_hp")) > before,
 			"「吸血」攻击后回血（%.0f → %.0f）" % [before, float(ls.get("_hp"))])
 		ls.queue_free()
@@ -721,7 +724,7 @@ func _test_affix_hooks() -> void:
 		var vals := [float(ch.get("atk")), float(ch.get("move_speed")),
 			float(ch.get("attack_interval"))]
 		ch.set("_chaos_timer", 0.0)
-		ch.call("_tick_chaos", 0.1)
+		probe.tick_chaos(ch, 0.1)
 		var after := [float(ch.get("atk")), float(ch.get("move_speed")),
 			float(ch.get("attack_interval"))]
 		var moved := false
@@ -756,11 +759,11 @@ func _spawn_with_affixes(ctrl, affix_ids: Array, elite: bool = false):
 	var mk := Marker3D.new()
 	mk.position = (p.global_position if p != null else Vector3.ZERO) + Vector3(3, 0, 0)
 	ctrl.add_child(mk)
-	var e = ctrl.call("_spawn_enemy_at", mk, 1.0, m)
+	var e = probe.ctrl_spawn_enemy_at(ctrl, mk, 1.0, m)
 	mk.queue_free()
 	if e != null and elite:
 		e.is_elite = true
-		e.call("_create_elite_marker")
+		probe.create_elite_marker(e)
 	return e
 
 
