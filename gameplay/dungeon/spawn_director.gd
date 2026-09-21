@@ -106,7 +106,7 @@ func _on_boss_died(world_position: Vector3) -> void:
 	var bus_b = room._event_bus()
 	if bus_b:
 		bus_b.boss_state_changed.emit(true)
-	room._show_portal()
+	room.portal.show_portal()
 	if room.enemies_alive <= 0:
 		room._on_cleared()
 
