@@ -34,6 +34,8 @@ var spawner: SpawnDirector = null
 ## 刷怪编排组件（生成点收集 / 敌人与群体单位分流）。
 ## 在 `_ready()` 里经 `_setup_spawner()` 装配——与 Boss 组件同批。
 var room_spawner: RoomSpawner = null
+## 传送门与楼层流转组件。在 `_ready()` 里经 `_setup_spawner()` 装配。
+var portal: RoomPortal = null
 ## 群体模拟管理器（只在有 swarm 怪的房间创建，见 _crowd()）
 var _crowd_mgr: CrowdManager = null
 ## 投射物模拟管理器（与群体管理器同生命周期）
@@ -67,6 +69,10 @@ func _setup_spawner() -> void:
 	room_spawner.name = "RoomSpawner"
 	add_child(room_spawner)
 	room_spawner.setup(self)
+	portal = RoomPortal.new()
+	portal.name = "RoomPortal"
+	add_child(portal)
+	portal.setup(self)
 
 
 ## 装配特殊房业务组件。**必须在 _collect_nodes 之前**——本类的公开 API
@@ -117,6 +123,21 @@ func _spawn_enemy_at(point: Marker3D, difficulty_mult: float, m: Dictionary = {}
 ## 当前层数（转发；SpawnDirector 也经本方法取）
 func _current_layer() -> int:
 	return room_spawner.current_layer()
+
+
+# ============================================================
+# 传送门流转转发（实现已拆到 RoomPortal）
+# ============================================================
+
+
+## 生成下一层传送门（转发；Boss 房清空后调用）
+func _show_portal() -> void:
+	portal.show_portal()
+
+
+## 清空玩家词条与元素叠层（转发；换层"满状态"用）
+func _clear_player_buffs() -> void:
+	portal.clear_player_buffs()
 
 
 ## 激活房间（玩家进入）
@@ -545,110 +566,6 @@ func _spawn_boss() -> void:
 func _on_boss_died(world_position: Vector3) -> void:
 	spawner._on_boss_died(world_position)
 
-
-func _show_portal() -> void:
-	if _portal != null and is_instance_valid(_portal):
-		_portal.visible = true
-		return
-
-	var room_root := get_parent()
-	if room_root == null:
-		return
-
-	# 传送门放在 Boss 出生点
-	var pos: Vector3 = _boss_spawn.global_position if _boss_spawn else Vector3.ZERO
-	_portal = Area3D.new()
-	_portal.name = "NextFloorPortal"
-	_portal.position = pos + Vector3(0, 1.0, 0)
-
-	var col := CollisionShape3D.new()
-	var shape := CylinderShape3D.new()
-	shape.radius = 1.2
-	shape.height = 2.0
-	col.shape = shape
-	_portal.add_child(col)
-
-	# 视觉：发光圆柱
-	var mesh := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 1.0
-	cyl.bottom_radius = 1.0
-	cyl.height = 2.0
-	mesh.mesh = cyl
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.4, 0.8, 1.0, 0.6)
-	mat.emission_enabled = true
-	mat.emission = Color(0.3, 0.7, 1.0)
-	mat.emission_energy_multiplier = 1.5
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mesh.material_override = mat
-	_portal.add_child(mesh)
-
-	_portal.body_entered.connect(_on_portal_entered)
-	room_root.add_child(_portal)
-
-	var bus = _event_bus()
-	if bus:
-		bus.message.emit("Boss 已击败！进入传送门前往下一层")
-
-
-## 触碰传送门 → 进入下一层。
-##
-## **隐藏层门槛**（策划书 1.3）：第 9 层需集齐 8 片钥匙碎片才能进入。
-## 未集齐时**拦下传送**（提示 + 不切层），玩家留在本层可继续探索，
-## 但传送门已开、可反复尝试——策划原文「进入后不可回头」指的是进去之后，
-## 不是「凑不齐就死局」。
-func _on_portal_entered(body: Node3D) -> void:
-	if not body.is_in_group("player"):
-		return
-	var gm = _game_manager()
-	if gm:
-		var cur: int = int(gm.run_info.get("floor", 1))
-		var next_floor: int = cur + 1
-
-		# 隐藏层门槛：进入第 9 层需集齐碎片
-		if next_floor >= FloorDefs.MAX_FLOOR and not gm.has_all_key_fragments():
-			var bus_deny = _event_bus()
-			if bus_deny:
-				bus_deny.message.emit("混沌裂隙需要 %d 片钥匙碎片（当前 %d 片）" % [
-					FloorDefs.KEY_FRAGMENTS_REQUIRED, int(gm.run_key_fragments)])
-			return
-
-		gm.run_info["floor"] = next_floor
-		# 层间全恢复（满状态进新层）
-		if GameBalance.FLOOR_TRANSITION_FULL_HEAL and gm.attributes:
-			gm.attributes.hp = gm.attributes.max_hp
-		# 同时清空词条与元素叠层——「满状态」必须包含这一项。
-		# 毒蚀按策划「层数永不衰减、持续至目标死亡」，跨层不清的话
-		# 玩家会带着上层的毒层数与三层毒负面（侵蚀/衰弱/虚弱）进新层，
-		# 表现为「debuff 永远挂着、只有再吃一次才刷新」（实测报告）。
-		if GameBalance.FLOOR_TRANSITION_FULL_HEAL:
-			_clear_player_buffs()
-		# 超出层数上限即通关（第 9 层打完结算）
-		if next_floor > FloorDefs.MAX_FLOOR:
-			gm.finish_run("cleared")
-			return
-		var bus0 = _event_bus()
-		if bus0:
-			bus0.stats_changed.emit()
-	# 通知 GameRoot 重建地牢（下一层）。
-	# **必须用 _game_root() 而不是 get_parent().get_parent()**：
-	# 房间节点挂在 GameRoot/World 下，父节点是 World 而非 GameRoot，
-	# 原先这样取得的是 World → has_method("next_floor") 恒 false
-	# → 传送门只涨层数、地牢从不重建（玩家原地不动，以为传送没打通）。
-	var game_root: Node = _game_root()
-	if game_root != null and game_root.has_method("next_floor"):
-		game_root.call("next_floor")
-
-
-## 清空玩家身上的全部词条与元素叠层（换层"满状态"用）。
-## 取不到玩家或 buffs 时静默跳过。
-func _clear_player_buffs() -> void:
-	for p in get_tree().get_nodes_in_group("player"):
-		var pb = p.get("buffs")
-		if pb != null and pb.has_method("clear"):
-			pb.call("clear")
-			return
 
 
 ## 房间类型（兼容 Dictionary 与 RoomData）
