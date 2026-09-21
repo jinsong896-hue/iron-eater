@@ -55,11 +55,24 @@ func _find_scene_node(node_name: String) -> Node3D:
 	return found as Node3D
 
 
+## 注册表现层工厂（供逻辑层按 key 取，见 core/spawn_registry.gd）。
+##
+## 集中注册而不是各自 `_ready` 自注册：当前只有 1 个工厂，
+## 集中在这里一眼能看全"哪些被接上了"。注册项变多再考虑自注册。
+##
+## **必须在任何房间生成之前跑**——`SpawnDirector` 在刷 Boss 时会取
+## `boss_mechanics`，取不到会 push_warning 且 Boss 少一整套机制。
+func _register_spawn_factories() -> void:
+	SpawnRegistry.register("boss_mechanics", func(target, boss_def):
+		return BossMechanics.attach(target, boss_def))
+
+
 func _ready() -> void:
 	# 小地图数据源（HUD MinimapView 自动拉取）
 	add_to_group("game_root")
 	# 新一局开始，作废上一局的 GameRef 缓存（防跨局持有旧节点）
 	GameRef.invalidate()
+	_register_spawn_factories()
 	# 接线自检：把"有发无收"的信号点名打到输出。
 	# **只在 debug 构建跑**（导出后的 release 不做无谓的字符串拼接）。
 	# 不改任何行为、不报错、不影响门禁判据——只是让静默失效可见。

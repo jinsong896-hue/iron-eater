@@ -61,10 +61,13 @@ func _spawn_boss() -> void:
 	else:
 		var cfg := BossDB.to_monster_config(boss_def, layer, FloorDefs.boss_hp(layer))
 		room._boss.apply_monster_config(cfg)
-		# 装配 Boss 通用机制（阶段/护盾/场地/召唤）
-		var bm_script = load("res://entities/enemies/boss_mechanics.gd")
-		if bm_script != null:
-			room._boss.boss_mech = bm_script.attach(room._boss, boss_def)
+		# 装配 Boss 通用机制（阶段/护盾/场地/召唤）。
+		#
+		# 走 SpawnRegistry 而不是直接 load 表现层脚本：
+		# 逻辑层不依赖 entities/（见 core/spawn_registry.gd 文件头）。
+		# 工厂缺失时会 push_warning 点名，不再静默少一整套机制。
+		room._boss.boss_mech = SpawnRegistry.create(
+			"boss_mechanics", [room._boss, boss_def])
 	room._boss.max_hp *= mult
 	room._boss.atk *= mult
 	room._boss.attack_range = 2.6
