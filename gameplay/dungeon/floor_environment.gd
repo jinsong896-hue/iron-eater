@@ -110,7 +110,7 @@ func _setup_collapse(w: float, h: float) -> void:
 			"position": pos, "radius": 2.0, "duration": -1.0,
 			"damage": 0.0, "tick_interval": 0.5,
 			"slow_buff": "thorn_slow",
-			"color": Color(0.35, 0.30, 0.22, 0.45),
+			"color": Color(0.62, 0.44, 0.20, 0.70),   # 坍塌：提亮+加不透明（原 0.35/0.30/0.22 α0.45 与地板同色系，实机看不见）
 		}, self)
 		# 预警：先只画裂纹（无效果），1.5 秒后才真正生效
 		_arm_crack_warning(z)
@@ -151,7 +151,7 @@ func _setup_poison(w: float, h: float) -> void:
 		var z := DamageZone.spawn({
 			"position": pos, "radius": 2.2, "duration": -1.0,
 			"damage": 6.0, "tick_interval": 1.0,
-			"color": Color(0.30, 0.75, 0.25, 0.35),
+			"color": Color(0.30, 0.85, 0.28, 0.55),   # 毒气：提高不透明度（原 α0.35 太淡）
 		}, self)
 		# 记下引用，供通风口的 destroyed 回调按 index 精确清除
 		_poison_zones[i] = z
@@ -213,7 +213,7 @@ func _setup_mire(w: float, h: float) -> void:
 		var z := DamageZone.spawn({
 			"position": pos, "radius": 2.5, "duration": -1.0,
 			"damage": 8.0, "tick_interval": 1.0,
-			"color": Color(0.25, 0.22, 0.14, 0.5),
+			"color": Color(0.42, 0.34, 0.16, 0.72),    # 泥潭：提亮+加不透明（原与地板同色系）
 		}, self)
 		_mire_zones.append(z)
 	_mech = {"kind": "mire", "zone_count": zones.size()}
@@ -294,7 +294,7 @@ func _setup_lava(w: float, h: float) -> void:
 		DamageZone.spawn({
 			"position": pos, "radius": 2.0, "duration": -1.0,
 			"damage": 12.0, "tick_interval": 1.0,
-			"color": Color(0.95, 0.40, 0.10, 0.5),
+			"color": Color(1.00, 0.42, 0.10, 0.65),    # 熔岩：提高不透明度
 		}, self)
 	# 符文熔炉：4 个固定在房间四角（策划 6.6「房间四角/四边分布 4 个符文熔炉」）。
 	# **不再是"随机位置齿轮爆发"**——固定位置让玩家能规划站位，
@@ -365,10 +365,8 @@ func _make_warn_ring() -> MeshInstance3D:
 	ring.mesh = mesh
 	ring.rotation_degrees = Vector3(90.0, 0.0, 0.0)
 	ring.position = Vector3(0, 0.06, 0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.55, 0.15, 0.7)
+	var mat := MaterialLibrary.create_translucent_material(Color(1.0, 0.55, 0.15, 0.7))
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	ring.material_override = mat
 	ring.visible = false
 	add_child(ring)
@@ -460,10 +458,8 @@ func _spawn_burst_visual(center: Vector3, radius: float) -> void:
 	mesh.height = radius * 1.2
 	v.mesh = mesh
 	v.position = center + Vector3(0, 0.4, 0)
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(1.0, 0.45, 0.12, 0.55)
+	var mat := MaterialLibrary.create_translucent_material(Color(1.0, 0.45, 0.12, 0.55))
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	v.material_override = mat
 	add_child(v)
 	var tw := create_tween()
@@ -489,7 +485,7 @@ func _setup_sulfur(w: float, h: float) -> void:
 		DamageZone.spawn({
 			"position": pos, "radius": 2.6, "duration": -1.0,
 			"damage": 3.0, "tick_interval": 1.0,
-			"color": Color(0.85, 0.30, 0.25, 0.30),
+			"color": Color(0.90, 0.28, 0.22, 0.55),    # 硫磺：提高不透明度（原 α0.30 太淡）
 		}, self)
 	# ② 间歇性爆炸（保留原语：硫磺气体的"喷发"）
 	_mech = {

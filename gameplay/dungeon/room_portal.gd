@@ -58,12 +58,7 @@ func show_portal() -> void:
 	cyl.bottom_radius = 1.0
 	cyl.height = 2.0
 	mesh.mesh = cyl
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.4, 0.8, 1.0, 0.6)
-	mat.emission_enabled = true
-	mat.emission = Color(0.3, 0.7, 1.0)
-	mat.emission_energy_multiplier = 1.5
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var mat := MaterialLibrary.create_translucent_material(Color(0.4, 0.8, 1.0, 0.6), 1.5)
 	mesh.material_override = mat
 	room._portal.add_child(mesh)
 

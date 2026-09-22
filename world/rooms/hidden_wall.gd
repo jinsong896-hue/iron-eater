@@ -61,10 +61,8 @@ func _build() -> void:
 	var q := QuadMesh.new()
 	q.size = Vector2(1.6, 2.4)
 	_crack.mesh = q
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.05, 0.04, 0.06, 0.85)
+	var mat := MaterialLibrary.create_translucent_material(Color(0.05, 0.04, 0.06, 0.85))
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	mat.no_depth_test = true
 	_crack.material_override = mat

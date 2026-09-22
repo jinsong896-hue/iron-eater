@@ -289,12 +289,28 @@ func spawn(world_pos: Vector3, text: String, kind: String = "normal",
 
 
 ## 3D 世界位置 → 屏幕坐标
+##
+## **必须做视口缩放换算**：3D 世界跑在 `SubViewport`（640×360，像素化管线），
+## 相机也在那个视口里，故 `unproject_position` 返回的是 **640×360 坐标系**；
+## 而本渲染器挂在**根视口**（1280×720）的 CanvasLayer 上。
+## 直接拿相机坐标当绘制位置会让伤害数字**整体缩到左上角一半处**
+##（实机症状：数字不在敌人身上弹出）。
+##
+## 换算 = 本视口尺寸 / 相机视口尺寸（本例 1280/640 = 2）。
 func _world_to_screen(world_pos: Vector3) -> Vector2:
 	if _camera == null or not is_instance_valid(_camera):
 		_camera = _find_camera()
 	if _camera == null:
 		return get_viewport().get_visible_rect().size * 0.5
-	return _camera.unproject_position(world_pos)
+	var p := _camera.unproject_position(world_pos)
+	var cam_vp := _camera.get_viewport()
+	if cam_vp == null:
+		return p
+	var from_size := cam_vp.get_visible_rect().size
+	var to_size := get_viewport().get_visible_rect().size
+	if from_size.x <= 0.0 or from_size.y <= 0.0:
+		return p
+	return Vector2(p.x * to_size.x / from_size.x, p.y * to_size.y / from_size.y)
 
 
 ## 伤害数字格式化（与旧 Label 渲染器同口径，保证切换前后显示一致）

@@ -1485,11 +1485,7 @@ func _spawn_explode_visual_legacy() -> void:
 	sphere.height = explode_radius
 	vis.mesh = sphere
 	vis.position = Vector3(0, 0.5, 0)
-	var mat := StandardMaterial3D.new()
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = Color(1.0, 0.5, 0.1, 0.5)
-	mat.emission_enabled = true
-	mat.emission = Color(1.0, 0.4, 0.0)
+	var mat := MaterialLibrary.create_translucent_material(Color(1.0, 0.5, 0.1, 0.5), 1.0)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	vis.material_override = mat
 	add_child(vis)

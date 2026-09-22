@@ -537,12 +537,7 @@ func _spawn_armor_visual() -> void:
 		_armor_mesh.radius = 0.7
 		_armor_mesh.height = 1.4
 	if _armor_mat == null:
-		_armor_mat = StandardMaterial3D.new()
-		_armor_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_armor_mat.albedo_color = Color(1.0, 0.8, 0.3, 0.25)
-		_armor_mat.emission_enabled = true
-		_armor_mat.emission = Color(1.0, 0.75, 0.2)
-		_armor_mat.emission_energy_multiplier = 1.2
+		_armor_mat = MaterialLibrary.create_translucent_material(Color(1.0, 0.8, 0.3, 0.25), 1.2)
 		_armor_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
 	var aura := MeshInstance3D.new()

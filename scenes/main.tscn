@@ -104,6 +104,8 @@ script = ExtResource("7_pixel")
 [node name="DebugPanel" parent="UI" unique_id=1774521002 instance=ExtResource("21_dbgpanel")]
 
 [node name="SettingsPanel" parent="UI" unique_id=1193802774 instance=ExtResource("11_settings")]
+visible = false
+
 [node name="SkillPanel" parent="UI" instance=ExtResource("22_skill")]
 visible = false
 

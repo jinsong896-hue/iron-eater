@@ -116,7 +116,9 @@ func spawn_slash(reach: float, half_angle: float,
 	node.mesh = _get_slash_mesh(reach, half_angle)
 	# 每种颜色一个独立缓存的材质实例（渐隐会改它的 alpha，故不能与其他颜色共用）
 	var mat := _get_slash_material(color)
-	mat.albedo_color = color          # 复用前复位 alpha（上次渐隐可能改成了 0）
+	# 复用前复位（上次渐隐把 alpha 调成 0、阈值调到 1，不复位则本次直接隐形）
+	mat.albedo_color = color
+	mat.alpha_scissor_threshold = clampf(1.0 - color.a, 0.05, 0.95)
 	node.material_override = mat
 	node.visible = true
 
@@ -125,10 +127,17 @@ func spawn_slash(reach: float, half_angle: float,
 	node.position = player.global_position + Vector3(0, 1.0, 0)
 	node.rotation.y = rot_y
 
-	# 渐隐：调该颜色专属材质的 alpha，结束后归还池
+	# 渐隐：调该颜色专属材质的 alpha，结束后归还池。
+	#
+	# **必须同步调 alpha_scissor_threshold**：材质用的是 HASH（抖动透明，
+	# 见 material_library.create_translucent_material 的说明），
+	# 它靠**固定阈值**决定每个像素露不露，光改 alpha 不会让画面变淡。
+	# 阈值 = 1 - alpha，alpha 降到 0 时阈值升到 1 → 全部裁掉 = 完全消失。
 	var tween := player.create_tween()
+	tween.set_parallel(true)
 	tween.tween_property(mat, "albedo_color:a", 0.0, 0.12)
-	tween.tween_callback(func(): _release_slash_node(node))
+	tween.tween_property(mat, "alpha_scissor_threshold", 1.0, 0.12)
+	tween.chain().tween_callback(func(): _release_slash_node(node))
 
 
 ## 取一个挥砍节点（池空则新建）
@@ -159,12 +168,7 @@ static func _get_slash_material(color: Color) -> StandardMaterial3D:
 	var key := "%.3f_%.3f_%.3f" % [color.r, color.g, color.b]
 	if _slash_mat_cache.has(key):
 		return _slash_mat_cache[key]
-	var mat := StandardMaterial3D.new()
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.albedo_color = color
-	mat.emission_enabled = true
-	mat.emission = color
-	mat.emission_energy_multiplier = 1.5
+	var mat := MaterialLibrary.create_translucent_material(color, 1.5)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_slash_mat_cache[key] = mat
 	return mat

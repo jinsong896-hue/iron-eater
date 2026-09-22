@@ -75,8 +75,19 @@ func _build() -> void:
 	mat.albedo_color = color
 	mat.emission_enabled = true
 	mat.emission = Color(color.r, color.g, color.b)
-	mat.emission_energy_multiplier = 0.8
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.emission_energy_multiplier = 1.5
+	# **必须用抖动透明（HASH）而不是 ALPHA**：
+	# 像素化管线（SubViewport + 后处理）下 `TRANSPARENCY_ALPHA` 的区域
+	# **完全不渲染**——实机症状是"陷阱特效消失"。
+	# 实测对比（同位置、同颜色，只换 transparency 模式）：
+	#   ALPHA(1) 不可见 · DISABLED(0) 可见 · SCISSOR 可见 · HASH 可见
+	# HASH 既保留半透明观感、又是硬边裁剪，与像素风格天然契合，故采用。
+	#
+	# 根因未完全定位（后处理只取 rgb 不碰 alpha），但四种模式的实测
+	# 结果一致且可复现，HASH 是其中唯一兼顾"可见 + 半透明"的选项。
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_HASH
+	# 抖动阈值：alpha 越低露出的地面越多（观感越"淡"）
+	mat.alpha_scissor_threshold = clampf(1.0 - color.a, 0.05, 0.95)
 	mesh.material_override = mat
 	add_child(mesh)
 
