@@ -19,6 +19,9 @@ var previous_state: GamePhase = GamePhase.MENU
 var attributes   # AttributeSystem
 var equipment_manager   # EquipmentManager
 var consumable_inventory   # ConsumableInventory
+## 技能槽（最多 6 个已装备技能）。局内状态，随新开局重置。
+## 放这里而不是 Player 上：切房会重建 Player 节点，挂它身上会丢配置。
+var skill_loadout      # SkillLoadout
 var rng := RandomNumberGenerator.new()
 var gold := 0
 var kills := 0
@@ -105,6 +108,8 @@ func _reset_run() -> void:
 	equipment_manager = load("res://gameplay/inventory/equipment_manager.gd").new()
 	equipment_manager.rng = rng
 	consumable_inventory = load("res://data/consumables/consumable_inventory.gd").new()
+	# 技能槽：新开局清空（玩家在技能管理页重新配置）
+	skill_loadout = load("res://data/skills/skill_loadout.gd").new()
 	gold = 0
 	kills = 0
 	total_damage = 0.0

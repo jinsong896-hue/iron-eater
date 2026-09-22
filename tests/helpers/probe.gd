@@ -521,6 +521,10 @@ func ui_selected(ui: Node):
 func set_ui_selected(ui: Node, item) -> void:
 	ui.set("_selected", item)
 
+## 技能页的槽位按钮（代码构建，见 backpack_ui._build_skill_page）
+func ui_skill_slot_buttons(ui: Node) -> Array:
+	return ui.get("_skill_slot_buttons")
+
 ## 装备槽网格
 func ui_slot_grid(ui: Node) -> Node:
 	return ui.get("_slot_grid")

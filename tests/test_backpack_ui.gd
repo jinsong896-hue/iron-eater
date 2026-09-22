@@ -34,6 +34,7 @@ func _ready() -> void:
 	await _test_filter()
 	await _test_multi_select()
 	await _test_button_reachability()
+	await _test_skill_page()
 
 	if failed == 0:
 		print("ALL BACKPACK UI TESTS PASSED")
@@ -295,3 +296,73 @@ func _check(cond: bool, name: String, extra: String = "") -> void:
 	else:
 		print("  [FAIL] %s %s" % [name, extra])
 		failed += 1
+
+
+## 技能配置页：6 个槽位、装备/卸下、上限、同一技能不重复占格
+##
+## 用户要求「角色最多只能装备 6 个技能」——上限是硬约束，
+## 故这里既验正常装备，也验**第 7 个装不进去**。
+func _test_skill_page() -> void:
+	var lo = GameManager.skill_loadout
+	if lo == null:
+		_check(false, "技能槽已初始化"); return
+	_check(lo.SLOT_COUNT == 6, "槽位数 = 6")
+	_check(lo.ids().size() == 6, "槽位数组长度 = 6")
+
+	# 开局自动填充（形态自带技能）——战士形态 0 无技能，故可能为空
+	lo.reset()
+	_check(lo.equipped_count() == 0, "reset 后清空")
+
+	# 从技能池取 7 个不同技能
+	var pool: Array = []
+	for cid in ClassDefs.CLASSES:
+		for slot in range(ClassDefs.FORM_SLOTS):
+			for sk in ClassDefs.skills_of(str(cid), slot):
+				var sid := str(sk.get("id", ""))
+				if sid.is_empty() or pool.has(sid):
+					continue
+				pool.append(sid)
+	_check(pool.size() >= 7, "技能池至少 7 个（实际 %d）" % pool.size(),
+		"")
+	if pool.size() < 7:
+		return
+
+	# 装 6 个 → 全成功
+	var ok_n := 0
+	for i in 6:
+		var r: Dictionary = lo.equip(pool[i], i)
+		if bool(r.get("ok", false)):
+			ok_n += 1
+	_check(ok_n == 6, "前 6 个技能全部装上（实际 %d）" % ok_n)
+	_check(lo.equipped_count() == 6, "已装备数 = 6")
+	_check(lo.is_full(), "6 个后判定为满")
+
+	# 第 7 个：装到已有槽位 → 替换（允许，因为槽位是 6 个）
+	var r7: Dictionary = lo.equip(pool[6], 0)
+	_check(bool(r7.get("ok", false)), "装到已有槽 = 替换（允许）")
+	_check(lo.equipped_count() == 6, "替换后仍是 6（不超上限）")
+	_check(str(lo.ids()[0]) == pool[6], "槽 0 已换成第 7 个技能")
+
+	# 越界槽位必须被拒
+	var bad: Dictionary = lo.equip(pool[0], 6)
+	_check(not bool(bad.get("ok", true)), "槽位 6 越界被拒（0~5 合法）")
+
+	# 同一技能不占两格：再装 pool[6] 到槽 1 → 槽 0 应被清掉
+	lo.equip(pool[6], 1)
+	_check(str(lo.ids()[0]).is_empty(), "同一技能移到新槽后，旧槽被清空")
+	_check(str(lo.ids()[1]) == pool[6], "技能落在新槽")
+
+	# 卸下
+	# 此刻的账：6 个槽原本装满 → 槽0 换成 pool[6]（仍 6 个）
+	# → pool[6] 移到槽1、槽0 被清空（**5 个**）→ 再卸下槽1（**4 个**）
+	_check(lo.unequip(1), "卸下成功")
+	_check(lo.equipped_count() == 4, "卸下后剩 4 个")
+
+	# 未找到的技能 id 被拒（防止 UI 传错 id 静默装上）
+	var bad2: Dictionary = lo.equip("__不存在的技能__", 0)
+	_check(not bool(bad2.get("ok", true)), "不存在的技能 id 被拒")
+
+	# UI 侧：技能页已构建出 6 个槽位按钮
+	var btns = probe.ui_skill_slot_buttons(ui)
+	_check(btns.size() == 6, "技能页构建了 6 个槽位按钮（实际 %d）" % btns.size())
+	lo.reset()

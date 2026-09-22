@@ -12,6 +12,7 @@
 [ext_resource type="PackedScene" path="res://ui/debug/debug_console.tscn" id="20_dbgcon"]
 [ext_resource type="PackedScene" path="res://ui/debug/debug_panel.tscn" id="21_dbgpanel"]
 [ext_resource type="PackedScene" path="res://scenes/ui/settings_panel.tscn" id="11_settings"]
+[ext_resource type="PackedScene" path="res://ui/skills/skill_panel.tscn" id="22_skill"]
 [ext_resource type="Script" path="res://rendering/effects/mass_text_renderer.gd" id="9_dmg_text"]
 
 [sub_resource type="Environment" id="Environment_hd2d"]
@@ -103,6 +104,7 @@ script = ExtResource("7_pixel")
 [node name="DebugPanel" parent="UI" unique_id=1774521002 instance=ExtResource("21_dbgpanel")]
 
 [node name="SettingsPanel" parent="UI" unique_id=1193802774 instance=ExtResource("11_settings")]
+[node name="SkillPanel" parent="UI" instance=ExtResource("22_skill")]
 visible = false
 
 [node name="DamageTextRenderer" type="CanvasLayer" parent="UI" unique_id=1894212492]

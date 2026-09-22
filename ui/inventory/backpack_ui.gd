@@ -25,7 +25,7 @@ const MODAL_GROUP := "modal_ui"
 ## 装备槽的 index 基准（与背包格 0..capacity-1 区分）
 const SLOT_INDEX_BASE := 1000
 
-enum Page { EQUIP, CRAFT }
+enum Page { EQUIP, CRAFT, SKILLS }
 enum Filter { ALL, WEAPON, ARMOR, ACCESSORY }
 
 const SLOT_ORDER := [
@@ -72,12 +72,22 @@ var _multi: Dictionary = {}
 @onready var _btn_craft_pick: Button = $Root/Panel/Margin/VBox/Pages/CraftPage/Actions/BtnPick
 @onready var _tab_equip: Button = $Root/Panel/Margin/VBox/Tabs/TabEquip
 @onready var _tab_craft: Button = $Root/Panel/Margin/VBox/Tabs/TabCraft
+@onready var _tab_skills: Button = $Root/Panel/Margin/VBox/Tabs/TabSkills
+@onready var _skill_page: VBoxContainer = $Root/Panel/Margin/VBox/Pages/SkillPage
+
+## 技能页的槽位按钮（代码构建，见 _build_skill_page）
+var _skill_slot_buttons: Array[Button] = []
+var _skill_selected_slot := 0
+var _skill_hint: Label = null
 
 
 func _ready() -> void:
 	_menu = $Menu
 	_build_bag_grid()
 	_build_slot_grid()
+	_build_skill_page()
+	# 技能页签：场景里的 .tscn 不含第三页的节点，信号在此连接
+	_tab_skills.pressed.connect(_on_tab_skills)
 	var bus = _event_bus()
 	if bus:
 		bus.inventory_changed.connect(_refresh)
@@ -143,8 +153,10 @@ func _switch_page(page: int) -> void:
 	_page = page
 	_equip_page.visible = page == Page.EQUIP
 	_craft_page.visible = page == Page.CRAFT
+	_skill_page.visible = page == Page.SKILLS
 	_tab_equip.button_pressed = page == Page.EQUIP
 	_tab_craft.button_pressed = page == Page.CRAFT
+	_tab_skills.button_pressed = page == Page.SKILLS
 	_hint.text = ("左键选中 · Ctrl+左键多选 · 拖到左侧装备槽穿戴 · 右键操作"
 		if page == Page.EQUIP else
 		"左键选主装备 → 右键同类装备作为材料（武器吃武器，其余可互吃）")
@@ -157,6 +169,137 @@ func _on_tab_equip() -> void:
 
 func _on_tab_craft() -> void:
 	_switch_page(Page.CRAFT)
+
+
+func _on_tab_skills() -> void:
+	_switch_page(Page.SKILLS)
+
+
+# ============================================================
+# 技能配置页（第三页签）
+# ============================================================
+#
+# 布局在代码里构建而不是写进 .tscn：这一页的结构随槽位数变化，
+# 写在场景里改槽位数要同时改两处（SkillLoadout.SLOT_COUNT 与 tscn），
+# 代码构建只有一个真相源。与 skill_panel.gd 同一做法。
+
+## 构建技能页：左=6 个槽，右=可选技能池
+func _build_skill_page() -> void:
+	if _skill_page.get_child_count() > 0:
+		return   # 幂等：_ready 只调一次，但防重复构建
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 24)
+	_skill_page.add_child(row)
+
+	# 左：槽位
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 6)
+	row.add_child(left)
+	var lt := Label.new()
+	lt.text = "已装备（最多 %d 个）" % SkillLoadout.SLOT_COUNT
+	left.add_child(lt)
+	for i in SkillLoadout.SLOT_COUNT:
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(260, 40)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.pressed.connect(_on_skill_slot_pressed.bind(i))
+		left.add_child(b)
+		_skill_slot_buttons.append(b)
+
+	# 右：技能池
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 4)
+	row.add_child(right)
+	var rt := Label.new()
+	rt.text = "可选技能（点击装到选中槽）"
+	right.add_child(rt)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(520, 420)
+	right.add_child(scroll)
+	var pool := VBoxContainer.new()
+	pool.add_theme_constant_override("separation", 2)
+	scroll.add_child(pool)
+	_build_skill_pool(pool)
+
+	_skill_hint = Label.new()
+	_skill_hint.add_theme_color_override("font_color", Color(0.6, 0.58, 0.55))
+	_skill_page.add_child(_skill_hint)
+
+
+## 技能池：按职业分组列出全部技能（全局检索，不限当前形态）
+func _build_skill_pool(pool: VBoxContainer) -> void:
+	for cid in ClassDefs.CLASSES:
+		var head := Label.new()
+		head.text = "— %s —" % str(ClassDefs.CLASSES[cid].get("name", cid))
+		head.add_theme_color_override("font_color", Color(0.55, 0.55, 0.53))
+		pool.add_child(head)
+		var seen := {}
+		for slot in range(ClassDefs.FORM_SLOTS):
+			for sk in ClassDefs.skills_of(str(cid), slot):
+				var sid := str(sk.get("id", ""))
+				if sid.is_empty() or seen.has(sid):
+					continue
+				seen[sid] = true
+				var b := Button.new()
+				b.text = "%s（%s）" % [str(sk.get("name", sid)), str(sk.get("kind", ""))]
+				b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+				b.pressed.connect(_on_skill_pool_pressed.bind(sid))
+				pool.add_child(b)
+
+
+func _skill_loadout():
+	var gm: Node = _game_manager()
+	if gm == null:
+		return null
+	return gm.get("skill_loadout")
+
+
+## 点槽位：选中；若该槽已有技能则卸下（点两下 = 清空该槽）
+func _on_skill_slot_pressed(slot: int) -> void:
+	var lo = _skill_loadout()
+	if lo == null:
+		return
+	if slot == _skill_selected_slot and not str(lo.ids()[slot]).is_empty():
+		lo.unequip(slot)
+	else:
+		_skill_selected_slot = slot
+	_refresh_skill_page()
+
+
+## 点技能池：装到当前选中槽
+func _on_skill_pool_pressed(skill_id: String) -> void:
+	var lo = _skill_loadout()
+	if lo == null:
+		return
+	var r: Dictionary = lo.equip(skill_id, _skill_selected_slot)
+	if not bool(r.get("ok", false)):
+		if _skill_hint != null:
+			_skill_hint.text = str(r.get("reason", "装备失败"))
+		return
+	_refresh_skill_page()
+
+
+## 刷新技能页
+func _refresh_skill_page() -> void:
+	if _skill_slot_buttons.is_empty():
+		return
+	var lo = _skill_loadout()
+	if lo == null:
+		if _skill_hint != null:
+			_skill_hint.text = "技能槽未初始化"
+		return
+	var ids: Array = lo.ids()
+	for i in _skill_slot_buttons.size():
+		var sid := str(ids[i])
+		var label := "空"
+		if not sid.is_empty():
+			var found := ClassDefs.find_skill(sid)
+			label = str((found.get("skill", {}) as Dictionary).get("name", sid))
+		var mark := "▶ " if i == _skill_selected_slot else "   "
+		_skill_slot_buttons[i].text = "%s%d. %s" % [mark, i + 1, label]
+	if _skill_hint != null:
+		_skill_hint.text = "已装备 %d / %d　（点槽位选中；再点已装槽位卸下）" % [
+			lo.equipped_count(), SkillLoadout.SLOT_COUNT]
 
 
 # ============================================================
@@ -174,6 +317,7 @@ func _refresh() -> void:
 	_refresh_role_stats()
 	_refresh_action_buttons()
 	_refresh_craft_page()
+	_refresh_skill_page()
 
 
 func _refresh_slots() -> void:

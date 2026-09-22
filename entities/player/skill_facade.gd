@@ -55,6 +55,11 @@ func setup_class() -> void:
 	_apply_class_base()
 	apply_form_modifiers()
 	grant_start_gear()
+	# 技能槽兜底填充：玩家没在技能管理页配过时，至少装上本形态的技能。
+	# 不填的话开局技能条全空——技能管理页没打开过就永远放不出技能。
+	var lo = _loadout()
+	if lo != null:
+		lo.autofill_if_empty(String(player.class_id), int(player.form_slot))
 
 
 ## 把职业基础属性写进 AttributeSystem。
@@ -163,9 +168,26 @@ func switch_form(slot: int) -> bool:
 # 技能执行
 # ============================================================
 
-## 当前形态的技能列表（HUD 技能条与输入派发共用）
+## 当前**已装备**的技能列表（HUD 技能条与输入派发共用）。
+##
+## **读技能槽而不是形态技能表**：玩家在技能管理页配置的 6 个槽才是
+## 实际能放什么。形态技能表只是「可选池」——见 skill_loadout.gd 的说明。
+##
+## 兜底：技能槽尚未初始化时（测试直建 Player / 旧存档）回退到形态技能表，
+## 保证任何情况下技能条都有内容。
 func current_skills() -> Array:
-	return ClassDefs.skills_of(String(player.class_id), int(player.form_slot))
+	var lo = _loadout()
+	if lo == null:
+		return ClassDefs.skills_of(String(player.class_id), int(player.form_slot))
+	return lo.equipped_skills()
+
+
+## 取技能槽（GameManager 持有；取不到返回 null）
+func _loadout():
+	var gm: Node = player.get_node_or_null("/root/GameManager")
+	if gm == null:
+		return null
+	return gm.get("skill_loadout")
 
 
 ## 当前形态的技能范围乘区（策划 4.1 元素使 +15%、4.5 共鸣师 +30%）。
