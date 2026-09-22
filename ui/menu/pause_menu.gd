@@ -5,7 +5,6 @@ extends CanvasLayer
 
 @onready var btn_resume: Button = $RightPanel/BtnResume
 @onready var btn_settings: Button = $RightPanel/BtnSettings
-@onready var btn_skills: Button = $RightPanel/BtnSkills
 @onready var btn_main_menu: Button = $RightPanel/BtnMainMenu
 @onready var btn_abandon: Button = $RightPanel/BtnAbandon
 @onready var btn_quit: Button = $RightPanel/BtnQuit
@@ -22,8 +21,6 @@ func _ready() -> void:
 		btn_resume.pressed.connect(_on_resume)
 	if btn_settings:
 		btn_settings.pressed.connect(_on_settings)
-	if btn_skills:
-		btn_skills.pressed.connect(_on_skills)
 	if btn_main_menu:
 		btn_main_menu.pressed.connect(_on_main_menu)
 	if btn_abandon:
@@ -68,15 +65,6 @@ func _on_settings() -> void:
 		return
 	visible = false
 	sp.call("open", true)
-
-
-## 打开技能配置面板（与设置同模式：接管暂停与模态，暂停菜单让位）
-func _on_skills() -> void:
-	var sp := get_tree().get_first_node_in_group("skill_panel")
-	if sp == null or not sp.has_method("open"):
-		return
-	visible = false
-	sp.call("open")
 
 
 func _on_main_menu() -> void:

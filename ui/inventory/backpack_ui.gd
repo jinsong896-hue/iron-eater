@@ -82,6 +82,12 @@ var _skill_hint: Label = null
 
 
 func _ready() -> void:
+	# **必须 ALWAYS**：_open() 会把 get_tree().paused 设成 true，
+	# 不设 ALWAYS 时本面板自己也被暂停 → 收不到 Tab/Esc → **关不掉**。
+	# 实机症状："装备页面有的时候不能正常打开"（其实是开了之后关不掉，
+	# 下一次按 Tab 打不开——因为上一次的实例还停在打开态）。
+	# 与 pause_menu / settings_panel / skill_panel 同一处理。
+	process_mode = PROCESS_MODE_ALWAYS
 	_menu = $Menu
 	_build_bag_grid()
 	_build_slot_grid()

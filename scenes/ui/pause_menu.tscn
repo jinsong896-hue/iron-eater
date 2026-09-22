@@ -40,12 +40,6 @@ text = "设置"
 theme_override_font_sizes/font_size = 26
 flat = true
 
-[node name="BtnSkills" type="Button" parent="RightPanel"]
-layout_mode = 2
-text = "技能配置"
-theme_override_font_sizes/font_size = 26
-flat = true
-
 [node name="BtnMainMenu" type="Button" parent="RightPanel"]
 layout_mode = 2
 text = "返回主菜单"

@@ -40,6 +40,11 @@ var _root: Control = null
 
 
 func _ready() -> void:
+	# **必须 ALWAYS**：open() 会把 get_tree().paused 设成 true，
+	# 不设 ALWAYS 时本面板自己也被暂停 → **收不到任何输入、关不掉**
+	#（实机症状："页面打开后不能正常关闭，功能不能正常使用"）。
+	# 与 pause_menu / settings_panel 同一处理。
+	process_mode = PROCESS_MODE_ALWAYS
 	add_to_group(GROUP_SELF)
 	visible = false
 	_build_layout()
@@ -153,27 +158,41 @@ func _build_layout() -> void:
 	_root.add_child(close_btn)
 
 
-## 技能池按职业分组列出（全局检索，不限当前形态）
+## 技能池：**只列当前职业**的技能。
+##
+## 用户明确要求："技能管理页面会有角色还没有的其他角色的技能"是问题。
+## 跨职业学技能既不符合职业设计，也让页面被无关内容淹没。
+## 职业从玩家当前 run_info 读（与 skill_facade.setup_class 同源）。
 func _build_pool(pool: VBoxContainer) -> void:
-	for cid in ClassDefs.CLASSES:
-		var head := Label.new()
-		head.text = "— %s —" % str(ClassDefs.CLASSES[cid].get("name", cid))
-		head.add_theme_color_override("font_color", COLOR_DIM)
-		pool.add_child(head)
-		# 该职业所有形态的技能去重（同 id 可能出现在多个形态）
-		var seen := {}
-		for slot in range(ClassDefs.FORM_SLOTS):
-			for sk in ClassDefs.skills_of(str(cid), slot):
-				var sid := str(sk.get("id", ""))
-				if sid.is_empty() or seen.has(sid):
-					continue
-				seen[sid] = true
-				var b := Button.new()
-				b.text = "%s（%s）" % [str(sk.get("name", sid)), str(sk.get("kind", ""))]
-				b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-				b.pressed.connect(_on_pool_pressed.bind(sid))
-				pool.add_child(b)
-				_pool_buttons.append(b)
+	var cid := _current_class_id()
+	var head := Label.new()
+	head.text = "— %s —" % str(ClassDefs.CLASSES.get(cid, {}).get("name", cid))
+	head.add_theme_color_override("font_color", COLOR_DIM)
+	pool.add_child(head)
+	# 该职业所有形态的技能去重（同 id 可能出现在多个形态）
+	var seen := {}
+	for slot in range(ClassDefs.FORM_SLOTS):
+		for sk in ClassDefs.skills_of(cid, slot):
+			var sid := str(sk.get("id", ""))
+			if sid.is_empty() or seen.has(sid):
+				continue
+			seen[sid] = true
+			var b := Button.new()
+			b.text = "%s（%s）" % [str(sk.get("name", sid)), str(sk.get("kind", ""))]
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.pressed.connect(_on_pool_pressed.bind(sid))
+			pool.add_child(b)
+			_pool_buttons.append(b)
+
+
+## 当前职业 id（取不到时回退战士，与 player 的兜底一致）
+func _current_class_id() -> String:
+	var gm := get_node_or_null("/root/GameManager")
+	if gm == null:
+		return "warrior"
+	var ri: Dictionary = gm.get("run_info") if gm.get("run_info") != null else {}
+	var cid := str(ri.get("character", "warrior"))
+	return cid if not cid.is_empty() else "warrior"
 
 
 # ============================================================
