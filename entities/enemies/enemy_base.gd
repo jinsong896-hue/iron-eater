@@ -304,8 +304,19 @@ func _ready() -> void:
 
 func _find_player() -> void:
 	var players := get_tree().get_nodes_in_group("player")
-	if players.size() > 0:
-		_player = players[0]
+	if players.size() == 0:
+		return
+	# 隐身中的玩家不成为目标（装备参考2：暗影步/烟雾弹）。
+	# 这是隐身的**核心效果**——只是半透明不算隐身，敌人照打就没意义。
+	for p in players:
+		if not is_instance_valid(p):
+			continue
+		if p.has_method("is_stealthed") and bool(p.call("is_stealthed")):
+			continue
+		_player = p
+		return
+	# 全部玩家都隐身 → 清空目标（敌人转 IDLE 游荡）
+	_player = null
 
 
 ## 装配词缀的战斗钩子（分册 7.2）。

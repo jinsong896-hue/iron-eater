@@ -84,6 +84,19 @@ var cam_fx: PlayerCameraFx = null
 ## 职业/形态/技能组件。在 `_ready()` 里经 `_setup_skills()` 装配。
 var skills: PlayerSkills = null
 
+## 召唤物管理器。在 `_ready()` 里经 `_setup_summons()` 装配。
+var summons: SummonManager = null
+
+# —— 隐身状态（装备参考2：暗影步/烟雾弹/暗影刺杀）——
+## 隐身剩余时长（秒）。>0 时模型半透明、敌人不再以你为目标。
+var _stealth_timer := 0.0
+## 隐身期间移速加成
+var _stealth_speed_pct := 0.0
+## 隐身期间是否免疫伤害
+var _stealth_invuln := false
+## 破隐一击的伤害加成（下次攻击消费一次）
+var _stealth_next_hit_bonus := 0.0
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -96,6 +109,8 @@ func _ready() -> void:
 	_setup_class()
 	_setup_state_machine()
 	_setup_fx()
+	# 召唤物管理器（装备技能「召唤狼灵/护卫」用）
+	_setup_summons()
 	# 拾取/交互组件（E 键交互、自动拾取、就近查找）
 	_setup_pickup()
 	# 击杀回血（监听全局敌死信号）
@@ -392,6 +407,8 @@ func _physics_process(delta: float) -> void:
 	_finisher_armor_timer = maxf(_finisher_armor_timer - delta, 0.0)
 	# 受击闪红衰减（视觉反馈已拆到 FxComponent）
 	fx.tick(delta)
+	# 隐身计时（装备参考2：暗影步/烟雾弹）
+	_tick_stealth(delta)
 	# 自动拾取（设置开启时生效）与 E 键交互已拆到 PickupComponent
 	pickup.update(delta)
 
@@ -749,6 +766,11 @@ func on_dodge_started() -> void:
 ## 由 move_state 每帧读取——挂在属性系统上会需要额外的计时器管理，
 ## 而"脱战"是玩家侧的瞬时状态，就地算更直接。
 func out_of_combat_speed_mult() -> float:
+	# 隐身移速（装备参考2：暗影步「隐身期间移速 +30%」）优先于脱战加成——
+	# 两者同时生效会让隐身期间移速叠到很高，且隐身是短时爆发、脱战是长时状态，
+	# 取隐身那个更符合"隐身时跑得快"的设计意图。
+	if _stealth_timer > 0.0 and _stealth_speed_pct > 0.0:
+		return 1.0 + _stealth_speed_pct
 	var bonus := ClassDefs.special_num(class_id, form_slot, "out_of_combat_spd", 0.0)
 	if bonus <= 0.0 or _out_of_combat_time < OUT_OF_COMBAT_DELAY:
 		return 1.0
@@ -1043,6 +1065,13 @@ func _compute_basic_damage(multiplier: float, knockback: float,
 		total *= 1.3
 	# 击退距离 +N%
 	var kb_pct: float = float(sp.get("knockback_pct", 0.0))
+	# 破隐一击（装备参考2：暗影步「下次攻击 +N% 伤害」）。
+	# **消费一次即失效**：这是"蓄势一击"不是"永久加成"，
+	# 不消费会让隐身变成纯增伤 buff（规格明写"下一次攻击"）。
+	if _stealth_next_hit_bonus > 0.0:
+		total *= 1.0 + _stealth_next_hit_bonus
+		_stealth_next_hit_bonus = 0.0
+		exit_stealth()
 	return {"damage": total, "crit": crit, "knockback": knockback * (1.0 + kb_pct)}
 
 
@@ -1739,6 +1768,11 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	var armor := _finisher_armor_timer > 0.0
 	if armor:
 		amount *= 0.7
+	# 隐身免疫（装备参考2：暗影刺杀「隐身期间免疫所有伤害」）
+	if _stealth_invuln and _stealth_timer > 0.0:
+		EventBus.player_hit.emit(0.0, global_position)
+		fx.flash()
+		return
 	# 调试无敌：在无敌帧/霸体之后、真正扣血之前拦下。
 	# 刻意保留下面的受击闪红与 player_hit 信号——「看得到打中」才是有意义的无敌，
 	# 否则没法用它观察命中判定。
@@ -1872,3 +1906,66 @@ func _devour_nearby() -> void:
 ## 受击闪红剩余时间（转发到 FxComponent；测试与 HUD 读它判断反馈是否在跑）
 func flash_timer() -> float:
 	return fx.flash_timer() if fx != null else 0.0
+
+
+## 装配召唤物管理器（装备技能「召唤狼灵/护卫/元素灵」用）
+func _setup_summons() -> void:
+	summons = SummonManager.new()
+	summons.name = "SummonManager"
+	add_child(summons)
+	summons.setup(self)
+
+
+## 进入隐身（装备参考2：暗影步/烟雾弹/暗影刺杀）。
+##
+## 隐身期间：
+##   · 模型半透明（视觉上"看不见了"）
+##   · 敌人不再以你为目标（见 enemy_base._find_player 的 stealth 判断）
+##   · 移速加成（规格里常配 +30%）
+##   · 可选免疫伤害（暗影刺杀）
+## 破隐：下一次攻击吃 `next_hit_bonus` 加成，然后隐身结束。
+func enter_stealth(seconds: float, speed_pct: float,
+		next_hit_bonus: float, invuln: bool) -> void:
+	_stealth_timer = maxf(seconds, 0.1)
+	_stealth_speed_pct = speed_pct
+	_stealth_next_hit_bonus = next_hit_bonus
+	_stealth_invuln = invuln
+	_apply_stealth_visual(true)
+	EventBus.message.emit("进入隐身")
+
+
+## 当前是否处于隐身
+func is_stealthed() -> bool:
+	return _stealth_timer > 0.0
+
+
+## 退出隐身（破隐/超时）
+func exit_stealth() -> void:
+	if _stealth_timer <= 0.0:
+		return
+	_stealth_timer = 0.0
+	_stealth_speed_pct = 0.0
+	_stealth_invuln = false
+	_apply_stealth_visual(false)
+
+
+## 隐身视觉：模型半透明。
+##
+## 用 `_model.transparency`（MeshInstance3D 的几何透明度属性）而不是改材质——
+## 改材质会与闪红（ToonMaterial 的 set_color）抢同一个槽位，
+## 隐身时受击闪红会失效，反之亦然。
+func _apply_stealth_visual(on: bool) -> void:
+	if fx == null:
+		return
+	var m := fx.model()
+	if m != null:
+		m.transparency = 0.75 if on else 0.0
+
+
+## 隐身每帧推进（由 _physics_process 调用）
+func _tick_stealth(delta: float) -> void:
+	if _stealth_timer <= 0.0:
+		return
+	_stealth_timer = maxf(_stealth_timer - delta, 0.0)
+	if _stealth_timer <= 0.0:
+		exit_stealth()

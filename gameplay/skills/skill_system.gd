@@ -88,6 +88,8 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 		"multi_hit":  _cast_multi_hit(caster, sd, dir)
 		"detonate":   _cast_detonate(caster, sd, dir)
 		"spread":     _cast_spread(caster, sd, dir)
+		"summon":     _cast_summon(caster, sd)
+		"stealth":    _cast_stealth(caster, sd)
 		_:
 			# 未知 kind：报错并**退化为 aoe**，而不是什么都不做。
 			#
@@ -628,3 +630,45 @@ func _game_manager() -> Node:
 	if tree and tree.root:
 		return tree.root.get_node_or_null("GameManager")
 	return null
+
+
+## 召唤类技能（装备参考2：狼灵/护卫/元素灵）。
+##
+## 技能表字段：
+##   · `hp_ratio` / `atk_ratio` / `ap_ratio` —— 继承主人的生命/攻击/法强比例
+##   · `lifetime` —— 存活秒数
+##   · `count` —— 一次召唤几只（默认 1）
+##
+## 召唤物由 `SummonManager` 管理（上限、存活跟踪、换房回收）。
+## 施法者没有召唤管理器时静默跳过——不报错（装备可能在测试环境用）。
+func _cast_summon(caster: Node3D, sd: Dictionary) -> void:
+	var mgr = caster.get("summons")
+	if mgr == null or not mgr.has_method("summon"):
+		return
+	var n := maxi(int(sd.get("count", 1)), 1)
+	for i in n:
+		mgr.call("summon",
+			float(sd.get("hp_ratio", 0.4)),
+			float(sd.get("atk_ratio", 0.4)),
+			float(sd.get("ap_ratio", 0.4)),
+			float(sd.get("lifetime", 20.0)))
+
+
+## 隐身类技能（装备参考2：暗影步/烟雾弹/暗影刺杀）。
+##
+## 技能表字段：
+##   · `stealth_seconds` —— 隐身时长
+##   · `speed_pct` —— 隐身期间移速加成
+##   · `next_hit_bonus` —— 破隐一击的伤害倍率加成
+##   · `invuln` —— 隐身期间是否免疫伤害
+##
+## 实现落在玩家的 `_stealth_timer` 上（见 Player 的同名字段注释）：
+## 隐身=视觉半透明 + 敌人不再以你为目标；破隐=下次攻击吃加成。
+func _cast_stealth(caster: Node3D, sd: Dictionary) -> void:
+	if not caster.has_method("enter_stealth"):
+		return
+	caster.call("enter_stealth",
+		float(sd.get("stealth_seconds", 3.0)),
+		float(sd.get("speed_pct", 0.0)),
+		float(sd.get("next_hit_bonus", 0.0)),
+		bool(sd.get("invuln", false)))
