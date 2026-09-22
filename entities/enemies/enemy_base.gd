@@ -1069,7 +1069,14 @@ func _perform_attack() -> void:
 	# 土/风 各半，无元素为纯物理
 	var result = DamagePipeline.elemental_attack(atk, 1.0, 0.0, player_def, attack_element)
 	# 传自身为来源：玩家侧「伤害反弹」词条据此把伤害打回来（分册限定近战）
-	_player.take_damage(result.damage, self)
+	#
+	# **带元素走 take_elemental_damage**（装备参考2 扩充通道）：
+	# 玩家侧「受到元素伤害 -N%」需要知道这次是不是元素伤害。
+	# attack_element < 0 时仍走老路径（纯物理，不该被元素抗性减免）。
+	if attack_element >= 0 and _player.has_method("take_elemental_damage"):
+		_player.call("take_elemental_damage", result.damage, attack_element, self)
+	else:
+		_player.take_damage(result.damage, self)
 	_apply_element_to_player()
 	_apply_melee_mechanics()
 	# 词缀·吸血：按造成的伤害回血（策划 7.2「考验持续压制能力」）

@@ -459,6 +459,12 @@ func special_modifiers() -> Dictionary:
 	var out := {
 		"life_steal": 0.0, "knockback_pct": 0.0, "debuff_dur_pct": 0.0,
 		"elem_pen_pct": 0.0, "reflect_pct": 0.0, "execute_bonus": 0.0,
+		# 2026-09-22 扩充的通道（见 EquipmentDB.SPECIAL_STAT 的说明）
+		"elem_resist_pct": 0.0, "gold_gain_pct": 0.0, "sell_price_pct": 0.0,
+		"key_drop_pct": 0.0, "block_pct": 0.0, "dodge_pct": 0.0,
+		"ctrl_resist_pct": 0.0, "cd_refresh_pct": 0.0, "drop_rate_pct": 0.0,
+		"pickup_range_pct": 0.0, "summon_dmg_pct": 0.0, "elem_dmg_pct": 0.0,
+		"true_dmg_pct": 0.0, "exp_gain_pct": 0.0,
 	}
 	for slot in _equipped:
 		var inst = _equipped[slot]

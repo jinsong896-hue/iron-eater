@@ -16,7 +16,11 @@ func generate_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 		return
 
 	# 金币掉落（直接入账）
-	var gold := _roll_gold(enemy_data)
+	#
+	# **装备·金币获取加成**（装备参考2 扩充通道）：击杀掉落走这里，
+	# 是金币的主要来源，故加成接在此处。宝箱/Boss 的金币也走同一乘区
+	#（见下面的 _gold_mult() 调用）。
+	var gold := int(round(_roll_gold(enemy_data) * _gold_mult()))
 	var gm = _game_manager()
 	var bus = _event_bus()
 	if gold > 0 and gm:
@@ -51,7 +55,7 @@ func _generate_boss_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 	if gold_range.y > 0.0:
 		gold = rng.randi_range(int(gold_range.x), int(gold_range.y))
 		if gm:
-			gm.gold += gold
+			gm.gold += int(round(gold * _gold_mult()))
 			if bus:
 				bus.gold_changed.emit(gm.gold)
 
@@ -73,7 +77,9 @@ func _generate_boss_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 			offset += 0.7
 
 	# ② 钥匙碎片（不生成拾取物——局内计数 + 局外累积，见 GameManager.add_key_fragment）
-	var frag_chance := FloorDefs.boss_fragment_chance(floor_num)
+	#
+	# **装备·钥匙掉落加成**（装备参考2 扩充通道）：`key_drop_pct` 直接加在概率上。
+	var frag_chance := FloorDefs.boss_fragment_chance(floor_num) + _special_pct("key_drop_pct")
 	if frag_chance > 0.0 and rng.randf() < frag_chance:
 		if gm and gm.has_method("add_key_fragment"):
 			gm.call("add_key_fragment", floor_num)
@@ -155,6 +161,8 @@ func _roll_template(enemy_data) -> EquipmentTemplate:
 	# 精英：走 ELITE_DROP_CHANCE（此前该常量定义但无人使用）
 	# 掉落率随层递减，避免后期"每房一地装备"淹没玩家（见 GameBalance 常量注释）
 	var chance := GameBalance.ELITE_DROP_CHANCE if _is_elite(enemy_data) else GameBalance.BASE_DROP_CHANCE
+	# 装备·掉落率加成（装备参考2 扩充通道）
+	chance += _special_pct("drop_rate_pct")
 	chance = _floor_decayed_chance(chance, floor)
 	if rng.randf() > chance:
 		return null
@@ -334,3 +342,34 @@ func _room_root_of(node: Node) -> Node:
 			return n
 		n = n.get_parent()
 	return node
+
+
+## 装备提供的「金币获取 +N%」乘区（装备参考2 扩充通道）。
+##
+## 从 EquipmentManager.special_modifiers 读 `gold_gain_pct`。
+## 没有装备管理器（测试/无 autoload）时返回 1.0（不放大）。
+func _gold_mult() -> float:
+	var gm = _game_manager()
+	if gm == null:
+		return 1.0
+	var em = gm.get("equipment_manager")
+	if em == null or not em.has_method("special_modifiers"):
+		return 1.0
+	var sp: Dictionary = em.call("special_modifiers")
+	return 1.0 + float(sp.get("gold_gain_pct", 0.0))
+
+
+## 读装备提供的某个「百分比修饰量」（装备参考2 扩充通道）。
+##
+## 统一入口：所有新通道都经它取，避免每个调用点各写一遍
+## 「拿 equipment_manager → special_modifiers → 取值」这套样板。
+## 没有装备管理器时返回 0.0（不生效）。
+func _special_pct(key: String) -> float:
+	var gm = _game_manager()
+	if gm == null:
+		return 0.0
+	var em = gm.get("equipment_manager")
+	if em == null or not em.has_method("special_modifiers"):
+		return 0.0
+	var sp: Dictionary = em.call("special_modifiers")
+	return float(sp.get(key, 0.0))

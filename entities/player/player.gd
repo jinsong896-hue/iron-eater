@@ -1676,9 +1676,55 @@ func take_true_damage(amount: float) -> void:
 		die()
 
 
+## 装备·格挡/闪避的免伤判定（装备参考2 扩充通道）。
+##
+## 两者的语义差别：**格挡**是举盾硬挡（有盾牌/格挡词条时），
+## **闪避**是侧身躲开。机制上都是「按概率完全免伤」，故合并成一次判定——
+## 概率相加后取一次随机，避免连续判两次导致实际免伤率被放大
+##（1-(1-a)(1-b) ≠ a+b，分开判会让「格挡10%+闪避10%」变成 19% 而不是 20%）。
+##
+## 上限 75%：全免伤会让游戏失去威胁（策划也未给超过这个量级的数值）。
+## 返回 true 表示本次伤害被完全免除。
+func _roll_avoidance() -> bool:
+	var sp: Dictionary = _equip_special_mods()
+	var chance: float = float(sp.get("block_pct", 0.0)) + float(sp.get("dodge_pct", 0.0))
+	if chance <= 0.0:
+		return false
+	chance = clampf(chance, 0.0, 0.75)
+	if GameManager.rng.randf() >= chance:
+		return false
+	EventBus.message.emit("格挡！免疫本次伤害")
+	return true
+
+
+## 玩家受击的**扩展签名**：带元素与「是否元素伤害」标记。
+##
+## 为什么要有这个重载：原 `take_damage(amount, from)` 不带元素信息，
+## 于是「受到火焰伤害 -3%」这类词条**无法按元素细分**。
+## 攻击方（敌人/投射物）是知道自己的元素的，故加一条带元素的路径，
+## 由它们主动调用；老的 `take_damage(amount, from)` 保留为纯物理入口
+##（不传元素 = 物理，与既有行为一致）。
+func take_elemental_damage(amount: float, elem: int, from: Node3D = null) -> void:
+	# 装备·元素减伤（装备参考2 扩充通道）：elem >= 0 才算元素伤害。
+	# **只对元素伤害生效**——物理伤害不该被「元素抗性」减免。
+	if elem >= 0:
+		var er: float = float(_equip_special_mods().get("elem_resist_pct", 0.0))
+		if er > 0.0:
+			amount *= 1.0 - clampf(er, 0.0, 0.8)
+	take_damage(amount, from)
+
+
 func take_damage(amount: float, from: Node3D = null) -> void:
 	# 翻滚/俯冲无敌帧
 	if _is_dodging or _jump_phase == JumpPhase.DIVE:
+		return
+	# 装备·格挡 / 闪避（装备参考2 扩充通道）：
+	# 两者都是「按概率完全免伤」，差别只在来源语义（格挡=举盾挡下、闪避=躲开）。
+	# 放在最前面判——免伤就该在一切结算之前发生，否则护盾/减伤先扣一遍
+	# 再免伤会让玩家白掉资源。
+	if _roll_avoidance():
+		EventBus.player_hit.emit(0.0, global_position)
+		fx.flash()
 		return
 	# 形态·翻滚后免疫一次（策划 6.2 斥候「翻滚后免疫下一次攻击」）。
 	# 与无敌帧是两回事：无敌帧只在翻滚**过程中**生效，这个是在翻滚
