@@ -96,7 +96,11 @@ func _test_enhance_flow() -> void:
 		"实际=%s" % probe.ui_detail_meta(ui).text)
 
 
-## 融合流程：同部位材料 → 融合成功；异部位 → 拒绝
+## 融合流程（装备参考2 规格口径）：
+##   武器 ↔ 武器 可融合；非武器 ↔ 非武器 可融合；**跨类不行**。
+##
+## 用户 2026-09-22 明确以规格为准，取消了原先「同槽位」的限制——
+## 故「头盔吃胸甲」现在是**合法**的（两者都是非武器）。
 func _test_fusion_flow() -> void:
 	var em = GameManager.equipment_manager
 	var helm2 = _make_item("A03")
@@ -105,18 +109,17 @@ func _test_fusion_flow() -> void:
 	em.add_item(robe)
 	await get_tree().process_frame
 
-	# 异部位拒绝（头盔 A03 吃长袍 A04 —— 同 HEAD/CHEST 不同部位）
-	# 注：A03 与 A04 槽位不同（HEAD vs CHEST），应拒绝
-	var bad: Dictionary = em.fuse(_make_item("A03"), robe)
-	_check(not bad.get("ok", true), "异部位融合被拒绝")
-
-	# 同部位成功（头盔 吃 头盔）
+	# 跨类拒绝：武器 吃 护甲（A03 头盔是护甲，W01 是武器）
 	GameManager.gold = 500
+	var bad: Dictionary = em.fuse(_make_item("W01"), robe)
+	_check(not bad.get("ok", true), "武器吃护甲被拒绝（跨类）")
+
+	# 同类成功：护甲 吃 护甲（头盔 A03 吃胸甲 A05 —— 不同槽位但都是护甲）
 	var helm3 = _make_item("A03")
 	em.add_item(helm3)
 	var main_item = em.get_inventory()[0]
 	var good: Dictionary = em.fuse(main_item, helm3)
-	_check(good.get("ok", false), "同部位融合成功", str(good))
+	_check(good.get("ok", false), "同大类融合成功（不同槽位也可）", str(good))
 	if good.get("ok", false):
 		_check(main_item.fusion_count == 1, "融合等级 +1")
 		_check(GameManager.gold == 500 - good.get("cost", 0), "融合扣金币")
@@ -259,7 +262,7 @@ func _test_button_reachability() -> void:
 	_check(a.enhancement_level == lv + 1,
 		"点「强化」后等级 %d → %d" % [lv, a.enhancement_level])
 
-	# —— 走按钮路径：融合（主装备吃同部位材料）——
+	# —— 走按钮路径：融合（主装备吃同类材料）——
 	_check(not probe.ui_btn_fuse(ui).disabled, "选主装备后「融合」按钮解禁")
 	var fc: int = a.fusion_count
 	probe.set_ui_selected(ui, b)

@@ -11,6 +11,19 @@ static func can_fuse(current_count: int) -> bool:
 	return current_count < MAX_FUSION
 
 
+## 两个类别的装备能否互相融合（装备参考2 规格）。
+##
+## 规格原文：「武器只能和武器融合，但是其他部位装备可以和除武器以外的
+## 装备融合」——即**武器↔武器、非武器↔非武器**，跨类不行。
+##
+## **取代了原「同槽位」口径**（头盔只能吃头盔）：那要求更严，
+## 会让「头盔吃胸甲」被拒；规格放宽到同大类即可。用户 2026-09-22 定此口径。
+static func can_fuse_together(main_category: int, material_category: int) -> bool:
+	var main_is_weapon := main_category == EquipmentDefs.Category.WEAPON
+	var mat_is_weapon := material_category == EquipmentDefs.Category.WEAPON
+	return main_is_weapon == mat_is_weapon
+
+
 ## 融合后等级
 static func next_fusion_count(current_count: int) -> int:
 	return mini(current_count + 1, MAX_FUSION)

@@ -229,20 +229,25 @@ func devour(item: EquipmentInstance) -> Dictionary:
 	return {"ok": true}
 
 
-## 融合装备（main 吃 material：同槽位校验 + 词条继承 + 金币计费）
+## 融合装备（main 吃 material：**同大类**校验 + 词条继承 + 金币计费）
 func fuse(main: EquipmentInstance, material: EquipmentInstance) -> Dictionary:
 	if main == null or material == null:
 		return {"ok": false, "reason": "无效物品"}
 	if not FusionRules.can_fuse(main.fusion_count):
 		return {"ok": false, "reason": "已达最大融合等级"}
 
-	# 同槽位校验（策划口径：同部位装备才能作为融合材料）
+	# 融合材料校验（装备参考2 规格）：
+	#   「武器只能和武器融合，但是其他部位装备可以和除武器以外的装备融合」
+	#
+	# **不再是「同槽位」**：原实现要求 `main_tpl.slot == mat_tpl.slot`
+	#（头盔只能吃头盔），规格把口径放宽到「同大类」——
+	# 武器吃任意武器、护甲/饰品可互相吃。用户 2026-09-22 明确以规格为准。
 	var main_tpl := main.get_template()
 	var mat_tpl := material.get_template()
 	if main_tpl == null or mat_tpl == null:
 		return {"ok": false, "reason": "装备数据异常"}
-	if main_tpl.slot != mat_tpl.slot:
-		return {"ok": false, "reason": "材料必须为同部位装备"}
+	if not FusionRules.can_fuse_together(main_tpl.category, mat_tpl.category):
+		return {"ok": false, "reason": "武器只能和武器融合，其他部位不能和武器融合"}
 	if material.is_locked:
 		return {"ok": false, "reason": "材料已锁定"}
 

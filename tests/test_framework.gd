@@ -809,6 +809,25 @@ func test_fusion_rules() -> void:
 			"实例 25 次融合加成 = 100%（原先写死 count×0.02 只有 50%）",
 			[inst.fusion_bonus()])
 
+	# —— 融合材料类别规则（装备参考2 规格，2026-09-22 起取代「同槽位」）——
+	#
+	# 规格原文：「武器只能和武器融合，但是其他部位装备可以和除武器以外的
+	# 装备融合」。故判据是**是否同为武器**，而不是槽位相同。
+	var ED = _require_script("res://data/equipment/equipment_defs.gd")
+	if ED == null:
+		return
+	var W: int = ED.Category.WEAPON
+	var A: int = ED.Category.ARMOR
+	var J: int = ED.Category.ACCESSORY
+	_check(FR.can_fuse_together(W, W), "武器 ↔ 武器 可融合")
+	_check(FR.can_fuse_together(A, A), "护甲 ↔ 护甲 可融合")
+	_check(FR.can_fuse_together(J, J), "饰品 ↔ 饰品 可融合")
+	_check(FR.can_fuse_together(A, J), "护甲 ↔ 饰品 可融合（非武器之间不限）")
+	_check(FR.can_fuse_together(J, A), "饰品 ↔ 护甲 可融合（反向同判）")
+	_check(not FR.can_fuse_together(W, A), "武器 ↔ 护甲 不可融合")
+	_check(not FR.can_fuse_together(A, W), "护甲 ↔ 武器 不可融合（反向同判）")
+	_check(not FR.can_fuse_together(W, J), "武器 ↔ 饰品 不可融合")
+
 
 func test_room_data() -> void:
 	_current_test = "RoomData"

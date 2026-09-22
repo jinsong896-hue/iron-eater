@@ -147,7 +147,7 @@ func _switch_page(page: int) -> void:
 	_tab_craft.button_pressed = page == Page.CRAFT
 	_hint.text = ("左键选中 · Ctrl+左键多选 · 拖到左侧装备槽穿戴 · 右键操作"
 		if page == Page.EQUIP else
-		"左键选主装备 → 右键同部位装备作为材料（或点「选为材料」）")
+		"左键选主装备 → 右键同类装备作为材料（武器吃武器，其余可互吃）")
 	_refresh()
 
 
@@ -358,7 +358,7 @@ func _refresh_craft_page() -> void:
 		var cost := FusionRules.fusion_cost(_fusion_source, _fusion_source)
 		var em := _equipment_manager()
 		var e_cost: int = em.enhancement_cost(_fusion_source) if em != null else 0
-		_craft_hint.text = "强化费用 %d 金 · 融合费用约 %d 金（同部位材料）" % [e_cost, cost]
+		_craft_hint.text = "强化费用 %d 金 · 融合费用约 %d 金（武器吃武器，其余可互吃）" % [e_cost, cost]
 	_btn_enhance.disabled = _fusion_source == null
 	_btn_fuse.disabled = _fusion_source == null
 	_btn_craft_pick.disabled = _selected == null
