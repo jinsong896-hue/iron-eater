@@ -163,6 +163,21 @@ const BUFFS := [
 	["gen_sustain_1", "续航·灭杀回复", Kind.GENERIC, 6.0, 0, "击杀时回复生命", "special", {"on_kill_heal": 0.05}],
 	["gen_sustain_2", "续航·受击减伤", Kind.GENERIC, 6.0, 0, "受到伤害降低", "stat", {"dmg_taken_down": 0.15}],
 	["gen_sustain_3", "续航·脱战回复", Kind.GENERIC, 10.0, 0, "脱战时持续回复", "special", {"regen": 0.02}],
+	# ---------- 装备叠层型（装备参考2：逐层成长的词条） ----------
+	#
+	# 装备设计里大量出现「每层 +N%…（最多 N 层）」的成长型自有词条。
+	# 这些**不需要新机制**：BuffHolder 早就支持叠层
+	#（`stacks` / `max_stacks` / `stacks_of`），且 `_sync_modifier` 会把
+	# 层数乘进属性（`params × stacks`）。第 5 列就是「最多 N 层」。
+	["eq_atk_stack",    "攻击·叠层", Kind.ATTACK,   10.0, 10, "每层攻击力 +2%（最多 10 层）", "stat", {"atk_up": 0.02}],
+	["eq_def_stack",    "防御·叠层", Kind.SHIELD,   10.0,  5, "每层防御 +1%（最多 5 层）", "stat", {"def_up": 0.01}],
+	["eq_aspd_stack",   "攻速·叠层", Kind.ATTACK,    8.0,  5, "每层攻速 +2%（最多 5 层）", "stat", {"aspd_up": 0.02}],
+	["eq_crit_stack",   "暴击·叠层", Kind.ATTACK,    8.0,  5, "每层暴击率 +3%（最多 5 层）", "stat", {"crit_up": 0.03}],
+	["eq_crd_stack",    "暴伤·叠层", Kind.ATTACK,    8.0,  5, "每层暴击伤害 +3%（最多 5 层）", "stat", {"crd_up": 0.03}],
+	["eq_spd_stack",    "移速·叠层", Kind.MOBILITY,  8.0,  3, "每层移速 +2%（最多 3 层）", "stat", {"spd_up": 0.02}],
+	["eq_reduce_stack", "减伤·叠层", Kind.SHIELD,   10.0, 10, "每层减伤 +2%（最多 10 层）", "stat", {"dmg_taken_down": 0.02}],
+	["eq_swift_stack",  "迅捷·叠层", Kind.MOBILITY,  8.0,  5, "每层攻速 +2%（迅捷）", "stat", {"aspd_up": 0.02}],
+	["eq_soul_stack",   "噬魂·叠层", Kind.ATTACK,   12.0, 15, "每层攻击力 +2%（噬魂/灵魂）", "stat", {"atk_up": 0.02}],
 ]
 
 ## 分类中文名
@@ -176,11 +191,20 @@ const KIND_NAMES := {
 ## **技能专用词条**：不属于策划文档的 81 条体系，由《角色设计分册》的
 ## 职业技能描述反推而来（文档只给效果说明、未给独立词条定义）。
 ## 单独列出是为了让「词条表 == 文档 81 条」这条不变量仍可被测试校验。
+## 不属于策划文档 81 条的**扩展词条**（技能专用 + 装备叠层）。
+##
+## `doc_ids()` = 全部 − 本表。测试用「表 == 文档 81 条」做双向覆盖校验，
+## 故任何新增的**非文档**词条都必须登记在这里，否则那条校验会失败
+##（2026-09-22 加装备叠层词条时踩到）。
 const SKILL_ONLY_IDS := ["rage_haste", "rage_fury", "rage_dance_aspd",
 	"rage_dance_true", "chain_weak", "flame_mark", "void_stigma",
 	"break_limit_state", "forest_domain_self", "forest_domain_foe",
 	"judge_mark", "light_layer", "dark_layer", "verdict_balance",
-	"mire_deep", "mire_deepest"]
+	"mire_deep", "mire_deepest",
+	# 装备叠层型（装备参考2 的成长类词条，见 BUFFS 表尾）
+	"eq_atk_stack", "eq_def_stack", "eq_aspd_stack", "eq_crit_stack",
+	"eq_crd_stack", "eq_spd_stack", "eq_reduce_stack", "eq_swift_stack",
+	"eq_soul_stack"]
 
 ## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
 ## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），
