@@ -20,6 +20,25 @@ func _ready() -> void:
 	if packed != null:
 		_loading = packed.instantiate() as LoadingScreen
 		add_child(_loading)
+	# 窗口关闭的兜底处理（见 _notification）
+	set_process(false)
+
+
+## 窗口关闭请求的**兜底**处理。
+##
+## 用户报告「点窗口 X 只关掉边框、进程不退出」。`auto_accept_quit` 默认
+## 为 true（本项目的 project.godot 没改它），正常情况下引擎会自行退出，
+## 故这多半是 **Windows 下的渲染/窗口层问题**，不是脚本逻辑。
+##
+## 但这里加一道保险：收到关闭请求时**直接 quit()**，绕过引擎默认流程里
+## 可能卡住的环节（例如渲染线程仍在等一帧、或某个 autoload 的
+## `_exit_tree` 阻塞）。
+##
+## **不能反过来造成"退不掉"**：quit() 只是请求退出，引擎仍会走清理流程；
+## 若清理本身卡住，这里也救不了——那种情况需要单独定位阻塞源。
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		get_tree().quit()
 
 
 ## 取过渡屏（GameRoot 的第二段房内进度条要用）
