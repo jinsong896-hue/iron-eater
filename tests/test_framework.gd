@@ -641,9 +641,9 @@ func test_white_equipment_db() -> void:
 	var white_count: int = EDB.get_templates_by_rarity(ED.Rarity.WHITE).size()
 	_check(white_count == EDB.WHITE_COUNT, "白装为基础款 %d 件" % EDB.WHITE_COUNT, [white_count])
 	_check(white_count == 13, "白装 13 件（4 武器 + 6 护甲 + 3 饰品）", [white_count])
-	_check(EDB.template_count() == 544,
-		"模板总数 = 544（193 占位克隆 + 351 策划筛选池）", [EDB.template_count()])
-	_check(EDB.CURATED_TABLE.size() == 351, "策划筛选池 351 件", [EDB.CURATED_TABLE.size()])
+	_check(EDB.template_count() == 542,
+		"模板总数 = 542（193 占位克隆 + 349 策划筛选池）", [EDB.template_count()])
+	_check(EDB.CURATED_TABLE.size() == 349, "策划筛选池 349 件", [EDB.CURATED_TABLE.size()])
 
 	# 稀有度阶梯：种类数量 紫 > 蓝 >= 橙 > 绿 > 白
 	var n_green: int = EDB.get_templates_by_rarity(ED.Rarity.GREEN).size()
