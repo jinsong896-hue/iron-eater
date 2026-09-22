@@ -60,6 +60,9 @@ func setup_class() -> void:
 	var lo = _loadout()
 	if lo != null:
 		lo.autofill_if_empty(String(player.class_id), int(player.form_slot))
+	# 被动技能：学会即生效（不占槽位）。必须在 autofill 之后——
+	# 填充可能刚把形态自带的被动加进 passives。
+	apply_passives()
 
 
 ## 把职业基础属性写进 AttributeSystem。
@@ -188,6 +191,46 @@ func _loadout():
 	if gm == null:
 		return null
 	return gm.get("skill_loadout")
+
+
+# ============================================================
+# 被动技能 —— 学会即生效，不占技能槽
+# ============================================================
+#
+# 规格（装备参考2）：技能分主动/被动。**主动上槽（最多 6 个），被动不上槽**。
+#
+# 实现：被动 = 给玩家挂一条**永不过期词条**（`ps_*`，见 buff_defs.gd）。
+# 复用 BuffHolder → AttributeSystem 的现成同步链路，不另造一套。
+
+## 把已学会的被动全部挂到玩家身上（幂等）。
+##
+## 调用时机：装配职业后、切房重建 Player 后。
+## 幂等很重要——切房会重建 Player，重复挂会让层数/修正叠加。
+func apply_passives() -> void:
+	var lo = _loadout()
+	if lo == null or player.buffs == null:
+		return
+	for sid in lo.passives:
+		var buff_id := _passive_buff_id(str(sid))
+		if buff_id.is_empty():
+			continue
+		# BuffHolder.apply 内部按 id 记账，重复调用只会刷新而不叠加
+		player.buffs.apply(buff_id, "passive")
+
+
+## 被动技能 id → 词条 id。
+##
+## 规格里被动技能的 id 与词条 id 一一对应（`ps_vitality` ↔ `ps_vitality`），
+## 但技能表用的是**技能 id**（可能与词条 id 不同名）。
+## 目前两者同名；找不到时返回空串（静默跳过，不影响其它被动）。
+func _passive_buff_id(skill_id: String) -> String:
+	if skill_id.begins_with(SkillLoadout.PASSIVE_BUFF_PREFIX):
+		return skill_id
+	# 技能 id 与词条 id 不同名时，按词条表反查一次（get_buff 返回空数组 = 不存在）
+	var guess := SkillLoadout.PASSIVE_BUFF_PREFIX + skill_id
+	if not BuffDefs.get_buff(guess).is_empty():
+		return guess
+	return ""
 
 
 ## 当前形态的技能范围乘区（策划 4.1 元素使 +15%、4.5 共鸣师 +30%）。

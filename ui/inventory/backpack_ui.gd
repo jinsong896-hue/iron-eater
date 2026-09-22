@@ -240,11 +240,40 @@ func _build_skill_pool(pool: VBoxContainer) -> void:
 				if sid.is_empty() or seen.has(sid):
 					continue
 				seen[sid] = true
+				# **主动/被动分开呈现**：被动不上槽（学会即生效），
+				# 混在一起会让玩家以为"被动也要占 6 个槽之一"。
+				var is_ps: bool = SkillLoadout.is_passive(sk as Dictionary)
 				var b := Button.new()
-				b.text = "%s（%s）" % [str(sk.get("name", sid)), str(sk.get("kind", ""))]
+				b.text = "%s%s（%s）" % [
+					"[被动] " if is_ps else "",
+					str(sk.get("name", sid)),
+					"学会即生效" if is_ps else str(sk.get("kind", ""))]
 				b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-				b.pressed.connect(_on_skill_pool_pressed.bind(sid))
+				if is_ps:
+					b.pressed.connect(_on_skill_passive_pressed.bind(sid))
+				else:
+					b.pressed.connect(_on_skill_pool_pressed.bind(sid))
 				pool.add_child(b)
+
+
+## 点被动技能：学会 / 遗忘（**不占槽位**）
+func _on_skill_passive_pressed(skill_id: String) -> void:
+	var lo = _skill_loadout()
+	if lo == null:
+		return
+	if lo.passives.has(skill_id):
+		lo.forget_passive(skill_id)
+	else:
+		var r: Dictionary = lo.learn_passive(skill_id)
+		if not bool(r.get("ok", false)):
+			if _skill_hint != null:
+				_skill_hint.text = str(r.get("reason", "学习失败"))
+			return
+	# 学会/遗忘后立即重挂被动（生效/失效）
+	var p = get_tree().get_first_node_in_group("player")
+	if p != null and p.get("skills") != null:
+		p.get("skills").call("apply_passives")
+	_refresh_skill_page()
 
 
 func _skill_loadout():
@@ -298,8 +327,8 @@ func _refresh_skill_page() -> void:
 		var mark := "▶ " if i == _skill_selected_slot else "   "
 		_skill_slot_buttons[i].text = "%s%d. %s" % [mark, i + 1, label]
 	if _skill_hint != null:
-		_skill_hint.text = "已装备 %d / %d　（点槽位选中；再点已装槽位卸下）" % [
-			lo.equipped_count(), SkillLoadout.SLOT_COUNT]
+		_skill_hint.text = "主动 %d / %d　·　被动 %d 个（不上槽，学会即生效）　（点槽位选中；再点已装槽位卸下）" % [
+			lo.equipped_count(), SkillLoadout.SLOT_COUNT, lo.passive_count()]
 
 
 # ============================================================

@@ -462,7 +462,20 @@ func _test_crowd_form_extras(p, mgr) -> void:
 		return
 	var ids = mgr.call("query_circle", 0.0, 0.0, 9999.0)
 	if ids.is_empty():
-		_check(false, "[crowd-form] 有群体单位可测")
+		# **前面的普攻用例可能把仅有的单位打死了**（伤害含暴击随机，
+		# 本房只刷 2 个群体单位）。此时直接补刷一个，而不是判失败——
+		# 否则门禁会间歇性红（实测：单独跑过、全量跑挂）。
+		#
+		# 补刷而不是"跳过"：跳过会让本组断言静默失效，
+		# 那正是"测不到 = 没有防线"的老问题。
+		var ctrl0 = mgr.get_parent()
+		if ctrl0 != null and ctrl0.has_method("debug_spawn"):
+			ctrl0.call("debug_spawn", "zombie", 1, Vector3(0, 0, 0))
+			await get_tree().physics_frame
+			await get_tree().physics_frame
+			ids = mgr.call("query_circle", 0.0, 0.0, 9999.0)
+	if ids.is_empty():
+		_check(false, "[crowd-form] 有群体单位可测（补刷后仍为空）")
 		return
 	# **挑一个血量最高的存活单位**：本测试跑在前面的用例之后，
 	# 有些单位已被打残或打死；而 buffs_of 对已死单位返回 null。

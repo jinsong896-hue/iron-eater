@@ -366,3 +366,67 @@ func _test_skill_page() -> void:
 	var btns = probe.ui_skill_slot_buttons(ui)
 	_check(btns.size() == 6, "技能页构建了 6 个槽位按钮（实际 %d）" % btns.size())
 	lo.reset()
+
+	await _test_passive_skills()
+
+
+## 被动技能：**不上槽位**、学会即生效、主动技能不能走学会通道
+##
+## 规格（装备参考2）：技能分主动/被动；主动上槽（6 个），被动不上槽。
+## 这条区分是硬约束——不拦的话被动会占掉主动槽位。
+func _test_passive_skills() -> void:
+	var lo = GameManager.skill_loadout
+	lo.reset()
+	_check(lo.passive_count() == 0, "重置后无已学被动")
+
+	# ① 被动词条存在且是永久的（duration=0 → permanent）
+	var row: Array = BuffDefs.get_buff("ps_vitality")
+	_check(not row.is_empty(), "被动词条 ps_vitality 存在")
+	if not row.is_empty():
+		_check(float(row[3]) == 0.0, "被动词条时长为 0（永不过期）")
+
+	# ② 学会被动：不占槽位
+	var r: Dictionary = lo.learn_passive("ps_vitality")
+	_check(bool(r.get("ok", false)), "学会被动 ps_vitality", str(r))
+	_check(lo.passive_count() == 1, "被动计数 = 1")
+	_check(lo.equipped_count() == 0, "**被动不占主动槽位**（槽位仍空）")
+	_check(not lo.is_full(), "学会被动后槽位未满")
+
+	# ③ 重复学会被拒
+	var dup: Dictionary = lo.learn_passive("ps_vitality")
+	_check(not bool(dup.get("ok", true)), "重复学会被拒")
+
+	# ④ 主动技能不能走「学会」通道（否则会绕过 6 槽上限）
+	var pool: Array = []
+	for cid in ClassDefs.CLASSES:
+		for s in range(ClassDefs.FORM_SLOTS):
+			for sk in ClassDefs.skills_of(str(cid), s):
+				if not SkillLoadout.is_passive(sk as Dictionary):
+					pool.append(str(sk.get("id", "")))
+					break
+			if not pool.is_empty():
+				break
+		if not pool.is_empty():
+			break
+	if not pool.is_empty():
+		var bad: Dictionary = lo.learn_passive(pool[0])
+		_check(not bool(bad.get("ok", true)), "主动技能不能走学会通道（须上槽）")
+
+	# ⑤ 被动不能装到槽位
+	var bad2: Dictionary = lo.equip("ps_vitality", 0)
+	_check(not bool(bad2.get("ok", true)), "被动技能不能上槽位")
+
+	# ⑥ 生效：挂上后属性真的变化
+	var p = get_tree().get_first_node_in_group("player")
+	if p != null and p.get("skills") != null:
+		var hp_before: float = GameManager.attributes.max_hp
+		p.get("skills").call("apply_passives")
+		var hp_after: float = GameManager.attributes.max_hp
+		_check(hp_after > hp_before,
+			"被动生效：max_hp %.0f → %.0f（坚韧体魄 +8%%）" % [hp_before, hp_after],
+			"未涨则被动没挂上")
+
+	# ⑦ 遗忘后失效
+	_check(lo.forget_passive("ps_vitality"), "遗忘被动成功")
+	_check(lo.passive_count() == 0, "遗忘后计数归零")
+	lo.reset()
