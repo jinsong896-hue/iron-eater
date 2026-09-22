@@ -398,6 +398,14 @@ static func init_equipment_db() -> void:
 	for rarity in range(EquipmentDefs.Rarity.GREEN, EquipmentDefs.Rarity.ORANGE + 1):
 		_generate_rarity(rarity)
 
+	# 策划「装备参考2」筛选后的装备池（188 件）
+	#
+	# **在占位目录之后注册**：CURATED 用的是自己的 id（G001/B001/…），
+	# 与 FULL_*_TABLE 克隆出的 id（W01_G 等）不冲突，两者并存。
+	# 掉落池因此同时包含「占位克隆」与「策划实装」——
+	# 前者保证每个部位/稀有度都有货，后者提供有设计感的装备。
+	_load_curated_table()
+
 	# 红装：策划口径是**逐件独立机制设计**（武器分册第 5 章，如"狱火断头台"
 	# 的火焰爆炸），不是系数克隆。但第 6 层起 Boss 保底即红装
 	# （FloorDefs.boss_drop / GameBalance.BOSS_PITY_ORANGE_MAX_FLOOR），
@@ -507,3 +515,242 @@ static func _apply_affixes(t: EquipmentTemplate, base: Array, devour: Array, fus
 static func _make_affix(affix: Array) -> AffixData:
 	var op := AffixData.Operation.PERCENT if affix[2] else AffixData.Operation.FLAT
 	return AffixData.new(affix[0], affix[1], op)
+
+
+## 策划「装备参考2」筛选后的装备池（188 件，2026-09-22 导入）
+##
+## 来源：ai/装备参考.txt（390 件原始设计）+ 策划书/装备参考2.docx（规格）
+## 筛选规则（用户指定）：
+##   1. 去掉功能重复的纯上位装备（同名跨稀有度只保留一件）
+##   2. 稀有度定位不符的调整到对应稀有度
+##   3. 去掉机制过于复杂的（叠层/循环/多段触发）
+##   4. 去掉代码层面无法实现的（格挡/闪避率/元素抗性/金币/经验/掉落率/拾取范围/
+##      召唤/免疫/霸体/无敌/刷新冷却/沉默/恐惧/嘲讽/击飞/牵引/弹射/残影）
+##   5. 所有职业通用，无职业专属（去掉含怒气/魔力/专注/裁决/气劲的）
+##
+## 格式：[id, 名称, 武器类型, 标签, 槽位, 类别, 基础, 吞噬, 融合]
+## **独立于 FULL_*_TABLE**：那三张表是白装克隆用的占位目录，
+## 本表是策划实打实设计的装备，两者并存不冲突。
+const CURATED_TABLE := [
+  ["G000", "被腐蚀的长剑", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.01, true], [Stat.ATK, 0.005, true], [Stat.ATK, 0.1, true]],
+  ["G001", "饮血重剑", "greatsword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.1, true], [Stat.ATK, 0.005, true], [Stat.HP, 0.05, true]],
+  ["G002", "烈焰法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.5, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.1, true]],
+  ["G003", "寒霜法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.5, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.1, true]],
+  ["G004", "雷霆法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.5, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.1, true]],
+  ["G005", "剧毒法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.5, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.1, true]],
+  ["G006", "大地法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.5, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.1, true]],
+  ["G007", "疾风法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.5, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.1, true]],
+  ["G008", "嗜血匕首", "dagger", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.05, true], [Stat.HP, 0.005, true], [Stat.HP, 0.1, true]],
+  ["G009", "荆棘长弓", "bow", ["远程", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.1, true], [Stat.SPD, 0.005, true], [Stat.ATK, 0.2, true]],
+  ["G010", "吸血脉甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.HP, 0.02, true], [Stat.HP, 0.005, true], [Stat.HP, 0.3, true]],
+  ["G011", "荆棘肩甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.ATK, 0.1, true], [Stat.DEF, 0.005, true], [Stat.ATK, 0.3, true]],
+  ["G012", "迅捷护手", "", [], EquipmentDefs.Slot.HANDS, EquipmentDefs.Category.ARMOR, [Stat.ASPD, 0.05, true], [Stat.ASPD, 0.005, true], [Stat.ASPD, 0.1, true]],
+  ["G013", "踏风战靴", "", [], EquipmentDefs.Slot.FEET, EquipmentDefs.Category.ARMOR, [Stat.SPD, 0.05, true], [Stat.SPD, 0.005, true], [Stat.SPD, 0.2, true]],
+  ["G014", "嗜血项链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.03, true], [Stat.HP, 0.005, true], [Stat.HP, 0.05, true]],
+  ["G015", "元素指环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.05, true], [Stat.ATK, 0.005, true], [Stat.ATK, 0.1, true]],
+  ["G016", "守护护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.05, true], [Stat.ATK, 0.002, true], [Stat.HP, 0.01, true]],
+  ["G017", "冷却沙漏", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.01, true], [Stat.CDR, 0.002, true], [Stat.CDR, 1, false]],
+  ["G018", "迅捷之翼", "", [], EquipmentDefs.Slot.FEET, EquipmentDefs.Category.ARMOR, [Stat.CDR, 0.05, true], [Stat.SPD, 0.003, true], [Stat.SPD, 0.05, true]],
+  ["G019", "冰霜护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.05, true], [Stat.ATK, 0.005, true], [Stat.ATK, 0.05, true]],
+  ["G020", "荆棘之甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.ATK, 0.03, true], [Stat.DEF, 0.005, true], [Stat.ATK, 0.1, true]],
+  ["G021", "生命之泉护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.005, true], [Stat.HP, 0.005, true], [Stat.HP, 0.01, true]],
+  ["G022", "时光沙漏", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.03, true], [Stat.ATK, 0.005, true], [Stat.ATK, 0.1, true]],
+  ["G023", "瘟疫之触", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.05, true], [Stat.ATK, 0.003, true], [Stat.ATK, 2, false]],
+  ["G024", "冻结之息", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.05, true], [Stat.ATK, 0.003, true], [Stat.ATK, 1, false]],
+  ["G025", "灼烧烙印", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.05, true], [Stat.ATK, 0.003, true], [Stat.ATK, 0.05, true]],
+  ["G026", "虚弱诅咒", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.05, true], [Stat.ATK, 0.003, true], [Stat.ATK, 1, false]],
+  ["G027", "护盾发生器", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.05, true], [Stat.ATK, 0.005, true], [Stat.ATK, 0.3, true]],
+  ["G028", "荆棘护盾", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.05, true], [Stat.ATK, 0.005, true], [Stat.ATK, 0.3, true]],
+  ["G029", "处决者之刃", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.15, true], [Stat.ATK, 0.002, true], [Stat.HP, 0.15, true]],
+  ["G030", "背刺匕首", "dagger", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.1, true], [Stat.ATK, 0.005, true], [Stat.ATK, 3, false]],
+  ["G031", "弱点探测器", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.05, true], [Stat.ATK, 0.002, true], [Stat.ATK, 0.03, true]],
+  ["G032", "穿透弹头", "spear", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.05, true], [Stat.ATK, 0.002, true], [Stat.ATK, 0.1, true]],
+  ["G033", "爆炸符文", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.05, true], [Stat.ATK, 0.003, true], [Stat.ATK, 0.3, true]],
+  ["G034", "远程精准镜", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.03, true], [Stat.ATK, 0.003, true], [Stat.ATK, 0.03, true]],
+  ["G035", "真实伤害护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 5.0, false], [Stat.ATK, 2, false], [Stat.ATK, 0.03, true]],
+  ["B000", "穿刺长弓", "bow", ["远程", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.DEF, 0.4, true], [Stat.DEF, 0.1, true], [Stat.ATK, 0.03, true]],
+  ["B001", "裂地战斧", "greataxe", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.5, true], [Stat.ATK, 0.1, true], [Stat.ATK, 0.03, true]],
+  ["B002", "元素调和法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.AP, 0.6, true], [Stat.ATK, 0.02, true], [Stat.HP, 0.1, true]],
+  ["B003", "巨兽猎手", "bow", ["远程", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.15, true], [Stat.ATK, 0.03, true], [Stat.DEF, 0.2, true]],
+  ["B004", "疾风长矛", "spear", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.2, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B005", "荆棘头盔", "", [], EquipmentDefs.Slot.HEAD, EquipmentDefs.Category.ARMOR, [Stat.ATK, 0.3, true], [Stat.DEF, 0.02, true], [Stat.ATK, 0.2, true]],
+  ["B006", "守护肩甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.HP, 0.5, true], [Stat.ATK, 0.01, true], [Stat.HP, 0.3, true]],
+  ["B007", "猎手徽章", "bow", ["远程", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.4, true], [Stat.CRT, 0.01, true], [Stat.ATK, 0.03, true]],
+  ["B008", "时光沙漏", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0, false], [Stat.ATK, 0, false], [Stat.ATK, 0, false]],
+  ["B009", "标记重弩", "heavy_crossbow", ["远程", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.08, true], [Stat.ATK, 0.01, true], [Stat.ATK, 2, false]],
+  ["B010", "元素战镰", "scythe", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.3, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B011", "毒牙短刃", "dagger", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.08, true], [Stat.ATK, 0.02, true], [Stat.ATK, 2, false]],
+  ["B012", "雷霆战锤", "greataxe", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.06, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.2, true]],
+  ["B013", "冰霜长弓", "bow", ["远程", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.08, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B014", "暗影法环", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.AP, 0.4, true], [Stat.ATK, 0.02, true], [Stat.SPD, 0.3, true]],
+  ["B015", "荆棘链刃", "scythe", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.08, true], [Stat.ATK, 0.2, false], [Stat.ATK, 0.3, true]],
+  ["B016", "反伤肩甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.CDR, 0.2, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B017", "护盾护手", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.05, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B018", "资源腿甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.ATK, 3, false], [Stat.ATK, 0.02, true], [Stat.SPD, 0.15, true]],
+  ["B019", "位移战靴", "", [], EquipmentDefs.Slot.FEET, EquipmentDefs.Category.ARMOR, [Stat.CDR, 0.1, true], [Stat.SPD, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B020", "标记头盔", "", [], EquipmentDefs.Slot.HEAD, EquipmentDefs.Category.ARMOR, [Stat.ATK, 0.06, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.03, true]],
+  ["B021", "反伤胸甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.HP, 0.1, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.1, true]],
+  ["B022", "资源项链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.1, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.15, true]],
+  ["B023", "位移戒指", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.SPD, 0.1, true], [Stat.SPD, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B024", "标记护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.06, true], [Stat.ATK, 0.01, true], [Stat.HP, 0.05, true]],
+  ["B025", "元素戒指", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.08, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.2, true]],
+  ["B026", "记忆护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0, false], [Stat.ATK, 0, false], [Stat.ATK, 0, false]],
+  ["B027", "野蛮冲撞战斧", "greataxe", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B028", "影闪匕首", "dagger", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ATK, 0.03, true], [Stat.CRT, 0.2, true]],
+  ["B029", "火球法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.AP, 0.6, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B030", "雷霆一击战锤", "greataxe", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ATK, 0.02, true], [Stat.ATK, 1.5, false]],
+  ["B031", "治疗之光权杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.15, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.03, true]],
+  ["B032", "毒雾短刃", "dagger", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.3, true], [Stat.ATK, 0.02, true], [Stat.SPD, 0.3, true]],
+  ["B033", "旋风双斧", "greataxe", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ASPD, 0.01, true], [Stat.SPD, 0.2, true]],
+  ["B034", "圣光新星法环", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.6, true], [Stat.AP, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B035", "暗影突袭链刃", "scythe", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.15, true]],
+  ["B036", "爆裂射击重弩", "heavy_crossbow", ["远程", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.2, true]],
+  ["B037", "灵魂吸取战镰", "scythe", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.6, true], [Stat.HP, 0.02, true], [Stat.ATK, 3, false]],
+  ["B038", "闪现战靴", "", [], EquipmentDefs.Slot.FEET, EquipmentDefs.Category.ARMOR, [Stat.CDR, 5, false], [Stat.SPD, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B039", "生命链接护手", "", [], EquipmentDefs.Slot.HANDS, EquipmentDefs.Category.ARMOR, [Stat.HP, 0.5, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.1, true]],
+  ["B040", "能量护盾肩甲", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.2, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["B041", "冰霜新星胸甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.CDR, 2.5, false], [Stat.ATK, 0.01, true], [Stat.ATK, 0.1, true]],
+  ["B042", "火焰吐息头盔", "", [], EquipmentDefs.Slot.HEAD, EquipmentDefs.Category.ARMOR, [Stat.AP, 0.6, true], [Stat.ATK, 0.01, true], [Stat.AP, 0.2, true]],
+  ["B043", "治疗之泉战靴", "", [], EquipmentDefs.Slot.FEET, EquipmentDefs.Category.ARMOR, [Stat.HP, 0.02, true], [Stat.HP, 0.01, true], [Stat.ATK, 0.05, true]],
+  ["B044", "元素爆发戒指", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.AP, 0.6, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.15, true]],
+  ["B045", "护盾术项链", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.08, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.08, true]],
+  ["B046", "治愈术护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.15, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.03, true]],
+  ["B047", "荆棘领域徽章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 3, false], [Stat.ATK, 0.01, true], [Stat.SPD, 0.15, true]],
+  ["B048", "资源爆发项链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.5, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.2, true]],
+  ["B049", "时间减缓沙漏", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ASPD, 0.3, true], [Stat.CDR, 0.01, true], [Stat.ASPD, 0.15, true]],
+  ["B050", "净化法环", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 25, false], [Stat.ATK, 0.01, true], [Stat.HP, 0.05, true]],
+  ["B051", "锁链拖拽链刃", "spear", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ASPD, 0.01, true], [Stat.ATK, 0.1, true]],
+  ["B052", "击退长矛", "spear", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.3, true]],
+  ["B053", "生命汲取战镰", "scythe", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.6, true], [Stat.HP, 0.01, true], [Stat.ATK, 3, false]],
+  ["B054", "火焰喷射法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.AP, 0.5, true], [Stat.ATK, 0.01, true], [Stat.AP, 0.2, true]],
+  ["B055", "冰锥术法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.AP, 0.6, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.2, true]],
+  ["B056", "雷霆标枪", "spear", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.3, true]],
+  ["B057", "暗影箭匕首", "dagger", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.6, true], [Stat.ATK, 0.01, true], [Stat.HP, 0.03, true]],
+  ["B058", "治疗图腾法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.02, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.05, true]],
+  ["B059", "护盾发生器肩甲", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.1, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.3, true]],
+  ["B060", "荆棘护盾腿甲", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CDR, 0.5, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.1, true]],
+  ["B061", "生命链接护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.3, true], [Stat.HP, 0.01, true], [Stat.ATK, 0.05, true]],
+  ["B062", "闪现护手", "", [], EquipmentDefs.Slot.HANDS, EquipmentDefs.Category.ARMOR, [Stat.CDR, 4, false], [Stat.SPD, 0.01, true], [Stat.ATK, 0.2, true]],
+  ["B063", "资源回复项链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.3, true], [Stat.ATK, 0.01, true], [Stat.ATK, 0.15, true]],
+  ["P000", "腐蚀之刃", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.15, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.3, true]],
+  ["P001", "雷霆之怒", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.15, true], [Stat.ATK, 0.03, true], [Stat.ATK, 1, false]],
+  ["P002", "大地震击", "greataxe", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.5, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.15, true]],
+  ["P003", "虚空之刺", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.DEF, 0.3, true], [Stat.DEF, 0.03, true], [Stat.DEF, 0.3, true]],
+  ["P004", "混沌之刃", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.5, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.03, true]],
+  ["P005", "生命之弦", "spear", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.01, true], [Stat.HP, 0.03, true], [Stat.ATK, 0.1, true]],
+  ["P006", "破晓之光", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.15, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.3, true]],
+  ["P007", "烈焰之魂", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.2, true], [Stat.ATK, 0.03, true], [Stat.ATK, 1, false]],
+  ["P008", "暗影斗篷", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.CRT, 0.3, true], [Stat.CRT, 0.02, true], [Stat.ATK, 0.03, true]],
+  ["P009", "圣光护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.3, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.1, true]],
+  ["P010", "虚空之眼", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.DEF, 0.15, true], [Stat.DEF, 0.03, true], [Stat.ATK, 0.1, true]],
+  ["P011", "生命之树", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.01, true], [Stat.HP, 0.03, true], [Stat.HP, 0.1, true]],
+  ["P012", "元素调和者", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.15, true], [Stat.ATK, 0.03, true], [Stat.AP, 0.3, true]],
+  ["P013", "荆棘之环", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.15, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.15, true]],
+  ["P014", "元素之戒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.2, true], [Stat.ATK, 0.03, true], [Stat.AP, 0.3, true]],
+  ["P015", "生命之泉", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.04, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.1, true]],
+  ["P016", "时空沙漏", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.08, true], [Stat.CDR, 0.02, true], [Stat.ATK, 3, false]],
+  ["P017", "记忆碎片", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.005, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.1, true]],
+  ["P018", "荆棘领域", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 3, false], [Stat.ATK, 0.03, true], [Stat.SPD, 0.2, true]],
+  ["P019", "蓄能战锤", "greataxe", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.15, true], [Stat.ATK, 0.03, true], [Stat.ATK, 1.5, false]],
+  ["P020", "荆棘长鞭", "spear", ["近战", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.15, true], [Stat.ATK, 0.03, true], [Stat.ATK, 2, false]],
+  ["P021", "元素之泉法杖", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.25, true], [Stat.ATK, 0.03, true], [Stat.AP, 0.3, true]],
+  ["P022", "延迟伤害甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.ATK, 0.3, true], [Stat.ATK, 0.02, true], [Stat.ATK, 0.03, true]],
+  ["P023", "镜像腿甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.ATK, 0.2, true], [Stat.SPD, 0.03, true], [Stat.ATK, 0.3, true]],
+  ["P024", "吸血光环头盔", "", [], EquipmentDefs.Slot.HEAD, EquipmentDefs.Category.ARMOR, [Stat.HP, 0.05, true], [Stat.HP, 0.02, true], [Stat.HP, 0.02, true]],
+  ["P025", "技能连发护手", "", [], EquipmentDefs.Slot.HANDS, EquipmentDefs.Category.ARMOR, [Stat.CDR, 0.15, true], [Stat.CDR, 0.02, true], [Stat.ATK, 0.3, true]],
+  ["P026", "精英猎杀者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.15, true], [Stat.ATK, 0.03, true], [Stat.HP, 0.1, true]],
+  ["P027", "处决者印记", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.3, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.03, true]],
+  ["P028", "增益窃取者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.1, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.3, true]],
+  ["P029", "伤害储存护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 5.0, false], [Stat.ATK, 0.5, false], [Stat.ATK, 0.03, true]],
+  ["P030", "裂空斩", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.6, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.3, true]],
+  ["P031", "冰封领域", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.AP, 0.6, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.15, true]],
+  ["P032", "圣光审判", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.6, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.3, true]],
+  ["P033", "毒雾弹", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.5, true], [Stat.ATK, 0.03, true], [Stat.SPD, 0.3, true]],
+  ["P034", "旋风斩", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.6, true], [Stat.ASPD, 0.02, true], [Stat.SPD, 0.25, true]],
+  ["P035", "穿透狙击", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.DEF, 0.6, true], [Stat.DEF, 0.03, true], [Stat.ATK, 0.3, true]],
+  ["P036", "灵魂汲取", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.6, true], [Stat.HP, 0.03, true], [Stat.ATK, 3, false]],
+  ["P037", "爆裂箭雨", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.6, true], [Stat.ATK, 0.03, true], [Stat.CRT, 0.1, true]],
+  ["P038", "元素洪流", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.AP, 0.6, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.03, true]],
+  ["P039", "圣光护盾", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.2, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.3, true]],
+  ["P040", "时空加速", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ASPD, 0.4, true], [Stat.ASPD, 0.02, true], [Stat.ATK, 2, false]],
+  ["P041", "闪现", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 6, false], [Stat.SPD, 0.03, true], [Stat.ATK, 0.3, true]],
+  ["P042", "荆棘爆发", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.6, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.2, true]],
+  ["P043", "冰霜新星", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.AP, 0.6, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.2, true]],
+  ["P044", "火焰吐息", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.AP, 0.6, true], [Stat.ATK, 0.03, true], [Stat.AP, 0.3, true]],
+  ["P045", "灵魂链接", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.4, true], [Stat.HP, 0.03, true], [Stat.ATK, 0.15, true]],
+  ["P046", "元素爆发", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.AP, 0.6, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.03, true]],
+  ["P047", "护盾术", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.2, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.15, true]],
+  ["P048", "治愈术", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.25, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.03, true]],
+  ["P049", "资源爆发", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 0.6, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.25, true]],
+  ["P050", "时间减缓", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ASPD, 0.5, true], [Stat.CDR, 0.02, true], [Stat.ASPD, 0.25, true]],
+  ["O000", "处决者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.3, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O001", "血怒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.5, true], [Stat.HP, 0.05, true], [Stat.HP, 0.3, true]],
+  ["O002", "荆棘之王", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.5, true], [Stat.DEF, 0.05, true], [Stat.ATK, 0.2, true]],
+  ["O003", "疾风之靴", "", [], EquipmentDefs.Slot.FEET, EquipmentDefs.Category.ARMOR, [Stat.SPD, 0.5, true], [Stat.SPD, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O004", "元素之心", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.4, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.03, true]],
+  ["O005", "灵魂容器", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.15, true], [Stat.ATK, 0.05, true], [Stat.HP, 0.2, true]],
+  ["O006", "穿透长弓", "bow", ["远程", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.DEF, 0.6, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O007", "疾风战靴", "", [], EquipmentDefs.Slot.FEET, EquipmentDefs.Category.ARMOR, [Stat.CDR, 0.6, true], [Stat.SPD, 0.05, true], [Stat.SPD, 0.3, true]],
+  ["O008", "元素爆发戒指", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.AP, 0.6, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.03, true]],
+  ["O009", "治疗之泉项链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.4, true], [Stat.ATK, 0.06, true], [Stat.ATK, 0.03, true]],
+  ["O010", "双重打击", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.25, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O011", "幸运之刃", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.15, true], [Stat.CRT, 0.03, true], [Stat.ATK, 0.25, true]],
+  ["O012", "生命百分比之刃", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.05, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.08, true]],
+  ["O013", "斩首者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.6, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O014", "终结者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.3, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O015", "血怒之刃", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.1, true], [Stat.HP, 0.05, true], [Stat.HP, 0.1, true]],
+  ["O016", "吸血狂徒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.05, true], [Stat.HP, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O017", "元素爆裂之刃", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.AP, 0.15, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.03, true]],
+  ["O018", "混沌之触", "staff", ["远程", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.2, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O019", "闪避新星", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.6, true], [Stat.SPD, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O020", "火焰行者", "sword", ["近战", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.AP, 0.6, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.03, true]],
+  ["O021", "闪电之靴", "", [], EquipmentDefs.Slot.FEET, EquipmentDefs.Category.ARMOR, [Stat.ATK, 0.6, true], [Stat.SPD, 0.05, true], [Stat.ATK, 0.03, true]],
+  ["O022", "元素附魔师", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.5, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.03, true]],
+  ["O023", "冲击波之靴", "", [], EquipmentDefs.Slot.FEET, EquipmentDefs.Category.ARMOR, [Stat.ATK, 0.6, true], [Stat.SPD, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O024", "不动堡垒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.3, true], [Stat.DEF, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O025", "冷却之眼", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.CDR, 1, false], [Stat.CDR, 0.03, true], [Stat.CDR, 2, false]],
+  ["O026", "冲刺大师", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 5.0, false], [Stat.SPD, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O027", "反击之甲", "", [], EquipmentDefs.Slot.CHEST, EquipmentDefs.Category.ARMOR, [Stat.ATK, 0.6, true], [Stat.DEF, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O028", "濒死新星", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.HP, 0.3, true], [Stat.HP, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O029", "伤害转盾", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.HP, 0.5, true], [Stat.DEF, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O030", "护盾爆裂", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.ATK, 0.6, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O031", "猎杀者勋章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ASPD, 10, false], [Stat.ATK, 0.03, true], [Stat.ATK, 0.03, true]],
+  ["O032", "资源爆发", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.6, true], [Stat.ATK, 0.05, true], [Stat.ATK, 20, false]],
+  ["O033", "技能强化者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.6, true], [Stat.AP, 0.05, true], [Stat.ATK, 0.3, true]],
+  ["O034", "传奇共鸣", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.08, true], [Stat.ATK, 0.03, true], [Stat.ATK, 0.12, true]],
+  ["O035", "记忆转化", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [Stat.ATK, 0.02, true], [Stat.ATK, 0.05, true], [Stat.ATK, 0.03, true]],
+  ["O036", "护盾强化", "shield", ["其他"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [Stat.CRD, 0.05, true], [Stat.ATK, 0.04, true], [Stat.ATK, 0.1, true]],
+]
+
+
+## 加载策划「装备参考2」筛选后的装备池。
+##
+## 表里每行是 [id, 名称, 武器类型, 标签, 槽位, 类别, 基础, 吞噬, 融合]。
+## 与 `_generate_rarity` 的区别：那三张表是**白装克隆**（名称加后缀、
+## 数值按稀有度系数缩放），本表是**策划逐件设计**的装备，数值原样使用。
+static func _load_curated_table() -> void:
+	for row in CURATED_TABLE:
+		var t := create_template(
+			StringName(str(row[0])), str(row[1]),
+			_rarity_of_id(str(row[0])), int(row[5]), int(row[4])
+		)
+		t.weapon_type = str(row[2])
+		for tag in row[3]:
+			t.tags.append(str(tag))
+		_apply_affixes(t, row[6], row[7], row[8])
+
+
+## 从策划表的 id 前缀推稀有度（G=绿 / B=蓝 / P=紫 / O=橙）。
+##
+## 表里不重复写稀有度列——id 前缀已经是它，再写一列就有两份真相，
+## 改一处漏一处时会出现「id 说绿装、稀有度说橙装」的错位。
+static func _rarity_of_id(id: String) -> int:
+	if id.is_empty():
+		return EquipmentDefs.Rarity.WHITE
+	match id[0]:
+		"G": return EquipmentDefs.Rarity.GREEN
+		"B": return EquipmentDefs.Rarity.BLUE
+		"P": return EquipmentDefs.Rarity.PURPLE
+		"O": return EquipmentDefs.Rarity.ORANGE
+		"R": return EquipmentDefs.Rarity.RED
+	return EquipmentDefs.Rarity.WHITE

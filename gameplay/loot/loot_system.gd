@@ -29,7 +29,7 @@ func generate_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 	if template == null:
 		return
 
-	var item := EquipmentInstance.create(template)
+	var item := EquipmentInstance.create_drop(template, rng, EquipmentDB.all_templates())
 	_spawn_pickup(item, position, parent)
 
 
@@ -59,7 +59,7 @@ func _generate_boss_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 	var offset := 0.0
 	var pity := _random_template_of_rarity(int(spec.get("rarity", EquipmentDefs.Rarity.ORANGE)))
 	if pity != null:
-		_spawn_pickup(EquipmentInstance.create(pity),
+		_spawn_pickup(EquipmentInstance.create_drop(pity, rng, EquipmentDB.all_templates()),
 			position + Vector3(offset, 0.0, 0.0), parent)
 		offset += 0.7
 
@@ -68,7 +68,7 @@ func _generate_boss_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 	if extra_chance > 0.0 and rng.randf() < extra_chance:
 		var extra := _random_template_of_rarity(int(spec.get("extra_rarity", EquipmentDefs.Rarity.BLUE)))
 		if extra != null:
-			_spawn_pickup(EquipmentInstance.create(extra),
+			_spawn_pickup(EquipmentInstance.create_drop(extra, rng, EquipmentDB.all_templates()),
 				position + Vector3(offset, 0.0, 0.0), parent)
 			offset += 0.7
 
@@ -88,12 +88,12 @@ func _generate_boss_loot(enemy_data, position: Vector3, parent: Node3D) -> void:
 func generate_hidden_room_loot(position: Vector3, parent: Node3D) -> void:
 	var orange := _random_template_of_rarity(EquipmentDefs.Rarity.ORANGE)
 	if orange != null:
-		_spawn_pickup(EquipmentInstance.create(orange),
+		_spawn_pickup(EquipmentInstance.create_drop(orange, rng, EquipmentDB.all_templates()),
 			position + Vector3(-0.35, 0.0, 0.0), parent)
 	# 第二件：按层加权（高层可能出红装，与"专属高价值"定位一致）
 	var bonus := _random_template_of_rarity(_roll_rarity(_current_floor()))
 	if bonus != null:
-		_spawn_pickup(EquipmentInstance.create(bonus),
+		_spawn_pickup(EquipmentInstance.create_drop(bonus, rng, EquipmentDB.all_templates()),
 			position + Vector3(0.35, 0.0, 0.0), parent)
 
 
@@ -105,7 +105,7 @@ func generate_chest_loot(position: Vector3, parent: Node3D, count: int = 1) -> v
 		var template := _random_template_of_rarity(_roll_rarity(floor))
 		if template == null:
 			continue
-		var item := EquipmentInstance.create(template)
+		var item := EquipmentInstance.create_drop(template, rng, EquipmentDB.all_templates())
 		_spawn_pickup(item, position + Vector3(float(i) * 0.6 - 0.3, 0.0, 0.0), parent)
 
 

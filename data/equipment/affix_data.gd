@@ -29,6 +29,28 @@ enum Operation {
 ## 覆盖词条时长（秒）。<=0 表示用 BuffDefs 表里的默认时长。
 @export var trigger_duration: float = 0.0
 
+# —— 随机词条专属字段（装备参考2 规格）——
+#
+# 随机词条是「掉落时生成、无法升级、无法转移、不通过融合/吞噬继承」的
+# 那一类。它们与上面的属性型/触发型走**同一套挂载通道**（挂进
+# AttributeSystem），差别只在**生命周期**与**显示**：
+#   · 生命周期：不参与融合/吞噬/强化（见 EquipmentInstance 的注释）
+#   · 显示：按随机到的档位着色（白/绿/蓝/紫/橙/红），与装备稀有度无关
+## 随机词条的三类（EquipmentDefs.RANDOM_KIND_*）：numeric / attribute / special
+## 空串 = 不是随机词条（是融合/附魔等常规词条）
+@export var random_kind: String = ""
+## 档位显示色名（"白"/"绿"/"蓝"/"紫"/"橙"/"红"）。
+## **与装备稀有度色是两套**：随机词条自带档位，装备稀有度是另一回事。
+@export var tier_color: String = ""
+## 属性词条的子类：physical / magic / element / true（仅 random_kind == attribute）
+@export var attribute_kind: String = ""
+## 具体元素（attribute_kind == "element" 时有效）：fire/frost/static/earth/wind/poison
+@export var element_key: String = ""
+## 是否来自特殊词条（借用某件装备的自有词条，**不可升级**）
+@export var is_borrowed: bool = false
+## 借用来源的装备稀有度（特殊词条的显示档位依据）
+@export var source_rarity: int = -1
+
 
 func _init(p_stat: int = 0, p_value: float = 0.0, p_op: int = Operation.FLAT) -> void:
 	stat = p_stat

@@ -49,6 +49,10 @@ func _ready() -> void:
 	# 融合规则测试
 	await _run_test(test_fusion_rules)
 
+	# 装备参考2 规格：随机词条 / 武器类型互斥
+	await _run_test(test_random_affix)
+	await _run_test(test_weapon_tag_conflict)
+
 	# 房间数据测试
 	await _run_test(test_room_data)
 
@@ -629,18 +633,25 @@ func test_white_equipment_db() -> void:
 	# 合计 13 + 36×5 = 193
 	# （红装原为「仅占位不生成」，但第 6 层起 Boss 保底红装、
 	#   池空会回退白装，故按同系数生成占位红装——见 equipment_db 注释）
+	#
+	# **2026-09-22 起另加策划「装备参考2」筛选池 188 件**（CURATED_TABLE）：
+	# 那是策划逐件设计的装备，与占位克隆并存（id 前缀 G/B/P/O 不冲突）。
+	# 故总数 = 193 + 188 = 381；策划池的数量按稀有度分布不均
+	#（绿 36 / 蓝 64 / 紫 51 / 橙 37），下面的断言改为**下限**而非等式。
 	var white_count: int = EDB.get_templates_by_rarity(ED.Rarity.WHITE).size()
 	_check(white_count == EDB.WHITE_COUNT, "白装为基础款 %d 件" % EDB.WHITE_COUNT, [white_count])
 	_check(white_count == 13, "白装 13 件（4 武器 + 6 护甲 + 3 饰品）", [white_count])
-	_check(EDB.template_count() == 193, "模板总数 = 193（13 白 + 36×5 高稀有度）", [EDB.template_count()])
+	_check(EDB.template_count() == 381,
+		"模板总数 = 381（193 占位克隆 + 188 策划筛选池）", [EDB.template_count()])
+	_check(EDB.CURATED_TABLE.size() == 188, "策划筛选池 188 件", [EDB.CURATED_TABLE.size()])
 
 	# 稀有度阶梯：种类数量 紫 > 蓝 >= 橙 > 绿 > 白
 	var n_green: int = EDB.get_templates_by_rarity(ED.Rarity.GREEN).size()
 	var n_blue: int = EDB.get_templates_by_rarity(ED.Rarity.BLUE).size()
 	var n_purple: int = EDB.get_templates_by_rarity(ED.Rarity.PURPLE).size()
 	var n_orange: int = EDB.get_templates_by_rarity(ED.Rarity.ORANGE).size()
-	_check(n_green == 36 and n_blue == 36 and n_purple == 36 and n_orange == 36,
-		"绿/蓝/紫/橙 各 36 件（完整目录）",
+	_check(n_green >= 36 and n_blue >= 36 and n_purple >= 36 and n_orange >= 36,
+		"绿/蓝/紫/橙 各至少 36 件（占位目录 + 策划池）",
 		["%d/%d/%d/%d" % [n_green, n_blue, n_purple, n_orange]])
 	# 白装是最少的基础款；且完整目录均多于白装
 	_check(white_count < minf(n_green, minf(n_blue, minf(n_purple, n_orange))),
@@ -3918,3 +3929,124 @@ func test_wired_check_table() -> void:
 	_check(int(r.get("wired", 0)) > 0, "审计识别出正常接线的信号", [str(r.get("wired"))])
 	_check((r.get("dead", []) as Array).size() > 0,
 		"审计能列出「有发无收」的信号（本项目的典型缺陷）")
+
+
+## 随机词条（装备参考2 规格）：条数分布 / 三类词条 / 不可升级
+func test_random_affix() -> void:
+	_current_test = "RandomAffix"
+	print("\n--- %s ---" % _current_test)
+
+	var RA = _require_script("res://data/equipment/random_affix.gd")
+	var Inst = _require_script("res://data/equipment/equipment_instance.gd")
+	var Defs = _require_script("res://data/equipment/equipment_defs.gd")
+	var DB = _require_script("res://data/equipment/equipment_db.gd")
+	if RA == null or Inst == null or Defs == null or DB == null:
+		return
+
+	DB.init_equipment_db()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 12345
+
+	# ① 条数必须落在 1~4
+	var counts := {1: 0, 2: 0, 3: 0, 4: 0}
+	var kinds := {}
+	for i in 300:
+		var tpl = DB.get_template(&"W01")
+		if tpl == null:
+			_check(false, "W01 模板存在"); return
+		var inst = Inst.create_drop(tpl, rng, DB.all_templates())
+		var n: int = inst.random_affixes.size()
+		counts[n] = int(counts.get(n, 0)) + 1
+		for a in inst.random_affixes:
+			kinds[a.random_kind] = int(kinds.get(kinds, 0)) + 1 if false else int(kinds.get(a.random_kind, 0)) + 1
+	_check(counts[1] > 0 and counts[4] > 0,
+		"300 次掉落覆盖了 1 条与 4 条两种极端", [str(counts)])
+	var total_n := 0
+	for k in counts:
+		total_n += int(counts[k])
+	_check(total_n == 300, "条数统计总数 = 300")
+
+	# ② 三类词条都要出现（300 件 × 平均 2 条 = 600 条，10% 的特殊词条约 60 条）
+	_check(int(kinds.get(Defs.RANDOM_KIND_NUMERIC, 0)) > 0, "出现了数值词条")
+	_check(int(kinds.get(Defs.RANDOM_KIND_ATTRIBUTE, 0)) > 0, "出现了属性词条")
+	_check(int(kinds.get(Defs.RANDOM_KIND_SPECIAL, 0)) > 0, "出现了特殊词条")
+
+	# ③ 数值词条的档位色必须是六色之一
+	var valid_colors := ["白", "绿", "蓝", "紫", "橙", "红"]
+	for i in 50:
+		var tpl = DB.get_template(&"W01")
+		var inst = Inst.create_drop(tpl, rng, DB.all_templates())
+		for a in inst.random_affixes:
+			if a.random_kind == Defs.RANDOM_KIND_NUMERIC:
+				_check(a.tier_color in valid_colors,
+					"数值词条档位色合法（%s）" % a.tier_color)
+
+	# ④ 随机词条**不可升级**：强化后数值不变
+	var tpl2 = DB.get_template(&"W01")
+	var inst2 = Inst.create_drop(tpl2, rng, DB.all_templates())
+	if inst2.random_affixes.size() > 0:
+		var before: float = inst2.random_affixes[0].value
+		inst2.enhancement_level = 5
+		var after: float = inst2.random_affixes[0].value
+		_check(absf(after - before) < 0.0001,
+			"强化后随机词条数值不变（不可升级）", ["%.4f → %.4f" % [before, after]])
+
+	# ⑤ 存档往返保留随机词条
+	if inst2.random_affixes.size() > 0:
+		var d: Dictionary = inst2.to_dict()
+		var inst3 = Inst.new().from_dict(d)
+		_check(inst3.random_affixes.size() == inst2.random_affixes.size(),
+			"存档往返后随机词条数量一致",
+			["%d → %d" % [inst2.random_affixes.size(), inst3.random_affixes.size()]])
+		_check(inst3.random_affixes[0].tier_color == inst2.random_affixes[0].tier_color,
+			"存档往返后档位色一致")
+		_check(inst3.random_affixes[0].random_kind == inst2.random_affixes[0].random_kind,
+			"存档往返后词条类别一致")
+
+
+## 武器类型互斥（装备参考2 规格）
+func test_weapon_tag_conflict() -> void:
+	_current_test = "WeaponTagConflict"
+	print("\n--- %s ---" % _current_test)
+
+	var Defs = _require_script("res://data/equipment/equipment_defs.gd")
+	if Defs == null:
+		return
+
+	# ① 规格逐条：互斥对必须被识别
+	_check(not Defs.weapon_tag_conflict(["melee"], ["ranged"]).is_empty(),
+		"近战 ↔ 远程 互斥")
+	_check(not Defs.weapon_tag_conflict(["one_hand"], ["two_hand"]).is_empty(),
+		"单手 ↔ 双手 互斥")
+	_check(not Defs.weapon_tag_conflict(["defensive"], ["ranged"]).is_empty(),
+		"防御 ↔ 远程 互斥")
+	_check(not Defs.weapon_tag_conflict(["defensive"], ["magic"]).is_empty(),
+		"防御 ↔ 魔法 互斥")
+	_check(not Defs.weapon_tag_conflict(["defensive"], ["polearm"]).is_empty(),
+		"防御 ↔ 长杆 互斥")
+	_check(not Defs.weapon_tag_conflict(["polearm"], ["ranged"]).is_empty(),
+		"长杆 ↔ 远程 互斥")
+
+	# ② 非互斥组合不应误报
+	_check(Defs.weapon_tag_conflict(["melee"], ["magic"]).is_empty(),
+		"近战 + 魔法 可共存（不误报）")
+	_check(Defs.weapon_tag_conflict(["one_hand"], ["melee"]).is_empty(),
+		"单手 + 近战 可共存（不误报）")
+
+	# ③ 反向也要认（无向对）
+	_check(not Defs.weapon_tag_conflict(["ranged"], ["melee"]).is_empty(),
+		"反向：远程 ↔ 近战 同样互斥")
+
+	# ④ 中文标签 → 规格标签的映射
+	var t_sword: Array = Defs.weapon_tags_of("sword", ["近战", "物理"])
+	_check("melee" in t_sword, "单手剑映射出 melee")
+	_check("one_hand" in t_sword, "单手剑映射出 one_hand")
+	var t_bow: Array = Defs.weapon_tags_of("bow", ["远程", "物理"])
+	_check("ranged" in t_bow, "长弓映射出 ranged")
+	_check("two_hand" in t_bow, "长弓映射出 two_hand")
+	var t_shield: Array = Defs.weapon_tags_of("shield", ["其他"])
+	_check("defensive" in t_shield, "盾牌映射出 defensive")
+
+	# ⑤ 单手剑 vs 长弓：近战/远程 + 单手/双手 双冲突
+	var conf: Array = Defs.weapon_tag_conflict(t_sword, t_bow)
+	_check(not conf.is_empty(), "单手剑与长弓不能同时装备（实测冲突：%s）" % str(conf))

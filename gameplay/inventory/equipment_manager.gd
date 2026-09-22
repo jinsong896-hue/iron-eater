@@ -78,6 +78,13 @@ func equip(slot: int, inst: EquipmentInstance) -> void:
 		return
 	if not _can_wear(inst):
 		return
+	# 武器类型互斥（装备参考2）：冲突时拒绝装备并提示，不做静默忽略
+	var conflict = weapon_slot_conflict(inst, slot)
+	if conflict != null:
+		var bus0 = _event_bus()
+		if bus0:
+			bus0.message.emit(str(conflict))
+		return
 	# 若已穿戴在其他槽位，先卸下（unequip 会把它放回背包）
 	for s in _equipped.keys():
 		if _equipped[s] == inst:
@@ -96,6 +103,51 @@ func equip(slot: int, inst: EquipmentInstance) -> void:
 	if bus:
 		bus.equipment_changed.emit(slot, inst.instance_id)
 		bus.stats_changed.emit()
+
+
+## 能否把 inst 装到 slot。
+##
+## 除职业限制外，还要过**武器类型互斥**（装备参考2 规格）：
+## 两把武器同时装备时，类型不能冲突——近战/远程不共存、
+## 单手/双手不共存、防御武器不能与远程/魔法/长杆共存。
+## 冲突时返回 false（调用方据返回值提示玩家，见 equip 的调用方）。
+func can_equip_in_slot(inst: EquipmentInstance, slot: int) -> bool:
+	if inst == null:
+		return false
+	if not _can_wear(inst):
+		return false
+	return weapon_slot_conflict(inst, slot) == null
+
+
+## 检查把 inst 装到 slot 时，是否与**另一个武器槽**上的装备类型冲突。
+##
+## 返回冲突说明文本（无冲突返回 null）。
+## 非武器、或目标槽位不是武器槽时永远无冲突。
+func weapon_slot_conflict(inst: EquipmentInstance, slot: int) -> Variant:
+	if slot != EquipmentDefs.Slot.WEAPON_1 and slot != EquipmentDefs.Slot.WEAPON_2:
+		return null
+	var tpl := inst.get_template()
+	if tpl == null or tpl.category != EquipmentDefs.Category.WEAPON:
+		return null
+	# 找另一个武器槽上的装备
+	var other_slot := EquipmentDefs.Slot.WEAPON_2 if slot == EquipmentDefs.Slot.WEAPON_1 \
+		else EquipmentDefs.Slot.WEAPON_1
+	if not _equipped.has(other_slot):
+		return null
+	var other: EquipmentInstance = _equipped[other_slot]
+	if other == null:
+		return null
+	var other_tpl := other.get_template()
+	if other_tpl == null:
+		return null
+	var a := EquipmentDefs.weapon_tags_of(tpl.weapon_type, tpl.tags)
+	var b := EquipmentDefs.weapon_tags_of(other_tpl.weapon_type, other_tpl.tags)
+	var pair := EquipmentDefs.weapon_tag_conflict(a, b)
+	if pair.is_empty():
+		return null
+	var n1: String = EquipmentDefs.WEAPON_TAGS.get(str(pair[0]), str(pair[0]))
+	var n2: String = EquipmentDefs.WEAPON_TAGS.get(str(pair[1]), str(pair[1]))
+	return "%s与%s不能共存" % [n1, n2]
 
 
 ## 卸下装备（退回背包）
@@ -515,6 +567,23 @@ func _apply_equipment_modifiers(inst: EquipmentInstance) -> void:
 			pct = a.value * inst.enhancement_mult()
 		else:
 			val = a.value * inst.enhancement_mult()
+		gm.attributes.add_modifier(src, a.stat, val, pct)
+
+	# 随机词条（装备参考2：掉落时定死，**不随强化成长**）
+	#
+	# 与上面 extra_affixes 的唯一差别就是**不吃 enhancement_mult**——
+	# 规格明写「随机词条无法升级」。故这里直接取原值。
+	for a in inst.random_affixes:
+		if a == null or not a.is_stat():
+			continue
+		if int(a.stat) >= 100:
+			continue
+		var val := 0.0
+		var pct := 0.0
+		if a.operation == AffixData.Operation.PERCENT:
+			pct = a.value
+		else:
+			val = a.value
 		gm.attributes.add_modifier(src, a.stat, val, pct)
 
 

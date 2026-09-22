@@ -21,6 +21,16 @@ var extra_affixes: Array[AffixData] = []
 ## 与 extra_affixes 分开记：融合附加的词条不计入附魔次数上限。
 var enchant_stacks: int = 0
 
+## 随机词条（装备参考2 规格：掉落时生成 1~4 条）。
+##
+## **与 extra_affixes 分开存**，因为生命周期完全不同：
+##   · extra_affixes —— 融合/附魔产生，随装备成长（吃强化倍率）
+##   · random_affixes —— 掉落时定死，**无法升级、无法转移、
+##     不通过融合或吞噬继承**（规格原文）
+## 分开存还让「随机词条不可升级」这条规则**在数据结构上就成立**——
+## 升级路径只读 extra_affixes，随机词条天然进不去。
+var random_affixes: Array[AffixData] = []
+
 
 func _init() -> void:
 	created_at_usec = Time.get_ticks_usec()
@@ -76,6 +86,10 @@ func to_dict() -> Dictionary:
 	for a in extra_affixes:
 		if a != null:
 			affixes.append(_affix_to_dict(a))
+	var rnd: Array = []
+	for a in random_affixes:
+		if a != null:
+			rnd.append(_affix_to_dict(a))
 	return {
 		"instance_id": instance_id,
 		"template_id": str(template_id),
@@ -85,6 +99,7 @@ func to_dict() -> Dictionary:
 		"is_locked": is_locked,
 		"created_at_usec": created_at_usec,
 		"extra_affixes": affixes,
+		"random_affixes": rnd,
 		"enchant_stacks": enchant_stacks,
 	}
 
@@ -101,6 +116,12 @@ func _affix_to_dict(a: AffixData) -> Dictionary:
 		"trigger_buff": a.trigger_buff,
 		"trigger_chance": a.trigger_chance,
 		"trigger_duration": a.trigger_duration,
+		"random_kind": a.random_kind,
+		"tier_color": a.tier_color,
+		"attribute_kind": a.attribute_kind,
+		"element_key": a.element_key,
+		"is_borrowed": a.is_borrowed,
+		"source_rarity": a.source_rarity,
 	}
 
 
@@ -112,6 +133,12 @@ func _affix_from_dict(d: Dictionary) -> AffixData:
 	a.trigger_buff = str(d.get("trigger_buff", ""))
 	a.trigger_chance = float(d.get("trigger_chance", 0.0))
 	a.trigger_duration = float(d.get("trigger_duration", 0.0))
+	a.random_kind = str(d.get("random_kind", ""))
+	a.tier_color = str(d.get("tier_color", ""))
+	a.attribute_kind = str(d.get("attribute_kind", ""))
+	a.element_key = str(d.get("element_key", ""))
+	a.is_borrowed = bool(d.get("is_borrowed", false))
+	a.source_rarity = int(d.get("source_rarity", -1))
 	return a
 
 
@@ -129,6 +156,10 @@ func from_dict(d: Dictionary) -> EquipmentInstance:
 	for ad in d.get("extra_affixes", []):
 		if ad is Dictionary:
 			extra_affixes.append(_affix_from_dict(ad))
+	random_affixes.clear()
+	for ad in d.get("random_affixes", []):
+		if ad is Dictionary:
+			random_affixes.append(_affix_from_dict(ad))
 	return self
 
 
@@ -151,6 +182,22 @@ static func create(template: EquipmentTemplate) -> EquipmentInstance:
 		return inst
 	inst.template_id = template.id
 	inst.rarity = template.rarity
+	return inst
+
+
+## 静态工厂：创建**掉落物**实例（含随机词条）。
+##
+## **掉落走这里，商店/起始装备走 `create`** —— 规格原文：
+## 「每个装备**掉落时**都会随机生成 1-4 个随机词条」。
+## 商店卖的是定制品、起始装备是职业配置，都不该带随机词条。
+##
+## `rng` 由调用方传入（可复现）；`templates` 是特殊词条的借用候选池。
+static func create_drop(template: EquipmentTemplate, rng: RandomNumberGenerator,
+		templates: Array = []) -> EquipmentInstance:
+	var inst := create(template)
+	if inst.template_id == &"":
+		return inst
+	RandomAffix.roll_for(inst, rng, templates)
 	return inst
 
 
