@@ -84,6 +84,9 @@ var cam_fx: PlayerCameraFx = null
 ## 职业/形态/技能组件。在 `_ready()` 里经 `_setup_skills()` 装配。
 var skills: PlayerSkills = null
 
+## 装备触发条件结算器（击杀/受击/命中/闪避时生效的自有词条）。
+var equip_fx: PlayerEquipmentEffects = null
+
 ## 召唤物管理器。在 `_ready()` 里经 `_setup_summons()` 装配。
 var summons: SummonManager = null
 
@@ -106,6 +109,7 @@ func _ready() -> void:
 		buffs = BuffHolder.new(self)
 	# 技能组件必须在 _setup_class 之前装配——后者要经它转发
 	_setup_skills()
+	_setup_equip_fx()
 	_setup_class()
 	_setup_state_machine()
 	_setup_fx()
@@ -205,6 +209,14 @@ func _setup_skills() -> void:
 	skills.name = "SkillsComponent"
 	add_child(skills)
 	skills.setup(self)
+
+
+## 装配装备触发条件结算器（击杀/受击/命中/闪避时生效的自有词条）。
+func _setup_equip_fx() -> void:
+	equip_fx = PlayerEquipmentEffects.new()
+	equip_fx.name = "EquipmentFxComponent"
+	add_child(equip_fx)
+	equip_fx.setup(self)
 
 
 ## 把当前形态的专属增益挂到属性系统上（转发到 PlayerSkills）。
@@ -376,6 +388,9 @@ func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 	# 职业资源：击杀积攒（策划 6.1 判官「击杀 +20」）。
 	# 与命中积攒同属"打怪回资源"链路，此前同样从未被调用。
 	skills.on_kill()
+	# 装备触发条件（装备参考2：「每击杀一个敌人…」类自有词条）
+	if equip_fx != null:
+		equip_fx.on_kill()
 	if GameBalance.KILL_HEAL <= 0.0:
 		return
 	if GameManager.attributes and not GameManager.attributes.is_dead():
@@ -731,6 +746,9 @@ func _basic_attack_pierce() -> float:
 func _on_player_hurt(amount: float) -> void:
 	if amount <= 0.0:
 		return
+	# 装备触发条件（装备参考2：「每受到一次伤害，防御力增加1%…」类）
+	if equip_fx != null:
+		equip_fx.on_hurt()
 	# 脱战计时被打断（策划 6.2：脱战 3 秒后才给移速加成）
 	_out_of_combat_time = 0.0
 	# 受伤反击（策划 7.2 铁身）：置位一次待发反击；
@@ -1356,6 +1374,9 @@ func _add_shield(amount: float, cap_pct: float) -> void:
 ## 这里是装备直接的概率触发，两条链路独立判定、可叠加。
 ## 概率在 EquipmentManager 侧已按同名词条累加（两件 5% = 10%）。
 func _apply_trigger_affixes(enemy: Node3D, damage: float) -> void:
+	# 装备触发条件（装备参考2：「命中时…」类自有词条）
+	if equip_fx != null:
+		equip_fx.on_hit()
 	var em = GameManager.equipment_manager
 	if em == null or not em.has_method("equipped_trigger_affixes"):
 		return

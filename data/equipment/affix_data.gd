@@ -16,10 +16,51 @@ enum Operation {
 	TRIGGER_BUFF,   ## 命中时概率施加词条（如 5% 概率破甲 4 秒）
 }
 
+## **触发条件**（装备参考2 规格）。
+##
+## 规格里绝大多数自有词条不是常驻数值，而是「**在某个事件发生时**」生效：
+## 「每击杀一个敌人，该武器所有数值增加1%」「每受到一次伤害，防御力增加1%」
+## 「击杀敌人获得1层噬魂，满层时下次攻击释放范围收割」。
+##
+## 此前这些全被解析成常驻数值——机制丢失。本枚举承载那个「事件」。
+enum Trigger {
+	ALWAYS,       ## 常驻（默认；属性型词条都是这个）
+	ON_KILL,      ## 击杀敌人时
+	ON_HURT,      ## 受到伤害时
+	ON_HIT,       ## 命中敌人时
+	ON_DODGE,     ## 闪避成功时
+	AT_FULL,      ## 叠满层时（配合 stack_max 使用）
+}
+
+## 触发条件的中文名（供 UI 显示）
+const TRIGGER_NAMES := {
+	Trigger.ALWAYS: "常驻",
+	Trigger.ON_KILL: "击杀时",
+	Trigger.ON_HURT: "受击时",
+	Trigger.ON_HIT: "命中时",
+	Trigger.ON_DODGE: "闪避时",
+	Trigger.AT_FULL: "满层时",
+}
+
 @export var id: StringName = &""
 @export var stat: int = 0  ## EquipmentDefs.Stat（仅属性型使用）
 @export var operation: int = Operation.FLAT
 @export var value: float = 0.0
+
+# —— 触发条件（装备参考2 规格）——
+## 这条词条**何时**生效。ALWAYS = 常驻（旧行为，默认）。
+@export var trigger: int = Trigger.ALWAYS
+## 触发后的**持续时长**（秒）。<=0 = 永久（直到条件不再满足）。
+## 例：「防御力增加1%，持续10秒，可叠加5层」→ duration=10.0, stack_max=5。
+@export var duration: float = 0.0
+## **叠层上限**。0 = 不叠层（每次触发只刷新时长）。
+## 例：「最多5层」→ 5。层数由玩家的 BuffHolder 记账（见 buff_defs 的叠层词条）。
+@export var stack_max: int = 0
+## 触发概率（0~1）。1.0 = 必触发。用于「5%概率额外掉落1枚金币」这类。
+@export var chance: float = 1.0
+## 满层时触发的**额外效果**描述（规格的「满层时下次攻击释放范围收割」）。
+## 目前只承载描述与伤害倍率——真正的满层结算见 PlayerEquipmentEffects。
+@export var full_stack_bonus: float = 0.0
 
 # —— 触发型专属字段（operation == TRIGGER_BUFF 时有效）——
 ## 要施加的 BuffDefs 词条 id（如 "stun" / "armor_break" / "blind" / "disarm"）

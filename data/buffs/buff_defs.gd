@@ -267,11 +267,54 @@ static func _index() -> Dictionary:
 
 static var _cached: Dictionary = {}
 
+## **运行时注册的装备触发词条**（不进 BUFFS 常量表）。
+##
+## 为什么动态注册：装备触发词条的**数值来自装备数据**（如「每层防御 +1%」
+## 的 1% 是每件装备各自的值），预置在表里就得为每个可能的值开一条。
+## 故这里按需注册，与常量表共用同一套查询接口。
+##
+## 它们**不属于策划文档的 81 条**，故不计入 `doc_ids()`——
+## 否则「表 == 文档」的双向覆盖校验会失败。
+static var _dynamic: Dictionary = {}
+
+
+## 注册一条装备触发的叠层词条（幂等：同 id 重复注册只更新数值）。
+##
+## 行格式与 BUFFS 一致：`[id, 名, Kind, 时长, 最大层数, 描述, impl, params]`，
+## 这样 `get_buff` / `impl_of` / `params_of` / `_sync_modifier` 全部无需改动。
+static func register_equipment_stack(id: String, stat: int, value: float,
+		duration: float, max_stacks: int) -> void:
+	if id.is_empty():
+		return
+	# stat → params 键（复用 _sync_modifier 认得的那些键名）
+	var p := {}
+	var key := EquipmentDB.special_out_key(stat)
+	if key.is_empty():
+		# 面板属性：按 AttributeSystem.Stat 反查键名
+		for name in AttributeSystem.STAT_BY_NAME:
+			if int(AttributeSystem.STAT_BY_NAME[name]) == stat:
+				key = name + "_up"
+				break
+	else:
+		# 扩展修饰量：_sync_modifier 不认这些键，故走 special 通道。
+		# 但叠层词条的价值就在于「层数 × 数值」同步到面板——
+		# 扩展量不在面板上，故这里退化为只记层数（由 special_modifiers 读）。
+		pass
+	if not key.is_empty():
+		p[key] = value
+	var row := [id, "装备·%s" % id, Kind.GENERIC, duration, max_stacks,
+		"装备触发的叠层词条", "stat" if not p.is_empty() else "special", p]
+	_dynamic[id] = row
+	# 已缓存过则同步刷新，避免注册后查不到
+	if not _cached.is_empty():
+		_cached[id] = row
+
+
 ## 按 id 取定义行
 static func get_buff(id: String) -> Array:
 	if _cached.is_empty():
 		_cached = _index()
-	return _cached.get(id, [])
+	return _cached.get(id, _dynamic.get(id, []))
 
 ## 全部词条 id
 static func all_ids() -> Array:
