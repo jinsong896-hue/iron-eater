@@ -58,7 +58,14 @@ func apply(buff_id: String, source: String = "buff", stacks: int = 1) -> Diction
 		e["stacks"] = maxi(int(e["stacks"]), 1)
 	# 刷新时长（永久词条 duration=0 不设剩余时间）
 	if float(row[3]) > 0.0:
-		e["remaining"] = float(row[3])
+		# **控制类词条按时长减免**（装备参考2 的 `ctrl_resist_pct` 通道）。
+		# 「受到的控制效果持续时间减少 30%」这类装备此前零消费者——
+		# 加了没效果。只在**控制类**上生效（减速/易伤等不受影响，
+		# 规格明写"控制效果"）。
+		var dur := float(row[3])
+		if int(row[2]) == BuffDefs.Kind.CONTROL:
+			dur *= (1.0 - clampf(_ctrl_resist(), 0.0, 0.90))
+		e["remaining"] = dur
 	# 记录**最近一次**施加者：remove_from_source 靠它判断
 	# 「这个词条现在还是我施加的吗」。区域陷阱每 tick 重刷，故施法者
 	# 离开后若被别的来源接管，source 会随之更新，区域不会误删。
@@ -467,3 +474,26 @@ func clear() -> void:
 	_buffs.clear()
 	_elem_stacks.clear()
 	_frozen_until = 0.0
+
+
+## 受控时长减免（装备参考2 的 `ctrl_resist_pct` 通道）。
+##
+## **只对玩家生效**：该通道来自装备，而装备只挂在玩家身上；
+## 敌人没有 equipment_manager，查不到就返回 0（不受影响）。
+func _ctrl_resist() -> float:
+	if _target == null:
+		return 0.0
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return 0.0
+	var gm = tree.root.get_node_or_null("GameManager")
+	if gm == null:
+		return 0.0
+	var em = gm.get("equipment_manager")
+	if em == null or not em.has_method("special_modifiers"):
+		return 0.0
+	# 只有玩家的 buffs 才吃这条——用 _target 是否是玩家判定
+	if not (_target is Node and (_target as Node).is_in_group("player")):
+		return 0.0
+	var sp: Dictionary = em.call("special_modifiers")
+	return float(sp.get("ctrl_resist_pct", 0.0))
