@@ -21,6 +21,9 @@ var current_save_slot := 0
 @onready var btn_start: Button = $MainPanel/VBox/BtnStart
 @onready var btn_settings: Button = $MainPanel/VBox/BtnSettings
 @onready var btn_quit: Button = $MainPanel/VBox/BtnQuit
+## 图鉴入口（查看全部装备与敌人）
+@onready var btn_codex: Button = $MainPanel/VBox/BtnCodex
+@onready var codex_panel: Control = $CodexPanel
 @onready var version_label: Label = $MainPanel/VersionLabel
 @onready var recent_label: Label = $MainPanel/RecentLabel
 
@@ -151,6 +154,8 @@ func _setup_main_menu() -> void:
 		btn_start.pressed.connect(_on_start_pressed)
 	if btn_settings:
 		btn_settings.pressed.connect(_on_settings_pressed)
+	if btn_codex:
+		btn_codex.pressed.connect(_on_codex_pressed)
 	if btn_quit:
 		btn_quit.pressed.connect(_on_quit_pressed)
 	if version_label:
@@ -177,6 +182,12 @@ func _on_start_pressed() -> void:
 
 func _on_settings_pressed() -> void:
 	_switch_state(MenuState.SETTINGS)
+
+
+## 打开图鉴（查看全部装备与敌人）
+func _on_codex_pressed() -> void:
+	if codex_panel and codex_panel.has_method("open"):
+		codex_panel.call("open")
 
 
 func _on_quit_pressed() -> void:

@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" path="res://ui/menu/main_menu.gd" id="1_menu"]
 [ext_resource type="PackedScene" path="res://scenes/ui/settings_panel.tscn" id="2_settings"]
+[ext_resource type="PackedScene" path="res://ui/codex/codex_panel.tscn" id="3_codex"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -62,6 +63,12 @@ theme_override_constants/separation = 20
 [node name="BtnStart" type="Button" parent="MainPanel/VBox"]
 layout_mode = 2
 text = "开始游戏"
+theme_override_font_sizes/font_size = 28
+flat = true
+
+[node name="BtnCodex" type="Button" parent="MainPanel/VBox"]
+layout_mode = 2
+text = "图鉴"
 theme_override_font_sizes/font_size = 28
 flat = true
 
@@ -321,3 +328,5 @@ visible = false
 title = "确认"
 initial_position = 2
 size = Vector2i(500, 200)
+[node name="CodexPanel" parent="." instance=ExtResource("3_codex")]
+visible = false
