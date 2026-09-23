@@ -31,10 +31,16 @@ var _rng := RandomNumberGenerator.new()
 ## 返回 {ok, reason?, skill?}。
 func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 		resource: ClassResource = null) -> Dictionary:
-	var found := ClassDefs.find_skill(skill_id)
-	if found.is_empty():
-		return {"ok": false, "reason": "未知技能 %s" % skill_id}
-	var sd: Dictionary = found["skill"]
+	# **先查装备技能表**（装备参考2：133 件装备自带主动技能）。
+	# 装备技能不属于任何职业，故不在 ClassDefs 里——先查它，
+	# 查不到再退回职业技能表。顺序不能反：反过来会因
+	# find_skill 返回空而把装备技能当成"未知技能"拒绝。
+	var sd: Dictionary = EquipmentSkills.skill_by_id(skill_id)
+	if sd.is_empty():
+		var found := ClassDefs.find_skill(skill_id)
+		if found.is_empty():
+			return {"ok": false, "reason": "未知技能 %s" % skill_id}
+		sd = found["skill"]
 
 	if _is_on_cooldown(skill_id):
 		return {"ok": false, "reason": "技能冷却中（%.1fs）" % get_cooldown_remaining(skill_id)}

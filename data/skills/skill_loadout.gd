@@ -81,10 +81,15 @@ func equip(skill_id: String, slot: int) -> Dictionary:
 		return {"ok": false, "reason": "槽位越界"}
 	if skill_id.is_empty():
 		return {"ok": false, "reason": "技能 id 为空"}
-	var found := ClassDefs.find_skill(skill_id)
-	if found.is_empty():
-		return {"ok": false, "reason": "未找到该技能"}
-	if is_passive(found.get("skill", {})):
+	# **两表都认**：职业技能（ClassDefs）与装备技能（EquipmentSkills）。
+	# 装备技能是「装备自带」的（装备参考2），玩家把它拖进槽位即可施放。
+	var sk: Dictionary = EquipmentSkills.skill_by_id(skill_id)
+	if sk.is_empty():
+		var found := ClassDefs.find_skill(skill_id)
+		if found.is_empty():
+			return {"ok": false, "reason": "未找到该技能"}
+		sk = found.get("skill", {})
+	if is_passive(sk):
 		return {"ok": false, "reason": "被动技能不上槽位（学会即生效）"}
 	# 同一技能不占两格
 	var old := slots.find(skill_id)
@@ -111,6 +116,12 @@ func skill_at(slot: int) -> Dictionary:
 	var sid := slots[slot]
 	if sid.is_empty():
 		return {}
+	# **先查装备技能**（装备参考2：装备自带的主动技能不占职业技能表）。
+	# 与 SkillSystem.cast_skill 的顺序一致——两处都按「装备优先」，
+	# 否则会出现「放得出但查不到」的错位。
+	var eq := EquipmentSkills.skill_by_id(sid)
+	if not eq.is_empty():
+		return eq
 	return ClassDefs.find_skill(sid).get("skill", {})
 
 
@@ -182,7 +193,10 @@ func passive_count() -> int:
 func learned_passives() -> Array:
 	var out: Array = []
 	for sid in passives:
-		var sk: Dictionary = ClassDefs.find_skill(sid).get("skill", {})
+		# 与 skill_at 同口径：先查装备技能表，再查职业技能表
+		var sk: Dictionary = EquipmentSkills.skill_by_id(sid)
+		if sk.is_empty():
+			sk = ClassDefs.find_skill(sid).get("skill", {})
 		if not sk.is_empty():
 			out.append(sk)
 	return out
@@ -232,3 +246,21 @@ func from_dict(d: Dictionary) -> void:
 	passives.clear()
 	for sid in d.get("passives", []):
 		passives.append(str(sid))
+
+
+## **可选技能池**（技能管理页的数据源）。
+##
+## 两类来源（装备参考2 规格）：
+##   · 职业技能 —— 当前 class_id + form_slot 的技能表
+##   · 装备技能 —— 当前**已装备**的装备自带的主动技能（133 件可能有）
+##
+## **被动技能不上槽**（规格：主动上槽、被动不上槽），故这里过滤掉被动——
+## 它们在 `passives` 里，学会即生效，不该出现在可选池里。
+func available_pool(class_id: String, form_slot: int, equipment_manager) -> Array:
+	var out: Array = []
+	for sk in ClassDefs.skills_of(class_id, form_slot):
+		if sk is Dictionary and not is_passive(sk):
+			out.append(sk)
+	for sk in EquipmentSkills.available_for(equipment_manager):
+		out.append(sk)
+	return out
