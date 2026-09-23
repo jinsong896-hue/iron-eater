@@ -33,6 +33,19 @@ var pierce_count := 0          ## 可穿透的额外目标数（0 = 命中即消
 var bounces := 0               ## 剩余弹射次数
 var _bounced := 0
 var _hit_targets: Array = []   ## 已命中目标，避免弹回时重复打同一个
+## 命中回调：`func(target: Node3D, damage: float) -> void`。
+##
+## **为什么需要它**：投射物默认走 `_deal_damage` —— 一条只做
+## `DamagePipeline.elemental_attack` + 裸 `take_damage` 的简化路径。
+## 而玩家普攻有一整套结算（连击计数、生命偷取、装备触发词条、
+## 形态印记、职业资源积攒、背刺判定、命中顿帧），全在
+## `Player._apply_hit` 里。玩家用远程武器时若走默认路径，
+## **远程普攻会比近战少掉一大截效果**（不攒连击、不吸血、不触发装备）。
+##
+## 故：玩家远程普攻把自己的 `_apply_hit` 接进这个回调，
+## 投射物只负责「飞过去、判定命中」，结算交回调用方。
+## 留空则保持旧行为（敌人射击用的简化路径），两者互不影响。
+var on_hit: Callable = Callable()
 
 # —— 弧线（抛物线轨迹）——
 var arc := false
@@ -91,7 +104,14 @@ static func spawn(data: Dictionary, parent: Node3D, target_group: String = TARGE
 	#
 	# 调用方必须能接受 null。现有两处调用点（敌人 _shoot / 技能系统）
 	# 都不使用返回值，故安全；新增调用点要注意判空。
-	if USE_SIM_CORE and _spawn_via_sim(data, parent, target_group):
+	#
+	# **`force_node` 例外**：核只回传 `projectile_hit(world_pos, damage, kind)`，
+	# **不带目标引用**，且 Callable 跨不过 C++ 边界——故 `on_hit` 回调在核路径
+	# 下永不触发。玩家普攻依赖该回调把结算接回 `Player._apply_hit`
+	#（连击/吸血/装备触发/形态印记），走核会**静默丢掉全部普攻效果**。
+	# 故这类调用方用 `force_node` 显式要求节点路径。
+	if USE_SIM_CORE and not bool(data.get("force_node", false)) \
+			and _spawn_via_sim(data, parent, target_group):
 		return null
 	var p := Projectile.new()
 	p.direction = (data.get("direction", Vector3.FORWARD) as Vector3).normalized()
@@ -112,6 +132,8 @@ static func spawn(data: Dictionary, parent: Node3D, target_group: String = TARGE
 	p.split_damage_pct = float(data.get("split_damage_pct", 0.4))
 	p.split_spread = float(data.get("split_spread", 0.5))
 	p.zone_on_land = data.get("zone_on_land", {})
+	# 命中回调（玩家远程普攻接管结算用，见该字段的说明）
+	p.on_hit = data.get("on_hit", Callable())
 	# 保留原始配置：分裂时要据此复制出同类型小弹
 	p.data = data
 
@@ -229,7 +251,12 @@ func _on_body_entered(body: Node3D) -> void:
 	if _hit_targets.has(body):
 		return
 	_hit_targets.append(body)
-	_deal_damage(body)
+	# 命中回调：调用方接管结算（玩家远程普攻走这条，见 on_hit 的说明）。
+	# **放在默认结算之前**并 return——两者不能都跑，否则一次命中扣两次血。
+	if on_hit.is_valid():
+		on_hit.call(body, damage)
+	else:
+		_deal_damage(body)
 	_hit_count += 1
 
 	# 命中分裂（虚空弓手 9-4 / 混沌幼蛛）：射出 N 枚散射小弹。

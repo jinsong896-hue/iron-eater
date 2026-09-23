@@ -525,7 +525,11 @@ func _start_normal_attack() -> void:
 	var stage: int = _combo.request_normal()
 	if stage == 0:
 		return
-	var params: Array = _combo.stage_params(stage)
+	# **远近切换**：主手武器带「远程」标签时，普攻改为发射投射物。
+	# 段位参数取自 RANGED_COMBO_STAGES（第 3/4 列语义与近战不同，见该表注释）。
+	var ranged := _main_weapon_is_ranged()
+	var params: Array = (_combo_ranged_get().stage_params(stage) if ranged
+		else _combo.stage_params(stage))
 	_combo.begin_attack()
 	var aspd := GameManager.stat_value("aspd")
 	_attack_timer = params[0] / maxf(aspd, 0.1)
@@ -535,15 +539,49 @@ func _start_normal_attack() -> void:
 	if stage == combo_stages_size() and GameBalance.FINISHER_SUPERARMOR:
 		_finisher_armor_timer = _attack_timer
 		_spawn_armor_visual()
-	# 普攻射程 = 连段表的基础射程 + 形态加成（策划 7.1 拳师「空手射程 +0.5 米」）
-	var reach: float = float(params[2]) + _fist_reach_bonus()
-	_perform_melee_attack(params[1], reach, deg_to_rad(params[3]), params[4])
-	# 挥砍视觉：终结技（第 4 段）金色大扇形，其余白
-	if stage == combo_stages_size():
-		fx.spawn_slash(reach, deg_to_rad(params[3]), Color(1.0, 0.8, 0.2, 0.55))
+	if ranged:
+		_perform_ranged_attack(params[1], params[2], int(params[3]), params[4])
 	else:
-		fx.spawn_slash(reach, deg_to_rad(params[3]))
+		# 普攻射程 = 连段表的基础射程 + 形态加成（策划 7.1 拳师「空手射程 +0.5 米」）
+		var reach: float = float(params[2]) + _fist_reach_bonus()
+		_perform_melee_attack(params[1], reach, deg_to_rad(params[3]), params[4])
+		# 挥砍视觉：终结技（第 4 段）金色大扇形，其余白
+		if stage == combo_stages_size():
+			fx.spawn_slash(reach, deg_to_rad(params[3]), Color(1.0, 0.8, 0.2, 0.55))
+		else:
+			fx.spawn_slash(reach, deg_to_rad(params[3]))
 	_combo.end_attack()
+
+
+## 主手武器是否带「远程」标签（决定普攻走投射物还是扇形）
+##
+## 标签由 `EquipmentDefs.weapon_tags_of` 从「武器类型 + 中文标签」推出，
+## 弓/弩/带「远程」标签的法杖都会返回 `ranged`。
+## **近战武器槽为空时返回 false**——空手（武僧 `no_weapon` 形态）走近战。
+func _main_weapon_is_ranged() -> bool:
+	var em = GameManager.equipment_manager
+	if em == null:
+		return false
+	var inst = em.get_equipped().get(EquipmentDefs.Slot.WEAPON_1, null)
+	if inst == null:
+		return false
+	var tpl = inst.get_template()
+	if tpl == null:
+		return false
+	return "ranged" in EquipmentDefs.weapon_tags_of(tpl.weapon_type, tpl.tags)
+
+
+## 远程连段器（懒建，与近战 `_combo` 分开）
+##
+## **必须分开**：近战连段的 `_stage` / 窗口状态若被远程共用，
+## 玩家换武器后连段进度会串（近战打到第 3 段，换弓后直接从远程第 3 段开始）。
+## 两张表段数相同，但语义与冷却都不同，各自维护最清晰。
+var _combo_ranged: AttackCombo = null
+
+func _combo_ranged_get() -> AttackCombo:
+	if _combo_ranged == null:
+		_combo_ranged = AttackCombo.new(GameBalance.RANGED_COMBO_STAGES)
+	return _combo_ranged
 
 
 ## 连段总段数（从 GameBalance 取，终结技判定用）
@@ -635,6 +673,62 @@ func _perform_melee_attack(multiplier: float, reach: float, half_angle: float, k
 	if hit_any:
 		_register_hit_combo()
 	_finish_attack_feedback(hit_any)
+
+
+## 远程普攻：沿面朝方向发射一枚投射物
+##
+## ## 结算走 `_apply_hit`，不走投射物的默认路径
+##
+## 投射物默认的 `_deal_damage` 只做「元素管线 + 裸 take_damage」，
+## 而普攻有一整套效果（连击计数、生命偷取、装备触发词条、形态印记、
+## 职业资源积攒、背刺判定、暴击顿帧）全在 `_apply_hit` 里。
+## 故通过投射物的 `on_hit` 回调把结算**接回本类**——
+## 远程与近战共用同一漏斗，手感与收益口径一致。
+##
+## `multiplier` 是段位伤害倍率，作为 `on_hit` 的闭包捕获传入。
+func _perform_ranged_attack(multiplier: float, speed: float,
+		pierce: int, knockback: float) -> void:
+	var parent := _projectile_parent()
+	if parent == null:
+		return
+	var dir := CombatGeometry.flat_normalized(_facing)
+	if dir.length_squared() < 0.001:
+		dir = Vector3.FORWARD
+	var kb := knockback
+	# 命中回调：接管结算。投射物只负责飞与判定，伤害口径交回 `_apply_hit`。
+	var cb := func(target: Node3D, _dmg: float) -> void:
+		if not is_instance_valid(target):
+			return
+		_apply_hit(target, multiplier, kb)
+		_register_hit_combo()
+		_finish_attack_feedback(true)
+	ProjectileSystem.spawn({
+		"direction": dir,
+		"speed": speed,
+		"damage": 0.0,      # 伤害由 on_hit 接管，不用投射物自带的数值
+		"lifetime": GameBalance.RANGED_PROJECTILE_LIFETIME,
+		"element": ElementDamage.key_from_elem(attack_element) if attack_element >= 0 else "",
+		"pierce_count": pierce,
+		"position": global_position + dir * 0.6,
+		"on_hit": cb,
+		# **强制节点路径**：模拟核不带目标引用、Callable 也跨不过 C++ 边界，
+		# 走核会让 on_hit 永不触发 → 伤害为 0 且普攻效果全丢。见 Projectile.spawn。
+		"force_node": true,
+	}, parent)
+
+
+## 玩家投射物的挂载父节点
+##
+## 与 `SkillSystem._projectile_parent` 同一策略：从自身向上找最近的 Node3D。
+## 3D 世界在 SubViewport 下时，直接父节点可能是 `Viewport`（非 Node3D），
+## 传给 `ProjectileSystem.spawn` 会抛类型错误并静默不出弹。
+func _projectile_parent() -> Node3D:
+	var n := get_parent()
+	while n != null:
+		if n is Node3D:
+			return n as Node3D
+		n = n.get_parent()
+	return null
 
 
 ## 冲撞判定（奔跑攻击）：面向矩形区域
