@@ -261,6 +261,27 @@ func _build_skill_pool(pool: VBoxContainer) -> void:
 					b.pressed.connect(_on_skill_pool_pressed.bind(sid))
 				pool.add_child(b)
 
+	# **装备技能分栏**（装备参考2：装备自带的主动技能）。
+	# 单列一栏而不混进职业组：玩家要能看出「这个技能靠哪件装备才有」。
+	var eq_skills: Array = EquipmentSkills.available_for(_equipment_manager())
+	if eq_skills.is_empty():
+		return
+	var head2 := Label.new()
+	head2.text = "— 装备技能 —"
+	head2.add_theme_color_override("font_color", Color(0.71, 0.59, 0.38))
+	pool.add_child(head2)
+	var seen_eq := {}
+	for sk in eq_skills:
+		var sid2 := str(sk.get("id", ""))
+		if sid2.is_empty() or seen_eq.has(sid2):
+			continue
+		seen_eq[sid2] = true
+		var b2 := Button.new()
+		b2.text = "%s（%s）" % [str(sk.get("name", sid2)), str(sk.get("source_equip", ""))]
+		b2.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b2.pressed.connect(_on_skill_pool_pressed.bind(sid2))
+		pool.add_child(b2)
+
 
 ## 点被动技能：学会 / 遗忘（**不占槽位**）
 func _on_skill_passive_pressed(skill_id: String) -> void:

@@ -184,6 +184,36 @@ func _build_pool(pool: VBoxContainer) -> void:
 			pool.add_child(b)
 			_pool_buttons.append(b)
 
+	# **装备技能分栏**（装备参考2：装备自带的主动技能）。
+	# 与职业技能分开列：它们的来源不同（装备 vs 职业），
+	# 玩家需要一眼看出「这个技能是靠哪件装备才有的」。
+	var eq_skills: Array = EquipmentSkills.available_for(_equipment_manager())
+	if eq_skills.is_empty():
+		return
+	var head2 := Label.new()
+	head2.text = "— 装备技能 —"
+	head2.add_theme_color_override("font_color", COLOR_GOLD)
+	pool.add_child(head2)
+	for sk in eq_skills:
+		var sid2 := str(sk.get("id", ""))
+		if sid2.is_empty() or seen.has(sid2):
+			continue
+		seen[sid2] = true
+		var b2 := Button.new()
+		b2.text = "%s（%s）" % [str(sk.get("name", sid2)), str(sk.get("source_equip", ""))]
+		b2.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b2.pressed.connect(_on_pool_pressed.bind(sid2))
+		pool.add_child(b2)
+		_pool_buttons.append(b2)
+
+
+## 取装备管理器（装备技能的来源）
+func _equipment_manager():
+	var gm := get_node_or_null("/root/GameManager")
+	if gm == null:
+		return null
+	return gm.get("equipment_manager")
+
 
 ## 当前职业 id（取不到时回退战士，与 player 的兜底一致）
 func _current_class_id() -> String:
