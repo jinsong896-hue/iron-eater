@@ -185,14 +185,24 @@ func devour(item: EquipmentInstance) -> Dictionary:
 		return {"ok": false, "reason": "该物品不可吞噬"}
 
 	# 应用吞噬词条
+	#
+	# **按「同件累计」缩放**（装备参考2 规格：「吞噬同一件装备时会升级」）：
+	# 吞第 1 件是原始值、第 2 件 ×1.25、第 3 件 ×1.5…（见 devour_value_at）。
+	# 计数存在 GameManager（跨实例），本函数先自增再取用。
 	var affix := template.devour_affix
 	var gm = _game_manager()
+	var times := 1
+	if gm != null and gm.get("devour_template_counts") != null:
+		var k := str(template.id)
+		times = int(gm.devour_template_counts.get(k, 0)) + 1
+		gm.devour_template_counts[k] = times
+	var scaled := EquipmentInstance.devour_value_at(template, times)
 	var flat := 0.0
 	var percent := 0.0
 	if affix.operation == AffixData.Operation.PERCENT:
-		percent = affix.value
+		percent = scaled
 	else:
-		flat = affix.value
+		flat = scaled
 	if gm and gm.attributes:
 		gm.attributes.add_modifier(
 			"devour_%s" % item.instance_id,
@@ -258,6 +268,25 @@ func fuse(main: EquipmentInstance, material: EquipmentInstance) -> Dictionary:
 		return {"ok": false, "reason": "金币不足（需要 %d）" % cost}
 
 	main.fusion_count = FusionRules.next_fusion_count(main.fusion_count)
+	# **同件累计**（装备参考2 规格：「融合同一件装备时会升级」）：
+	# 记下「主装备融合了一件什么 id 的素材」，供自有/融合词条按次数升级。
+	# 计在**主装备实例**上——升级的是它的自有词条，跨局随装备走。
+	var mat_tpl_for_count := material.get_template()
+	if mat_tpl_for_count != null:
+		main.note_same_fuse(mat_tpl_for_count.id)
+	# **素材的融合词条**（规格第 3 条）：「这件装备作为素材融合到其他装备上时
+	# 产生的额外加成词条」——故取的是**素材**的 fusion_affix，不是主装备的。
+	# 累加进主装备的 extra_affixes，成为它的一部分（可多件叠加）。
+	# 数值按「同件累计」缩放（融合同一件多次 → 越融越强）。
+	if mat_tpl_for_count != null and mat_tpl_for_count.fusion_affix != null:
+		var fa := mat_tpl_for_count.fusion_affix
+		var times := main.same_fuse_level(mat_tpl_for_count.id)
+		var fv := EquipmentInstance.fusion_value_at(mat_tpl_for_count, times)
+		var granted := AffixData.make_stat(fa.stat, fv,
+			fa.operation == AffixData.Operation.PERCENT)
+		# id 带素材 id，让「同素材重复融合」能识别为同一条并升级
+		granted.id = StringName("fus_%s" % str(mat_tpl_for_count.id))
+		_merge_fusion_affix(main, granted)
 	if gm:
 		gm.gold -= cost
 		gm.fusion_count += 1
@@ -464,7 +493,7 @@ func special_modifiers() -> Dictionary:
 		"key_drop_pct": 0.0, "block_pct": 0.0, "dodge_pct": 0.0,
 		"ctrl_resist_pct": 0.0, "cd_refresh_pct": 0.0, "drop_rate_pct": 0.0,
 		"pickup_range_pct": 0.0, "summon_dmg_pct": 0.0, "elem_dmg_pct": 0.0,
-		"true_dmg_pct": 0.0, "exp_gain_pct": 0.0,
+		"true_dmg_pct": 0.0, "exp_gain_pct": 0.0, "summon_limit": 0.0,
 	}
 	for slot in _equipped:
 		var inst = _equipped[slot]
@@ -473,8 +502,16 @@ func special_modifiers() -> Dictionary:
 		var tpl: EquipmentTemplate = inst.get_template()
 		if tpl == null:
 			continue
-		# 模板三词条 + 实例的通用附加词条（附魔/融合附加的都在这）
-		var all_affixes: Array = [tpl.base_affix, tpl.devour_affix, tpl.fusion_affix]
+		# **只收「穿戴时生效」的词条**（装备参考2 规格）：
+		#   基础属性 base_affix —— 穿戴生效 ✅
+		#   自有词条 own_affix  —— 穿戴生效 ✅（规格明写「只有装备在角色身上才会生效」）
+		#   融合词条 fusion_affix —— **作为素材**时给主装备的，穿戴时不生效 ❌
+		#   吞噬词条 devour_affix —— **作为素材被吞噬**时给角色的，穿戴时不生效 ❌
+		#
+		# 后两条若也收进来，穿一件装备就白拿了它的「素材价值」——
+		# 等于装备和吞噬两条词条同时生效，与规格相反（且会虚高面板）。
+		# 融合词条的生效路径是 fuse() 把它并进主装备的 extra_affixes。
+		var all_affixes: Array = [tpl.base_affix, tpl.own_affix]
 		all_affixes.append_array(inst.extra_affixes)
 		for affix in all_affixes:
 			if affix == null or not affix.is_stat():
@@ -482,7 +519,14 @@ func special_modifiers() -> Dictionary:
 			var out_key: String = EquipmentDB.special_out_key(affix.stat)
 			if out_key.is_empty():
 				continue
-			out[out_key] = float(out[out_key]) + affix.value * inst.enhancement_mult()
+			# **自有词条走 own_affix_value**（含同件融合升级），
+			# 其余走原值 × 强化倍率——两者成长规则不同，不能混用一个算式。
+			var v: float
+			if affix == tpl.own_affix:
+				v = inst.own_affix_value()
+			else:
+				v = affix.value * inst.enhancement_mult()
+			out[out_key] = float(out[out_key]) + v
 	return out
 
 
@@ -566,6 +610,22 @@ func _apply_equipment_modifiers(inst: EquipmentInstance) -> void:
 			val = inst.base_affix_value()
 		gm.attributes.add_modifier(src, affix.stat, val, pct)
 
+	# **自有词条**（装备参考2 规格第 2 条）：装备独有，仅穿戴时生效，
+	# 融合同一件会升级（见 EquipmentInstance.own_affix_value）。
+	#
+	# 扩展修饰量（stat >= 100）不挂面板，由 special_modifiers 收集——
+	# 与 extra_affixes 同口径（挂进 AttributeSystem 会因枚举越界而静默失效）。
+	if template != null and template.own_affix != null:
+		var oa := template.own_affix
+		if int(oa.stat) < 100:
+			var oval := 0.0
+			var opct := 0.0
+			if oa.operation == AffixData.Operation.PERCENT:
+				opct = inst.own_affix_value()
+			else:
+				oval = inst.own_affix_value()
+			gm.attributes.add_modifier(src, oa.stat, oval, opct)
+
 	# 通用附加词条（同一 source，随装备一起挂/卸）
 	for a in inst.extra_affixes:
 		if a == null or not a.is_stat():
@@ -635,20 +695,34 @@ func _apply_fusion_affix(inst: EquipmentInstance) -> void:
 		return
 	# 先清旧的（融合次数变化时要覆盖，不是叠加）
 	gm.attributes.remove_modifiers("fusion_%s" % inst.instance_id)
-	var template := inst.get_template()
-	if template == null or template.fusion_affix == null:
+	# **不再把 fusion_affix 挂成自身面板加成**（装备参考2 规格）。
+	#
+	# 规格原文：融合词条是「当这件装备**作为素材**融合到其他装备上时
+	# 会产生」的——它属于**主装备**，不属于素材自己。
+	# 旧实现把素材的 fusion_affix 当自身加成挂上，等于穿一件装备
+	# 就白拿了它的「素材价值」，与规格相反。
+	#
+	# 素材的融合词条现在由 `fuse()` 并入主装备的 `extra_affixes`
+	#（见 `_merge_fusion_affix`），那条路径才是规格要求的。
+	#
+	# 本函数保留为「清旧」的空壳：`_clear_fusion_affix` 仍要能移除历史遗留的
+	# modifier（旧存档里可能挂着），故不删函数、只停止新挂。
+
+
+## 把一条融合词条并入主装备的 extra_affixes（**同 id 则升级而非叠加**）。
+##
+## 规格：「融合同一件装备时会升级」——重复融同一素材时，
+## 应把那条词条的值提到新的档位，而不是挂第二条同名词条
+##（挂两条会让面板显示重复、也让「同件升级」失去意义）。
+func _merge_fusion_affix(main: EquipmentInstance, a: AffixData) -> void:
+	if main == null or a == null:
 		return
-	if inst.fusion_count <= 0:
-		return   # 未融合过就没有融合词条
-	var affix := template.fusion_affix
-	# 按当前档位取比例（策划 3.2 的攻击加成档位表）
-	var pct := FusionRules.tier_affix_attack(inst.fusion_count)
-	gm.attributes.add_modifier(
-		"fusion_%s" % inst.instance_id,
-		affix.stat,
-		0.0,
-		pct
-	)
+	for i in main.extra_affixes.size():
+		var e: AffixData = main.extra_affixes[i]
+		if e != null and e.id == a.id:
+			e.value = maxf(e.value, a.value)   # 升级取更高档
+			return
+	main.extra_affixes.append(a)
 
 
 ## 重算融合攻击加成。

@@ -10,6 +10,20 @@ var enhancement_level: int = 0
 var is_locked: bool = false
 var created_at_usec: int = 0
 
+## **同件累计计数**（装备参考2 规格）。
+##
+## 规格原文：自有/融合/吞噬三条词条都是「融合同一件装备时会升级」
+## /「吞噬同一件装备时会升级」。故升级的判据不是「总共融了几次」，
+## 而是「**这件（这个 id）** 累计了多少次」。
+##
+## 以 template_id 为键：同一件装备可能有多份实例，但只要 id 相同就算同件。
+## 计数从 1 开始（第一次融合/吞噬即 1 级），上限见 EQUIP_AFFIX_MAX_LEVEL。
+var same_fuse_counts: Dictionary = {}    ## template_id -> 累计融合次数
+var same_devour_counts: Dictionary = {}  ## template_id -> 累计吞噬次数
+
+## 同件词条的最高等级（超过后不再增长，避免无限叠）
+const EQUIP_AFFIX_MAX_LEVEL := 10
+
 ## 通用词条（名词分册第 5 章：装备可附加的 16 种属性型词条）。
 ## **挂在实例而非模板**：同一模板的两件装备可以各自附魔不同词条，
 ## 挂模板上会让全世界的「铁制单手剑」共享同一套附加词条。
@@ -66,6 +80,73 @@ func base_affix_value() -> float:
 	return t.base_affix.value * (1.0 + enhancement_level * 0.05)
 
 
+# ============================================================
+# 同件累计升级（装备参考2 规格）
+# ============================================================
+
+## 某个装备 id 的累计融合次数（**用于「融合同一件升级」**）
+func same_fuse_level(tid: StringName) -> int:
+	return int(same_fuse_counts.get(str(tid), 0))
+
+
+## 某个装备 id 的累计吞噬次数（**用于「吞噬同一件升级」**）
+func same_devour_level(tid: StringName) -> int:
+	return int(same_devour_counts.get(str(tid), 0))
+
+
+## 记一次「融合了某件装备」。返回累计次数（已封顶）。
+func note_same_fuse(tid: StringName) -> int:
+	var k := str(tid)
+	var n := mini(int(same_fuse_counts.get(k, 0)) + 1, EQUIP_AFFIX_MAX_LEVEL)
+	same_fuse_counts[k] = n
+	return n
+
+
+## 记一次「吞噬了某件装备」。返回累计次数（已封顶）。
+func note_same_devour(tid: StringName) -> int:
+	var k := str(tid)
+	var n := mini(int(same_devour_counts.get(k, 0)) + 1, EQUIP_AFFIX_MAX_LEVEL)
+	same_devour_counts[k] = n
+	return n
+
+
+## 自有词条的有效值（含同件融合升级）。
+##
+## 规格：「自有词条…融合同一件装备时会升级」。
+## 每融一件同名 +25%（0 次 = 原始值，1 次 = ×1.25，2 次 = ×1.5…），
+## 上限 EQUIP_AFFIX_MAX_LEVEL 次。
+func own_affix_value() -> float:
+	var t := get_template()
+	if t == null or t.own_affix == null:
+		return 0.0
+	var lv := same_fuse_level(template_id)
+	return t.own_affix.value * (1.0 + float(lv) * 0.25) * enhancement_mult()
+
+
+## 吞噬词条的有效值（含同件吞噬升级）。
+##
+## **吞噬词条是「这件装备被吞噬时给角色的加成」**，故升级看的是
+## 「玩家累计吞噬过几件同名」——那个计数存在 GameManager 侧（跨实例），
+## 由调用方传入。这里只负责按次数缩放模板值。
+static func devour_value_at(t: EquipmentTemplate, times: int) -> float:
+	if t == null or t.devour_affix == null:
+		return 0.0
+	var lv := clampi(times - 1, 0, EQUIP_AFFIX_MAX_LEVEL)
+	return t.devour_affix.value * (1.0 + float(lv) * 0.25)
+
+
+## 融合词条的有效值（含同件融合升级）。
+##
+## 融合词条是「这件装备作为素材时给主装备的加成」，
+## 升级看的是「主装备累计融合过几件同名素材」——由主装备的
+## same_fuse_counts 提供（调用方传入）。
+static func fusion_value_at(t: EquipmentTemplate, times: int) -> float:
+	if t == null or t.fusion_affix == null:
+		return 0.0
+	var lv := clampi(times - 1, 0, EQUIP_AFFIX_MAX_LEVEL)
+	return t.fusion_affix.value * (1.0 + float(lv) * 0.25)
+
+
 ## 融合带来的攻击加成。
 ## **委托给 FusionRules.attack_bonus_at**（策划 3.1 的分段公式：
 ## 0→+0%，5→+15%，10→+30%，15→+50%，20→+75%，25→+100%）。
@@ -101,6 +182,8 @@ func to_dict() -> Dictionary:
 		"extra_affixes": affixes,
 		"random_affixes": rnd,
 		"enchant_stacks": enchant_stacks,
+		"same_fuse_counts": same_fuse_counts.duplicate(),
+		"same_devour_counts": same_devour_counts.duplicate(),
 	}
 
 
@@ -160,6 +243,8 @@ func from_dict(d: Dictionary) -> EquipmentInstance:
 	for ad in d.get("random_affixes", []):
 		if ad is Dictionary:
 			random_affixes.append(_affix_from_dict(ad))
+	same_fuse_counts = (d.get("same_fuse_counts", {}) as Dictionary).duplicate()
+	same_devour_counts = (d.get("same_devour_counts", {}) as Dictionary).duplicate()
 	return self
 
 

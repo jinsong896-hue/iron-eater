@@ -34,6 +34,12 @@ var kills := 0
 ## 注意别与 `EventBus.damage_dealt` 混淆——那条信号的语义尚未统一（见其声明）。
 var total_damage := 0.0
 var devoured_count := 0
+## **同件吞噬计数**（装备参考2 规格）：template_id → 累计吞噬件数。
+##
+## 规格原文：「吞噬词条…**吞噬同一件装备时会升级**」——升级判据是
+## 「这件（这个 id）吞过几件」，故必须跨实例记（放在 GameManager 而非
+## 单件 EquipmentInstance 上）。本局内有效，`_reset_run` 清零。
+var devour_template_counts: Dictionary = {}
 var fusion_count := 0
 var elite_kills := 0
 var boss_kills := 0
@@ -114,6 +120,7 @@ func _reset_run() -> void:
 	kills = 0
 	total_damage = 0.0
 	devoured_count = 0
+	devour_template_counts = {}
 	fusion_count = 0
 	elite_kills = 0
 	boss_kills = 0
