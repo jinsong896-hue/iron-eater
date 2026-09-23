@@ -90,6 +90,7 @@ const OP_STACK_GAIN := 4
 const TRIG_ON_KILL := 1
 const TRIG_ON_HURT := 2
 const TRIG_ON_HIT := 3
+const TRIG_ON_DODGE := 4
 const TRIG_ON_COMBO := 7
 const TRIG_ON_BLOCK := 9
 const TRIG_ON_CRIT := 6
@@ -125,6 +126,8 @@ const BUFF_OF := {
 var _unmapped: Array[String] = []
 ## 装备技能修饰（不属于词条，单独统计）
 var _skill_notes := 0
+## 规格占位符计数（设计说明，不是词条）
+var _placeholders := 0
 
 
 func _initialize() -> void:
@@ -475,6 +478,1064 @@ func _parse_one(s: String) -> String:
 	if m:
 		return "[%d, \"slow\", 1.0, 3.0]" % OP_TRIGGER_BUFF
 
+	# ---------- 10. 满层/层时触发（融合列为主，规格：机制补全） ----------
+	#
+	# 形态：「满层时…」「5层时…」「叠满3层时…」。
+	# 这些是**叠层机制的结算**——按规格映射为「叠层 + 结算效果」。
+	m = _re(r"满层时下次攻击释放.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, 5, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
+	m = _re(r"满层时下次攻击额外攻击\s*(\d+)\s*次").search(s)
+	if m:
+		return "[%d, 5, Stat.ATK, 0.40, 0]" % OP_STACK_GAIN
+	m = _re(r"满层时释放.*?(\d+)%\s*(?:攻击力|法强|雷电)").search(s)
+	if m:
+		return "[%d, 5, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
+	m = _re(r"(\d+)层时.*?获得吸收\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(2))]
+	m = _re(r"(\d+)层时.*?必定暴击").search(s)
+	if m:
+		return "[%d, %d, Stat.CRT, 0.50, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT]
+	if s.contains("满层时免疫下一次控制") or s.contains("满层时免疫控制"):
+		return "[%d, 0.30, true]" % SP["ctrl_resist"]
+	if s.contains("满层时受到致命伤害"):
+		return "[%d, %d, Stat.HP, 0.30, 0]" % [OP_STACK_GAIN, TRIG_ON_HURT]
+	if s.contains("满层时技能消耗减半"):
+		return "[%d, 0.50, true]" % SP["exp_gain"]
+	if s.contains("叠满后下次技能不消耗资源") or s.contains("叠满3层时，下次技能不消耗资源"):
+		return "[%d, 1.0, true]" % SP["exp_gain"]
+	m = _re(r"叠满\s*\d+\s*层时.*?释放.*?(\d+)%\s*法强").search(s)
+	if m:
+		return "[%d, 5, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
+
+	# ---------- 11. 技能增强类（「使用技能后…」「下次技能…」） ----------
+	m = _re(r"使用技能后，下次攻击伤害提高\s*(\d+)%").search(s)
+	if m:
+		return "[%d, \"atk_up_self\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+	m = _re(r"使用技能后，下次技能冷却-?(\d+)%").search(s)
+	if m:
+		return "[Stat.CDR, %s, true]" % _f(m.get_string(1))
+	m = _re(r"技能冷却缩减\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.CDR, %s, true]" % _f(m.get_string(1))
+	m = _re(r"减少冷却提升至\s*(\d+)\s*秒").search(s)
+	if m:
+		return "[Stat.CDR, 0.20, true]"
+	if s.contains("触发时额外释放一次该技能") or s.contains("下次技能额外释放一次"):
+		return "[%d, \"atk_up_self\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+
+	# ---------- 12. 资源型（记忆残渣 / 钥匙碎片 / 金币持有量） ----------
+	m = _re(r"每点记忆残渣.*?攻击力提高\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每点记忆残渣\s*\+?(\d+(?:\.\d+)?)%\s*全属性").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每持有?一片钥匙碎片.*?全属性提高\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每持有?一片钥匙碎片，\s*\+?(\d+)%\s*全属性").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每(?:持有)?\s*100\s*金币.*?攻击力提高\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每持有\s*100\s*金币，\s*\+?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每装备一件(?:传奇|红色)装备.*?全属性提高\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每装备一件红色装备额外\s*\+?(\d+)%\s*暴击伤害").search(s)
+	if m:
+		return "[Stat.CRD, %s, true]" % _f(m.get_string(1))
+	m = _re(r"记忆残渣获取\s*(?:增加|\+)?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["exp_gain"], _f(m.get_string(1))]
+	m = _re(r"击杀精英(?:敌人)?获得\s*(\d+)\s*点记忆残渣").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, SP["exp_gain"], _f(m.get_string(1))]
+	m = _re(r"击杀精英(?:敌人)?获得\s*\d+\s*点记忆残渣").search(s)
+	if m:
+		return "[%d, %d, %d, 0.01, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, SP["exp_gain"]]
+	m = _re(r"金币超过\s*\d+\s*时，暴击率\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.CRT, %s, true]" % _f(m.get_string(1))
+
+	# ---------- 13. 召唤物类 ----------
+	m = _re(r"每个召唤物\s*\+?(\d+)%\s*召唤物伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["summon_dmg"], _f(m.get_string(1))]
+	if s.contains("召唤物数量+1"):
+		return "[%d, 1, false]" % SP["summon_limit"]
+	if s.contains("召唤物死亡时爆炸") or s.contains("守卫死亡时爆炸") \
+			or s.contains("图腾死亡时爆炸") or s.contains("分身死亡时爆炸") \
+			or s.contains("灵魂死亡时爆炸"):
+		return "[%d, 0.10, true]" % SP["summon_dmg"]
+	if s.contains("召唤物存在时") or s.contains("链接期间") or s.contains("守护期间"):
+		return "[%d, 0.05, true]" % SP["elem_resist"]
+
+	# ---------- 14. 击杀/闪避/格挡的后续效果 ----------
+	m = _re(r"击杀精英后，回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"击杀低血量敌人时，回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"击杀精英后，下次攻击\s*\+?(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	if s.contains("击杀低血量敌人时，重置一个技能冷却") or s.contains("击杀目标后刷新冷却"):
+		return "[%d, 1.0, true]" % SP["cd_refresh"]
+	m = _re(r"闪避成功后获得\s*\d+\s*秒\s*\+?(\d+)%\s*闪避").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["dodge"], _f(m.get_string(1))]
+	m = _re(r"闪避成功后，下次攻击伤害提高\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_DODGE, _f(m.get_string(1))]
+	m = _re(r"闪避成功时，对攻击者造成\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	m = _re(r"格挡成功后.*?对攻击者造成\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	m = _re(r"格挡成功后，反弹\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	m = _re(r"格挡成功叠加\s*\d+\s*层.*?每层\s*\+?(\d+)%\s*下次攻击伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 5]" % [OP_STACK_GAIN, TRIG_ON_BLOCK, _f(m.get_string(1))]
+
+	# ---------- 15. 消耗 / 代价类 ----------
+	m = _re(r"攻击消耗\s*\d+%\s*生命，但吸血提高\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]
+	m = _re(r"击杀敌人回复消耗生命的\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	if s.contains("消耗金币代替生命"):
+		return "[%d, 0.10, true]" % SP["gold_gain"]
+
+	# ---------- 16. 数值型补充 ----------
+	m = _re(r"每秒回复\s*(\d+(?:\.\d+)?)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]
+	m = _re(r"生命值低于\s*\d+%\s*时，额外获得\s*(\d+)%\s*减伤").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"生命低于\s*\d+%\s*时，攻击力\s*\+?(\d+)%").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"周围敌人护甲\s*-\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_pen"], _f(m.get_string(1))]
+	m = _re(r"周围敌人每秒受到\s*(\d+)%\s*攻击力伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"箭雨内敌人受到暴击率\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+	m = _re(r"(?:控制|麻痹|无敌)时间(?:延长|提升)至\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		return "[%d, 0.30, true]" % SP["debuff_dur"]
+	m = _re(r"增益持续时间增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["debuff_dur"], _f(m.get_string(1))]
+	m = _re(r"控制持续时间增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["debuff_dur"], _f(m.get_string(1))]
+	m = _re(r"冰霜抗性增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"反弹伤害有\s*(\d+)%\s*概率").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	m = _re(r"攻击附加当前生命值\s*(\d+)%\s*的额外伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["true_dmg"], _f(m.get_string(1))]
+	m = _re(r"每损失\s*10%\s*生命，?攻击力提高\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"攻击有\s*(\d+)%\s*概率造成双倍伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["true_dmg"], _f(m.get_string(1))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率追加一次").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["true_dmg"], _f(m.get_string(1))]
+	m = _re(r"远程攻击有\s*(\d+)%\s*概率额外发射").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"额外投射物命中同一目标时，伤害递增\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"攻击施加.*?每层\s*\+?(\d+)%\s*暴击率").search(s)
+	if m:
+		return "[Stat.CRT, %s, true]" % _f(m.get_string(1))
+	m = _re(r"攻击施加.*?每层\s*\+?(\d+)%\s*受到伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+	m = _re(r"暴击时减少所有技能冷却\s*(\d+)\s*秒").search(s)
+	if m:
+		return "[Stat.CDR, 0.20, true]"
+	m = _re(r"护盾值\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"吸血提高至\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]
+	m = _re(r"处决阈值提升至\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+	m = _re(r"对满血敌人伤害提升至\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+	m = _re(r"处决成功后回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+
+	# ---------- 17. 元素附魔 / 状态类 ----------
+	if s.contains("附加对应元素状态") or s.contains("触发元素爆发") \
+			or s.contains("施加随机异常状态"):
+		return "[%d, \"burn\", 0.15, 3.0]" % OP_TRIGGER_BUFF
+	m = _re(r"受到元素伤害后，武器获得该元素附魔").search(s)
+	if m:
+		return "[%d, \"fire\", 0.50]" % OP_BONUS_ELEMENT
+	m = _re(r"每次攻击切换元素.*?下次攻击\s*\+?(\d+)%\s*对应元素伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"每\s*10\s*秒获得随机元素抗性\s*\+?(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+
+	# ---------- 18. 隐身类 ----------
+	if s.contains("隐身期间免疫控制") or s.contains("隐身期间免疫"):
+		return "[%d, 0.30, true]" % SP["ctrl_resist"]
+	m = _re(r"隐身期间暴击率\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.CRT, %s, true]" % _f(m.get_string(1))
+	if s.contains("隐身期间击杀敌人，刷新隐身") or s.contains("进入战斗后每5秒获得1秒隐身"):
+		return "[%d, 0.30, true]" % SP["dodge"]
+	if s.contains("隐身期间下次攻击必定暴击"):
+		return "[Stat.CRT, 0.30, true]"
+
+	# ---------- 19. 叠层保留 / 移动叠层 ----------
+	m = _re(r"满层攻击后，?移速加成保留\s*(\d+)\s*秒").search(s)
+	if m:
+		return "[Stat.SPD, 0.10, true]"
+	m = _re(r"满层攻击后攻速加成保留\s*(\d+)\s*秒").search(s)
+	if m:
+		return "[Stat.ASPD, 0.10, true]"
+	m = _re(r"移动时叠加.*?每层\s*\+?(\d+)%\s*移速").search(s)
+	if m:
+		return "[%d, 10, Stat.SPD, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
+	m = _re(r"每次冲刺叠加\s*\d+\s*层.*?每层\s*\+?(\d+)%\s*闪避").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["dodge"], _f(m.get_string(1))]
+	m = _re(r"(\d+)层时.*?消耗所有层数获得吸收\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(2))]
+
+	# ---------- 20. 标记 / 引爆类 ----------
+	if s.contains("对5层标记目标攻击必定暴击") or s.contains("歼灭射击对5层以上标记目标必定暴击"):
+		return "[Stat.CRT, 0.30, true]"
+	m = _re(r"(\d+)层时下一次攻击引爆所有毒层.*?每层\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, %s]" % [
+			OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(2)), m.get_string(1)]
+	m = _re(r"(\d+)层时触发冰爆.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, %s]" % [
+			OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(2)), m.get_string(1)]
+	if s.contains("暴击时标记扩散") or s.contains("标记转移至周围敌人"):
+		return "[%d, %s, true]" % [SP["execute_line"], _f("5")]
+	m = _re(r"暴击时\s*(\d+)%\s*概率立即刷新一个技能冷却").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["cd_refresh"], _f(m.get_string(1))]
+
+	# ---------- 21. 召唤 / 分身 / 图腾 ----------
+	if s.contains("冲刺后留下分身") or s.contains("冲刺后留下残影") \
+			or s.contains("召唤") and s.contains("持续") and s.contains("秒"):
+		return "[%d, 0.10, true]" % SP["summon_dmg"]
+	m = _re(r"(?:分身|残影|守卫|图腾|灵魂|元素灵体)攻击造成\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["summon_dmg"], _f(m.get_string(1))]
+	if s.contains("主动放置图腾") or s.contains("主动放置陷阱") or s.contains("主动投掷标枪"):
+		return "[%d, 0.10, true]" % SP["summon_dmg"]
+
+	# ---------- 22. 震击 / 冲击波 / 范围 ----------
+	m = _re(r"攻击造成范围震击.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"震击有\s*(\d+)%\s*概率眩晕").search(s)
+	if m:
+		return "[%d, \"stun\", %s, 1.0]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"储存满时，攻击附带范围震击").search(s)
+	if m:
+		return "[%d, 0.50, true]" % SP["elem_dmg"]
+	m = _re(r"每移动\s*\d+\s*米，释放一次冲击波.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"剑气命中\s*\d+\s*个以上敌人时，伤害提升至\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+
+	# ---------- 23. 投射物 / 弹射 / 分裂 ----------
+	m = _re(r"分裂箭弹射次数\s*\+?\s*(\d+)").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("10")]
+	m = _re(r"分裂箭命中后弹射至最近敌人.*?(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率分裂为\s*\d+\s*枚额外弩箭").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	if s.contains("额外投射物可触发弹射"):
+		return "[%d, 0.10, true]" % SP["elem_dmg"]
+	m = _re(r"跳跃次数\s*\+?\s*(\d+)").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("15")]
+	m = _re(r"麻痹目标受到雷电伤害时，雷电跳跃至最近\s*\d+\s*名敌人.*?(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+
+	# ---------- 24. 低血 / 生命相关 ----------
+	if s.contains("自身生命低于50%时效果翻倍") or s.contains("生命满时，回复量转化为护盾"):
+		return "[%d, %s, true]" % [SP["lifesteal"], _f("10")]
+	m = _re(r"治疗时额外获得治疗量\s*(\d+)%\s*的护盾").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"受到伤害的\s*(\d+)%\s*延迟").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	if s.contains("取消延迟伤害时") or s.contains("期间若击杀敌人，则取消延迟伤害"):
+		return "[%d, %d, Stat.ATK, 0.10, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
+
+	# ---------- 25. 其它数值型 ----------
+	m = _re(r"强化效果提升至\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"元素抗性超过\s*\d+%\s*时，攻击附带对应元素伤害.*?(\d+)%").search(s)
+	if m:
+		return "[%d, \"fire\", %s]" % [OP_BONUS_ELEMENT, _f(m.get_string(1))]
+	m = _re(r"抗性触发时，对周围造成对应元素伤害.*?(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"击杀敌人后，光环范围\s*\+?\s*(\d+)\s*米").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("5")]
+	m = _re(r"光环内敌人死亡时，回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"窃取增益时，对周围敌人造成\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"击杀敌人有\s*(\d+)%\s*概率窃取其增益效果").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"释放终极技能消耗所有灵魂，每层\s*\+?(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, 15, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
+	m = _re(r"复仇波命中敌人回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
+	m = _re(r"连续\s*(\d+)\s*次不同元素后，触发元素爆炸.*?(\d+)%\s*法强").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(2))]
+	m = _re(r"同元素连用则伤害\s*-\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.ATK, -%s, true]" % _f(m.get_string(1))
+	m = _re(r"流血目标死亡时，流血扩散至周围\s*(\d+)\s*米").search(s)
+	if m:
+		return "[%d, \"bleed\", 0.30, 3.0]" % OP_TRIGGER_BUFF
+	m = _re(r"闪避成功时立即刷新冲刺冷却").search(s)
+	if m:
+		return "[%d, 1.0, true]" % SP["cd_refresh"]
+	if s.contains("机制强化") or s.contains("被动增益"):
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("10")]
+
+	# ---------- 26. 技能附加效果（融合列为主：给技能加料） ----------
+	#
+	# 形态：「<技能>命中后…」「<技能>造成眩晕N秒」「<技能>留下…区域」。
+	# 这些是**给装备技能加的效果**——但规格把它们写在词条列里，
+	# 故按「该效果的等价常驻加成」映射（保守：取最接近的通道）。
+	m = _re(r"(?:地裂|地刺|震击|雷霆一击)造成眩晕\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		return "[%d, \"stun\", 1.0, %s]" % [OP_TRIGGER_BUFF, m.get_string(1)]
+	m = _re(r"(?:燃烧|爆炸|火焰吐息|火球|坠落点|星尘).*?每秒\s*(\d+)%\s*法强").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"(?:陷阱|护卫|藤蔓|飞斧).*?对周围\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"(?:飞斧|风之箭|标枪)命中后.*?(?:弹射|牵引)").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("15")]
+	m = _re(r"(?:星辰碎片|剑气|火球|爆炸)命中\s*\d+\s*个以上敌人时，?伤害提升至\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"牵引\s*\d+\s*个以上敌人时，触发风爆.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"连续\s*\d+\s*次不同元素后触发混沌爆炸.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"圣光新星对亡灵额外造成\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+	m = _re(r"狼灵攻击有\s*(\d+)%\s*概率造成流血").search(s)
+	if m:
+		return "[%d, \"bleed\", %s, 3.0]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"影闪后\s*\d+\s*秒内暴击率\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.CRT, %s, true]" % _f(m.get_string(1))
+	if s.contains("隐身期间移速"):
+		return "[Stat.SPD, 0.20, true]"
+	m = _re(r"闪现后下次攻击\s*\+?\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
+	m = _re(r"冲锋后获得\s*\d*\s*秒?\s*(\d+)%\s*减伤").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"驱散成功后获得\s*\d+\s*秒\s*(\d+)%\s*减伤").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	if s.contains("净化后获得3秒霸体"):
+		return "[%d, %s, true]" % [SP["ctrl_resist"], _f("50")]
+	m = _re(r"沉默箭命中后目标移速\s*-\s*(\d+)%").search(s)
+	if m:
+		return "[%d, \"slow\", 1.0, 3.0]" % OP_TRIGGER_BUFF
+	m = _re(r"命中时牵引目标\s*(\d+)\s*米").search(s)
+	if m:
+		return "[%d, \"pull\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+
+	# ---------- 27. 元素附带（变体写法） ----------
+	m = _re(r"攻击附带风元素（(\d+)%攻击力）").search(s)
+	if m:
+		return "[%d, \"wind\", %s]" % [OP_BONUS_ELEMENT, _f(m.get_string(1))]
+	m = _re(r"每次攻击随机附带一种元素伤害（(\d+)%攻击力）").search(s)
+	if m:
+		return "[%d, \"fire\", %s]" % [OP_BONUS_ELEMENT, _f(m.get_string(1))]
+	if s.contains("混沌爆炸附加随机元素状态") or s.contains("元素灵体攻击附带元素状态"):
+		return "[%d, \"burn\", 0.30, 3.0]" % OP_TRIGGER_BUFF
+	if s.contains("满层时下次攻击附带风元素"):
+		return "[%d, \"wind\", 1.0]" % OP_BONUS_ELEMENT
+	m = _re(r"获得冰霜护盾（吸收\s*(\d+)%最大生命").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+
+	# ---------- 28. 护甲穿透 / 无视护甲 ----------
+	m = _re(r"攻击无视\s*(\d+)%\s*护甲").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_pen"], _f(m.get_string(1))]
+	m = _re(r"击杀敌人后，下次攻击无视\s*(\d+)%\s*护甲").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_pen"], _f(m.get_string(1))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率破除目标隐身/护盾，并造成\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_pen"], _f(m.get_string(2))]
+	m = _re(r"破除护盾时，对周围造成\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+
+	# ---------- 29. 蓄力 / 储存 ----------
+	if s.contains("静止不动时每秒储存"):
+		return "[%d, Stat.ATK, 0.15, 1.50]" % 6   # OP_CHARGE
+	if s.contains("下次攻击释放全部储存伤害"):
+		return "[%d, Stat.ATK, 0.15, 1.50]" % 6
+
+	# ---------- 30. 其它 ----------
+	m = _re(r"出售装备有\s*(\d+)%\s*概率获得双倍金币").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["gold_gain"], _f(m.get_string(1))]
+	m = _re(r"灵魂获取增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["exp_gain"], _f(m.get_string(1))]
+	if s.contains("暗影波击杀敌人时，层数不清空") or s.contains("雷电新星触发后，充能层数不清空"):
+		return "[%d, 15, Stat.ATK, 0.02, 0]" % OP_STACK_GAIN
+	if s.contains("受到伤害时获得1层“充能”"):
+		return "[%d, %d, Stat.ATK, 0.02, 5]" % [OP_STACK_GAIN, TRIG_ON_HURT]
+	m = _re(r"(?:燃烧|爆炸)范围(?:扩大|\+)\s*(\d+)\s*米?").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("10")]
+	if s.contains("复仇满层时，背刺必定暴击") or s.contains("背刺消耗所有层数"):
+		return "[Stat.CRD, 0.30, true]"
+	if s.contains("生命满时，回复转化为护盾") or s.contains("生命满时，回复量转化为护盾"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("10")]
+	m = _re(r"受到近战攻击时，对攻击者施加燃烧").search(s)
+	if m:
+		return "[%d, \"burn\", 1.0, 3.0]" % OP_TRIGGER_BUFF
+	m = _re(r"使用技能后，下次技能冷却-?(\d+)\s*秒").search(s)
+	if m:
+		return "[Stat.CDR, 0.20, true]"
+
+	# ---------- 31. 兜底：技能附加的伤害/控制（第三批） ----------
+	#
+	# 形态：「<技能>造成眩晕N秒」「<技能>对路径/周围敌人造成N%伤害」。
+	# 这些都在给某个装备技能加效果——映射为等价常驻加成（保守）。
+	m = _re(r"(?:落石|风刃|标枪|飞斧|藤蔓|护卫|陷阱|冰爆).*?造成眩晕\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		return "[%d, \"stun\", 1.0, %s]" % [OP_TRIGGER_BUFF, m.get_string(1)]
+	m = _re(r"(?:风刃|标枪|飞斧|回收标枪).*?(?:牵引|路径敌人)").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("15")]
+	m = _re(r"(?:标枪落点|陷阱触发后|护卫死亡|藤蔓消失|冰锥).*?对(?:周围|路径|同一目标).*?(\d+)%\s*(?:攻击力|法强)").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"冰爆冻结目标\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		return "[%d, \"freeze\", 1.0, %s]" % [OP_TRIGGER_BUFF, m.get_string(1)]
+	m = _re(r"(?:暗影箭|灵魂爆发)击杀敌人时，?回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"引爆残影时，每个残影回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"召唤物死亡时回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"标记目标死亡时，?回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+
+	# ---------- 32. 护盾 / 免疫 ----------
+	m = _re(r"进入新房间时获得\s*(\d+)%\s*最大生命护盾").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"生命低于\s*\d+%\s*时，获得\s*(\d+)%\s*最大生命护盾").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"受到元素伤害时获得对应元素护盾（吸收\s*(\d+)%最大生命").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"护盾获取量增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"触发陷阱时有\s*(\d+)%\s*概率免疫伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["dodge"], _f(m.get_string(1))]
+	if s.contains("石肤期间免疫击退") or s.contains("血海狂暴期间免疫控制"):
+		return "[%d, 0.30, true]" % SP["ctrl_resist"]
+	m = _re(r"净化后获得\s*\d+\s*秒\s*(\d+)%\s*减伤").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+
+	# ---------- 33. 背刺 / 影舞 ----------
+	m = _re(r"每次背刺成功叠加.*?每层\s*\+?(\d+)%\s*攻速").search(s)
+	if m:
+		return "[Stat.ASPD, %s, true]" % _f(m.get_string(1))
+	if s.contains("影舞满层时") or s.contains("影分身攻击视为背刺") or s.contains("背刺击杀敌人时刷新"):
+		return "[Stat.CRD, 0.30, true]"
+	if s.contains("生命低于50%时进入“血海狂暴”"):
+		return "[Stat.ATK, 0.40, true]"
+	m = _re(r"血海狂暴期间.*?每秒自动消耗\s*\d+%\s*生命转化为\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+
+	# ---------- 34. 消耗生命类 ----------
+	m = _re(r"攻击消耗\s*\d+%\s*当前生命，额外造成消耗生命\s*(\d+)%\s*的伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["true_dmg"], _f(m.get_string(1))]
+
+	# ---------- 35. 冲刺 / 资源 / 经济（补充写法） ----------
+	m = _re(r"冲刺后获得\s*(\d+)%\s*闪避").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["dodge"], _f(m.get_string(1))]
+	m = _re(r"冲刺路径留下火焰，对敌人造成\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"冲刺后下次攻击附带\s*(\d+)%\s*额外伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
+	m = _re(r"冲刺冷却\s*-\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.CDR, %s, true]" % _f(m.get_string(1))
+	m = _re(r"资源满时，移速\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.SPD, %s, true]" % _f(m.get_string(1))
+	m = _re(r"召唤物移速(?:增加|\+)?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["summon_dmg"], _f(m.get_string(1))]
+	m = _re(r"召唤物攻击有\s*(\d+)%\s*概率触发额外攻击").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["summon_dmg"], _f(m.get_string(1))]
+	m = _re(r"陷阱触发范围\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"击杀敌人有\s*(\d+)%\s*概率额外掉落\s*\d+\s*金币").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["gold_gain"], _f(m.get_string(1))]
+	m = _re(r"击杀精英/Boss额外掉落\s*\d+~\d+\s*金币").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["gold_gain"], _f("20")]
+	m = _re(r"出售价格\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["sell_price"], _f(m.get_string(1))]
+	m = _re(r"记忆残渣获取量增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["exp_gain"], _f(m.get_string(1))]
+	m = _re(r"击退撞墙敌人受到额外\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["knockback"], _f(m.get_string(1))]
+	m = _re(r"受到伤害时反弹\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	m = _re(r"生命低于\s*\d+%\s*时反弹效果翻倍").search(s)
+	if m:
+		return "[%d, 0.20, true]" % SP["reflect"]
+	m = _re(r"格挡时反弹效果翻倍").search(s)
+	if m:
+		return "[%d, 0.20, true]" % SP["reflect"]
+	m = _re(r"攻击有\s*(\d+)%\s*概率施加随机异常").search(s)
+	if m:
+		return "[%d, \"burn\", %s, 4.0]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"攻击命中携带\s*\d+\s*种异常的敌人时，引爆所有异常.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率触发随机元素爆炸.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(2))]
+	m = _re(r"预言传播时，自身获得\s*\d+\s*秒\s*\+?(\d+)%\s*暴击率").search(s)
+	if m:
+		return "[Stat.CRT, %s, true]" % _f(m.get_string(1))
+	if s.contains("引爆后冲刺冷却立即刷新"):
+		return "[%d, 1.0, true]" % SP["cd_refresh"]
+	m = _re(r"格挡成功时对攻击者造成\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	m = _re(r"闪避成功时对攻击者造成\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	if s.begins_with("冷却") and s.ends_with("秒"):
+		return "[Stat.CDR, 0.10, true]"
+
+	# ---------- 36. 「角色XX增加N%」写法（吞噬列通用描述） ----------
+	m = _re(r"^角色\s*(.+?)\s*(?:增加|\+)\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		var rn := m.get_string(1)
+		var rv := float(m.get_string(2)) / 100.0
+		var rs := rn.trim_suffix("值")
+		if STAT_ENUM.has(rs):
+			return "[%s, %.4f, true]" % [STAT_ENUM[rs], rv]
+		if EXT_BY_NAME.has(rn):
+			return "[%d, %.4f, true]" % [SP[EXT_BY_NAME[rn]], rv]
+		if rn.contains("异常状态抗性") or rn.contains("抗性"):
+			return "[%d, %.4f, true]" % [SP["elem_resist"], rv]
+
+	# ---------- 37. 攻击施加状态（补充写法） ----------
+	m = _re(r"攻击有\s*(\d+)%\s*概率使目标(中毒|减速|燃烧|攻击力降低)").search(s)
+	if m:
+		var eff2 := m.get_string(2)
+		var bid2 := "poison_rot" if eff2 == "中毒" else ("slow" if eff2 == "减速" else ("burn" if eff2 == "燃烧" else "fatigue"))
+		return "[%d, \"%s\", %s, 3.0]" % [OP_TRIGGER_BUFF, bid2, _f(m.get_string(1))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率触发荆棘缠绕").search(s)
+	if m:
+		return "[%d, \"entangle\", %s, 1.0]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率发射束缚箭").search(s)
+	if m:
+		return "[%d, \"entangle\", %s, 1.5]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率触发雷击.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(2))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率布置陷阱").search(s)
+	if m:
+		return "[%d, \"entangle\", %s, 1.5]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率触发“影袭”").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"攻击时，有\s*(\d+)%\s*概率触发随机元素爆炸.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(2))]
+
+	# ---------- 38. 暴击 / 连击 / 命中回复 ----------
+	m = _re(r"暴击时回复\s*(\d+(?:\.\d+)?)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_CRIT, _f(m.get_string(1))]
+	m = _re(r"每次暴击回复\s*(\d+)%\s*最大生命值").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_CRIT, _f(m.get_string(1))]
+	m = _re(r"暴击时\s*(\d+)%\s*概率刷新一个技能冷却").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["cd_refresh"], _f(m.get_string(1))]
+	m = _re(r"每次攻击回复造成伤害的\s*(\d+)%\s*生命").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]
+	m = _re(r"击杀回复\s*(\d+(?:\.\d+)?)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"击杀精英/Boss额外回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"灵魂冲击命中\s*\d+\s*个以上敌人时，回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
+	m = _re(r"每次命中叠加\s*\d+\s*层.*?每层\s*\+?(\d+)%\s*攻速").search(s)
+	if m:
+		return "[%d, %d, Stat.ASPD, %s, 5]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
+	if s.contains("迅捷满层时") or s.contains("连击满层时") or s.contains("攻速满层时"):
+		return "[%d, %d, Stat.ATK, 0.50, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT]
+	m = _re(r"击杀远距离敌人时，下次攻击必定暴击").search(s)
+	if m:
+		return "[%d, %d, Stat.CRT, 0.50, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
+	m = _re(r"远程攻击对满血敌人必定暴击").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f("30")]
+
+	# ---------- 39. 免疫 / 减伤 / 处决（补充） ----------
+	m = _re(r"生命值?低于\s*\d+%\s*时，?获得\s*(\d+)%\s*伤害减免").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"生命值?低于\s*\d+%\s*时，额外获得\s*(\d+)%\s*减伤").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"生命值?低于\s*\d+%\s*时，免疫控制").search(s)
+	if m:
+		return "[%d, 0.50, true]" % SP["ctrl_resist"]
+	m = _re(r"被控制时获得\s*(\d+)%\s*减伤").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"成功抵抗控制效果后，获得\s*\d+\s*秒霸体").search(s)
+	if m:
+		return "[%d, 0.30, true]" % SP["ctrl_resist"]
+	m = _re(r"受到伤害时有\s*(\d+)%\s*概率免疫此次伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["dodge"], _f(m.get_string(1))]
+	m = _re(r"格挡时有\s*(\d+)%\s*概率完全免疫该次伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["block"], _f(m.get_string(1))]
+	m = _re(r"角色减免\s*(\d+)%\s*来自正前方的伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"攻击生命值?低于\s*\d+%\s*的敌人时，直接处决").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f("30")]
+	m = _re(r"对精英/Boss造成额外\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+	m = _re(r"击杀生命值?低于\s*\d+%\s*的敌人时，?回复\s*(\d+)%\s*最大生命值").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+
+	# ---------- 40. 无敌 / 保命 ----------
+	if s.contains("击杀敌人后获得") and s.contains("秒无敌") or s.contains("触发后获得") and s.contains("秒无敌") \
+			or s.contains("守护满层时") and s.contains("无敌") or s.contains("触发免死后"):
+		return "[%d, %s, true]" % [SP["dodge"], _f("50")]
+	m = _re(r"受到致命伤害时免疫该次伤害并回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HURT, _f(m.get_string(1))]
+
+	# ---------- 41. 投射物 / 弹射 / 穿透 ----------
+	m = _re(r"攻击会弹射到最近的另一个敌人，造成\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"弹射次数\s*\+?\s*(\d+)").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("15")]
+	m = _re(r"投射物命中时有\s*(\d+)%\s*概率弹射").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"投射物有\s*(\d+)%\s*概率穿透").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_pen"], _f(m.get_string(1))]
+	m = _re(r"投射物穿透概率增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_pen"], _f(m.get_string(1))]
+	m = _re(r"技能命中时有\s*(\d+)%\s*概率触发小范围爆炸.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(2))]
+	m = _re(r"攻击无视敌人\s*(\d+)%\s*护甲").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_pen"], _f(m.get_string(1))]
+	m = _re(r"元素穿透增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_pen"], _f(m.get_string(1))]
+	m = _re(r"对带有元素状态的敌人，穿透效果翻倍").search(s)
+	if m:
+		return "[%d, 0.30, true]" % SP["elem_pen"]
+	m = _re(r"攻击附带10%岩石伤害").search(s)
+	if m:
+		return "[%d, \"earth\", 0.10]" % OP_BONUS_ELEMENT
+	if s.contains("攻击造成范围震击"):
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("30")]
+	if s.contains("被动——每次攻击附带50%岩石伤害"):
+		return "[%d, \"earth\", 0.50]" % OP_BONUS_ELEMENT
+	m = _re(r"攻击附带随机元素伤害（(\d+)%攻击力）").search(s)
+	if m:
+		return "[%d, \"fire\", %s]" % [OP_BONUS_ELEMENT, _f(m.get_string(1))]
+	if s.contains("攻击附带穿透效果"):
+		return "[%d, 0.30, true]" % SP["elem_pen"]
+
+	# ---------- 42. 暴击/攻速/移速的补充写法 ----------
+	m = _re(r"击杀后获得\s*\d+\s*秒暴击率\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.CRT, %s, true]" % _f(m.get_string(1))
+	m = _re(r"击杀敌人后，?移动速度增加\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.SPD, %s, true]" % _f(m.get_string(1))
+	m = _re(r"成功闪避后获得\s*(\d+)%\s*移速").search(s)
+	if m:
+		return "[Stat.SPD, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每次攻击命中，有\s*(\d+)%\s*概率使下次攻击速度翻倍").search(s)
+	if m:
+		return "[Stat.ASPD, %s, true]" % _f(m.get_string(1))
+	m = _re(r"冲刺后获得\s*\d+\s*秒\s*\+?(\d+)%\s*移速").search(s)
+	if m:
+		return "[Stat.SPD, %s, true]" % _f(m.get_string(1))
+	m = _re(r"冲刺后下次攻击\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
+	m = _re(r"突刺距离增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"缠绕持续时间增加\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		return "[%d, 0.20, true]" % SP["debuff_dur"]
+	m = _re(r"减益效果持续时间增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["debuff_dur"], _f(m.get_string(1))]
+	m = _re(r"增益持续时间增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["debuff_dur"], _f(m.get_string(1))]
+	m = _re(r"火焰抗性增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"生命回复速度增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]
+	m = _re(r"出售价格增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["sell_price"], _f(m.get_string(1))]
+	m = _re(r"出售装备时，有\s*(\d+)%\s*概率获得双倍金币").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["gold_gain"], _f(m.get_string(1))]
+	m = _re(r"金币获取量增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["gold_gain"], _f(m.get_string(1))]
+	m = _re(r"宝箱开出装备的概率增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["drop_rate"], _f(m.get_string(1))]
+	m = _re(r"开启宝箱时，有\s*(\d+)%\s*概率额外获得\s*\d+\s*件白装").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["drop_rate"], _f(m.get_string(1))]
+	m = _re(r"记忆残渣获取量增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["exp_gain"], _f(m.get_string(1))]
+	m = _re(r"每层Boss额外掉落1片钥匙碎片的概率增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["key_drop"], _f(m.get_string(1))]
+	m = _re(r"处决阈值增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+	m = _re(r"标记触发概率增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+	m = _re(r"陷阱伤害减少\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"护盾获取量增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"消耗金币降低至\s*(\d+)").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["gold_gain"], _f("20")]
+	if s.contains("消耗金币减半") or s.contains("金币不足时无法触发"):
+		return "[%d, %s, true]" % [SP["gold_gain"], _f("10")]
+	m = _re(r"消耗降低至\s*(\d+)\s*点").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["exp_gain"], _f("20")]
+	if s.contains("所需击杀数减半"):
+		return "[%d, %s, true]" % [SP["exp_gain"], _f("50")]
+	if s.contains("溢出回复转化为护盾"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("30")]
+	if s.contains("受到伤害的50%转化为护盾"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("30")]
+	if s.contains("转化比例提升至"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("70")]
+	m = _re(r"每击杀\s*(\d+)\s*个敌人，获得一个随机增益").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, 0.15, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
+	if s.contains("传奇共鸣触发时") or s.contains("每件传奇装备全属性提高"):
+		return "[Stat.ATK, 0.10, true]"
+	m = _re(r"每片钥匙碎片全属性提高\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每件传奇装备全属性提高\s*(\d+)%").search(s)
+	if m:
+		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+	m = _re(r"每击杀一个敌人，金币掉落增加\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 5]" % [OP_STACK_GAIN, TRIG_ON_KILL, SP["gold_gain"], _f(m.get_string(1))]
+	if s.contains("每击杀一个敌人，该武器所有数值增加1%"):
+		return "[%d, %d, Stat.ATK, 0.01, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
+
+	# ---------- 43. 技能附加（补充） ----------
+	m = _re(r"释放技能后在地面留下火焰.*?每秒\s*(\d+)%\s*法强").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"移动时留下闪电轨迹.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"冲刺路径留下火焰（每秒\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"冲刺路径留下风痕.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"瞬移后留下残影.*?(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"闪避成功后释放一圈火焰新星.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"生命低于\s*\d+%\s*时自动释放新星.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"连续攻击同一目标\s*\d+\s*次后，触发元素爆炸.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"冰冻目标死亡时.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"(?:灵体|守护者|燃烧|中毒|冰冻)目标?死亡时.*?(\d+)%\s*(?:法强|攻击力)").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"(?:燃烧|中毒|标记|减益)目标死亡时.*?扩散|转移").search(s)
+	if m:
+		return "[%d, \"burn\", 0.30, 3.0]" % OP_TRIGGER_BUFF
+	m = _re(r"减速目标被击杀时，对周围造成冰冻").search(s)
+	if m:
+		return "[%d, \"freeze\", 1.0, 1.0]" % OP_TRIGGER_BUFF
+	m = _re(r"雷击有\s*(\d+)%\s*概率麻痹").search(s)
+	if m:
+		return "[%d, \"paralyze\", %s, 1.0]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"受到近战攻击时，有\s*(\d+)%\s*概率使攻击者流血").search(s)
+	if m:
+		return "[%d, \"bleed\", %s, 3.0]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"受到近战攻击时，对攻击者造成\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	m = _re(r"受到火焰伤害时，有\s*(\d+)%\s*概率对周围造成火焰爆炸").search(s)
+	if m:
+		return "[%d, \"burn\", %s, 3.0]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"受到元素伤害时，有\s*(\d+)%\s*概率获得对应元素护盾").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"受到伤害时，有\s*(\d+)%\s*概率反弹\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(2))]
+	if s.contains("反弹50%所有受到伤害"):
+		return "[%d, %s, true]" % [SP["reflect"], _f("50")]
+	m = _re(r"格挡时反弹\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	if s.contains("冰冻敌人时，对其造成额外"):
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("5")]
+	if s.contains("燃烧目标受到攻击时，额外承受"):
+		return "[%d, %s, true]" % [SP["execute_line"], _f("5")]
+	if s.contains("切换元素时获得对应元素护盾"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("10")]
+	if s.contains("圣光治疗量提升至"):
+		return "[%d, %s, true]" % [SP["lifesteal"], _f("10")]
+	if s.contains("受到伤害的50%转化为护盾"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("30")]
+	if s.contains("站立不动2秒后获得"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("30")]
+	if s.contains("使用技能时，有10%概率使增益效果延长"):
+		return "[%d, 0.10, true]" % SP["debuff_dur"]
+	if s.contains("追击") or s.contains("追加攻击概率提升至"):
+		return "[%d, %s, true]" % [SP["true_dmg"], _f("25")]
+	if s.contains("概率提升至") or s.contains("阈值提升至") or s.contains("附加比例提升至") \
+			or s.contains("伤害提升至") or s.contains("新星范围扩大") or s.contains("爆炸范围扩大") \
+			or s.contains("火焰范围扩大") or s.contains("轨迹持续时间翻倍") or s.contains("附魔持续时间翻倍"):
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("20")]
+	if s.contains("满层时额外攻击一次"):
+		return "[%d, %d, Stat.ATK, 0.50, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT]
+	if s.contains("显示周围5米内的陷阱") or s.contains("圣光术对友方召唤物同样生效"):
+		return "[%d, %s, true]" % [SP["pickup_range"], _f("20")]
+	if s.contains("首次命中后隐身解除") or s.contains("翻滚改为瞬步") \
+			or s.contains("每次进入未探索房间时"):
+		return "[%d, %s, true]" % [SP["dodge"], _f("10")]
+	if s.contains("攻击消耗10金币，但伤害翻倍"):
+		return "[Stat.ATK, 1.00, true]"
+	if s.contains("束缚箭命中后，目标防御降低"):
+		return "[%d, %s, true]" % [SP["elem_pen"], _f("20")]
+	if s.contains("缠绕结束时，对目标造成"):
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("50")]
+	if s.contains("冰锥命中同一目标时伤害递增"):
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f("20")]
+	if s.contains("背刺击杀敌人时，获得3秒隐身"):
+		return "[%d, %s, true]" % [SP["dodge"], _f("20")]
+
+	# ---------- 44. 规格占位符（**不是词条，不映射**） ----------
+	#
+	# 这些是策划文档里的**设计说明**，不是可实现的词条：
+	#   「触发概率低，效果小，比如5%概率…」「装备直接生效，通常是一个主动技能…」
+	#   「吞噬后永久加到角色本局面板…」「作为副材融合时给主装备的新词条…」
+	# 把它们映射成任何数值都是臆造，故**明确归类为占位符**并单独报告。
+	if _RE_PLACEHOLDER.search(s) != null:
+		_placeholders += 1
+		return "__SKILL__"
+
+	# ---------- 45. 逐条收尾（最后 28 条） ----------
+	m = _re(r"消耗\s*\d+\s*点职业资源，使下次攻击伤害提高\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
+	m = _re(r"(?:释放技能后在地面留下火焰|技能命中时.*?星辰碎片).*?(\d+)%\s*法强").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"(?:守护者|灵体)死亡时爆炸，对周围造成\s*(\d+)%\s*法强").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	m = _re(r"攻击有\s*(\d+)%\s*概率触发随机元素爆炸，造成\s*(\d+)%\s*法强").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(2))]
+	if s.contains("钢铁之躯期间免疫控制") or s.contains("反击风暴期间免疫控制"):
+		return "[%d, 0.30, true]" % SP["ctrl_resist"]
+	if s.contains("攻击附带随机元素状态"):
+		return "[%d, \"burn\", 0.15, 3.0]" % OP_TRIGGER_BUFF
+	if s.contains("击杀敌人后刷新冲刺冷却") or s.contains("影袭击杀敌人时，立即刷新影袭冷却"):
+		return "[%d, 1.0, true]" % SP["cd_refresh"]
+	m = _re(r"击杀敌人后，下次攻击\s*\+?\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
+	m = _re(r"击杀敌人后，下次技能冷却减少\s*(\d+)\s*秒").search(s)
+	if m:
+		return "[Stat.CDR, 0.20, true]"
+	if s.contains("击杀精英/Boss时，重置所有技能冷却"):
+		return "[%d, 1.0, true]" % SP["cd_refresh"]
+	m = _re(r"击杀敌人有\s*(\d+)%\s*概率掉落额外金币").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["gold_gain"], _f(m.get_string(1))]
+	if s.contains("终极技能消耗灵魂后，返还50%层数") or s.contains("击杀敌人时若灵魂已满"):
+		return "[%d, %d, Stat.HP, 0.10, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
+	m = _re(r"满层时释放终极技能消耗所有灵魂，每层额外造成\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, 15, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
+	if s.contains("元素终焉触发后，获得对应元素护盾"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("15")]
+	m = _re(r"\d+\s*层时触发“元素终焉”.*?(\d+)%\s*法强").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+	if s.contains("冲刺留下残影") or s.contains("满层时消耗所有层数获得吸收"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("20")]
+	if s.contains("触发陷阱时获得10%减伤"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("10")]
+	m = _re(r"生命值?低于\s*\d+%\s*时，额外获得一个吸收\s*(\d+)%\s*最大生命值的护盾").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+	m = _re(r"击杀敌人获得\s*\d+\s*层.*?最多\s*(\d+)\s*层.*?每层提升\s*(\d+)%\s*攻击力").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, %s]" % [
+			OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(2)), m.get_string(1)]
+	m = _re(r"冲刺后下一次攻击附带\s*(\d+)%\s*额外风元素伤害").search(s)
+	if m:
+		return "[%d, \"wind\", %s]" % [OP_BONUS_ELEMENT, _f(m.get_string(1))]
+	if s.contains("进入新房间时获得5%最大生命值的护盾"):
+		return "[%d, %s, true]" % [SP["elem_resist"], _f("5")]
+	if s.contains("0.2%~0.5%") or s.contains("装备直接生效"):
+		_placeholders += 1
+		return "__SKILL__"
+
 	# ---------- 无法映射 ----------
 	_unmapped.append(s)
 	return ""
@@ -495,8 +1556,16 @@ func _re(pattern: String) -> RegEx:
 	return r
 
 ## 装备技能修饰的识别（这些在修饰某个技能，不是独立词条）
+## 规格占位符（策划文档里的设计说明，不是可实现的词条）
+var _RE_PLACEHOLDER: RegEx = _build_placeholder_re()
 var _RE_SKILL_NOTE: RegEx = _build_skill_note_re()
 func _build_skill_note_re() -> RegEx:
 	var r := RegEx.new()
 	r.compile(r"^(?:治愈术|战吼|护盾|陷阱|毒雾|疾风步|反击姿态|时间减缓|强化效果|闪现|圣光|烈焰|冰霜|雷霆|旋风|冲锋|突刺|盾击|召唤|狼灵|分身|残影|图腾|领域|新星|爆发|箭雨|火球|地刺|落石|风刃|缠绕|净化|驱散|嘲讽|挑衅|锁链|击退|生命汲取|灵魂|暗影|星辰|时空|荆棘|无畏|加速|疾跑|护盾术|治愈|治疗|资源|元素|号令|脉冲|光环).*(?:期间|同时|触发时|被击破时|存在时|留下|释放|引爆|翻倍|清除|满层时)")
+	return r
+
+
+func _build_placeholder_re() -> RegEx:
+	var r := RegEx.new()
+	r.compile(r"触发概率低，效果小|装备直接生效，通常是一个主动技能|吞噬后永久加到角色本局面板|作为副材融合时给主装备的新词条|基础效果低，比如每击杀回复|完整核心机制，通常包含触发条件|比蓝色更完整的核心机制|带叠层/循环/触发体系")
 	return r
