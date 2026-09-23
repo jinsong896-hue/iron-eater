@@ -178,14 +178,6 @@ const BUFFS := [
 	["eq_reduce_stack", "减伤·叠层", Kind.SHIELD,   10.0, 10, "每层减伤 +2%（最多 10 层）", "stat", {"dmg_taken_down": 0.02}],
 	["eq_swift_stack",  "迅捷·叠层", Kind.MOBILITY,  8.0,  5, "每层攻速 +2%（迅捷）", "stat", {"aspd_up": 0.02}],
 	["eq_soul_stack",   "噬魂·叠层", Kind.ATTACK,   12.0, 15, "每层攻击力 +2%（噬魂/灵魂）", "stat", {"atk_up": 0.02}],
-	# ---------- 被动技能词条（装备参考2：被动技能常驻生效） ----------
-	#
-	# 被动技能**不上技能槽**——学了就一直生效。实现方式就是这里的
-	# **永不过期词条**（duration=0 → BuffHolder 标记 permanent=true）。
-	#
-	# 为什么不给被动技能单独建一套生效机制：BuffHolder 已经能把词条
-	# 同步到 AttributeSystem（`_sync_modifier`），而被动技能的规格效果
-	#（「最大生命+8%」「移速+5%」「金币+10%」）本来就是属性加成。
 	# 复用现成链路比新造一套更不容易出错。
 	["ps_vitality",     "被动·坚韧体魄", Kind.SHIELD,   0.0, 0, "最大生命 +8%，护甲 +5%", "stat", {"hp_up": 0.08, "def_up": 0.05}],
 	["ps_swift",        "被动·迅捷步伐", Kind.MOBILITY, 0.0, 0, "移速 +5%，冷却缩减 +10%", "stat", {"spd_up": 0.05, "cdr_up": 0.10}],
@@ -197,18 +189,18 @@ const BUFFS := [
 	["ps_elem_resist",  "被动·元素抗性", Kind.SHIELD,   0.0, 0, "所有元素抗性 +5%", "stat", {"elem_resist": 0.05}],
 	["ps_pickup",       "被动·拾取范围", Kind.GENERIC,  0.0, 0, "拾取范围 +20%", "special", {"pickup_range": 0.20}],
 	["ps_exp",          "被动·经验获取", Kind.GENERIC,  0.0, 0, "经验获取 +8%", "special", {"exp_gain": 0.08}],
+	# ---------- 装备技能的自身增益（装备参考2：buff 类技能的效果载体） ----------
+	#
+	# **为什么需要它们**：`SkillSystem._cast_buff` 是空实现——
+	# buff 类技能的效果**完全靠 `self_buffs` 字段**承载（见 `_apply_self_buffs`）。
+	# 装备技能表若只写 kind="buff" 而没有 self_buffs，放技能就"扣了冷却但没效果"。
+	["shield_up",   "护盾·技能", Kind.SHIELD,  8.0, 0, "技能给予的护盾", "special", {"shield": 0.20}],
+	["haste_self",  "急速·技能", Kind.ATTACK,  5.0, 0, "技能给予的攻速提升", "stat", {"aspd_up": 0.30}],
+	["swift_self",  "疾行·技能", Kind.MOBILITY, 5.0, 0, "技能给予的移速提升", "stat", {"spd_up": 0.25}],
+	["atk_up_self", "强化·技能", Kind.ATTACK,  6.0, 0, "技能给予的攻击提升", "stat", {"atk_up": 0.15}],
+	["guard_self",  "守护·技能", Kind.SHIELD,  5.0, 0, "技能给予的减伤", "stat", {"dmg_taken_down": 0.20}],
+	["heal_self",   "治愈·技能", Kind.RESOURCE, 0.0, 0, "技能给予的回复（实际量由技能 heal_pct 决定）", "special", {"regen": 0.0}],
 ]
-
-## 分类中文名
-const KIND_NAMES := {
-	Kind.DOT: "持续伤害", Kind.SLOW: "减速", Kind.CONTROL: "硬控",
-	Kind.VULN: "易伤/破甲", Kind.WEAKEN: "削弱", Kind.DISPLACE: "位移",
-	Kind.SHIELD: "护盾/防御", Kind.ATTACK: "攻击/输出", Kind.MOBILITY: "移动/机动",
-	Kind.RESOURCE: "资源/回复", Kind.GENERIC: "通用",
-}
-
-## **技能专用词条**：不属于策划文档的 81 条体系，由《角色设计分册》的
-## 职业技能描述反推而来（文档只给效果说明、未给独立词条定义）。
 ## 单独列出是为了让「词条表 == 文档 81 条」这条不变量仍可被测试校验。
 ## 不属于策划文档 81 条的**扩展词条**（技能专用 + 装备叠层）。
 ##
@@ -227,7 +219,9 @@ const SKILL_ONLY_IDS := ["rage_haste", "rage_fury", "rage_dance_aspd",
 	# 被动技能（装备参考2：常驻生效，不上技能槽）
 	"ps_vitality", "ps_swift", "ps_fortune", "ps_weapon_master",
 	"ps_armor_train", "ps_crit_train", "ps_cdr_train", "ps_elem_resist",
-	"ps_pickup", "ps_exp"]
+	"ps_pickup", "ps_exp",
+	# 装备技能的自身增益（buff 类技能的效果载体，见 BUFFS 表尾）
+	"shield_up", "haste_self", "swift_self", "atk_up_self", "guard_self", "heal_self"]
 
 ## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
 ## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），
