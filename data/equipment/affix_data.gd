@@ -14,6 +14,16 @@ enum Operation {
 	FLAT,           ## 固定值（如 攻击力 +35）
 	PERCENT,        ## 百分比（如 攻击力 +5%）
 	TRIGGER_BUFF,   ## 命中时概率施加词条（如 5% 概率破甲 4 秒）
+	# —— 装备参考2 规格需要的效果类型（2026-09-23 补） ——
+	#
+	# **为什么必须补**：规格里大量词条的效果**不是面板属性**，
+	# 而旧实现把一切压成 `Stat.X + 数值`——机制语义丢失。实测：
+	#   「烈焰法杖：攻击附带 50% 火焰伤害」→ 被压成 `[Stat.ATK, 0.5]`
+	#   于是六把元素法杖的数据**一字不差**，元素区别整个消失。
+	BONUS_ELEMENT,  ## 攻击**附带** N% 元素伤害（不替代本体伤害，是额外一段）
+	STACK_GAIN,     ## 事件触发时叠层（层数由 BuffHolder 记账）
+	PERIODIC,       ## 周期性效果（如「每 5 秒获得 1 秒隐身」）
+	CHARGE,         ## 蓄力/储存（如「静止时每秒储存 15% 攻击力」）
 }
 
 ## **触发条件**（装备参考2 规格）。
@@ -23,13 +33,25 @@ enum Operation {
 ## 「击杀敌人获得1层噬魂，满层时下次攻击释放范围收割」。
 ##
 ## 此前这些全被解析成常驻数值——机制丢失。本枚举承载那个「事件」。
+##
+## 枚举值**按规格的实际机制族穷举**（从 349 件装备的自有词条归类得出），
+## 不是凭印象补的。归类见 `ai/装备数据重做计划.md` 第一节。
 enum Trigger {
-	ALWAYS,       ## 常驻（默认；属性型词条都是这个）
-	ON_KILL,      ## 击杀敌人时
-	ON_HURT,      ## 受到伤害时
-	ON_HIT,       ## 命中敌人时
-	ON_DODGE,     ## 闪避成功时
-	AT_FULL,      ## 叠满层时（配合 stack_max 使用）
+	ALWAYS,         ## 常驻（默认；纯属性词条都是这个）
+	ON_KILL,        ## 击杀敌人时
+	ON_HURT,        ## 受到伤害时
+	ON_HIT,         ## 命中敌人时
+	ON_DODGE,       ## 闪避成功时
+	AT_FULL,        ## 叠满层时（配合 stack_max 使用）
+	# —— 2026-09-23 补全（规格实测需要） ——
+	ON_CRIT,        ## 暴击时（「暴击叠加1层预言」）
+	ON_COMBO,       ## 连击时（「连续攻击同一目标，每次+1%」）
+	ON_DASH,        ## 冲刺后（「冲刺后留下残影」）
+	ON_BLOCK,       ## 格挡时（「格挡成功叠加1层守护」）
+	ON_ATTACK,      ## 攻击时（「攻击有5%概率冰冻」——攻击动作本身触发）
+	LOW_HP,         ## 生命低于阈值（「生命<50% 时减伤」）
+	STATIONARY,     ## 静止时（「静止不动时每秒储存攻击力」）
+	ON_ROOM_ENTER,  ## 进入新房间（「进入新房间后…」）
 }
 
 ## 触发条件的中文名（供 UI 显示）
@@ -40,6 +62,14 @@ const TRIGGER_NAMES := {
 	Trigger.ON_HIT: "命中时",
 	Trigger.ON_DODGE: "闪避时",
 	Trigger.AT_FULL: "满层时",
+	Trigger.ON_CRIT: "暴击时",
+	Trigger.ON_COMBO: "连击时",
+	Trigger.ON_DASH: "冲刺后",
+	Trigger.ON_BLOCK: "格挡时",
+	Trigger.ON_ATTACK: "攻击时",
+	Trigger.LOW_HP: "低血时",
+	Trigger.STATIONARY: "静止时",
+	Trigger.ON_ROOM_ENTER: "进房时",
 }
 
 @export var id: StringName = &""
@@ -61,6 +91,18 @@ const TRIGGER_NAMES := {
 ## 满层时触发的**额外效果**描述（规格的「满层时下次攻击释放范围收割」）。
 ## 目前只承载描述与伤害倍率——真正的满层结算见 PlayerEquipmentEffects。
 @export var full_stack_bonus: float = 0.0
+
+# —— BONUS_ELEMENT 专属（规格：「攻击附带 N% 火焰伤害」）——
+#
+# 语义：**额外一段**元素伤害，不替代本体。与 `elem_dmg_pct`（元素伤害加成）
+# 是两回事——后者放大已有的元素伤害，前者是凭空多出的一段。
+#
+# 数值存在 `value`（0.5 = 附带 50%），元素存在 `element_key`
+#（fire/frost/static/earth/wind/poison，与随机词条的"属性词条"共用同一字段）。
+
+# —— LOW_HP 专属（规格：「生命低于 50% 时，获得 20% 伤害减免」）——
+## 生效的生命阈值（0.5 = 生命低于 50% 时生效）
+@export var hp_threshold: float = 0.0
 
 # —— 触发型专属字段（operation == TRIGGER_BUFF 时有效）——
 ## 要施加的 BuffDefs 词条 id（如 "stun" / "armor_break" / "blind" / "disarm"）

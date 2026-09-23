@@ -529,25 +529,100 @@ static func _generate_trigger_affixes(rarity: int, id_seed: String) -> Array[Aff
 ## 表列顺序（策划表）：
 ## `[id, 名, 武器类型, 标签, 槽位, 类别, 基础, 自有, 吞噬, 融合, 触发, 时长, 层数]`
 ## 白装克隆表只有前三项，故 own/触发三项带默认值。
-static func _apply_affixes(t: EquipmentTemplate, base: Array, devour: Array, fusion: Array,
-		own: Array = [], trigger: int = 0, dur: float = 0.0, stack: int = 0) -> void:
-	t.base_affix = _make_affix(base)
-	t.devour_affix = _make_affix(devour)
-	t.fusion_affix = _make_affix(fusion)
-	# 自有词条：策划表才有（白装克隆表没有），为空时留 null
-	if not own.is_empty():
-		t.own_affix = _make_affix(own)
-		# **触发条件**（装备参考2 规格）：规格里大量自有词条不是常驻，
-		# 而是「击杀时 / 受击时 / 命中时 / 满层时」生效。
-		# 这一层此前完全没有承载——所有机制都被当成常驻数值。
-		t.own_affix.trigger = trigger
-		t.own_affix.duration = dur
-		t.own_affix.stack_max = stack
+## 装配一件装备的词条（装备参考2 规格）。
+##
+## **子表格式**：每个词条列是一个数组，元素是**单条词条规格**。
+## 这样复合词条（用「；」分隔的两条效果）能各占一项，
+## 而不是像旧实现那样只取前半句。
+##
+## 单条词条规格的形态（按 operation 分）：
+##   [stat, value, is_percent]                      —— 面板属性
+##   [Operation.BONUS_ELEMENT, elem, ratio]         —— 附带元素伤害
+##   [Operation.STACK_GAIN, trigger, stat, value]   —— 触发叠层
+##   [Operation.TRIGGER_BUFF, buff_id, chance, dur] —— 命中施加词条
+##   [Operation.PERIODIC, interval, buff_id, dur]   —— 周期性效果
+##   [Operation.CHARGE, stat, per_sec_pct, max_pct] —— 蓄力储存
+##
+## 注：**低血（Trigger.LOW_HP）不是效果类型而是触发条件**——
+## 它走面板属性词条 + trigger 字段，不单开一个 Operation。
+static func _apply_affixes(t: EquipmentTemplate, base, devour, fusion, own = []) -> void:
+	t.base_affixes = _make_affix_list(base)
+	t.devour_affixes = _make_affix_list(devour)
+	t.fusion_affixes = _make_affix_list(fusion)
+	t.own_affixes = _make_affix_list(own)
 	t.trigger_affixes = _generate_trigger_affixes(t.rarity, str(t.id))
 
 
-## 构建词条数据
+## 子表 → AffixData 列表。
+##
+## **向后兼容**：旧表传的是单条（`[stat, value, is_percent]`），
+## 新表传的是子表（`[[...], [...]]`）。按首元素类型区分：
+## 首元素是 Array → 子表；否则 → 单条，包成一项。
+static func _make_affix_list(spec) -> Array[AffixData]:
+	var out: Array[AffixData] = []
+	if spec == null:
+		return out
+	if spec is Array and spec.size() > 0 and spec[0] is Array:
+		for one in spec:
+			var a := _make_one_affix(one)
+			if a != null:
+				out.append(a)
+	elif spec is Array and spec.size() >= 3:
+		var a2 := _make_one_affix(spec)
+		if a2 != null:
+			out.append(a2)
+	return out
+
+
+## 单条词条规格 → AffixData。
+##
+## ## 分派规则：**看第三项的类型，不看首项的数值**
+##
+## 面板属性形态是 `[stat, value, is_percent]`——第三项是 **bool**；
+## 规格化词条形态是 `[Operation.X, ...]`——第三项是 **字符串或数字**。
+##
+## **不能用「首项 >= Operation.BONUS_ELEMENT」判断**：`Stat.AP = 6`
+## 而 `Operation.BONUS_ELEMENT = 3`，`6 >= 3` 成立 → 面板属性会被
+## 误判成 BONUS_ELEMENT（实测踩到：W11 学徒长杖的 AP 词条被吃掉）。
+static func _make_one_affix(spec: Array) -> AffixData:
+	if spec == null or spec.size() < 2:
+		return null
+	# 面板属性：[stat, value, is_percent]，第三项是 bool
+	if spec.size() >= 3 and spec[2] is bool:
+		return _make_affix(spec)
+	# 规格化词条：[Operation.X, ...]
+	var first = spec[0]
+	if first is int:
+		var a := AffixData.new(0, 0.0, int(first))
+		match int(first):
+			AffixData.Operation.BONUS_ELEMENT:
+				a.element_key = str(spec[1])
+				a.value = float(spec[2]) if spec.size() > 2 else 0.0
+			AffixData.Operation.STACK_GAIN:
+				a.trigger = int(spec[1])
+				a.stat = int(spec[2])
+				a.value = float(spec[3]) if spec.size() > 3 else 0.0
+				a.stack_max = int(spec[4]) if spec.size() > 4 else 0
+			AffixData.Operation.TRIGGER_BUFF:
+				a.trigger_buff = str(spec[1])
+				a.trigger_chance = float(spec[2]) if spec.size() > 2 else 0.0
+				a.trigger_duration = float(spec[3]) if spec.size() > 3 else 0.0
+			AffixData.Operation.PERIODIC:
+				a.value = float(spec[1]) if spec.size() > 1 else 0.0
+				a.trigger_buff = str(spec[2]) if spec.size() > 2 else ""
+				a.duration = float(spec[3]) if spec.size() > 3 else 0.0
+			AffixData.Operation.CHARGE:
+				a.stat = int(spec[1])
+				a.value = float(spec[2]) if spec.size() > 2 else 0.0
+				a.full_stack_bonus = float(spec[3]) if spec.size() > 3 else 0.0
+		return a
+	return null
+
+
+## 构建面板属性词条（旧形态：[stat, value, is_percent]）
 static func _make_affix(affix: Array) -> AffixData:
+	if affix == null or affix.size() < 3:
+		return null
 	var op := AffixData.Operation.PERCENT if affix[2] else AffixData.Operation.FLAT
 	return AffixData.new(affix[0], affix[1], op)
 
@@ -590,7 +665,7 @@ static func _load_curated_table() -> void:
 		for tag in row[3]:
 			t.tags.append(str(tag))
 		# 注意参数顺序：_apply_affixes(base, devour, fusion, own)
-		_apply_affixes(t, row[6], row[8], row[9], row[7], row[10], row[11], row[12])
+		_apply_affixes(t, row[6], row[8], row[9], row[7])
 
 
 ## 从策划表的 id 前缀推稀有度（G=绿 / B=蓝 / P=紫 / O=橙）。
