@@ -251,7 +251,7 @@ func _show_equipment(t) -> void:
 	lines.append(_affix_line(t.fusion_affix, false))
 	# 装备技能（若有）
 	var ES = load("res://data/equipment/equipment_skills.gd")
-	var sk: Dictionary = ES.skill_of_equipment(str(t.display_name))
+	var sk: Dictionary = ES.skill_of_equipment(str(t.display_name), int(t.rarity))
 	if not sk.is_empty():
 		lines.append("")
 		lines.append("[color=#b5a37f]【装备技能】[/color]")

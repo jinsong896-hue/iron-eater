@@ -217,16 +217,36 @@ func reset_cooldowns() -> void:
 # 各 kind 的执行
 # ============================================================
 
-## 范围伤害：以自身为圆心
-func _cast_aoe(caster: Node3D, sd: Dictionary, _dir: Vector3) -> void:
+## 范围伤害
+##
+## 两种形态，由 `sd.at_aim` 决定圆心：
+##   · 自身光环型（战吼 / 跺脚 / 冰霜新星）——圆心是**施法者自己**
+##   · 目标区域型（地裂术 / 星辰坠落 / 缠绕藤蔓）——圆心是**准心方向
+##     `range` 米处**。规格里这类技能写的是「在目标区域召唤…」，
+##     若按自身圆心结算会**打错位置**（技能打在脚下而不是指的地方）。
+##
+## 持续型（`tick_interval` > 0，如毒雾 / 烈焰风暴）交给 `SkillZone` 按 tick
+## 结算，本函数只负责开一个区域；否则立即结算一次。
+func _cast_aoe(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	var radius := float(sd.get("radius", 3.0))
+	var center := caster.global_position
+	if bool(sd.get("at_aim", false)):
+		center += dir * float(sd.get("range", 6.0))
+		center.y = caster.global_position.y
+
+	# 持续型：开区域，不在这里结算
+	if float(sd.get("tick_interval", 0.0)) > 0.0:
+		_spawn_zone(caster, sd, center, radius)
+		return
+
 	var mult := float(sd.get("damage_mult", 1.0))
 	var knockback := float(sd.get("knockback", 0.0))
 	var hits := 0
 	for e in _enemies():
-		if caster.global_position.distance_to(e.global_position) > radius:
+		if center.distance_to(e.global_position) > radius:
 			continue
-		_deal_damage(caster, e, mult, knockback)
+		_deal_damage(caster, e, mult, knockback, false, sd)
+		_apply_control(e, sd)
 		hits += 1
 	# 鲜血献祭：每命中 1 敌回复已损失生命的 N%（策划 3.6）
 	var heal_pct := float(sd.get("heal_per_hit_pct", 0.0))
@@ -235,8 +255,16 @@ func _cast_aoe(caster: Node3D, sd: Dictionary, _dir: Vector3) -> void:
 
 
 ## 扇形伤害：面朝方向
+##
+## `reach` 必须**显式兜底**：派生后的技能表里 cone 类的第 5 列（旧 reach）
+## 已清零（那列原本是 damage_mult 的副本，会让裂空斩的扇形半径等于 1.8），
+## 描述又没给米数（「向前方劈砍」）。若写 `sd.get("reach", 3.0)`，
+## 拿到的是 `0.0` 而不是 3.0——**扇形退化成零射程，技能看似没反应**。
+## 故用 `maxf` 而不是默认值。
 func _cast_cone(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
-	var reach := float(sd.get("reach", 3.0))
+	var reach := maxf(float(sd.get("reach", 0.0)), 3.0)
+	if sd.has("radius"):
+		reach = float(sd["radius"])
 	var half := deg_to_rad(float(sd.get("half_angle", 60.0)))
 	var mult := float(sd.get("damage_mult", 1.0))
 	var knockback := float(sd.get("knockback", 0.0))
@@ -247,14 +275,20 @@ func _cast_cone(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 			continue
 		if to_e.normalized().dot(dir) < cos_th:
 			continue
-		_deal_damage(caster, e, mult, knockback)
+		_deal_damage(caster, e, mult, knockback, false, sd)
+		_apply_control(e, sd)
 
 
 ## 冲刺：玩家沿 dir 位移 dash_dist，沿途矩形内敌人受伤
 ## 位移本身交给玩家的 `apply_skill_dash`（它知道怎么动 CharacterBody3D）
+##
+## 装备技能的位移距离写在 `extra.range`（「向前冲锋 6 米」），
+## 职业技能写在 `dash_dist`。两者都要认，否则装备的冲锋类技能位移 0 米。
 func _cast_dash(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
-	var dist := float(sd.get("dash_dist", 4.0))
-	var width := float(sd.get("reach", 1.6))
+	var dist := float(sd.get("dash_dist", 0.0))
+	if dist <= 0.0:
+		dist = float(sd.get("range", 4.0))
+	var width := maxf(float(sd.get("reach", 0.0)), 1.6)
 	var mult := float(sd.get("damage_mult", 1.0))
 	var knockback := float(sd.get("knockback", 0.0))
 	var origin := caster.global_position
@@ -264,7 +298,8 @@ func _cast_dash(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	for e in _enemies():
 		if _dist_to_segment(e.global_position, origin, dest) > width:
 			continue
-		_deal_damage(caster, e, mult, knockback)
+		_deal_damage(caster, e, mult, knockback, false, sd)
+		_apply_control(e, sd)
 
 	# 位移由施法者自己执行（它持有 velocity / move_and_slide）
 	if caster.has_method("apply_skill_dash"):
@@ -277,7 +312,7 @@ func _cast_pull(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	var target := _nearest_enemy_in_cone(caster, dir, rng, 35.0)
 	if target == null:
 		return
-	_deal_damage(caster, target, float(sd.get("damage_mult", 1.0)), 0.0)
+	_deal_damage(caster, target, float(sd.get("damage_mult", 1.0)), 0.0, false, sd)
 	# 目标减益（策划 3.5：-30% 攻速/移速）
 	_apply_target_buffs(target, sd)
 	# 把自己拉到目标面前（留 1.2 米身位，避免重叠）
@@ -290,9 +325,172 @@ func _cast_pull(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 		caster.global_position = stop
 
 
-## 纯增益：只给自身挂词条（效果全由 self_buffs 承载）
-func _cast_buff(_caster: Node3D, _sd: Dictionary) -> void:
-	pass  # self_buffs 在 cast_skill 统一处理
+## 增益类技能 —— **不是空实现**，按描述里的语义分派。
+##
+## ## 为什么这里必须做事
+##
+## 职业技能的 buff 类效果全由 `self_buffs` 字段承载（`cast_skill` 里统一
+## `_apply_self_buffs`），所以这条曾经写成 `pass` 是对的。
+##
+## **但装备技能一条 `self_buffs` 都没有**——它们的语义写在描述里，
+## 数值在 `extra` 里（`heal_pct` / `shield_pct` / `radius` / `dr_pct`…）。
+## 若继续 `pass`，装备参考2 里 30 多条 buff 类技能（护盾术 / 冰封领域 /
+## 圣光审判 / 大地守护…）**按下去什么都不发生**。
+##
+## 故改为：把 `extra` 里的语义**翻译成三件事**——
+##   1. 范围伤害（有 `radius` 或 `damage_mult` 且描述作用于敌人）
+##   2. 自身增益词条（`dr_pct` / `spd_pct` / `aspd_pct` / `reflect_pct` /
+##      `block_all` / `dodge_pct` → 挂 BuffDefs 词条，数值由 params 覆盖）
+##   3. 治疗 / 护盾 / 驱散（`heal_pct` / `shield_pct` / `dispel`）
+##
+## 三者**可同时生效**——「圣光审判」就是「范围伤害 + 治疗」，
+## 「大地守护」是「纯自身减伤」，用同一段代码处理。
+func _cast_buff(caster: Node3D, sd: Dictionary) -> void:
+	# 1. 范围伤害：描述作用于敌人且伤害倍率 > 0
+	if float(sd.get("damage_mult", 0.0)) > 0.0 and not bool(sd.get("self_only", false)):
+		var radius := float(sd.get("radius", 3.0))
+		var mult := float(sd.get("damage_mult", 1.0))
+		for e in _enemies():
+			if caster.global_position.distance_to(e.global_position) > radius:
+				continue
+			_deal_damage(caster, e, mult, 0.0, false, sd)
+			_apply_control(e, sd)
+	# 2. 自身增益词条（数值走 params 覆盖，不依赖 BuffDefs 的静态值）
+	_apply_extra_self_buffs(caster, sd)
+	# 3. 治疗 / 护盾 / 驱散 —— 治疗与护盾已在 cast_skill 统一处理，
+	#    这里只补驱散。
+	if int(sd.get("dispel", 0)) > 0:
+		_dispel_self(caster, int(sd["dispel"]))
+	# 4. 以血换攻（策划 3.x 血怒：「每秒失去 1% 最大生命换等量攻击力」）
+	#
+	# `hp_drain_pct` + `atk_from_drain` 此前**零消费者**——技能表里写了、
+	# 描述里也写了，但没有任何代码读它们，血怒只有攻速/移速加成生效。
+	if float(sd.get("hp_drain_pct", 0.0)) > 0.0 and bool(sd.get("atk_from_drain", false)):
+		var b = caster.get("buffs")
+		if b != null:
+			b.call("apply", "eq_blood_rage", "skill", 1,
+				float(sd.get("duration", 8.0)),
+				{"hp_drain_pct": float(sd["hp_drain_pct"]), "atk_from_drain": true})
+
+
+## 把技能 `extra` 里的自身增益语义翻译成 buff 词条
+##
+## 每个键对应一个 `BuffDefs` 里的**结构词条**，具体数值通过
+## `BuffHolder.apply` 的 `override_params` 传入——这样 133 条技能
+## 不必为「移速 +25%」「+30%」「+60%」各造一个词条。
+func _apply_extra_self_buffs(caster: Node3D, sd: Dictionary) -> void:
+	var buffs = caster.get("buffs")
+	if buffs == null:
+		return
+	var dur := float(sd.get("duration_seconds", sd.get("duration", 0.0)))
+	var p := {
+		"spd_up": float(sd.get("spd_pct", 0.0)),
+		"aspd_up": float(sd.get("aspd_pct", 0.0)),
+		"atk_up": float(sd.get("atk_pct", 0.0)),
+		"dmg_taken_down": float(sd.get("dr_pct", 0.0)),
+		"dodge_up": float(sd.get("dodge_pct", 0.0)),
+		"reflect_up": float(sd.get("reflect_pct", 0.0)),
+		"block_all": bool(sd.get("block_all", false)),
+	}
+	# 没有任何增益语义时直接返回，避免挂一个全 0 的空词条
+	var has_any := false
+	for k in p:
+		var v = p[k]
+		if (v is bool and v) or (v is float and absf(v) > 0.0001):
+			has_any = true
+			break
+	if not has_any:
+		return
+	buffs.call("apply", "eq_skill_buff", "skill", 1, dur, p)
+
+
+## 驱散自身负面状态（装备参考2：「清除自身一个/所有负面状态」）
+##
+## `n` 为要清除的条数，99 表示全部。只清**负面**类别
+##（DOT/减速/控制/易伤/削弱），正面词条不受影响。
+func _dispel_self(caster: Node3D, n: int) -> void:
+	var buffs = caster.get("buffs")
+	if buffs == null or not buffs.has_method("active_ids"):
+		return
+	var debuff_kinds := [BuffDefs.Kind.DOT, BuffDefs.Kind.SLOW, BuffDefs.Kind.CONTROL,
+		BuffDefs.Kind.VULN, BuffDefs.Kind.WEAKEN, BuffDefs.Kind.DISPLACE]
+	var removed := 0
+	# 先收集再删——遍历中改字典会出错
+	var victims: Array = []
+	for id in buffs.call("active_ids"):
+		var row := BuffDefs.get_buff(str(id))
+		if row.is_empty() or not debuff_kinds.has(int(row[2])):
+			continue
+		victims.append(str(id))
+		if victims.size() >= n:
+			break
+	for id in victims:
+		buffs.call("remove", id)
+		removed += 1
+	if removed > 0:
+		EventBus.message.emit("驱散 %d 个负面状态" % removed)
+
+
+## 控制词条（装备参考2：冻结/束缚/嘲讽/恐惧/麻痹/沉默）
+##
+## `extra.control` 是控制**类别**，需映射到 `BuffDefs` 里实际的词条 id。
+## 两者**不同名**：类别 `root`（定身）对应的词条叫 `entangle`（缠绕）——
+## 直接拿类别当词条 id 会 `apply` 失败并静默无事发生。
+##
+## 击退/击飞不在这里做：`_deal_damage` 的 `push` 参数已覆盖，
+## 且敌人侧没有 `apply_knockback`（只有 `take_damage` 接受 push 向量）。
+const CONTROL_BUFF := {
+	"freeze": "freeze", "root": "entangle", "stun": "stun",
+	"taunt": "taunt", "fear": "fear", "silence": "silence",
+	"paralyze": "paralyze",
+}
+
+
+## 开一个持续型效果区域（装备参考2：毒雾 / 烈焰风暴 / 箭雨 / 风暴之眼）
+##
+## 复用 `DamageZone`（已解决「节点 free 时协程悬挂」与「像素管线透明不渲染」
+## 两个坑），只通过 `on_tick` 回调把伤害结算接回本类——这样区域伤害走的是
+## **与技能同一条管线**（面板 ATK × 倍率 + 元素 + 暴击 + 飘字），
+## 而不是 `DamageZone` 默认的裸 `take_damage`。
+func _spawn_zone(caster: Node3D, sd: Dictionary, center: Vector3, radius: float) -> void:
+	var parent := _projectile_parent(caster)
+	if parent == null:
+		return
+	var dur := float(sd.get("duration_seconds", sd.get("duration", 3.0)))
+	if dur <= 0.0:
+		dur = 3.0
+	var mult := float(sd.get("damage_mult", 1.0))
+	# 回调：对区域内每个敌人走一次完整结算，返回 true 表示已处理
+	var cb := func(_zone, node: Node3D) -> bool:
+		if not is_instance_valid(node):
+			return true
+		_deal_damage(caster, node, mult, 0.0, false, sd)
+		_apply_control(node, sd)
+		return true
+	DamageZone.spawn({
+		"radius": radius,
+		"duration": dur,
+		"tick_interval": maxf(float(sd.get("tick_interval", 1.0)), 0.2),
+		"damage": 0.0,          # 伤害由 on_tick 接管
+		"target_group": DamageZone.TARGET_ENEMY,
+		"position": center,
+		"on_tick": cb,
+		"color": Color(0.8, 0.4, 0.2, 0.35),
+	}, parent)
+
+
+func _apply_control(enemy: Node3D, sd: Dictionary) -> void:
+	if enemy == null or not is_instance_valid(enemy):
+		return
+	var tb = enemy.get("buffs")
+	if tb == null:
+		return
+	var ctl := str(sd.get("control", ""))
+	var dur := float(sd.get("control_seconds", 0.0))
+	if ctl.is_empty() or dur <= 0.0:
+		return
+	var bid := str(CONTROL_BUFF.get(ctl, ctl))
+	tb.call("apply", bid, "skill", 1, dur)
 
 
 ## 投射物：复用 Projectile（它已走完整元素管线）
@@ -310,6 +508,23 @@ func _cast_projectile(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	# 只能在这里乘：投射物一旦生成就与施法者脱钩（ProjectileSystem.spawn
 	# 只拿到一个 damage 数值，没有 caster/form 引用），出去之后没法再按形态修正。
 	var ranged_mult := 1.0 + _form_special_float(caster, "ranged_dmg_pct", 0.0)
+	# **多发**（装备参考2：冰锥术「发射 3 枚冰锥，每枚造成 60% 法强伤害」）。
+	# 旧实现只出一枚，与描述不符。多发时以扇形铺开，避免三枚叠在一条线上
+	# 打同一个目标（那等于把倍率乘了 3 倍，手感也不对）。
+	var count := maxi(int(sd.get("count", 1)), 1)
+	# 散射角：2 枚 12°、3 枚 24°、更多按 12°×n 递增，上限 60°
+	var spread_deg: float = 0.0 if count <= 1 else minf(12.0 * float(count - 1), 60.0)
+	for i in count:
+		var d := dir
+		if count > 1:
+			var t: float = 0.0 if count == 1 else float(i) / float(count - 1) - 0.5
+			d = dir.rotated(Vector3.UP, deg_to_rad(spread_deg * t))
+		_spawn_one_projectile(caster, sd, d, parent, ranged_mult)
+
+
+## 生成一枚投射物（多发循环的单次体）
+func _spawn_one_projectile(caster: Node3D, sd: Dictionary, dir: Vector3,
+		parent: Node3D, ranged_mult: float) -> void:
 	var data := {
 		"skill_id": sd.get("id", ""),
 		"direction": dir,
@@ -364,7 +579,7 @@ func _cast_teleport(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 		caster.global_position = stop
 		# 瞬移本身不造成伤害；伤害由 backstab 逻辑接管（见 _deal_damage 的 multiplier）
 		if float(sd.get("damage_mult", 0.0)) > 0.0:
-			_deal_damage(caster, target, float(sd["damage_mult"]), 0.0, true)
+			_deal_damage(caster, target, float(sd["damage_mult"]), 0.0, true, sd)
 		_apply_target_buffs(target, sd)
 		return
 	# 无目标：按冲刺位移兜底
@@ -385,7 +600,7 @@ func _cast_multi_hit(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	for i in range(hits):
 		if not is_instance_valid(target):
 			break
-		_deal_damage(caster, target, mult, 0.0)
+		_deal_damage(caster, target, mult, 0.0, false, sd)
 	_apply_target_buffs(target, sd)
 
 
@@ -411,7 +626,7 @@ func _cast_detonate(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 		var mult := per * float(n)
 		if n >= full_at:
 			mult = full_bonus
-		_deal_damage(caster, e, mult, 0.0)
+		_deal_damage(caster, e, mult, 0.0, false, sd)
 		tb.call("remove", buff_id)
 		any = true
 	if not any:
@@ -427,7 +642,7 @@ func _cast_spread(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	var src := _nearest_enemy_in_cone(caster, dir, rng, 90.0)
 	if src == null:
 		return
-	_deal_damage(caster, src, float(sd.get("damage_mult", 1.0)), 0.0)
+	_deal_damage(caster, src, float(sd.get("damage_mult", 1.0)), 0.0, false, sd)
 	# 把源身上的层数复制给周围敌人
 	var src_tb = src.get("buffs")
 	var stacks := 1
@@ -449,8 +664,11 @@ func _cast_spread(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 
 ## 对单个敌人结算伤害（与 Player._apply_hit 同口径：面板 ATK × 倍率 × 护甲 × 暴击）
 ## backstab=true 时套用形态的背刺倍率（策划 6.6 暗影主宰 ×2.5）。
+##
+## `sd`：技能数据。用于读**技能自身的**元素 / 击飞 / 击退 / 保证暴击。
+## 默认空字典——老的调用点不必逐个改（改了也等价于"没有技能级修饰"）。
 func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float,
-		backstab: bool = false) -> void:
+		backstab: bool = false, sd: Dictionary = {}) -> void:
 	if enemy == null or not is_instance_valid(enemy):
 		return
 	if not enemy.has_method("take_damage"):
@@ -461,35 +679,40 @@ func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float,
 	var target_def := float(enemy.get("defense")) if enemy.get("defense") != null else 0.0
 	# 形态·护甲穿透（与普攻同口径，见 player._apply_hit）。
 	# 不在这里也做一遍的话，"锁链"形态的穿透只对普攻生效、对技能无效。
-	target_def *= 1.0 - clampf(
-		_form_special_float(caster, "armor_pierce", 0.0), 0.0, 1.0)
+	var pierce := _form_special_float(caster, "armor_pierce", 0.0)
+	# 技能自身的护甲穿透（装备参考2：「无视 40% 护甲」）
+	pierce = maxf(pierce, float(sd.get("armor_pierce", 0.0)))
+	target_def *= 1.0 - clampf(pierce, 0.0, 1.0)
 	# 形态·近战伤害倍率。技能无远近之分，统一按近战口径结算。
 	mult *= 1.0 + _form_special_float(caster, "melee_dmg_pct", 0.0)
 	var result := DamagePipeline.physical(atk, mult, 0.0, target_def)
 	var crt := _stat(caster, "crt", 0.05)
 	var crd := _stat(caster, "crd", 0.5)
-	var crit := _rng.randf() < crt
+	# 「必定暴击」（装备参考2：影袭「造成 300% 攻击力伤害并必定暴击」）
+	var crit := true if bool(sd.get("guaranteed_crit", false)) else _rng.randf() < crt
 	var total := DamagePipeline.with_crit(float(result.damage), crit, crd)
 
+	# 击退 / 击飞。**技能声明的击退优先**：`knockback` 参数是调用点给的，
+	# 技能表里的 `knockback` / `knockup` 更具体（如「击飞路径敌人」）。
+	var kb := knockback
+	if float(sd.get("knockback", 0.0)) > 0.0:
+		kb = float(sd["knockback"])
+	if bool(sd.get("knockup", false)):
+		kb = maxf(kb, 6.0)
 	var push := Vector3.ZERO
-	if knockback > 0.0:
+	if kb > 0.0:
 		push = (enemy.global_position - caster.global_position)
 		push.y = 0.0
 		if push.length_squared() > 0.001:
-			push = push.normalized() * knockback
+			push = push.normalized() * kb
 	enemy.call("take_damage", total, crit, push, caster)
 	EventBus.damage_popup.emit(enemy.global_position, total, "crit" if crit else "normal")
 	# 技能也能叠元素（走与普攻相同的阈值/联动路径）。
-	# 元素来源：施法者的攻击元素（武器赋予）。
-	# **近战技能不吃技能自身的 element 声明**——`_deal_damage` 拿不到 `sd`
-	#（它经 `_deal_damage(caster, enemy, mult, kb)` 调用，无技能表参数），
-	# 只能走 `_skill_element(caster, null)`。投射物类技能不同：
-	# `_cast_projectile` 会把 `sd.element` 透传给核。真要统一，
-	# 得给本函数加一个 sd 参数——那会动到全部调用点，另开一轮。
-	# 形态印记（咒焰/虚空印记）叠给**真正被命中的敌人**——放在这个漏斗里
-	# 而不是施法后遍历全场，才不会把没挨打的怪也标记上。
+	# 元素来源优先级：**技能自身声明** > 施法者的攻击元素（武器赋予）。
+	# 技能级元素是装备参考2 的「造成冰霜伤害」这类——不接的话六把元素
+	# 法杖打出来全是同一段无色伤害，元素区别整个消失。
 	_stack_form_marks_on(caster, enemy)
-	ElementDamage.attack(enemy.get("buffs"), _skill_element(caster, null))
+	ElementDamage.attack(enemy.get("buffs"), _skill_element(caster, sd))
 	# 命中攒资源（策划各职业资源系统）
 	_gain_resource_on_hit(caster, crit)
 
@@ -517,8 +740,16 @@ func _apply_target_buffs(enemy: Node3D, sd: Dictionary) -> void:
 ## 结算技能的**治疗**与**护盾**（按最大生命百分比）。
 ##
 ## 技能表字段：
-##   · `heal_pct`   —— 回复自身 `最大生命 × N`
-##   · `shield_pct` —— 获得吸收 `最大生命 × N` 的护盾
+##   · `heal_pct`      —— 回复自身 `最大生命 × N`
+##   · `heal_pct_max`  —— 同上（策划在「生存本能」上用的名字）
+##   · `heal_lost_pct` —— 回复**已损失生命**的 N%（策划「背水一战」）
+##   · `shield_pct`    —— 获得吸收 `最大生命 × N` 的护盾
+##
+## **三个治疗字段名必须都认**：`heal_pct` 是装备参考2 的写法，
+## `heal_pct_max` / `heal_lost_pct` 是职业技能表的写法（`ClassDefs`）。
+## 早期只读 `heal_pct`，于是「生存本能」和「背水一战」两条技能
+## **回血完全没发生**——数据在表里、函数也存在（`_heal_lost_hp`），
+## 只是键名对不上。
 ##
 ## 两者都作用在**施法者**身上（装备技能的描述都是"治疗自身"/"获得护盾"）。
 ## 施法者没有对应接口时静默跳过——不报错（测试环境的替身可能没实现）。
@@ -526,9 +757,17 @@ func _apply_heal_and_shield(caster: Node3D, sd: Dictionary) -> void:
 	if caster == null or not is_instance_valid(caster):
 		return
 	var heal_pct := float(sd.get("heal_pct", 0.0))
+	if heal_pct <= 0.0:
+		heal_pct = float(sd.get("heal_pct_max", 0.0))
+	# 回复「已损失生命」的 N%（背水一战）——复用已有的 _heal_lost_hp
+	var lost_pct := float(sd.get("heal_lost_pct", 0.0))
+	# 周期性治疗（治疗之泉 / 治疗图腾「每秒回复 N% 生命」）
+	var tick_pct := float(sd.get("heal_tick_pct", 0.0))
 	var shield_pct := float(sd.get("shield_pct", 0.0))
-	if heal_pct <= 0.0 and shield_pct <= 0.0:
+	if heal_pct <= 0.0 and lost_pct <= 0.0 and tick_pct <= 0.0 and shield_pct <= 0.0:
 		return
+	if lost_pct > 0.0:
+		_heal_lost_hp(caster, lost_pct)
 	# 取最大生命：优先玩家的 AttributeSystem（`GameManager.attributes`），
 	# 回退到施法者自己的 max_hp 字段（敌人/替身）。
 	var max_hp := 0.0
@@ -547,9 +786,38 @@ func _apply_heal_and_shield(caster: Node3D, sd: Dictionary) -> void:
 		if healed > 0.0:
 			EventBus.damage_popup.emit(caster.global_position, healed, "heal")
 
+	# 周期性治疗：开一个跟随自身的治疗区域（复用 DamageZone 的 friendly 通道）
+	if tick_pct > 0.0:
+		_spawn_heal_zone(caster, sd, max_hp * tick_pct)
+
 	if shield_pct > 0.0 and caster.has_method("_add_shield"):
 		# 上限取 60%（与形态「溢出转护盾」同一口径，防止无限叠成无敌）
 		caster.call("_add_shield", max_hp * shield_pct, 0.60)
+
+
+## 开一个跟随施法者的治疗区域（治疗之泉 / 治疗图腾 / 生命之泉）
+##
+## 复用 `DamageZone` 的 `friendly_group` + `heal_per_tick` 通道——
+## 那套已经解决了「跟随时长」「节点 free 悬挂」「像素管线透明不渲染」。
+## 目标组设为 `player`，故对玩家自己生效。
+func _spawn_heal_zone(caster: Node3D, sd: Dictionary, per_tick: float) -> void:
+	var parent := _projectile_parent(caster)
+	if parent == null:
+		return
+	var dur := float(sd.get("duration_seconds", sd.get("duration", 5.0)))
+	if dur <= 0.0:
+		dur = 5.0
+	DamageZone.spawn({
+		"radius": float(sd.get("radius", 2.0)),
+		"duration": dur,
+		"tick_interval": 1.0,
+		"damage": 0.0,
+		"target_group": "",
+		"friendly_group": "player",
+		"heal": per_tick,
+		"follow": caster,
+		"color": Color(0.3, 0.9, 0.4, 0.30),
+	}, parent)
 
 
 ## 生命消耗型技能（鲜血献祭：消耗 15% 当前生命）
@@ -632,10 +900,36 @@ func _stat(caster: Node3D, key: String, fallback: float) -> float:
 	return fallback
 
 
-## 技能元素：优先技能自身声明，其次施法者的攻击元素（武器赋予）
-func _skill_element(caster: Node3D, _sd) -> int:
-	var e = caster.get("attack_element")
-	return int(e) if e != null else -1
+## 技能元素：优先**技能自身声明**，其次施法者的攻击元素（武器赋予）。
+##
+## 装备参考2 里大量技能写「造成冰霜伤害」「雷电伤害」——这是技能级元素，
+## 与武器赋予的攻击元素是两回事。不接技能级的话，六把元素法杖打出来
+## 全是同一段无色伤害，元素区别整个消失。
+func _skill_element(caster: Node3D, sd = null) -> int:
+	# sd 可能是 null（老调用点）或空字典（无技能级元素）
+	if sd is Dictionary and not (sd as Dictionary).is_empty():
+		var key := str((sd as Dictionary).get("element", ""))
+		if not key.is_empty():
+			var e := _elem_from_key(key)
+			if e >= 0:
+				return e
+		# 「随机元素」：每次施法 roll 一种（装备参考2：元素洪流/元素爆发）
+		if bool((sd as Dictionary).get("random_element", false)):
+			return _rng.randi_range(0, ElementDefs.Elem.size() - 1)
+	var e2 = caster.get("attack_element")
+	return int(e2) if e2 != null else -1
+
+
+## 元素字符串（"fire"/"frost"…）→ `ElementDefs.Elem` 枚举。
+## 认不出返回 -1（调用方退回攻击元素）。
+##
+## 用枚举**名**匹配而不是硬编码数字：`Elem` 的成员顺序若调整，
+## 硬编码会静默错位（火变成冰）。
+func _elem_from_key(key: String) -> int:
+	for e in ElementDefs.Elem.values():
+		if ElementDefs.Elem.keys()[e].to_lower() == key.to_lower():
+			return e
+	return -1
 
 
 ## 读施法者当前连击数（武僧技能缩放用；取不到按 0）

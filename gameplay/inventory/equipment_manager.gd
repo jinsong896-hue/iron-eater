@@ -163,7 +163,7 @@ func _clear_equipment_skills(inst: EquipmentInstance) -> void:
 	var tpl := inst.get_template()
 	if tpl == null:
 		return
-	var d: Dictionary = EquipmentSkills.skill_of_equipment(tpl.display_name)
+	var d: Dictionary = EquipmentSkills.skill_of_equipment(tpl.display_name, int(tpl.rarity))
 	if d.is_empty():
 		return   # 这件装备不带技能，无需处理
 	var sid := str(d.get("id", ""))

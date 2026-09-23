@@ -40,7 +40,18 @@ func set_element_callback(cb: Callable) -> void:
 
 ## 施加词条。source 用于属性 modifier 的来源追踪。
 ## 已有同名词条则叠层（不超过上限）并刷新时长。
-func apply(buff_id: String, source: String = "buff", stacks: int = 1) -> Dictionary:
+##
+## `override_dur`：**覆盖词条时长**（秒）。<=0 用 BuffDefs 表里的默认值。
+##
+## **为什么需要它**：装备技能的数值是**每件不同**的——「加速」是移速 +25%、
+## 「时空加速」是 +30%、「疾风步」是 +60%，但 `BuffDefs` 里只能写一个值。
+## 若给每个数值都造一个词条，133 条技能要造上百个近义词条（维护灾难）。
+## 故改为：词条只声明**参数结构**，具体数值由施加方在 `override_params` 里给。
+##
+## `override_params`：**覆盖词条的 params**（如 `{"spd_up": 0.6}`）。
+## 覆盖后的值会被 `_sync_modifier` 与各类 total_* 读取时优先采用。
+func apply(buff_id: String, source: String = "buff", stacks: int = 1,
+		override_dur: float = 0.0, override_params: Dictionary = {}) -> Dictionary:
 	var row := BuffDefs.get_buff(buff_id)
 	if row.is_empty():
 		return {"ok": false, "reason": "未知词条 %s" % buff_id}
@@ -56,13 +67,16 @@ func apply(buff_id: String, source: String = "buff", stacks: int = 1) -> Diction
 		e["stacks"] = mini(int(e["stacks"]) + stacks, max_stacks)
 	else:
 		e["stacks"] = maxi(int(e["stacks"]), 1)
+	# 本次施加的数值覆盖（同名词条被重新施加时以**最新一次**为准）
+	if not override_params.is_empty():
+		e["params_override"] = override_params
 	# 刷新时长（永久词条 duration=0 不设剩余时间）
-	if float(row[3]) > 0.0:
+	var dur := override_dur if override_dur > 0.0 else float(row[3])
+	if dur > 0.0:
 		# **控制类词条按时长减免**（装备参考2 的 `ctrl_resist_pct` 通道）。
 		# 「受到的控制效果持续时间减少 30%」这类装备此前零消费者——
 		# 加了没效果。只在**控制类**上生效（减速/易伤等不受影响，
 		# 规格明写"控制效果"）。
-		var dur := float(row[3])
 		if int(row[2]) == BuffDefs.Kind.CONTROL:
 			dur *= (1.0 - clampf(_ctrl_resist(), 0.0, 0.90))
 		e["remaining"] = dur
@@ -72,6 +86,17 @@ func apply(buff_id: String, source: String = "buff", stacks: int = 1) -> Diction
 	e["source"] = source
 	_sync_modifier(buff_id)
 	return {"ok": true, "stacks": e["stacks"]}
+
+
+## 该词条的**生效参数**：优先本次施加时的覆盖值，否则用 BuffDefs 表里的。
+##
+## 所有读 params 的地方（`_sync_modifier` 与各 `total_*`）都必须走这里，
+## 否则覆盖值只在属性 modifier 上生效、在易伤/减伤结算上失效——两套口径。
+func params_of_active(buff_id: String) -> Dictionary:
+	var e = _buffs.get(buff_id, null)
+	if e != null and e.has("params_override"):
+		return e["params_override"]
+	return BuffDefs.params_of(buff_id)
 
 
 ## 移除词条
@@ -181,7 +206,7 @@ func total_vulnerability() -> float:
 		var e: Dictionary = _buffs[id]
 		if str(e.get("impl", "")) not in ["stat", "dot"]:
 			continue
-		var p: Dictionary = BuffDefs.params_of(id)
+		var p: Dictionary = params_of_active(id)
 		v += float(p.get("vuln", 0.0)) * int(e.get("stacks", 1))
 	# 元素层数自带易伤：毒蚀每层 +1%（分册 4.x，与词条「毒蚀」同口径）。
 	# 以元素层数为唯一真相——不再另挂一份 poison_rot 词条，避免两份状态漂移。
@@ -195,7 +220,7 @@ func total_vulnerability() -> float:
 func total_heal_reduction() -> float:
 	var v := 0.0
 	for id in _buffs:
-		var p: Dictionary = BuffDefs.params_of(id)
+		var p: Dictionary = params_of_active(id)
 		v += float(p.get("heal_down", 0.0))
 	return clampf(v, 0.0, 1.0)
 
@@ -204,7 +229,7 @@ func total_heal_reduction() -> float:
 func total_damage_reduction() -> float:
 	var v := 0.0
 	for id in _buffs:
-		var p: Dictionary = BuffDefs.params_of(id)
+		var p: Dictionary = params_of_active(id)
 		v += float(p.get("dmg_taken_down", 0.0))
 	return clampf(v, 0.0, 0.9)
 
@@ -214,7 +239,7 @@ func total_slow() -> float:
 	var v := 0.0
 	for id in _buffs:
 		var e: Dictionary = _buffs[id]
-		var p: Dictionary = BuffDefs.params_of(id)
+		var p: Dictionary = params_of_active(id)
 		v += float(p.get("slow", 0.0)) * int(e.get("stacks", 1))
 	# 寒霜层数自带减速：每层 -25%（分册 7.3）。
 	# 寒霜层数存在 _elem_stacks 而非 _buffs，必须单独叠加。
@@ -233,7 +258,7 @@ func _has_control_buff(buff_id: String) -> bool:
 func is_controlled() -> bool:
 	for id in _buffs:
 		if int((_buffs[id] as Dictionary).get("kind", -1)) == BuffDefs.Kind.CONTROL:
-			var p: Dictionary = BuffDefs.params_of(id)
+			var p: Dictionary = params_of_active(id)
 			if bool(p.get("root", false)) or bool(p.get("stun", false)):
 				return true
 	return _time < _frozen_until
@@ -373,7 +398,52 @@ func tick(delta: float) -> Dictionary:
 		_clear_modifier(id)
 		_buffs.erase(id)
 
-	return {"dot": dot_total + elem_dot, "elem_dot": elem_dot, "expired": expired}
+	# 「以血换攻」（策划 3.x 血怒：「每秒失去 1% 最大生命、按失去量换
+	# 等量攻击力」）。**必须在扣血之前算**——攻击力加成取决于本秒
+	# 实际失去的血量，先扣再算会把「已扣完的血」也算进加成里。
+	var drain_hp := 0.0
+	for id in _buffs:
+		var e2: Dictionary = _buffs[id]
+		if str(e2.get("impl", "")) != "drain":
+			continue
+		var p2: Dictionary = params_of_active(id)
+		var pct := float(p2.get("hp_drain_pct", 0.0))
+		if pct <= 0.0:
+			continue
+		var max_hp := _target_max_hp()
+		var lost: float = max_hp * pct * delta
+		if lost <= 0.0:
+			continue
+		# **直接扣血**，而不是把数值返回给调用方。
+		#
+		# 返回给调用方看似更"干净"，但 `player.gd` 与 `enemy_base.gd` 都只读
+		# 返回值的 `dot` 键——新增的 `drain_hp` 没人消费，于是血怒挂了词条、
+		# 攻击力涨了、**血却一点没掉**（实测）。扣血逻辑内聚在这里，
+		# 两端宿主都自动生效，也不必再改两处 tick 调用点。
+		if _target != null and _target.has_method("take_damage"):
+			_target.call("take_damage", lost)
+		drain_hp += lost
+		# 攻击力加成：把本秒失去的血量挂成一次 modifier（下个 tick 会
+		# 被 `_sync_modifier` 用新值覆盖，故不必手工撤销）
+		if bool(p2.get("atk_from_drain", false)):
+			var src := "drain:%s" % id
+			_target.call("remove_modifiers", src)
+			_target.call("add_modifier", src, AttributeSystem.Stat.ATK, lost, 0.0)
+
+	return {"dot": dot_total + elem_dot, "elem_dot": elem_dot,
+		"expired": expired, "drain_hp": drain_hp}
+
+
+## 宿主最大生命（血怒按最大生命比例扣血用）
+func _target_max_hp() -> float:
+	if _target == null:
+		return 0.0
+	if _target.has_method("stat_value"):
+		var v = _target.call("stat_value", "hp")
+		if v != null:
+			return float(v)
+	var mh = _target.get("max_hp")
+	return float(mh) if mh != null else 0.0
 
 
 var _elem_decay_accum := {}
@@ -417,7 +487,7 @@ func _sync_modifier(buff_id: String) -> void:
 	var impl := BuffDefs.impl_of(buff_id)
 	if impl != "stat":
 		return
-	var p := BuffDefs.params_of(buff_id)
+	var p := params_of_active(buff_id)
 	var src := "buff:%s" % buff_id
 	_target.call("remove_modifiers", src)
 	var n := float(stacks_of(buff_id))

@@ -1097,6 +1097,16 @@ func _compute_basic_damage(multiplier: float, knockback: float,
 	var true_pct := float(sp.get("true_dmg_pct", 0.0))
 	if true_pct > 0.0:
 		result.damage += atk * multiplier * true_pct
+	# **装备词条·攻击附带元素伤害**（装备参考2：`BONUS_ELEMENT`）。
+	#
+	# 规格里 11+ 件装备带这类词条（「攻击附带 50% 火焰伤害」）。
+	# 旧实现把它压成了 `[Stat.ATK, 0.5]`——六把元素法杖数据一字不差，
+	# 元素区别整个消失。这里按规格语义结算：**额外多出的一段元素伤害**，
+	# 本体伤害照常（不替代）。
+	#
+	# 基准取 `atk`（武器攻击力）：规格的「攻击附带 N%」都是以攻击力为基准。
+	# 目标的元素抗性由 `elem_resist` 参数传入（与本体同口径）。
+	result.damage += _bonus_element_total(atk, elem_resist)
 	# 法术部分不可暴击（分册 2.3）
 	var can_crit := attack_element < 0 or ElementDefs.can_crit(attack_element)
 	var crit := _force_crit or (can_crit and GameManager.rng.randf() < crt)
@@ -1363,6 +1373,30 @@ func _equip_special_mods() -> Dictionary:
 	if em == null or not em.has_method("special_modifiers"):
 		return {}
 	return em.special_modifiers()
+
+
+## 当前生效的**技能增益**词条提供的修饰量（装备参考2 的 buff 类技能）。
+##
+## **为什么需要单独一条通道**：装备技能的自身增益（减伤/闪避/格挡/反伤）
+## 走的是 `BuffHolder`，而不是装备的 `special_modifiers`（那是**穿戴**装备
+## 的常驻加成，与**施放**技能得到的限时状态是两回事）。
+## 例：「大地守护」施放后 5 秒内减伤 30%——只在 buff 生效期间算，
+## 不能写进装备的常驻修饰量。
+##
+## 返回 `{dr, dodge, block, reflect}`（缺省 0.0）。
+func _skill_buff_mods() -> Dictionary:
+	var out := {"dr": 0.0, "dodge": 0.0, "block": 0.0, "reflect": 0.0}
+	if buffs == null:
+		return out
+	if buffs.has_method("total_damage_reduction"):
+		out["dr"] = float(buffs.call("total_damage_reduction"))
+	for id in buffs.call("active_ids"):
+		var p: Dictionary = buffs.call("params_of_active", str(id))
+		out["dodge"] = float(out["dodge"]) + float(p.get("dodge_up", 0.0))
+		if bool(p.get("block_all", false)):
+			out["block"] = 1.0
+		out["reflect"] = float(out["reflect"]) + float(p.get("reflect_up", 0.0))
+	return out
 
 
 ## 生命偷取回血（分册第 5 章通用词条）。治疗量受「受到治疗 -%」影响。
@@ -1770,6 +1804,11 @@ func take_true_damage(amount: float) -> void:
 func _roll_avoidance() -> bool:
 	var sp: Dictionary = _equip_special_mods()
 	var chance: float = float(sp.get("block_pct", 0.0)) + float(sp.get("dodge_pct", 0.0))
+	# 技能增益也能给闪避/格挡（装备参考2：疾风步「闪避+30%」、
+	# 反击姿态「3 秒内格挡所有攻击」）。与装备通道**相加**——
+	# 两者来源不同（穿戴 vs 施法），同时存在时理应都算。
+	var sb: Dictionary = _skill_buff_mods()
+	chance += float(sb["dodge"]) + float(sb["block"])
 	if chance <= 0.0:
 		return false
 	chance = clampf(chance, 0.0, 0.75)
@@ -1846,6 +1885,15 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	var combo_dr := _combo_damage_reduction()
 	if combo_dr > 0.0:
 		amount *= 1.0 - combo_dr
+	# 技能增益·减伤（装备参考2：大地守护「获得 30% 减伤」、
+	# 石肤「20% 减伤」、钢铁之躯「50% 减伤」）。
+	#
+	# **此前玩家侧完全没有这条**：`total_damage_reduction()` 只在
+	# `_apply_hit` 里对**敌人**用过（玩家打敌人时读敌人的减伤），
+	# 玩家自己身上的减伤词条零消费——技能挂了 buff 却不减伤。
+	var skill_dr: float = float(_skill_buff_mods()["dr"])
+	if skill_dr > 0.0:
+		amount *= 1.0 - skill_dr
 	GameManager.attributes.take_damage(amount)
 	EventBus.player_hit.emit(amount, global_position)
 	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")
@@ -1866,8 +1914,13 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 ## 伤害反弹：把本次受到伤害的 N% 打回攻击者。
 ## 用 take_damage 回流，故对方的护甲/减伤照常参与结算——反弹是「以对方的
 ## 规则打对方」，不是真实伤害。
+##
+## **两个来源相加**：
+##   · 装备常驻 `reflect_pct`（SPECIAL_STAT 104，穿戴即生效）
+##   · 技能限时 buff 的 `reflect_up`（装备参考2「3 秒内反弹 100% 伤害」）
 func _reflect_damage(attacker: Node3D, amount: float) -> void:
 	var pct: float = float(_equip_special_mods().get("reflect_pct", 0.0))
+	pct += float(_skill_buff_mods()["reflect"])
 	if pct <= 0.0:
 		return
 	var back: float = amount * pct
@@ -2022,3 +2075,28 @@ func _tick_stealth(delta: float) -> void:
 	_stealth_timer = maxf(_stealth_timer - delta, 0.0)
 	if _stealth_timer <= 0.0:
 		exit_stealth()
+
+
+## 已装备装备提供的「攻击附带元素伤害」总和（装备参考2：BONUS_ELEMENT）。
+##
+## **遍历复数表而不是首项**：一件装备可能有多条自有词条
+##（规格里约 100 件是复合的），只读 `own_affix` 会漏掉后半条。
+func _bonus_element_total(base: float, target_resist: float) -> float:
+	var em = GameManager.equipment_manager
+	if em == null:
+		return 0.0
+	var total := 0.0
+	for inst in em.get_equipped().values():
+		if inst == null:
+			continue
+		var tpl = inst.get_template()
+		if tpl == null:
+			continue
+		for a: AffixData in tpl.own_affixes:
+			if a == null or a.operation != AffixData.Operation.BONUS_ELEMENT:
+				continue
+			# 数值随「同件融合升级」成长（与其它自有词条同口径）
+			var ratio: float = float(a.value) * (1.0 + float(inst.same_fuse_level(tpl.id)) * 0.25)
+			total += DamagePipeline.bonus_element_damage(
+				base, ratio, str(a.element_key), target_resist)
+	return total

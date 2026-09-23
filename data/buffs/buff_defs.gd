@@ -200,6 +200,24 @@ const BUFFS := [
 	["atk_up_self", "强化·技能", Kind.ATTACK,  6.0, 0, "技能给予的攻击提升", "stat", {"atk_up": 0.15}],
 	["guard_self",  "守护·技能", Kind.SHIELD,  5.0, 0, "技能给予的减伤", "stat", {"dmg_taken_down": 0.20}],
 	["heal_self",   "治愈·技能", Kind.RESOURCE, 0.0, 0, "技能给予的回复（实际量由技能 heal_pct 决定）", "special", {"regen": 0.0}],
+	# ---------- 技能自身增益的**通用载体** ----------
+	#
+	# 上面 6 条把数值**写死在表里**（0.30 / 0.25 / 0.15），但装备技能是
+	# **每件数值不同**的：「加速」移速 +25%、「时空加速」+30%、「疾风步」
+	# +60%。若按数值造词条，133 条技能要造上百个近义词条。
+	#
+	# 故改用这一条**结构词条**：params 里列全所有可能的自身增益键
+	#（全 0），实际数值由 `BuffHolder.apply` 的 `override_params` 传入
+	#（见 `SkillSystem._apply_extra_self_buffs`）。
+	# `duration` 写 1.0 只是占位——调用方必须传 `override_dur`。
+	["eq_skill_buff", "技能增益", Kind.GENERIC, 1.0, 0, "装备技能提供的限时自身增益（数值由技能指定）", "stat",
+		{"spd_up": 0.0, "aspd_up": 0.0, "atk_up": 0.0, "dmg_taken_down": 0.0,
+		 "dodge_up": 0.0, "reflect_up": 0.0, "block_all": false}],
+	# 血怒的「以血换攻」载体（策划 3.x）：
+	# 每秒失去 `hp_drain_pct` × 最大生命，`atk_from_drain` 为真时
+	# 把失去量**等量**加进攻击力（见 BuffHolder.tick 的 drain 分支）。
+	["eq_blood_rage", "以血换攻", Kind.ATTACK, 1.0, 0, "每秒失去最大生命的一部分换等量攻击力", "drain",
+		{"hp_drain_pct": 0.01, "atk_from_drain": true}],
 ]
 ## 单独列出是为了让「词条表 == 文档 81 条」这条不变量仍可被测试校验。
 ## 不属于策划文档 81 条的**扩展词条**（技能专用 + 装备叠层）。
@@ -221,7 +239,8 @@ const SKILL_ONLY_IDS := ["rage_haste", "rage_fury", "rage_dance_aspd",
 	"ps_armor_train", "ps_crit_train", "ps_cdr_train", "ps_elem_resist",
 	"ps_pickup", "ps_exp",
 	# 装备技能的自身增益（buff 类技能的效果载体，见 BUFFS 表尾）
-	"shield_up", "haste_self", "swift_self", "atk_up_self", "guard_self", "heal_self"]
+	"shield_up", "haste_self", "swift_self", "atk_up_self", "guard_self", "heal_self",
+	"eq_skill_buff", "eq_blood_rage"]
 
 ## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
 ## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），

@@ -30,6 +30,15 @@ var _follows := false
 var color := Color(0.3, 0.9, 0.2, 0.4)
 var _elapsed := 0.0
 var _tick_accum := 0.0
+## 每跳结算回调 `func(zone: DamageZone, node: Node3D) -> bool`。
+##
+## **返回 true 表示本次已由回调处理**，本类不再走默认的 `take_damage`
+## 裸伤害路径。装备技能的持续区域（毒雾 / 烈焰风暴 / 风暴之眼）需要
+## **完整的伤害管线**——面板 ATK × 倍率、元素叠层、暴击、伤害飘字——
+## 这些都在 `SkillSystem._deal_damage` 里，裸 `take_damage` 全都没有。
+##
+## 留空则保持旧行为（怪物陷阱用的裸伤害），两者互不影响。
+var on_tick: Callable = Callable()
 
 
 ## 生成一个伤害区域
@@ -48,6 +57,7 @@ static func spawn(data: Dictionary, parent: Node3D) -> DamageZone:
 	z._follows = z.follow != null
 	z.color = data.get("color", z.color)
 	z.position = data.get("position", Vector3.ZERO)
+	z.on_tick = data.get("on_tick", Callable())
 	parent.add_child(z)
 	z._build()
 	return z
@@ -115,13 +125,17 @@ func _process(delta: float) -> void:
 
 ## 一次结算：对目标组造成伤害，对友方组回血
 func _apply_tick() -> void:
-	if damage_per_tick > 0.0 and target_group != "":
+	if target_group != "":
 		for n in get_tree().get_nodes_in_group(target_group):
 			if not (n is Node3D):
 				continue
 			if global_position.distance_to((n as Node3D).global_position) > radius:
 				continue
-			if n.has_method("take_damage"):
+			# 技能区域：交给回调走完整伤害管线（元素/暴击/飘字）
+			if on_tick.is_valid():
+				if bool(on_tick.call(self, n)):
+					continue
+			if damage_per_tick > 0.0 and n.has_method("take_damage"):
 				n.call("take_damage", damage_per_tick)
 
 	if heal_per_tick > 0.0 and friendly_group != "":
