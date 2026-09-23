@@ -112,6 +112,13 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 
 	# 自身增益：不分 kind，任何技能都能配 self_buffs
 	_apply_self_buffs(caster, sd)
+	# **治疗与护盾结算**（装备参考2：装备技能大量带「治疗自身 N% 最大生命」
+	# /「获得吸收 N% 最大生命的护盾」）。
+	#
+	# 这两个是**按最大生命百分比**的数值型效果，与 `self_buffs` 的
+	# 固定属性词条是两回事——`self_buffs` 只能挂「+X% 属性」这类修饰量，
+	# 表达不了「回复 10% 最大生命」这种一次性结算。故单列两条通道。
+	_apply_heal_and_shield(caster, sd)
 	# 施法后回资源（策划 4.3 奥术汲取「恢复 10 点魔力」等）。
 	# 放在扣费之后：否则「消耗 30 回 10」会被算成净消耗 20 的假象——
 	# 实际是先扣后回，玩家看到的是净变化。
@@ -505,6 +512,44 @@ func _apply_target_buffs(enemy: Node3D, sd: Dictionary) -> void:
 		return
 	for b in sd.get("target_buffs", []):
 		tb.apply(str(b.get("id", "")), "skill")
+
+
+## 结算技能的**治疗**与**护盾**（按最大生命百分比）。
+##
+## 技能表字段：
+##   · `heal_pct`   —— 回复自身 `最大生命 × N`
+##   · `shield_pct` —— 获得吸收 `最大生命 × N` 的护盾
+##
+## 两者都作用在**施法者**身上（装备技能的描述都是"治疗自身"/"获得护盾"）。
+## 施法者没有对应接口时静默跳过——不报错（测试环境的替身可能没实现）。
+func _apply_heal_and_shield(caster: Node3D, sd: Dictionary) -> void:
+	if caster == null or not is_instance_valid(caster):
+		return
+	var heal_pct := float(sd.get("heal_pct", 0.0))
+	var shield_pct := float(sd.get("shield_pct", 0.0))
+	if heal_pct <= 0.0 and shield_pct <= 0.0:
+		return
+	# 取最大生命：优先玩家的 AttributeSystem（`GameManager.attributes`），
+	# 回退到施法者自己的 max_hp 字段（敌人/替身）。
+	var max_hp := 0.0
+	var gm = caster.get_node_or_null("/root/GameManager")
+	if gm != null and gm.get("attributes") != null:
+		max_hp = float(gm.attributes.max_hp)
+	if max_hp <= 0.0:
+		var mh = caster.get("max_hp")
+		if mh != null:
+			max_hp = float(mh)
+	if max_hp <= 0.0:
+		return
+
+	if heal_pct > 0.0 and gm != null and gm.get("attributes") != null:
+		var healed: float = gm.attributes.heal(max_hp * heal_pct)
+		if healed > 0.0:
+			EventBus.damage_popup.emit(caster.global_position, healed, "heal")
+
+	if shield_pct > 0.0 and caster.has_method("_add_shield"):
+		# 上限取 60%（与形态「溢出转护盾」同一口径，防止无限叠成无敌）
+		caster.call("_add_shield", max_hp * shield_pct, 0.60)
 
 
 ## 生命消耗型技能（鲜血献祭：消耗 15% 当前生命）

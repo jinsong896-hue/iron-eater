@@ -391,6 +391,17 @@ func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 	# 装备触发条件（装备参考2：「每击杀一个敌人…」类自有词条）
 	if equip_fx != null:
 		equip_fx.on_kill()
+	# 装备词条·击杀刷新冷却（`cd_refresh_pct` 通道）。
+	#
+	# 规格里有多件装备带「击杀目标后刷新所有技能冷却」/「闪避时 N% 概率
+	# 立即刷新冲刺冷却」。这个通道此前**零消费者**——装备加了也没效果。
+	# 按概率判定：概率 = 通道值（多件叠加由 special_modifiers 累加）。
+	var cd_pct: float = float(_equip_special_mods().get("cd_refresh_pct", 0.0))
+	if cd_pct > 0.0 and GameManager.rng.randf() < cd_pct:
+		reset_cooldowns()
+		if skills != null:
+			skills.reset_skill_cooldowns()
+		EventBus.message.emit("击杀刷新冷却！")
 	if GameBalance.KILL_HEAL <= 0.0:
 		return
 	if GameManager.attributes and not GameManager.attributes.is_dead():
@@ -773,6 +784,16 @@ func on_dodge_started() -> void:
 	_out_of_combat_time = 0.0
 	if ClassDefs.special_flag(class_id, form_slot, "dodge_immune_next"):
 		_dodge_immune_ready = true
+	# 装备词条·闪避刷新冲刺冷却（规格「闪避之靴：闪避时有5%概率立即刷新冲刺冷却」）。
+	# 同一个 `cd_refresh_pct` 通道，两种触发源（击杀 / 闪避）——
+	# 按规格文本归类时，凡「闪避时…刷新」的走这里，其余走击杀。
+	var cd_pct: float = float(_equip_special_mods().get("cd_refresh_pct", 0.0))
+	if cd_pct > 0.0 and GameManager.rng.randf() < cd_pct:
+		_dodge_cooldown_timer = 0.0
+		EventBus.message.emit("闪避刷新冲刺冷却！")
+	# 装备触发条件（装备参考2：「闪避时…」类自有词条）
+	if equip_fx != null:
+		equip_fx.on_dodge()
 
 
 ## 6.2 斥候「脱战 3 秒后移速 +30%」：返回当前应额外乘的移速系数。
@@ -1059,21 +1080,37 @@ func _compute_basic_damage(multiplier: float, knockback: float,
 	# 形态·护甲穿透（策划 3.5 锁链「穿刺无视 50% 护甲」、
 	# 7.1 拳师「徒手无视 5% 护甲」）。
 	target_def *= 1.0 - _basic_attack_pierce()
+	# 装备扩展修饰量（此处提前取：元素/真实伤害加成要用，见下）
+	var sp: Dictionary = _equip_special_mods()
 	var result := DamagePipeline.elemental_attack(
 		atk, multiplier, fusion_bonus + combo_bonus, target_def, attack_element,
 		elem_resist, vuln, taken_down)
 	# 元素亲和：元素伤害 +15%（分册 4.x 词条）
 	if attack_element >= 0:
 		result.damage = result.damage * (1.0 + _element_affinity_bonus())
+		# 装备词条·元素伤害 +N%（`elem_dmg_pct` 通道）。
+		# 该通道此前零消费者——「元素伤害 +8%」这类装备加了没效果。
+		# 只在**元素攻击**上生效（纯物理攻击不吃）。
+		result.damage = result.damage * (1.0 + float(sp.get("elem_dmg_pct", 0.0)))
+	# 装备词条·真实伤害 +N%（`true_dmg_pct` 通道）。
+	# 同样此前零消费者；按「附加真实伤害」处理：无视防御，直接加在总伤上。
+	var true_pct := float(sp.get("true_dmg_pct", 0.0))
+	if true_pct > 0.0:
+		result.damage += atk * multiplier * true_pct
 	# 法术部分不可暴击（分册 2.3）
 	var can_crit := attack_element < 0 or ElementDefs.can_crit(attack_element)
 	var crit := _force_crit or (can_crit and GameManager.rng.randf() < crt)
 	var total := DamagePipeline.with_crit(result.damage, crit, crd)
 	total *= _damage_multiplier
 
-	var sp: Dictionary = _equip_special_mods()
-	# 处决线：对生命低于阈值的敌人伤害 +30%（分册「处决线」）
-	var exec_line: float = float(sp.get("execute_line", 0.0))
+	# 处决线：对生命低于阈值的敌人伤害 +30%（分册「处决线」）。
+	#
+	# **键名必须是 `execute_bonus`**：`special_modifiers()` 的输出键由
+	# `EquipmentDB.SPECIAL_STAT` 的 `out` 字段决定（"execute_line" 是**输入键**，
+	# 输出键是 "execute_bonus"）。此前这里读的是 `execute_line`——
+	# 那个键在输出字典里**根本不存在**，`get` 静默返回 0.0，
+	# 于是**所有处决线装备一直无效**且不报错。
+	var exec_line: float = float(sp.get("execute_bonus", 0.0))
 	if exec_line > 0.0 and hp_ratio >= 0.0 and hp_ratio <= exec_line:
 		total *= 1.3
 	# 击退距离 +N%

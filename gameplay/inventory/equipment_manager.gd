@@ -150,6 +150,40 @@ func weapon_slot_conflict(inst: EquipmentInstance, slot: int) -> Variant:
 	return "%s与%s不能共存" % [n1, n2]
 
 
+## 装备离身时，清掉它在技能槽里占的位（装备参考2）。
+##
+## 规格：装备技能**来自装备**——「卸下装备则从池中移除
+##（若它在槽里，槽位一并清空）」。
+##
+## 不清的话：玩家卸下「火球法杖」后，技能槽里那条 `eq_火球法杖`
+## 仍在，`cast_skill` 也仍能放出来——**变成了一件没有来源的技能**。
+func _clear_equipment_skills(inst: EquipmentInstance) -> void:
+	if inst == null:
+		return
+	var tpl := inst.get_template()
+	if tpl == null:
+		return
+	var d: Dictionary = EquipmentSkills.skill_of_equipment(tpl.display_name)
+	if d.is_empty():
+		return   # 这件装备不带技能，无需处理
+	var sid := str(d.get("id", ""))
+	if sid.is_empty():
+		return
+	var gm = _game_manager()
+	if gm == null:
+		return
+	var lo = gm.get("skill_loadout")
+	if lo == null:
+		return
+	# 清掉所有装着该技能 id 的槽位
+	for i in lo.slots.size():
+		if str(lo.slots[i]) == sid:
+			lo.slots[i] = ""
+	# 若该装备技能曾被当被动学会，也一并忘掉
+	if lo.passives.has(sid):
+		lo.passives.erase(sid)
+
+
 ## 卸下装备（退回背包）
 ##
 ## **容量不足时不退回**（而不是丢弃或越界）：背包满了就拒绝卸下，
@@ -164,6 +198,8 @@ func unequip(slot: int) -> bool:
 		return false
 	# 卸下要清**全部**词条（基础 + 融合）——装备离身，两者都不该继续生效
 	_clear_all_modifiers(inst)
+	# 装备离身 → 它提供的技能也要从技能槽里撤掉（装备参考2）
+	_clear_equipment_skills(inst)
 	_equipped.erase(slot)
 	_inventory.append(inst)
 	# 卸下同理：武器槽空了，融合加成要跟着降下来
@@ -223,6 +259,7 @@ func devour(item: EquipmentInstance) -> Dictionary:
 	for slot in _equipped.keys():
 		if _equipped[slot] == item:
 			_clear_all_modifiers(item)
+			_clear_equipment_skills(item)
 			_equipped.erase(slot)
 			var bus_eq = _event_bus()
 			if bus_eq:

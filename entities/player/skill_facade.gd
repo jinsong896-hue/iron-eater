@@ -322,3 +322,9 @@ func on_hit(crit: bool) -> void:
 func on_damage_taken(amount: float) -> void:
 	if player.class_resource != null:
 		player.class_resource.on_damage_taken(amount)
+
+
+## 清空所有技能冷却（装备词条·击杀刷新冷却用）
+func reset_skill_cooldowns() -> void:
+	if _skills != null:
+		_skills.reset_cooldowns()

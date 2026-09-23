@@ -134,12 +134,16 @@ func interact_special_room() -> bool:
 ## 大规模团战下掉落物可达数百件，全量遍历是每帧的固定开销。
 ## 分桶后只查玩家所在格及邻格。
 func nearest_pickup() -> Node3D:
+	# **拾取范围可被装备放大**（装备参考2 的 `pickup_range_pct` 通道）。
+	# 该通道此前零消费者——「拾取范围 +20%」这类装备加了没效果。
+	var rng_bonus := _pickup_range_mult()
+	var range_now := PICKUP_RANGE * rng_bonus
 	var field := pickup_field()
 	if field != null:
-		return field.nearest(player.global_position, PICKUP_RANGE)
+		return field.nearest(player.global_position, range_now)
 	# 兜底：没有 PickupField（旧场景/测试直建）时退回全量遍历
 	var nearest: Node3D = null
-	var nearest_d := PICKUP_RANGE
+	var nearest_d := range_now
 	for node in get_tree().get_nodes_in_group("pickups"):
 		if not is_instance_valid(node):
 			continue
@@ -148,6 +152,18 @@ func nearest_pickup() -> Node3D:
 			nearest_d = d
 			nearest = node
 	return nearest
+
+
+## 拾取范围倍率（1.0 + 装备的 pickup_range_pct）
+func _pickup_range_mult() -> float:
+	var gm = get_node_or_null("/root/GameManager")
+	if gm == null:
+		return 1.0
+	var em = gm.get("equipment_manager")
+	if em == null or not em.has_method("special_modifiers"):
+		return 1.0
+	var sp: Dictionary = em.call("special_modifiers")
+	return 1.0 + float(sp.get("pickup_range_pct", 0.0))
 
 
 ## 当前房间的掉落物管理器（没有则返回 null）
