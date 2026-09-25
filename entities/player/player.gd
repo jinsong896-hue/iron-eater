@@ -540,10 +540,18 @@ func _start_normal_attack() -> void:
 		_finisher_armor_timer = _attack_timer
 		_spawn_armor_visual()
 	if ranged:
+		_is_ranged_attack = true
 		_perform_ranged_attack(params[1], params[2], int(params[3]), params[4])
+		_is_ranged_attack = false
 	else:
+		_is_ranged_attack = false
 		# 普攻射程 = 连段表的基础射程 + 形态加成（策划 7.1 拳师「空手射程 +0.5 米」）
-		var reach: float = float(params[2]) + _fist_reach_bonus()
+		#
+		# 装备词条·射程（`rng`）：近战缩放扇形半径。
+		# `rng` 此前**全项目零消费**——猎人长弓、铁制长枪、`gc_rng` 随机词条、
+		# 鹰眼形态的「射程 +60%」全是装饰。用户确认的语义：
+		#   近战 → 影响攻击范围；远程 → 影响子弹存活时长（见 _perform_ranged_attack）
+		var reach: float = (float(params[2]) + _fist_reach_bonus()) * _rng_mult()
 		_perform_melee_attack(params[1], reach, deg_to_rad(params[3]), params[4])
 		# 挥砍视觉：终结技（第 4 段）金色大扇形，其余白
 		if stage == combo_stages_size():
@@ -675,6 +683,31 @@ func _perform_melee_attack(multiplier: float, reach: float, half_angle: float, k
 	_finish_attack_feedback(hit_any)
 
 
+## 装备词条·射程乘区（`rng`）
+##
+## ## 为什么是「乘区」而不是绝对值
+##
+## `rng` 的基础值是 1.2~2.4（战士 1.2 / 法师 2.4），而近战射程是
+## 2.0~3.2 **米**、远程射程约 25 米——量纲对不上。若把 base 当绝对值用，
+## 1.5 × 25 会得到荒谬的 37 米。
+##
+## 故 `rng` **只取 percent 通道**（装备的 `[Stat.RNG, v, true]` 与形态的
+## `{"stat":"rng","percent":x}`），base 值仅作 UI 展示。
+## 用户已确认此语义：「没有数值上的区分，只不过远程武器的 rng
+## 一般都远大于近战武器」。
+##
+## 返回 ≥1.0 的乘区（射程只增不减——负 rng 不该让攻击打不到人）。
+func _rng_mult() -> float:
+	return 1.0 + maxf(_rng_percent(), 0.0)
+
+
+## `rng` 的百分比加成合计（装备 percent 通道 + 形态 percent）
+func _rng_percent() -> float:
+	var pct: float = GameManager.attributes.percent_of(AttributeSystem.Stat.RNG)
+	pct += ClassDefs.special_num(class_id, form_slot, "rng_pct", 0.0)
+	return pct
+
+
 ## 远程普攻：沿面朝方向发射一枚投射物
 ##
 ## ## 结算走 `_apply_hit`，不走投射物的默认路径
@@ -706,7 +739,10 @@ func _perform_ranged_attack(multiplier: float, speed: float,
 		"direction": dir,
 		"speed": speed,
 		"damage": 0.0,      # 伤害由 on_hit 接管，不用投射物自带的数值
-		"lifetime": GameBalance.RANGED_PROJECTILE_LIFETIME,
+		# 装备词条·射程（`rng`）：**远程缩放子弹存活时长**（= 射程）。
+		# 用户确认的语义：近战影响攻击范围、远程影响存活时长，无数值区分。
+		# 弹速不变、时长变长 → 飞得更远，且飞行时间同步变长（观感一致）。
+		"lifetime": GameBalance.RANGED_PROJECTILE_LIFETIME * _rng_mult(),
 		"element": ElementDamage.key_from_elem(attack_element) if attack_element >= 0 else "",
 		"pierce_count": pierce,
 		"position": global_position + dir * 0.6,
@@ -1149,14 +1185,21 @@ func _refresh_light_dark_balance() -> void:
 ## 返回 {damage, crit, push} —— 调用方据此扣血/击退/飘字。
 func _compute_basic_damage(multiplier: float, knockback: float,
 		target_def: float, elem_resist: float, vuln: float, taken_down: float,
-		hp_ratio: float, is_backstab: bool) -> Dictionary:
+		hp_ratio: float, is_backstab: bool, is_ranged: bool = false) -> Dictionary:
 	var atk := GameManager.stat_value("atk")
 	var crt := GameManager.stat_value("crt")
 	var crd := GameManager.stat_value("crd")
 	var fusion_bonus := GameManager.fusion_attack_bonus()
-	# 形态·近战伤害倍率（策划 3.2 狂战士「近战武器伤害 +20%」、
-	# 壁垒「近战 -20%」）。普攻全是近战，直接乘在倍率上。
-	multiplier *= 1.0 + ClassDefs.special_num(class_id, form_slot, "melee_dmg_pct", 0.0)
+	# 形态·远近伤害倍率（策划 3.2 狂战士「近战武器伤害 +20%」、
+	# 壁垒「近战 -20%、远程 -50%」）。
+	#
+	# **必须按武器分流**：旧代码无条件乘 `melee_dmg_pct`（注释写「普攻全是
+	# 近战」），但远程普攻也走这条路径——于是壁垒用弓时吃到的是 -20%
+	# 而不是 -50%，狂战士用弓反而 +20%。
+	if is_ranged:
+		multiplier *= 1.0 + ClassDefs.special_num(class_id, form_slot, "ranged_dmg_pct", 0.0)
+	else:
+		multiplier *= 1.0 + ClassDefs.special_num(class_id, form_slot, "melee_dmg_pct", 0.0)
 	# 形态·反击加成（策划 7.2 铁身「受伤自动反击，下次攻击 ×2.0」）。
 	# 计数器在 take_damage 里置位，这里消费一次后清掉——
 	# 策划写的是「下次攻击」，不是"永久翻倍"。
@@ -1201,6 +1244,33 @@ func _compute_basic_damage(multiplier: float, knockback: float,
 	var true_pct := float(sp.get("true_dmg_pct", 0.0))
 	if true_pct > 0.0:
 		result.damage += atk * multiplier * true_pct
+	# —— 装备词条·按**攻击来源/形状**增伤 ——
+	#
+	# 这三个通道此前**零消费**（数据里有、图鉴会显示、实际无效果）：
+	#   `ranged_dmg_pct`     远程伤害 +N%      —— 仅远程普攻
+	#   `projectile_dmg_pct` 投射物伤害 +N%    —— 远程普攻 + 技能投射物
+	#   `aoe_dmg_pct`        范围伤害 +N%      —— 范围技能（在 SkillSystem 侧接）
+	#
+	# **不要复用 `skill_system.gd` 里的 `ranged_dmg_pct`**：那读的是
+	# **职业形态**的 special 键（`_form_special_float`），与装备通道同名
+	# 但来源不同。复用它会让「壁垒形态远程 -50%」和「装备远程 +3%」
+	# 互相污染。
+	#
+	# 远程普攻同时吃 ranged + projectile（它是远程、也是投射物），
+	# 两者语义正交，叠加合理。
+	if is_ranged:
+		var src_bonus := float(sp.get("ranged_dmg_pct", 0.0)) \
+			+ float(sp.get("projectile_dmg_pct", 0.0))
+		if src_bonus > 0.0:
+			result.damage = result.damage * (1.0 + src_bonus)
+	# 装备词条·对被冻结目标增伤（`frozen_dmg_pct`）
+	#
+	# 规格：「被冻结敌人受到伤害 +10%~20%」。此前零消费。
+	# 判定用目标的 `buffs.is_frozen()`——冰冻由元素叠层（寒霜满 3 层）
+	# 或装备触发词条施加，两条链路都会写进 BuffHolder。
+	var frozen_pct := float(sp.get("frozen_dmg_pct", 0.0))
+	if frozen_pct > 0.0 and _target_is_frozen:
+		result.damage = result.damage * (1.0 + frozen_pct)
 	# **装备词条·攻击附带元素伤害**（装备参考2：`BONUS_ELEMENT`）。
 	#
 	# 规格里 11+ 件装备带这类词条（「攻击附带 50% 火焰伤害」）。
@@ -1401,8 +1471,13 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 		vuln = (tgt_buffs as BuffHolder).total_vulnerability()
 		taken_down = (tgt_buffs as BuffHolder).total_damage_reduction()
 	var hp_ratio: float = float(enemy.call("hp_ratio")) if enemy.has_method("hp_ratio") else -1.0
+	# 冻结判定（`frozen_dmg_pct` 通道用）——在读伤害前设好本次命中的上下文
+	var _tb = enemy.get("buffs")
+	_target_is_frozen = _tb != null and _tb.has_method("is_frozen") and bool(_tb.call("is_frozen"))
 	var calc := _compute_basic_damage(multiplier, knockback, target_def,
-		_target_elem_resist(enemy), vuln, taken_down, hp_ratio, _is_backstab(enemy))
+		_target_elem_resist(enemy), vuln, taken_down, hp_ratio, _is_backstab(enemy),
+		_is_ranged_attack)
+	_target_is_frozen = false   # 用完即清，避免污染下一次结算
 	var total: float = calc["damage"]
 	var crit: bool = calc["crit"]
 	var kb: float = calc["knockback"]
@@ -1537,6 +1612,12 @@ func _absorb_with_shield(amount: float) -> float:
 
 ## 加护盾，上限为 max_hp 的 cap_pct（防止无限叠成无敌）。
 func _add_shield(amount: float, cap_pct: float) -> void:
+	# 装备词条·护盾强度（`shield_power_pct`）——此前零消费。
+	#
+	# 规格里「护盾强度 +N%」「护盾获取量 +N%」共 19 条，加了没效果。
+	# 语义：**放大获得的护盾量**（不是放大上限）。上限仍由 `cap_pct` 决定，
+	# 否则「护盾强度 +50%」会顺带把 60% 上限变成 90%，等于白送一个平衡改动。
+	amount *= 1.0 + maxf(float(_equip_special_mods().get("shield_power_pct", 0.0)), 0.0)
 	var cap: float = GameManager.attributes.max_hp * clampf(cap_pct, 0.0, 1.0)
 	temp_shield = minf(temp_shield + amount, cap)
 	EventBus.damage_popup.emit(global_position, amount, "armor")
@@ -1804,6 +1885,16 @@ var _pre_hitstop_scale := 1.0    ## hitstop 前的时间缩放（保存/还原�
 var _god_mode := false           ## 无敌：跳过扣血，但保留受击反馈
 var _damage_multiplier := 1.0    ## 出手伤害倍率
 var _force_crit := false         ## 强制暴击（故意绕过 can_crit，便于观察法术暴击顿帧）
+## 本次结算的目标是否处于冻结状态（`frozen_dmg_pct` 通道用）
+##
+## **为什么用字段而不是参数**：`_compute_basic_damage` 已有 9 个参数，
+## 再加会失控；且冻结判定要读目标的 BuffHolder（节点引用），
+## 属于「本次命中的上下文」而非计算输入。由调用点在结算前设置。
+var _target_is_frozen := false
+## 本次普攻是否来自远程武器（决定 `_compute_basic_damage` 吃哪套形态倍率）
+##
+## 由 `_start_normal_attack` 在派发前置位。用字段而非参数的原因同上。
+var _is_ranged_attack := false
 
 
 ## 屏幕震动转发（实现已拆到 CameraFx）。

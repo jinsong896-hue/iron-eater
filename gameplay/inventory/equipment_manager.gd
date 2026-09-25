@@ -26,6 +26,12 @@ var _fusion_attack_bonus: float = 0.0
 ## 而 modifier 只活在内存里——不存的话读档后玩家会凭空少一大截属性
 ## （吞噬是"本局永久成长"，丢了等于白吞）。
 var _devour_modifiers: Dictionary = {}
+## 吞噬得到的**扩展通道**加成（stat >= 100 的部分）
+##
+## 与 `_devour_modifiers` 分开存：那张表是**按装备实例**记账（用于存档与
+## 逐件撤销），这张是**按通道聚合**（供 `special_modifiers()` 直接合并）。
+## 面板属性（stat < 100）不进来——它们走 `AttributeSystem`。
+var _devour_specials: Dictionary = {}
 
 
 ## 添加装备到背包
@@ -239,13 +245,30 @@ func devour(item: EquipmentInstance) -> Dictionary:
 		percent = scaled
 	else:
 		flat = scaled
-	if gm and gm.attributes:
-		gm.attributes.add_modifier(
-			"devour_%s" % item.instance_id,
-			affix.stat,
-			flat,
-			percent
-		)
+	# **按 stat 的值域分流**——这里此前有个会静默失效的 bug：
+	#
+	# `affix.stat` 有**两套值域**：
+	#   `0..10`   —— `AttributeSystem.Stat` 的面板属性（ATK/DEF/…/CRD）
+	#   `100+`    —— `EquipmentDB.SPECIAL_STAT` 的扩展通道（lifesteal/elem_dmg/…）
+	#
+	# 旧代码无条件 `attributes.add_modifier(stat, ...)`。传 `>=100` 时
+	# `AttributeSystem._base[stat]` 越界，**抛 `Out of bounds get index` 并
+	# 静默失效**——实测 346 条吞噬词条里 **245 条（71%）** 如此，
+	# 包括「生命偷取」「元素抗性」「召唤物伤害」这些本轮之前就有的通道。
+	#
+	# 现在：面板属性照旧走 AttributeSystem；扩展通道累加进 `_devour_modifiers`
+	#（那张表本来就存在、且已存档，但**此前没人消费**），
+	# 由 `special_modifiers()` 合并进汇总，从而真正生效。
+	if affix.stat >= 100:
+		_devour_specials[affix.stat] = float(_devour_specials.get(affix.stat, 0.0)) + percent + flat
+	else:
+		if gm and gm.attributes:
+			gm.attributes.add_modifier(
+				"devour_%s" % item.instance_id,
+				affix.stat,
+				flat,
+				percent
+			)
 	# 记进可存档的表——modifier 只活在内存，不记的话读档会丢
 	_devour_modifiers[item.instance_id] = {
 		"stat": affix.stat, "flat": flat, "percent": percent,
@@ -601,6 +624,15 @@ func special_modifiers() -> Dictionary:
 			else:
 				v = affix.value * inst.enhancement_mult()
 			out[out_key] = float(out[out_key]) + v
+	# **合并吞噬得到的扩展通道加成**
+	#
+	# 吞噬词条里 stat >= 100 的部分走 `_devour_specials`（见 `devour()` 的
+	# 分流说明）——它们不是面板属性，没法进 `AttributeSystem`，
+	# 但**必须在这里生效**，否则「吞噬 +1% 火焰伤害」加了没效果。
+	for stat_enum in _devour_specials:
+		var k: String = EquipmentDB.special_out_key(int(stat_enum))
+		if not k.is_empty():
+			out[k] = float(out[k]) + float(_devour_specials[stat_enum])
 	return out
 
 
@@ -866,6 +898,7 @@ func from_dict(d: Dictionary) -> void:
 		for iid in _devour_modifiers:
 			gm.attributes.remove_modifiers("devour_%s" % iid)
 	_devour_modifiers.clear()
+	_devour_specials.clear()
 
 	# 恢复已装备
 	var equipped: Dictionary = d.get("equipped", {})
@@ -885,15 +918,21 @@ func from_dict(d: Dictionary) -> void:
 
 	# 恢复吞噬加成（重新挂 modifier）
 	_devour_modifiers = d.get("devour_modifiers", {}).duplicate(true)
+	_devour_specials.clear()
 	if gm and gm.attributes:
 		for iid in _devour_modifiers:
 			var m: Dictionary = _devour_modifiers[iid]
-			gm.attributes.add_modifier(
-				"devour_%s" % iid,
-				int(m.get("stat", 0)),
-				float(m.get("flat", 0.0)),
-				float(m.get("percent", 0.0))
-			)
+			var st := int(m.get("stat", 0))
+			# 与 `devour()` 同一套分流：面板属性进 AttributeSystem，
+			# 扩展通道进 `_devour_specials`。不分流会让 stat>=100 的词条
+			# 在**读档时**抛越界并丢失。
+			if st >= 100:
+				_devour_specials[st] = float(_devour_specials.get(st, 0.0)) \
+					+ float(m.get("percent", 0.0)) + float(m.get("flat", 0.0))
+			else:
+				gm.attributes.add_modifier(
+					"devour_%s" % iid, st,
+					float(m.get("flat", 0.0)), float(m.get("percent", 0.0)))
 
 	# 已装备的词条重新生效（基础 + 融合）
 	for slot in _equipped:

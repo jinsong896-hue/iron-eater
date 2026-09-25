@@ -55,6 +55,19 @@ func apply(buff_id: String, source: String = "buff", stacks: int = 1,
 	var row := BuffDefs.get_buff(buff_id)
 	if row.is_empty():
 		return {"ok": false, "reason": "未知词条 %s" % buff_id}
+	# **异常状态抗性**（装备参考2 的 `debuff_resist_pct` 通道）——此前零消费。
+	#
+	# 语义与 `ctrl_resist_pct` **不同**，别混：
+	#   `ctrl_resist_pct`   控制类 → **缩短时长**（见下方 dur 计算）
+	#   `debuff_resist_pct` 负面类 → **概率完全抵抗**（本条）
+	#
+	# 只对**负面词条**生效（DOT/SLOW/CONTROL/VULN/WEAKEN/DISPLACE），
+	# 增益不受影响。概率上限 0.75——留 25% 保底，否则堆满抗性后
+	# 玩家对所有控制免疫，控制类敌人形同虚设。
+	if _is_debuff_kind(int(row[2])):
+		var resist := _debuff_resist()
+		if resist > 0.0 and randf() < clampf(resist, 0.0, 0.75):
+			return {"ok": false, "reason": "被异常状态抗性抵抗"}
 	var max_stacks := int(row[4])
 	if not _buffs.has(buff_id):
 		_buffs[buff_id] = {
@@ -567,3 +580,25 @@ func _ctrl_resist() -> float:
 		return 0.0
 	var sp: Dictionary = em.call("special_modifiers")
 	return float(sp.get("ctrl_resist_pct", 0.0))
+
+
+## 异常状态抗性（`debuff_resist_pct` 通道）——负面词条的**概率抵抗**
+##
+## 与 `_ctrl_resist` 同源（都从装备取），但语义不同：
+## 那个缩短控制时长，这个按概率完全免疫。只对玩家生效。
+func _debuff_resist() -> float:
+	if _target == null:
+		return 0.0
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return 0.0
+	var gm = tree.root.get_node_or_null("GameManager")
+	if gm == null:
+		return 0.0
+	var em = gm.get("equipment_manager")
+	if em == null or not em.has_method("special_modifiers"):
+		return 0.0
+	if not (_target is Node and (_target as Node).is_in_group("player")):
+		return 0.0
+	var sp: Dictionary = em.call("special_modifiers")
+	return float(sp.get("debuff_resist_pct", 0.0))

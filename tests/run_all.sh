@@ -97,6 +97,7 @@ run_scene_suite  "fixes2       (连锁切房/伤害数字)" "res://tests/test_ga
 run_scene_suite  "skill_mech   (技能机制落地)" "res://tests/test_skill_mechanics.tscn"
 run_scene_suite  "ranged_atk   (远程普攻)" "res://tests/test_ranged_attack.tscn"
 run_scene_suite  "equip_elem   (装备元素词条)" "res://tests/test_equip_element.tscn"
+run_scene_suite  "affix_wire   (词条接线)" "res://tests/test_affix_wiring.tscn"
 
 echo
 echo "=============================================="

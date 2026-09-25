@@ -508,6 +508,9 @@ func _cast_projectile(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	# 只能在这里乘：投射物一旦生成就与施法者脱钩（ProjectileSystem.spawn
 	# 只拿到一个 damage 数值，没有 caster/form 引用），出去之后没法再按形态修正。
 	var ranged_mult := 1.0 + _form_special_float(caster, "ranged_dmg_pct", 0.0)
+	# 装备词条·投射物伤害 +N%（`projectile_dmg_pct`）——此前零消费。
+	# 与上面的形态倍率**叠加**：一个来自职业形态，一个来自装备，语义正交。
+	ranged_mult *= 1.0 + _equip_affix_pct(caster, "projectile_dmg_pct")
 	# **多发**（装备参考2：冰锥术「发射 3 枚冰锥，每枚造成 60% 法强伤害」）。
 	# 旧实现只出一枚，与描述不符。多发时以扇形铺开，避免三枚叠在一条线上
 	# 打同一个目标（那等于把倍率乘了 3 倍，手感也不对）。
@@ -685,6 +688,21 @@ func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float,
 	target_def *= 1.0 - clampf(pierce, 0.0, 1.0)
 	# 形态·近战伤害倍率。技能无远近之分，统一按近战口径结算。
 	mult *= 1.0 + _form_special_float(caster, "melee_dmg_pct", 0.0)
+	# —— 装备词条·按伤害形状/来源增伤 ——
+	#
+	# 这两个通道此前**零消费**（数据里有、图鉴会显示、实际无效果）：
+	#   `aoe_dmg_pct`        范围伤害 +N%   —— 走 AOE 几何的技能
+	#   `projectile_dmg_pct` 投射物伤害 +N% —— 投射物类技能（在 _cast_projectile 接）
+	#
+	# **按 kind 判定**而不是「有没有 radius」：`cone`/`aoe`/`detonate`/`spread`
+	# 都是范围伤害，`pull`/`multi_hit`/`teleport` 是对单，不该吃范围加成。
+	if _kind_is_aoe(str(sd.get("kind", ""))):
+		mult *= 1.0 + _equip_affix_pct(caster, "aoe_dmg_pct")
+	# 装备词条·陷阱伤害 +N%（`trap_dmg_pct`）——此前零消费。
+	# 陷阱是「范围伤害」的子集，故**两者叠加**：陷阱技能同时吃
+	# aoe_dmg_pct 与 trap_dmg_pct（语义正交——一个是形状、一个是来源）。
+	if bool(sd.get("is_trap", false)):
+		mult *= 1.0 + _equip_affix_pct(caster, "trap_dmg_pct")
 	var result := DamagePipeline.physical(atk, mult, 0.0, target_def)
 	var crt := _stat(caster, "crt", 0.05)
 	var crd := _stat(caster, "crd", 0.5)
@@ -975,6 +993,31 @@ func _game_manager() -> Node:
 	if tree and tree.root:
 		return tree.root.get_node_or_null("GameManager")
 	return null
+
+
+## 读**装备通道**的某个百分比修饰量（如 `aoe_dmg_pct` / `projectile_dmg_pct`）
+##
+## **不要与 `_form_special_float` 混用**：后者读的是**职业形态**的 special 键。
+## 两者有同名键（`ranged_dmg_pct` 既存在于形态、也存在于装备），
+## 但来源与语义都不同——混用会让「壁垒形态远程 -50%」和
+## 「装备远程 +3%」互相污染。
+func _equip_affix_pct(caster: Node3D, key: String) -> float:
+	var gm := _game_manager()
+	if gm == null:
+		return 0.0
+	var em = gm.get("equipment_manager")
+	if em == null or not em.has_method("special_modifiers"):
+		return 0.0
+	var sp: Dictionary = em.call("special_modifiers")
+	return float(sp.get(key, 0.0))
+
+
+## 该 kind 是否属于「范围伤害」（吃 `aoe_dmg_pct`）
+##
+## 判据是**几何形状**：以一点/一扇形/一区域覆盖多个目标。
+## `pull`（拉单个）/`multi_hit`（打单个多次）/`teleport`（位移）不算范围。
+func _kind_is_aoe(kind: String) -> bool:
+	return kind in ["aoe", "cone", "detonate", "spread"]
 
 
 ## 召唤类技能（装备参考2：狼灵/护卫/元素灵）。

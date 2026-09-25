@@ -65,6 +65,20 @@ func remove_modifiers(source: String) -> void:
 	_recalc_hp()
 
 
+## 某项属性的**百分比加成合计**（不含 flat、不含 base）
+##
+## 为什么需要它：`get_value` 返回的是最终值（`base + flat + base×percent`），
+## 而某些场景要的是**纯百分比乘区**——例如射程（`rng`）：
+## 它的 base 是 1.2~2.4 的占位值，与「米」不同量纲，直接拿 `get_value`
+## 当倍率会荒谬。这类通道只该取 percent 部分。
+func percent_of(stat: int) -> float:
+	var pct := 0.0
+	for m in _modifiers:
+		if m.stat == stat:
+			pct += float(m.get("percent", 0.0))
+	return pct
+
+
 func take_damage(amount: float) -> void:
 	hp = maxf(hp - amount, 0.0)
 
