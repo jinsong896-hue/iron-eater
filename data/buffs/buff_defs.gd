@@ -163,6 +163,17 @@ const BUFFS := [
 	["gen_sustain_1", "续航·灭杀回复", Kind.GENERIC, 6.0, 0, "击杀时回复生命", "special", {"on_kill_heal": 0.05}],
 	["gen_sustain_2", "续航·受击减伤", Kind.GENERIC, 6.0, 0, "受到伤害降低", "stat", {"dmg_taken_down": 0.15}],
 	["gen_sustain_3", "续航·脱战回复", Kind.GENERIC, 10.0, 0, "脱战时持续回复", "special", {"regen": 0.02}],
+	# ---------- 通用控制/免疫（2026-09-24 补） ----------
+	#
+	# **为什么补**：装备表里已有 `[[2, "slow", ...]]` 与 `[[2, "bonus_gold", ...]]`
+	# 的引用，但 BuffDefs 里**根本没有这两个 id**——施加时会静默失败
+	#（`BuffHolder.apply` 查不到定义就 return），玩家看不出任何异常。
+	# 同时新补的条件型词条需要「免疫控制」「免疫减速」两个状态载体。
+	["slow",         "减速", Kind.SLOW, 3.0, 0, "移速 -25%", "stat", {"slow": 0.25}],
+	["bonus_gold",   "财运", Kind.GENERIC, 0.0, 0, "金币获取提升", "special", {"gold_gain": 0.10}],
+	# 免疫控制：`cc_immune` 已被 `adamant`（金刚体）使用，这里复用同一参数键。
+	["control_immune", "免疫控制", Kind.GENERIC, 3.0, 0, "期间免疫控制效果", "special", {"cc_immune": true}],
+	["slow_immune",    "免疫减速", Kind.GENERIC, 3.0, 0, "期间免疫减速效果", "special", {"slow_immune": true}],
 	# ---------- 装备叠层型（装备参考2：逐层成长的词条） ----------
 	#
 	# 装备设计里大量出现「每层 +N%…（最多 N 层）」的成长型自有词条。
@@ -240,7 +251,10 @@ const SKILL_ONLY_IDS := ["rage_haste", "rage_fury", "rage_dance_aspd",
 	"ps_pickup", "ps_exp",
 	# 装备技能的自身增益（buff 类技能的效果载体，见 BUFFS 表尾）
 	"shield_up", "haste_self", "swift_self", "atk_up_self", "guard_self", "heal_self",
-	"eq_skill_buff", "eq_blood_rage"]
+	"eq_skill_buff", "eq_blood_rage",
+	# 通用控制/免疫（2026-09-24 补：装备表已引用 slow/bonus_gold 但表中缺失，
+	# 以及新条件型词条需要的免疫载体。见 BUFFS 表内说明）
+	"slow", "bonus_gold", "control_immune", "slow_immune"]
 
 ## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
 ## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），

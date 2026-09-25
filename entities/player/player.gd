@@ -1182,10 +1182,20 @@ func _compute_basic_damage(multiplier: float, knockback: float,
 	# 元素亲和：元素伤害 +15%（分册 4.x 词条）
 	if attack_element >= 0:
 		result.damage = result.damage * (1.0 + _element_affinity_bonus())
-		# 装备词条·元素伤害 +N%（`elem_dmg_pct` 通道）。
-		# 该通道此前零消费者——「元素伤害 +8%」这类装备加了没效果。
-		# 只在**元素攻击**上生效（纯物理攻击不吃）。
-		result.damage = result.damage * (1.0 + float(sp.get("elem_dmg_pct", 0.0)))
+		# 装备词条·元素增伤。
+		#
+		# **按攻击元素取对应通道**：全局 `elem_dmg_pct` 只对应规格里
+		# 「元素伤害增加 N%」的全元素写法；具体元素（「火焰伤害增加 2%」）
+		# 走各自的 `fire_dmg_pct` 等键。
+		#
+		# 旧实现把所有具体元素塌缩进 `elem_dmg_pct`——六系法杖的吞噬词条
+		# 因此**一字不差**，元素区别在数据层就没了。现在两者叠加：
+		# 全局 + 对应元素，语义正交（「元素伤害+5%」与「火焰伤害+3%」
+		# 同时装应共生效）。
+		var elem_dmg_bonus := float(sp.get("elem_dmg_pct", 0.0))
+		elem_dmg_bonus += _element_dmg_bonus_for(attack_element, sp)
+		if elem_dmg_bonus > 0.0:
+			result.damage = result.damage * (1.0 + elem_dmg_bonus)
 	# 装备词条·真实伤害 +N%（`true_dmg_pct` 通道）。
 	# 同样此前零消费者；按「附加真实伤害」处理：无视防御，直接加在总伤上。
 	var true_pct := float(sp.get("true_dmg_pct", 0.0))
@@ -1922,11 +1932,45 @@ func _roll_avoidance() -> bool:
 func take_elemental_damage(amount: float, elem: int, from: Node3D = null) -> void:
 	# 装备·元素减伤（装备参考2 扩充通道）：elem >= 0 才算元素伤害。
 	# **只对元素伤害生效**——物理伤害不该被「元素抗性」减免。
+	#
+	# **按来袭元素取对应抗性**：全局 `elem_resist_pct` 对应规格里
+	# 「元素抗性 N%」的全元素写法；具体元素（「受到火焰伤害 -3%」）
+	# 走各自的 `fire_resist_pct` 等键。两者叠加，语义正交。
 	if elem >= 0:
-		var er: float = float(_equip_special_mods().get("elem_resist_pct", 0.0))
+		var sp: Dictionary = _equip_special_mods()
+		var er := float(sp.get("elem_resist_pct", 0.0))
+		er += _element_resist_for(elem, sp)
 		if er > 0.0:
 			amount *= 1.0 - clampf(er, 0.0, 0.8)
 	take_damage(amount, from)
+
+
+## 某元素对应的增伤通道值（`sp` 是 `_equip_special_mods()` 的输出）
+##
+## 元素枚举 → 键名的映射集中在这里，避免调用点各写一份 switch。
+## 暗影（shadow）**不是六元素**——名词设计分册只定义火冰雷土风毒，
+## 暗影只有增伤/抗性，不参与元素叠层。故它不在 `ElementDefs` 里，
+## 由 `ElementDamage` 单独映射。
+func _element_dmg_bonus_for(elem: int, sp: Dictionary) -> float:
+	var key := _element_key_of(elem)
+	if key.is_empty():
+		return 0.0
+	return float(sp.get("%s_dmg_pct" % key, 0.0))
+
+
+## 某元素对应的抗性通道值
+func _element_resist_for(elem: int, sp: Dictionary) -> float:
+	var key := _element_key_of(elem)
+	if key.is_empty():
+		return 0.0
+	return float(sp.get("%s_resist_pct" % key, 0.0))
+
+
+## 元素枚举 → 通道键前缀（fire/frost/static/earth/wind/poison/shadow）
+func _element_key_of(elem: int) -> String:
+	if elem < 0:
+		return ""
+	return ElementDamage.key_from_elem(elem)
 
 
 func take_damage(amount: float, from: Node3D = null) -> void:

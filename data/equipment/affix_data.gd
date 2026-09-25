@@ -24,7 +24,10 @@ enum Operation {
 	STACK_GAIN,     ## 事件触发时叠层（层数由 BuffHolder 记账）
 	PERIODIC,       ## 周期性效果（如「每 5 秒获得 1 秒隐身」）
 	CHARGE,         ## 蓄力/储存（如「静止时每秒储存 15% 攻击力」）
+	GRANT_SKILL,    ## **提供主动技能**（装备参考2：133 件装备的自有词条就是技能本身）
 }
+
+## `GRANT_SKILL` 专用：该词条提供的技能 id（对应 `EquipmentSkills` 里的 `eq_*`）
 
 ## **触发条件**（装备参考2 规格）。
 ##
@@ -52,6 +55,21 @@ enum Trigger {
 	LOW_HP,         ## 生命低于阈值（「生命<50% 时减伤」）
 	STATIONARY,     ## 静止时（「静止不动时每秒储存攻击力」）
 	ON_ROOM_ENTER,  ## 进入新房间（「进入新房间后…」）
+	# —— 2026-09-24 补全（条件型词条实测需要，见 ai/元素与自有词条重做计划.md）——
+	#
+	# 这批来自「装备参考2」里**大量**被旧生成器静默丢弃的条件词条
+	#（旧 `_RE_SKILL_NOTE` 正则把带「…时」的整条吃掉）。
+	ON_SHIELD_BREAK,  ## 护盾被击破时（11 条：「对周围造成 N% 攻击力伤害」等）
+	SHIELD_UP,        ## 护盾存在期间（7 条：「护盾存在时攻击 +N%」）
+	ON_TRAP_TRIGGER,  ## 陷阱触发时（2 条）
+	ON_SUMMON_ALIVE,  ## 召唤物/图腾存活期间（3 条）
+	ON_SKILL_CAST,    ## 施放技能/施法后（5 条：「净化同时…」「治疗同时…」）
+	ON_SPRINT,        ## 冲刺/疾跑期间（「疾跑期间闪避 +N%」）
+	ON_TAUNT,         ## 嘲讽期间（「嘲讽期间受到伤害减少 N%」）
+	ON_BLOCK_STANCE,  ## 格挡/反击姿态期间（「反击姿态期间受到伤害减少 N%」）
+	ON_WHIRLWIND,     ## 旋风斩期间（「旋风斩期间移速 +N%」）
+	ON_TIME_SLOW,     ## 时间减缓期间（「时间减缓期间自身攻速 +N%」）
+	ON_FRENZY,        ## 荆棘爆发/狂暴期间（「荆棘爆发期间免疫控制」）
 }
 
 ## 触发条件的中文名（供 UI 显示）
@@ -70,6 +88,17 @@ const TRIGGER_NAMES := {
 	Trigger.LOW_HP: "低血时",
 	Trigger.STATIONARY: "静止时",
 	Trigger.ON_ROOM_ENTER: "进房时",
+	Trigger.ON_SHIELD_BREAK: "护盾破时",
+	Trigger.SHIELD_UP: "有护盾时",
+	Trigger.ON_TRAP_TRIGGER: "陷阱触发",
+	Trigger.ON_SUMMON_ALIVE: "召唤物在场",
+	Trigger.ON_SKILL_CAST: "施法时",
+	Trigger.ON_SPRINT: "冲刺期间",
+	Trigger.ON_TAUNT: "嘲讽期间",
+	Trigger.ON_BLOCK_STANCE: "格挡期间",
+	Trigger.ON_WHIRLWIND: "旋风斩期间",
+	Trigger.ON_TIME_SLOW: "减速期间",
+	Trigger.ON_FRENZY: "狂暴期间",
 }
 
 @export var id: StringName = &""
@@ -107,6 +136,10 @@ const TRIGGER_NAMES := {
 # —— 触发型专属字段（operation == TRIGGER_BUFF 时有效）——
 ## 要施加的 BuffDefs 词条 id（如 "stun" / "armor_break" / "blind" / "disarm"）
 @export var trigger_buff: String = ""
+## `GRANT_SKILL` 专用：该词条提供的技能 id（对应 `EquipmentSkills` 的 `eq_*`）
+@export var granted_skill: String = ""
+## `GRANT_SKILL` 专用：技能显示名（供 UI 直接展示，免得再查一次技能表）
+@export var granted_skill_name: String = ""
 ## 触发概率（0~1）。分册给的是区间（如 3%~10%），具体值由调用方按稀有度取。
 @export var trigger_chance: float = 0.0
 ## 覆盖词条时长（秒）。<=0 表示用 BuffDefs 表里的默认时长。
@@ -168,6 +201,9 @@ func is_stat() -> bool:
 
 ## 描述文本
 func description() -> String:
+	if operation == Operation.GRANT_SKILL:
+		return "提供主动技能【%s】" % (
+			granted_skill_name if not granted_skill_name.is_empty() else granted_skill)
 	if is_trigger():
 		var bname: String = trigger_buff
 		var row: Array = BuffDefs.get_buff(trigger_buff)

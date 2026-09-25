@@ -634,16 +634,20 @@ func test_white_equipment_db() -> void:
 	# （红装原为「仅占位不生成」，但第 6 层起 Boss 保底红装、
 	#   池空会回退白装，故按同系数生成占位红装——见 equipment_db 注释）
 	#
-	# **2026-09-22 起另加策划「装备参考2」筛选池 188 件**（CURATED_TABLE）：
+	# **2026-09-22 起另加策划「装备参考2」筛选池**（CURATED_TABLE）：
 	# 那是策划逐件设计的装备，与占位克隆并存（id 前缀 G/B/P/O 不冲突）。
-	# 故总数 = 193 + 188 = 381；策划池的数量按稀有度分布不均
-	#（绿 36 / 蓝 64 / 紫 51 / 橙 37），下面的断言改为**下限**而非等式。
+	# 故总数 = 193 + 策划池；策划池的数量按稀有度分布不均
+	#（绿 / 蓝 / 紫 / 橙），下面的断言改为**下限**而非等式。
+	#
+	# **2026-09-24 起策划池为 346**：原 349 里有 3 行是策划文档的
+	# 模板/示例文本（G018 守护护符、G050 真实伤害护符、P064 伤害储存护符），
+	# 不是真装备，生成器已跳过（见 `_is_placeholder_row`）。
 	var white_count: int = EDB.get_templates_by_rarity(ED.Rarity.WHITE).size()
 	_check(white_count == EDB.WHITE_COUNT, "白装为基础款 %d 件" % EDB.WHITE_COUNT, [white_count])
 	_check(white_count == 13, "白装 13 件（4 武器 + 6 护甲 + 3 饰品）", [white_count])
-	_check(EDB.template_count() == 542,
-		"模板总数 = 542（193 占位克隆 + 349 策划筛选池）", [EDB.template_count()])
-	_check(EDB.CURATED_TABLE.size() == 349, "策划筛选池 349 件", [EDB.CURATED_TABLE.size()])
+	_check(EDB.template_count() == 539,
+		"模板总数 = 539（193 占位克隆 + 346 策划筛选池）", [EDB.template_count()])
+	_check(EDB.CURATED_TABLE.size() == 346, "策划筛选池 346 件", [EDB.CURATED_TABLE.size()])
 
 	# 稀有度阶梯：种类数量 紫 > 蓝 >= 橙 > 绿 > 白
 	var n_green: int = EDB.get_templates_by_rarity(ED.Rarity.GREEN).size()

@@ -81,12 +81,21 @@ const SP := {
 	"ctrl_resist": 112, "cd_refresh": 113, "drop_rate": 114, "pickup_range": 115,
 	"summon_dmg": 116, "elem_dmg": 117, "true_dmg": 118, "exp_gain": 119,
 	"summon_limit": 120,
+	# 2026-09-24：元素拆分 + 非元素维度（见 EquipmentDB.SPECIAL_STAT）
+	"fire_dmg": 121, "frost_dmg": 122, "static_dmg": 123, "earth_dmg": 124,
+	"wind_dmg": 125, "poison_dmg": 126, "shadow_dmg": 127,
+	"fire_resist": 128, "frost_resist": 129, "static_resist": 130,
+	"earth_resist": 131, "wind_resist": 132, "poison_resist": 133,
+	"shadow_resist": 134,
+	"ranged_dmg": 135, "aoe_dmg": 136, "trap_dmg": 137, "projectile_dmg": 138,
+	"debuff_resist": 139, "shield_power": 140, "frozen_dmg": 141,
 }
 
 ## Operation / Trigger 枚举值（与 AffixData 一致）
 const OP_BONUS_ELEMENT := 3
 const OP_TRIGGER_BUFF := 2
 const OP_STACK_GAIN := 4
+const OP_GRANT_SKILL := 7
 const TRIG_ON_KILL := 1
 const TRIG_ON_HURT := 2
 const TRIG_ON_HIT := 3
@@ -94,15 +103,56 @@ const TRIG_ON_DODGE := 4
 const TRIG_ON_COMBO := 7
 const TRIG_ON_BLOCK := 9
 const TRIG_ON_CRIT := 6
+# 2026-09-24 补全：条件型词条实测需要（与 AffixData.Trigger 一致）
+const TRIG_ON_SHIELD_BREAK := 14
+const TRIG_SHIELD_UP := 15
+const TRIG_ON_TRAP_TRIGGER := 16
+const TRIG_ON_SUMMON_ALIVE := 17
+const TRIG_ON_SKILL_CAST := 18
+const TRIG_ON_SPRINT := 19
+const TRIG_ON_TAUNT := 20
+const TRIG_ON_BLOCK_STANCE := 21
+const TRIG_ON_WHIRLWIND := 22
+const TRIG_ON_TIME_SLOW := 23
+const TRIG_ON_FRENZY := 24
 
 ## 数值型效果名 → 扩展通道 key（吞噬/融合列大量出现）
+##
+## ## 2026-09-24 修正：具体元素不再塌缩
+##
+## 旧表把「火焰伤害」「冰霜伤害」「雷电伤害」…**全部映射到同一个 `elem_dmg`**，
+## 于是烈焰法杖与寒霜法杖的吞噬词条生成出来**一字不差**——元素区别在
+## 数据层就消失了。而且「远程/范围/陷阱/投射物伤害」根本不是元素、
+## 「异常状态抗性/护盾强度」不是元素抗性——它们被塞进了错误的通道。
+##
+## 现在：具体元素各归各的键；全局写法（「元素伤害」「元素抗性」）保留
+## 全局通道；非元素维度走它们自己的新通道。
+##
+## **暗影不是六元素**（名词设计分册只定义火冰雷土风毒），故它只有
+## 增伤/抗性键，不参与元素叠层。
 const EXT_BY_NAME := {
-	"元素伤害": "elem_dmg", "火焰伤害": "elem_dmg", "冰霜伤害": "elem_dmg",
-	"雷电伤害": "elem_dmg", "毒素伤害": "elem_dmg", "大地伤害": "elem_dmg",
-	"土元素伤害": "elem_dmg", "风元素伤害": "elem_dmg", "暗影伤害": "elem_dmg",
-	"远程伤害": "elem_dmg", "范围伤害": "elem_dmg", "陷阱伤害": "elem_dmg",
-	"投射物伤害": "elem_dmg", "被冻结敌人受到伤害": "elem_dmg",
-	"元素抗性": "elem_resist", "异常状态抗性": "elem_resist", "护盾强度": "elem_resist",
+	# —— 具体元素增伤：各归各的（不再塌缩）——
+	#
+	# **写法必须穷举**：规格里「疾风伤害」与「风元素伤害」是同一个元素的
+	# 两种写法（`ELEM_KEY` 认「疾风」→ wind，所以自有/融合列一直是对的），
+	# 但 `EXT_BY_NAME` 只列了「风元素伤害」，于是「获得 1% 疾风伤害提升」
+	# 掉进下面的 `nm.contains("伤害")` 兜底 → 被当成全局元素增伤。
+	# 六系法杖里**只有疾风法杖**踩到这个坑。
+	"火焰伤害": "fire_dmg", "冰霜伤害": "frost_dmg", "雷电伤害": "static_dmg",
+	"毒素伤害": "poison_dmg",
+	"大地伤害": "earth_dmg", "土元素伤害": "earth_dmg", "岩裂伤害": "earth_dmg",
+	"风元素伤害": "wind_dmg", "疾风伤害": "wind_dmg", "裂风伤害": "wind_dmg",
+	"暗影伤害": "shadow_dmg",
+	# 全局元素增伤（规格里确有「元素伤害增加 N%」这类全元素写法）
+	"元素伤害": "elem_dmg",
+	# —— 非元素维度：不是元素，走各自通道 ——
+	"远程伤害": "ranged_dmg", "范围伤害": "aoe_dmg", "陷阱伤害": "trap_dmg",
+	"投射物伤害": "projectile_dmg", "穿透后的投射物伤害": "projectile_dmg",
+	"被冻结敌人受到伤害": "frozen_dmg",
+	# —— 防御维度 ——
+	"元素抗性": "elem_resist",
+	"异常状态抗性": "debuff_resist",
+	"护盾强度": "shield_power", "护盾获取量": "shield_power",
 	"生命偷取": "lifesteal", "吸血": "lifesteal", "治疗效果": "lifesteal",
 	"生命回复": "lifesteal", "反伤效果": "reflect", "反弹伤害": "reflect",
 	"格挡率": "block", "闪避率": "dodge", "护甲穿透": "elem_pen",
@@ -128,6 +178,8 @@ var _unmapped: Array[String] = []
 var _skill_notes := 0
 ## 规格占位符计数（设计说明，不是词条）
 var _placeholders := 0
+## 整行都是模板/示例文本、被跳过的占位行数（见 `_is_placeholder_row`）
+var _placeholder_rows := 0
 
 
 func _initialize() -> void:
@@ -163,6 +215,20 @@ func _initialize() -> void:
 		by_rar[rar] = n + 1
 		var id := "%s%03d" % [RAR_ID.get(rar, "X"), n]
 
+		# **跳过占位行**：规格表里有 3 行是策划文档的**模板/示例**，不是真装备：
+		#   G018 守护护符   —— 三列全是「触发概率低，效果小…」「0.2%~0.5%」等示例文本
+		#   G050 真实伤害护符 —— 三列全是「装备直接生效，通常是一个主动技能…」
+		#   P064 伤害储存护符 —— 三列是「主动技能」「被动增益」「机制强化」模板标签
+		#
+		# G018 还与 B017 守护护符**同名**（B017 是完整的真装备），生成出来
+		# 会在图鉴里出现两件同名装备、其中一件词条全空。
+		#
+		# **注意计数器的位置**：`by_rar` 必须在跳过之前自增，否则后面所有
+		# 同稀有度装备的 id 会整体前移，与既有存档/引用对不上。
+		if _is_placeholder_row(own, dev, fus):
+			_placeholder_rows += 1
+			continue
+
 		var cat_e: String = str(CAT_ENUM.get(cat, "EquipmentDefs.Category.ACCESSORY"))
 		var slot_e: String = "EquipmentDefs.Slot.WEAPON_1" if cat == "WEAPON" \
 			else str(SLOT_ENUM.get(wtype, "EquipmentDefs.Slot.ACCESSORY_1"))
@@ -179,6 +245,16 @@ func _initialize() -> void:
 			base = "[[Stat.DEF, %.1f, false]]" % (12.0 * float(RAR_SCALE.get(rar, 1.6)) * 0.35)
 
 		var own_a := _parse_affix_text(own)
+		# **自有列的「主动技能」要留痕**（装备参考2：133 件装备的自有词条
+		# 就是技能本身）。`_parse_affix_text` 把它识别成 `__SKILL__` 并跳过
+		#（技能本体已单独进 `EquipmentSkills` 表），但**自有列不同于吞噬/融合列**：
+		# 它是「这件装备提供什么」的展示位，留空会让图鉴显示不出技能来源
+		#（实测 129 件 own_affixes 为空）。
+		# 故这里额外补一条 GRANT_SKILL，承载「本装备提供主动技能 X」。
+		var grant := _grant_skill_spec(own, name)
+		if not grant.is_empty():
+			own_a = "[%s, %s]" % [grant, own_a.substr(1, own_a.length() - 2)] \
+				if own_a != "[]" else "[%s]" % grant
 		var dev_a := _parse_affix_text(dev)
 		var fus_a := _parse_affix_text(fus)
 
@@ -200,7 +276,6 @@ func _initialize() -> void:
 	# —— 报告（stderr，不污染 stdout 的数据）——
 	print_rich_unmapped()
 
-
 func print_rich_unmapped() -> void:
 	var counts := {}
 	for u in _unmapped:
@@ -211,10 +286,45 @@ func print_rich_unmapped() -> void:
 	for k in keys:
 		printerr("  [%d] %s" % [counts[k], k])
 	printerr("=== 装备技能修饰（已跳过，不属于词条）：%d 条 ===" % _skill_notes)
+	printerr("=== 占位行（整行是策划模板/示例，已跳过）：%d 行 ===" % _placeholder_rows)
 	quit(0)
 
 
 ## 解析一整条词条文本（可能含「；」分隔的复合效果）→ GDScript 数组字面量
+## 判据：三列里**至少两列**是策划文档的设计模板文本（不是真词条）
+##
+## 为什么要「至少两列」而不是「任一列」：单列出现模板文本的情况可能是
+## 真装备的某一列没写，但三列里两列以上都是模板 = 整行就是模板。
+func _is_placeholder_row(own: String, dev: String, fus: String) -> bool:
+	var hits := 0
+	for col in [own, dev, fus]:
+		var c := str(col).strip_edges()
+		if _RE_PLACEHOLDER.search(c) != null:
+			hits += 1
+		# 模板标签形态（「主动技能」/「被动增益」/「机制强化」这类单词标签）
+		elif c in ["主动技能", "被动增益", "机制强化", "核心机制"]:
+			hits += 1
+	return hits >= 2
+
+
+## 自有列里若含「主动技能"X"」→ 生成一条 GRANT_SKILL 规格；否则空串
+##
+## 返回形如 `[7, "eq_元素调和法杖", "元素调和"]`（Operation.GRANT_SKILL = 7）。
+##
+## **技能 id 必须用「装备名」拼**，不是技能名——`EquipmentSkills._skill_id`
+## 的规则是 `"eq_" + equip_name`（它按**装备显示名**索引整张技能表）。
+## 用技能名会拼出 `eq_元素调和` 而表里是 `eq_元素调和法杖`，
+## 引用落空（实测 55 条对不上）。显示名用技能名，更易读。
+func _grant_skill_spec(own: String, equip_name: String) -> String:
+	var m := _re(r"主动技能\s*[“”\"']([^“”\"']+)[“”\"']").search(own)
+	if m == null:
+		return ""
+	var sname := m.get_string(1).strip_edges()
+	if sname.is_empty():
+		return ""
+	return "[%d, \"eq_%s\", \"%s\"]" % [OP_GRANT_SKILL, equip_name, sname]
+
+
 func _parse_affix_text(text: String) -> String:
 	if text.strip_edges().is_empty():
 		return "[]"
@@ -1536,6 +1646,183 @@ func _parse_one(s: String) -> String:
 		_placeholders += 1
 		return "__SKILL__"
 
+	# ---------- 46. 条件型词条（2026-09-24 补） ----------
+	#
+	# ## 为什么现在才补
+	#
+	# 这批共 50 条，此前被 `_RE_SKILL_NOTE` 正则**静默吃掉**——旧正则
+	# `^(技能名).*(?:期间|同时|触发时|被击破时|存在时…)` 的第二个 `.*`
+	# 会把整条吞下，判为「装备技能的修饰」并跳过。
+	#
+	# 正则收紧后它们暴露为「无法映射」——说明生成器**根本没有规则**
+	# 处理它们，正则只是把它们藏起来、伪装成「已跳过」。这正是假绿灯：
+	# 报告显示 0 条无法映射，实际有 50 条缺口。
+	#
+	# 归为两类：
+	#   · **条件型词条**（本节）——「护盾被击破时…」「陷阱触发时…」
+	#     与具体技能无关，走 OP_STACK_GAIN + 新 Trigger
+	#   · **技能修饰**（上一节正则）——「战吼同时嘲讽敌人1秒」
+	#     在修饰某个技能，不属于词条层级
+	#
+	# 数值一律**按规格原值**，不做平衡调整。
+
+	# —— 护盾被击破时（11 条）——
+	# 形态：「护盾被击破时[，]对周围造成 N% 攻击力[的]伤害」
+	m = _re(r"护盾被击破时[，,]?\s*对周围造成\s*(\d+)%\s*攻击力(?:的)?伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SHIELD_BREAK,
+			_f(m.get_string(1))]
+	m = _re(r"护盾被击破时[，,]?\s*对攻击者造成\s*(\d+)%\s*攻击力伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SHIELD_BREAK,
+			_f(m.get_string(1))]
+	# 「对周围造成（反伤层数×10%）攻击力的伤害」——数值是**动态的**（随层数），
+	# 不是固定百分比。规格给的是公式而非数值，这里只登记机制、数值留 0，
+	# 由 PlayerEquipmentEffects 按当前层数结算（不臆造一个固定值）。
+	if s.contains("护盾被击破时") and s.contains("反伤层数"):
+		return "[%d, %d, Stat.ATK, 0.0, 0]" % [OP_STACK_GAIN, TRIG_ON_SHIELD_BREAK]
+	# 「护盾被击破时冻结周围1秒」→ 施加冻结词条
+	if s.contains("护盾被击破时") and s.contains("冻结周围"):
+		return "[%d, \"freeze\", 1.0, 1.0]" % OP_TRIGGER_BUFF
+	# 「护盾被击破时，回复10%最大生命」
+	m = _re(r"护盾被击破时[，,]?\s*回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SHIELD_BREAK,
+			_f(m.get_string(1))]
+	# 「元素护盾被击破时，对周围造成元素爆炸」——数值未给，只登记机制
+	if s.contains("护盾被击破时") and s.contains("元素爆炸"):
+		return "[%d, %d, Stat.AP, 0.0, 0]" % [OP_STACK_GAIN, TRIG_ON_SHIELD_BREAK]
+
+	# —— 护盾存在期间（7 条）——
+	m = _re(r"护盾存在时[，,]?\s*攻击\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_SHIELD_UP,
+			_f(m.get_string(1))]
+	m = _re(r"护盾存在时[，,]?\s*受到伤害减少\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.DEF, %s, 0]" % [OP_STACK_GAIN, TRIG_SHIELD_UP,
+			_f(m.get_string(1))]
+	m = _re(r"护盾存在时[，,]?\s*反弹\s*(\d+)%\s*近战伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["reflect"], _f(m.get_string(1))]
+	m = _re(r"护盾存在时[，,]?\s*攻击附带\s*(\d+)%\s*额外伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_SHIELD_UP,
+			_f(m.get_string(1))]
+	if s.contains("护盾存在时") and s.contains("免疫控制"):
+		return "[%d, \"control_immune\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+
+	# —— 陷阱触发时（2 条）——
+	m = _re(r"陷阱触发时对周围\s*(\d+(?:\.\d+)?)\s*米造成\s*(\d+)%\s*攻击力伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_TRAP_TRIGGER,
+			_f(m.get_string(2))]
+	m = _re(r"陷阱触发时对周围造成\s*(\d+)%\s*攻击力伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_TRAP_TRIGGER,
+			_f(m.get_string(1))]
+
+	# —— 召唤物/图腾在场（3 条）——
+	m = _re(r"召唤物存在时[，,]?\s*自身(?:伤害增加|攻击力提高)\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SUMMON_ALIVE,
+			_f(m.get_string(1))]
+	m = _re(r"图腾存在时自身获得\s*(\d+)%\s*减伤").search(s)
+	if m:
+		return "[%d, %d, Stat.DEF, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SUMMON_ALIVE,
+			_f(m.get_string(1))]
+	if s.contains("召唤物死亡时留下减速区域"):
+		return "[%d, \"slow\", 1.0, 3.0]" % OP_TRIGGER_BUFF
+
+	# —— 施法/治疗同时（5 条）——
+	#
+	# 「净化/治疗同时清除负面状态」——`cleanse` 不是 buff 词条，而是一个
+	# **即时动作**（移除目标身上的负面状态）。故用专门的 sentinel id，
+	# 由 `Player._apply_trigger_affixes` 识别后调用 `BuffHolder` 的移除。
+	# **不能**当成 buff 施加——那会变成「给敌人挂一个叫净化的状态」。
+	if s.contains("净化同时") or s.contains("治疗之泉同时") or s.contains("治疗同时"):
+		if s.contains("清除所有负面状态"):
+			return "[%d, \"__cleanse_all__\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+		return "[%d, \"__cleanse_one__\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+	m = _re(r"净化同时回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SKILL_CAST,
+			_f(m.get_string(1))]
+	m = _re(r"治疗区域同时提供\s*(\d+)%\s*减伤").search(s)
+	if m:
+		return "[%d, %d, Stat.DEF, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SKILL_CAST,
+			_f(m.get_string(1))]
+
+	# —— 冲刺/疾跑期间（2 条）——
+	m = _re(r"疾跑期间闪避\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.DODGE, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SPRINT,
+			_f(m.get_string(1))]
+	m = _re(r"冲锋期间免疫控制").search(s)
+	if m:
+		return "[%d, \"control_immune\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+
+	# —— 嘲讽期间（1 条）——
+	m = _re(r"嘲讽期间受到伤害减少\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.DEF, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_TAUNT,
+			_f(m.get_string(1))]
+
+	# —— 格挡/反击姿态期间（2 条）——
+	m = _re(r"反击姿态期间受到伤害减少\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.DEF, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_BLOCK_STANCE,
+			_f(m.get_string(1))]
+
+	# —— 旋风斩期间（2 条）——
+	m = _re(r"旋风斩期间移速\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.SPD, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_WHIRLWIND,
+			_f(m.get_string(1))]
+
+	# —— 时间减缓期间（2 条）——
+	m = _re(r"时间减缓期间自身攻速\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.ASPD, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_TIME_SLOW,
+			_f(m.get_string(1))]
+
+	# —— 荆棘爆发期间（3 条）——
+	m = _re(r"荆棘(?:爆发|护盾)期间受到伤害减少\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.DEF, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_FRENZY,
+			_f(m.get_string(1))]
+	if s.contains("荆棘爆发期间免疫控制"):
+		return "[%d, \"control_immune\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+
+	# —— 其他条件型（3 条）——
+	# 「元素状态持续时间翻倍」→ 元素叠层时长 +100%（走 debuff_dur 通道）
+	if s.contains("元素状态持续时间翻倍"):
+		return "[%d, 1.0, true]" % SP["debuff_dur"]
+	# 「加速期间免疫减速」
+	if s.contains("加速期间免疫减速"):
+		return "[%d, \"slow_immune\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+	# 「加速期间击杀敌人延长2秒」→ 击杀延长增益（数值 2 秒，非百分比）
+	if s.contains("加速期间击杀敌人延长"):
+		return "[%d, %d, Stat.ATK, 0.0, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
+
+	# ---------- 46b. 技能修饰：**保持未映射，不伪装** ----------
+	#
+	# 以下 8 条是「给某个主动技能附加效果」：
+	#   战吼同时嘲讽敌人1秒 / 战吼同时降低敌人30%攻击力 /
+	#   治愈术同时清除一个负面状态 / 疾风步期间留下火焰路径 /
+	#   残影存在时再次冲刺可引爆所有残影
+	#
+	# **它们是真缺口，不是「技能修饰可跳过」**。判定依据：语义依赖
+	# 「那个技能被放出来」这个前提——若当成通用触发词条（「命中时嘲讽」），
+	# 玩家不按战吼也会嘲讽，机制就错了。
+	#
+	# 要真正实现需给 `EquipmentSkills` 表加一列「技能附加效果」
+	#（如 `{"on_cast_buff": "taunt"}`），并让 `SkillSystem` 在施法后消费。
+	# 那是**表结构变更**，不在本轮范围。
+	#
+	# 故这里**不写规则、不计数为技能修饰**——让它们留在「无法映射」清单里，
+	# 报告如实显示 8 条缺口。**不静默丢弃、不伪装成正常跳过。**
+
 	# ---------- 无法映射 ----------
 	_unmapped.append(s)
 	return ""
@@ -1556,12 +1843,30 @@ func _re(pattern: String) -> RegEx:
 	return r
 
 ## 装备技能修饰的识别（这些在修饰某个技能，不是独立词条）
-## 规格占位符（策划文档里的设计说明，不是可实现的词条）
+##
+## ## 2026-09-24 修正：旧正则把合法词条吃掉了
+##
+## 旧版：`^(技能名词表).*(?:期间|同时|触发时|被击破时|存在时|留下|释放|引爆|翻倍|清除|满层时)`
+##
+## 第二个 `.*` 会把**条件型词条整个吃掉**——「护盾**被击破时**…」
+## 「陷阱**触发时**…」「旋风斩**期间**…」全部命中，于是被判为
+## 「装备技能的修饰」并**静默丢弃**。
+##
+## 但实测发现：这 60 条**并非都是合法词条**。禁用正则后其中 **50 条
+## 变成「无法映射」**——说明生成器**根本没有规则处理它们**，正则只是
+## 把它们藏起来、伪装成「已跳过的技能修饰」。报告全绿，数据在丢。
+##
+## 现在改为**只匹配真正的技能修饰句式**：技能名 + 数值修饰特征
+##（伤害/冷却/持续/层数/范围/概率），且**不含**独立的条件从句结构。
+## 剩下的进入「无法映射」清单，逐条补规则——**不猜**。
 var _RE_PLACEHOLDER: RegEx = _build_placeholder_re()
 var _RE_SKILL_NOTE: RegEx = _build_skill_note_re()
 func _build_skill_note_re() -> RegEx:
 	var r := RegEx.new()
-	r.compile(r"^(?:治愈术|战吼|护盾|陷阱|毒雾|疾风步|反击姿态|时间减缓|强化效果|闪现|圣光|烈焰|冰霜|雷霆|旋风|冲锋|突刺|盾击|召唤|狼灵|分身|残影|图腾|领域|新星|爆发|箭雨|火球|地刺|落石|风刃|缠绕|净化|驱散|嘲讽|挑衅|锁链|击退|生命汲取|灵魂|暗影|星辰|时空|荆棘|无畏|加速|疾跑|护盾术|治愈|治疗|资源|元素|号令|脉冲|光环).*(?:期间|同时|触发时|被击破时|存在时|留下|释放|引爆|翻倍|清除|满层时)")
+	# 只认「修饰某个已有技能」的写法：技能名开头 + 该技能的某个数值被改动。
+	# 判据是**数值修饰词**（冷却/持续/伤害/范围/层数/概率/速度），
+	# 而不是「期间/触发时」这类条件从句——条件从句是正常词条的常见写法。
+	r.compile(r"^(?:治愈术|战吼|护盾术|陷阱|毒雾|疾风步|反击姿态|时间减缓|闪现|圣光|烈焰|冰霜|雷霆|旋风|冲锋|突刺|盾击|召唤|狼灵|分身|残影|图腾|领域|新星|箭雨|火球|地刺|落石|风刃|缠绕|净化|驱散|嘲讽|挑衅|锁链|击退|生命汲取|灵魂|暗影|星辰|时空|荆棘|无畏|加速|疾跑|治疗|资源|元素|号令|脉冲|光环)[^，。；]*(?:冷却|持续时长|作用范围|触发范围|层数|触发概率|释放范围)\s*(?:缩减|减少|降低|增加|提升|\+|-|延长)")
 	return r
 
 

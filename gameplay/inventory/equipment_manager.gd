@@ -486,7 +486,30 @@ func devour_modifiers() -> Dictionary:
 ## 返回 [{buff, chance, duration}, ...]，同名词条的**概率累加**——
 ## 两件装备各带 5% 眩晕就是 10%，与「同类词条可叠加」的分册口径一致。
 ## 命中链路（player._apply_hit）拿到后逐条 roll。
+## 汇总已装备的**命中时触发**词条（`Trigger.ON_HIT` 及其同类）。
+##
+## ## 为什么必须过滤 Trigger
+##
+## 旧实现把**所有** `is_trigger()` 的词条都收进来，不看触发条件。
+## 但装备参考2 里有大量条件型词条——「护盾被击破时对周围造成伤害」
+## 「陷阱触发时…」「旋风斩期间移速+20%」——它们的 `trigger` 各不相同。
+## 不区分的话，这些效果会**在每次普攻命中时全部触发**，而不是在
+## 各自的条件发生时。那是机制错误，不是数值偏差。
+##
+## 保留在「命中时」这一组的：ON_HIT / ON_ATTACK / ALWAYS
+##（ALWAYS 的触发型词条没有别的时机，归到这里最合理）。
+## 其余 Trigger 由各自的消费点单独取（见 `trigger_affixes_of`）。
 func equipped_trigger_affixes() -> Array:
+	return trigger_affixes_of([
+		AffixData.Trigger.ALWAYS, AffixData.Trigger.ON_HIT,
+		AffixData.Trigger.ON_ATTACK])
+
+
+## 取**指定 Trigger 集合**的触发型词条（多件装备按 buff_id 合并）
+##
+## `triggers` 传 AffixData.Trigger 的枚举值数组。合并规则：概率相加
+##（上限 1.0）、时长取更长的那个（多件叠加时不缩短）。
+func trigger_affixes_of(triggers: Array) -> Array:
 	var merged := {}   # buff_id -> {chance, duration}
 	for slot in _equipped:
 		var inst = _equipped[slot]
@@ -497,6 +520,8 @@ func equipped_trigger_affixes() -> Array:
 			continue
 		for affix in tpl.trigger_affixes:
 			if affix == null or not affix.is_trigger():
+				continue
+			if not (affix.trigger in triggers):
 				continue
 			var bid: String = affix.trigger_buff
 			if bid.is_empty():
@@ -531,6 +556,18 @@ func special_modifiers() -> Dictionary:
 		"ctrl_resist_pct": 0.0, "cd_refresh_pct": 0.0, "drop_rate_pct": 0.0,
 		"pickup_range_pct": 0.0, "summon_dmg_pct": 0.0, "elem_dmg_pct": 0.0,
 		"true_dmg_pct": 0.0, "exp_gain_pct": 0.0, "summon_limit": 0.0,
+		# 2026-09-24：元素按种类拆分 + 非元素维度
+		#（见 EquipmentDB.SPECIAL_STAT 的说明——旧实现把所有具体元素
+		# 塌缩进 elem_dmg，导致六系法杖的数据一字不差）
+		"fire_dmg_pct": 0.0, "frost_dmg_pct": 0.0, "static_dmg_pct": 0.0,
+		"earth_dmg_pct": 0.0, "wind_dmg_pct": 0.0, "poison_dmg_pct": 0.0,
+		"shadow_dmg_pct": 0.0,
+		"fire_resist_pct": 0.0, "frost_resist_pct": 0.0, "static_resist_pct": 0.0,
+		"earth_resist_pct": 0.0, "wind_resist_pct": 0.0, "poison_resist_pct": 0.0,
+		"shadow_resist_pct": 0.0,
+		"ranged_dmg_pct": 0.0, "aoe_dmg_pct": 0.0, "trap_dmg_pct": 0.0,
+		"projectile_dmg_pct": 0.0, "debuff_resist_pct": 0.0,
+		"shield_power_pct": 0.0, "frozen_dmg_pct": 0.0,
 	}
 	for slot in _equipped:
 		var inst = _equipped[slot]

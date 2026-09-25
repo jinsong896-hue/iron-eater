@@ -96,6 +96,7 @@ run_scene_suite  "gameplay     (运行时行为回归)" "res://tests/test_gamepl
 run_scene_suite  "fixes2       (连锁切房/伤害数字)" "res://tests/test_gameplay_fixes2.tscn"
 run_scene_suite  "skill_mech   (技能机制落地)" "res://tests/test_skill_mechanics.tscn"
 run_scene_suite  "ranged_atk   (远程普攻)" "res://tests/test_ranged_attack.tscn"
+run_scene_suite  "equip_elem   (装备元素词条)" "res://tests/test_equip_element.tscn"
 
 echo
 echo "=============================================="
