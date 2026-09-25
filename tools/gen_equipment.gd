@@ -24,6 +24,8 @@ extends SceneTree
 ##   报告：stderr —— 无法自动映射的词条清单
 
 const SPEC_PATH := "res://tools/data/equipment_spec.tsv"
+## 未映射明细落盘路径（`装备名\t稀有度\t列\t词条原文`）
+const UNMAPPED_PATH := "res://tools/data/unmapped_detail.txt"
 
 const RAR_ID := {"GREEN": "G", "BLUE": "B", "PURPLE": "P", "ORANGE": "O"}
 const RAR_SCALE := {"GREEN": 1.6, "BLUE": 2.5, "PURPLE": 4.0, "ORANGE": 6.5}
@@ -181,6 +183,16 @@ var _placeholders := 0
 ## 整行都是模板/示例文本、被跳过的占位行数（见 `_is_placeholder_row`）
 var _placeholder_rows := 0
 
+# —— 逐件解析状态（供 compare_spec_vs_code 消费）——
+## 当前正在解析的装备名 / 稀有度 / 列名
+var _cur_name := ""
+var _cur_rar := ""
+var _cur_col := ""
+## 当前装备各列的解析计数：{col: {ok, total, miss}}
+var _cur_counts := {}
+## 带装备上下文的未映射记录（`装备名\t列\t词条原文`）
+var _unmapped_ctx: Array[String] = []
+
 
 func _initialize() -> void:
 	var f := FileAccess.open(SPEC_PATH, FileAccess.READ)
@@ -244,6 +256,12 @@ func _initialize() -> void:
 		else:
 			base = "[[Stat.DEF, %.1f, false]]" % (12.0 * float(RAR_SCALE.get(rar, 1.6)) * 0.35)
 
+		# —— 逐件解析状态：记录当前装备名/稀有度，供 report_item 输出 ——
+		_cur_name = name
+		_cur_rar = rar
+		_cur_counts = {}
+
+		_cur_col = "own"
 		var own_a := _parse_affix_text(own)
 		# **自有列的「主动技能」要留痕**（装备参考2：133 件装备的自有词条
 		# 就是技能本身）。`_parse_affix_text` 把它识别成 `__SKILL__` 并跳过
@@ -260,8 +278,12 @@ func _initialize() -> void:
 		if not grant.is_empty():
 			own_a = "[%s, %s]" % [own_a.substr(1, own_a.length() - 2), grant] \
 				if own_a != "[]" else "[%s]" % grant
+		_cur_col = "devour"
 		var dev_a := _parse_affix_text(dev)
+		_cur_col = "fusion"
 		var fus_a := _parse_affix_text(fus)
+		# 逐件报告解析状态（stderr）——让「哪件装备的哪条词条没解析」可见
+		report_item()
 
 		var tag_s := "[]"
 		if not tags.is_empty():
@@ -292,6 +314,8 @@ func print_rich_unmapped() -> void:
 		printerr("  [%d] %s" % [counts[k], k])
 	printerr("=== 装备技能修饰（已跳过，不属于词条）：%d 条 ===" % _skill_notes)
 	printerr("=== 占位行（整行是策划模板/示例，已跳过）：%d 行 ===" % _placeholder_rows)
+	# 带装备上下文的未映射清单落盘（供 compare_spec_vs_code 消费）
+	_dump_unmapped()
 	quit(0)
 
 
@@ -338,14 +362,55 @@ func _parse_affix_text(text: String) -> String:
 	for p in parts:
 		# 也按半角分号拆（规格里两种都出现过）
 		for q in p.split(";"):
-			var r := _parse_one(q.strip_edges())
+			var s := q.strip_edges()
+			if s.is_empty():
+				continue
+			# 计数（report_item 用）
+			if not _cur_counts.has(_cur_col):
+				_cur_counts[_cur_col] = {"ok": 0, "total": 0, "miss": 0}
+			var c: Dictionary = _cur_counts[_cur_col]
+			c["total"] = int(c["total"]) + 1
+
+			var r := _parse_one(s)
 			if r.is_empty():
+				# 记下**是哪件装备的哪条**——只报词条文本会丢失上下文，
+				# 而同一词条文本可能出现在多件装备上，改起来无从下手。
+				c["miss"] = int(c["miss"]) + 1
+				_unmapped_ctx.append("%s\t%s\t%s" % [_cur_name, _cur_col, s])
 				continue
 			if r == "__SKILL__":
 				_skill_notes += 1
 			else:
+				c["ok"] = int(c["ok"]) + 1
 				out.append(r)
 	return "[%s]" % ", ".join(out)
+
+
+## 逐件报告每条装备的三列解析状态（供 `compare_spec_vs_code` 消费）
+##
+## 输出到 stderr，格式：
+##   ITEM <名字> <稀有度>
+##   COL  <own|devour|fusion> <ok数>/<总条数> <未映射条数>
+func report_item() -> void:
+	printerr("ITEM %s %s" % [_cur_name, _cur_rar])
+	for col in _cur_counts:
+		var c: Dictionary = _cur_counts[col]
+		printerr("COL  %s %d/%d %d" % [col, int(c["ok"]), int(c["total"]), int(c["miss"])])
+
+
+## 把「哪件装备的哪条词条没解析」落盘
+##
+## 格式：`装备名\t稀有度\t列\t词条原文`
+## **这是「需重做」的精确依据**——只报词条文本会丢失上下文，
+## 而同一文本可能出现在多件装备上。
+func _dump_unmapped() -> void:
+	var f := FileAccess.open(UNMAPPED_PATH, FileAccess.WRITE)
+	if f == null:
+		return
+	for line in _unmapped_ctx:
+		f.store_line(line)
+	f.close()
+	printerr("=== 未映射明细已写入 %s（%d 条）===" % [UNMAPPED_PATH, _unmapped_ctx.size()])
 
 
 ## 解析**单条**效果。返回：
