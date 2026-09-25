@@ -26,6 +26,8 @@ extends SceneTree
 const SPEC_PATH := "res://tools/data/equipment_spec.tsv"
 ## 未映射明细落盘路径（`装备名\t稀有度\t列\t词条原文`）
 const UNMAPPED_PATH := "res://tools/data/unmapped_detail.txt"
+## 逐条解析追踪落盘路径（`装备名\t列\t词条原文\t解析结果`）
+const TRACE_PATH := "res://tools/data/parse_trace.txt"
 
 const RAR_ID := {"GREEN": "G", "BLUE": "B", "PURPLE": "P", "ORANGE": "O"}
 const RAR_SCALE := {"GREEN": 1.6, "BLUE": 2.5, "PURPLE": 4.0, "ORANGE": 6.5}
@@ -192,6 +194,11 @@ var _cur_col := ""
 var _cur_counts := {}
 ## 带装备上下文的未映射记录（`装备名\t列\t词条原文`）
 var _unmapped_ctx: Array[String] = []
+## 逐条解析追踪：`装备名\t列\t词条原文\t解析结果`
+##
+## 用途：核对「解析结果是否忠实于原文」——只统计「有没有解析出来」
+## 不够，数值提错、层数丢失、语义压错通道同样是错的，且更隐蔽。
+var _trace: Array[String] = []
 
 
 func _initialize() -> void:
@@ -377,11 +384,15 @@ func _parse_affix_text(text: String) -> String:
 				# 而同一词条文本可能出现在多件装备上，改起来无从下手。
 				c["miss"] = int(c["miss"]) + 1
 				_unmapped_ctx.append("%s\t%s\t%s" % [_cur_name, _cur_col, s])
+				# 逐条追踪（供 compare 核对「解析结果是否忠实于原文」）
+				_trace.append("%s\t%s\t%s\t%s" % [_cur_name, _cur_col, s, "__MISS__"])
 				continue
 			if r == "__SKILL__":
 				_skill_notes += 1
+				_trace.append("%s\t%s\t%s\t%s" % [_cur_name, _cur_col, s, "__SKILL__"])
 			else:
 				c["ok"] = int(c["ok"]) + 1
+				_trace.append("%s\t%s\t%s\t%s" % [_cur_name, _cur_col, s, r])
 				out.append(r)
 	return "[%s]" % ", ".join(out)
 
@@ -411,6 +422,14 @@ func _dump_unmapped() -> void:
 		f.store_line(line)
 	f.close()
 	printerr("=== 未映射明细已写入 %s（%d 条）===" % [UNMAPPED_PATH, _unmapped_ctx.size()])
+	# 逐条解析追踪
+	var g := FileAccess.open(TRACE_PATH, FileAccess.WRITE)
+	if g == null:
+		return
+	for line in _trace:
+		g.store_line(line)
+	g.close()
+	printerr("=== 逐条解析追踪已写入 %s（%d 条）===" % [TRACE_PATH, _trace.size()])
 
 
 ## 解析**单条**效果。返回：
