@@ -36,6 +36,7 @@ func _ready() -> void:
 	_test_grant_skill_visible()
 	_test_duplicate_name_skill_leak()
 	_test_no_empty_own_affix()
+	_test_soul_stacking()
 
 	if failed == 0:
 		print("ALL EQUIP ELEMENT TESTS PASSED")
@@ -210,9 +211,72 @@ func _test_no_empty_own_affix() -> void:
 		["为空的 %d 件：%s" % [empty.size(), str(empty)]])
 
 
+## 6. 灵魂叠层与满层爆发
+##
+## 装备参考2 的灵魂类词条是「击杀攒层 → 满层爆发」。旧实现**完全没有
+## AT_FULL 这个触发条件**——7 条满层词条从未生效。
+##
+## 同时发现两个**笔误**：生成器里两处把 `stack_max` 的 `15` 写进了
+## `trigger` 槽位（形态是 `[4, trigger, stat, value, stack_max]`）。
+## 旧 Trigger 枚举只到 13，故 15 是无效值、那些词条一直不触发；
+## 而本轮新增 `SHIELD_UP = 15` 后，它们会**静默变成「护盾存在时触发」**。
+func _test_soul_stacking() -> void:
+	print("\n--- 灵魂叠层与满层爆发 ---")
+
+	# 灵魂收割者：击杀叠层（最多10层）+ 满层爆发
+	var tpl = _find_by_id("B029")
+	if tpl == null:
+		_check(false, "找到 B029 灵魂收割者")
+		return
+	var has_stack := false
+	var has_full := false
+	for a in tpl.own_affixes:
+		if a == null or a.operation != AffixData.Operation.STACK_GAIN:
+			continue
+		if a.trigger == AffixData.Trigger.ON_KILL and a.stack_max > 0:
+			has_stack = true
+		if a.trigger == AffixData.Trigger.AT_FULL:
+			has_full = true
+	_check(has_stack, "灵魂收割者有「击杀叠层」（ON_KILL + stack_max>0）")
+	_check(has_full, "灵魂收割者有「满层爆发」（AT_FULL）")
+
+	# **笔误回归**：灵魂类词条不该落在 SHIELD_UP 上
+	#（它们是「满层爆发」，不是「护盾存在时」）
+	var wrong: Array = []
+	for t in EquipmentDB.all_templates():
+		for a in t.own_affixes:
+			if a == null or a.operation != AffixData.Operation.STACK_GAIN:
+				continue
+			if a.trigger != AffixData.Trigger.SHIELD_UP:
+				continue
+			# SHIELD_UP 的合法来源是「护盾存在时…」；灵魂类走 AT_FULL
+			if str(t.display_name).contains("灵魂") or str(t.display_name).contains("暗影"):
+				wrong.append(t.display_name)
+	_check(wrong.is_empty(),
+		"灵魂/暗影类词条没有误落在 SHIELD_UP（生成器笔误已修）", [str(wrong)])
+
+	# 灵魂强化词条可解析（层数不清空 / 返还50%）
+	#
+	# **必须扫全部三列**（自有/吞噬/融合）——这些词条在规格里可能落在
+	# 任意一列（实测 soul_refund 在融合列、summon_soul 在自有列）。
+	var seen := {}
+	for t in EquipmentDB.all_templates():
+		for arr in [t.own_affixes, t.devour_affixes, t.fusion_affixes]:
+			for a in arr:
+				if a == null or not a.is_trigger():
+					continue
+				seen[a.trigger_buff] = true
+	_check(seen.has("soul_persist"), "「层数不清空」解析为 soul_persist")
+	_check(seen.has("soul_refund"), "「返还50%层数」解析为 soul_refund")
+	_check(seen.has("summon_soul"), "「击杀召唤灵魂」解析为 summon_soul")
+
+
 # ============================================================
 # 辅助
 # ============================================================
+
+func _find_by_id(id: String):
+	return EquipmentDB.get_template(id)
 
 func _first_devour_stat(tpl) -> int:
 	for a in tpl.devour_affixes:

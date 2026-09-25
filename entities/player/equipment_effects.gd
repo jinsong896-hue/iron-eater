@@ -93,6 +93,12 @@ func _fire(trig: int) -> void:
 func _apply_trigger(a: AffixData, inst) -> void:
 	if a == null:
 		return
+	# **sentinel 词条**：它们不是「给玩家挂一个状态」，而是「触发一个动作」。
+	# 当成普通 buff 施加会变成「玩家身上多了个叫 summon_soul 的状态」——
+	# 既无意义又会污染词条栏。
+	if a.is_trigger() and a.trigger_buff == "summon_soul":
+		_summon_soul()
+		return
 	if a.stack_max > 0:
 		_apply_stacked(a)
 	else:
@@ -110,6 +116,95 @@ func _apply_stacked(a: AffixData) -> void:
 	# 注册一条临时词条定义（值来自装备，故不能预置在 BuffDefs 表里）
 	BuffDefs.register_equipment_stack(bid, a.stat, a.value, a.duration, a.stack_max)
 	player.buffs.apply(bid, "equip_trigger")
+	# **满层爆发**（装备参考2：「击杀敌人获得1层灵魂（最多10层），
+	# 每层+1%攻击力；满层时下次攻击释放灵魂冲击（200%攻击力）」）。
+	#
+	# 旧实现完全没有 AT_FULL 这个触发条件——7 条满层词条**从未生效**。
+	# 配对规则：AT_FULL 词条与本叠层词条**共用同一个 `stat`**
+	#（生成器产出的形态是 `[4,1,Stat.ATK,0.01,10]` + `[4,5,Stat.ATK,2.0,0]`）。
+	if a.stack_max > 0 and player.buffs.stacks_of(bid) >= a.stack_max:
+		if _fire_stack_full(a.stat):
+			# 层数处理：默认清空（规格写「消耗所有层数」——不清的话
+			# 下一击又满层，变成每击都爆发）。但「层数不清空」与
+			# 「返还50%层数」两条强化词条会改变这个行为。
+			_consume_stacks(bid, a.stack_max)
+
+
+## 满层爆发后的层数处理
+##
+## 规格里两条强化词条会改变默认行为：
+##   · `soul_persist` —— 「暗影波击杀敌人时，层数不清空」→ 保留全部层数
+##   · `soul_refund`  —— 「终极技能消耗灵魂后，返还50%层数」→ 返还一半
+##
+## 两者同时存在时**以「不清空」优先**（对玩家更有利，且语义上
+## 「不清空」包含「返还全部」）。都没装才走默认清空。
+func _consume_stacks(bid: String, max_stacks: int) -> void:
+	if player.buffs.has("soul_persist"):
+		return
+	if player.buffs.has("soul_refund"):
+		var refund := int(floor(float(max_stacks) * 0.5))
+		player.buffs.remove(bid)
+		for i in maxi(refund, 1):
+			player.buffs.apply(bid, "equip_trigger")
+		return
+	player.buffs.remove(bid)
+
+
+## 击杀时召唤灵魂（装备参考2：「击杀敌人召唤一个灵魂（继承30%攻击，
+## 持续10秒，最多3个）」）
+##
+## 走已有的 `SummonManager` 链路，不另造召唤系统。召唤物上限由
+## SummonManager 自己管（`limit()`），满了会发消息提示。
+func _summon_soul() -> void:
+	if player == null:
+		return
+	var mgr = player.get("summons")
+	if mgr == null or not mgr.has_method("summon"):
+		return
+	# 继承 30% 攻击、30% 生命，持续 10 秒（规格原值）
+	mgr.call("summon", 0.30, 0.30, 0.30, 10.0)
+
+
+## 触发与给定属性配对的「满层」词条，返回是否触发了至少一条
+func _fire_stack_full(stat: int) -> bool:
+	var fired := false
+	for e in _affixes_with(AffixData.Trigger.AT_FULL):
+		var a: AffixData = e["affix"]
+		if a == null or a.stat != stat:
+			continue
+		_burst(a)
+		fired = true
+	return fired
+
+
+## 满层爆发：以玩家为中心的范围伤害，倍率 = `a.value × 面板攻击力`
+##
+## 规格原文是「下次攻击释放…」，但那需要给普攻挂一个「下一击强化」的
+## 待结算标记，跨帧状态多、容易与连段系统打架。而这类词条的设计意图
+## 是「攒满层 → 打一发大的」，**即时范围爆发**同样满足，且不引入新状态。
+## 倍率按规格原值（2.0 = 200% 攻击力），不做平衡调整。
+func _burst(a: AffixData) -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	var atk: float = float(GameManager.stat_value("atk"))
+	if atk <= 0.0:
+		return
+	var radius := 4.0
+	var hit_any := false
+	for n in player.get_tree().get_nodes_in_group("enemies"):
+		var e := n as Node3D
+		if e == null or not is_instance_valid(e):
+			continue
+		if player.global_position.distance_to(e.global_position) > radius:
+			continue
+		if not e.has_method("take_damage"):
+			continue
+		var dmg := atk * a.value
+		e.call("take_damage", dmg, false, Vector3.ZERO, player)
+		EventBus.damage_popup.emit(e.global_position, dmg, "crit")
+		hit_any = true
+	if hit_any:
+		EventBus.message.emit("满层爆发！")
 
 
 ## 一次性型：直接结算（回血 / 加资源 / 加属性）

@@ -174,6 +174,12 @@ const BUFFS := [
 	# 免疫控制：`cc_immune` 已被 `adamant`（金刚体）使用，这里复用同一参数键。
 	["control_immune", "免疫控制", Kind.GENERIC, 3.0, 0, "期间免疫控制效果", "special", {"cc_immune": true}],
 	["slow_immune",    "免疫减速", Kind.GENERIC, 3.0, 0, "期间免疫减速效果", "special", {"slow_immune": true}],
+	# 灵魂叠层强化（装备参考2：「暗影波击杀敌人时，层数不清空」
+	# 「终极技能消耗灵魂后，返还50%层数」）——
+	# 这两条修饰的是**叠层行为**，不是数值。用特殊参数键承载，
+	# 由 `PlayerEquipmentEffects` 在满层爆发时读取。
+	["soul_persist",  "灵魂·不散", Kind.GENERIC, 0.0, 0, "满层爆发后层数不清空", "special", {"soul_persist": true}],
+	["soul_refund",   "灵魂·回流", Kind.GENERIC, 0.0, 0, "满层爆发后返还 50% 层数", "special", {"soul_refund": 0.50}],
 	# ---------- 装备叠层型（装备参考2：逐层成长的词条） ----------
 	#
 	# 装备设计里大量出现「每层 +N%…（最多 N 层）」的成长型自有词条。
@@ -254,7 +260,9 @@ const SKILL_ONLY_IDS := ["rage_haste", "rage_fury", "rage_dance_aspd",
 	"eq_skill_buff", "eq_blood_rage",
 	# 通用控制/免疫（2026-09-24 补：装备表已引用 slow/bonus_gold 但表中缺失，
 	# 以及新条件型词条需要的免疫载体。见 BUFFS 表内说明）
-	"slow", "bonus_gold", "control_immune", "slow_immune"]
+	"slow", "bonus_gold", "control_immune", "slow_immune",
+	# 灵魂叠层强化（同上）
+	"soul_persist", "soul_refund"]
 
 ## 分册「文档章节」索引（第 3/4/5 章的小节分组，与上方 Kind 是**两个维度**）。
 ## Kind 是运行时语义（如「缠绕」归硬控，便于 is_controlled 判定），

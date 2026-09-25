@@ -251,9 +251,14 @@ func _initialize() -> void:
 		# 它是「这件装备提供什么」的展示位，留空会让图鉴显示不出技能来源
 		#（实测 129 件 own_affixes 为空）。
 		# 故这里额外补一条 GRANT_SKILL，承载「本装备提供主动技能 X」。
+		# **追加到末尾，不能插在开头**：`EquipmentTemplate.own_affix`
+		#（单数访问器）返回的是 `own_affixes[0]`，而多处消费者只读它——
+		# 尤其 `equipment_effects._affixes_with` 用它派发**触发型词条**，
+		# 插到开头会让那 133 件装备的「击杀叠层」等触发词条整个失效。
+		# GRANT_SKILL 只是展示用元数据，放末尾不影响任何既有消费者。
 		var grant := _grant_skill_spec(own, name)
 		if not grant.is_empty():
-			own_a = "[%s, %s]" % [grant, own_a.substr(1, own_a.length() - 2)] \
+			own_a = "[%s, %s]" % [own_a.substr(1, own_a.length() - 2), grant] \
 				if own_a != "[]" else "[%s]" % grant
 		var dev_a := _parse_affix_text(dev)
 		var fus_a := _parse_affix_text(fus)
@@ -864,6 +869,15 @@ func _parse_one(s: String) -> String:
 		return "[%d, %s, true]" % [SP["cd_refresh"], _f(m.get_string(1))]
 
 	# ---------- 21. 召唤 / 分身 / 图腾 ----------
+	# **灵魂召唤必须先于下面的兜底**：下面的规则把任何
+	# 「含召唤 + 含持续 + 含秒」的词条一律压成 `summon_dmg` 数值加成——
+	# 「击杀敌人召唤一个灵魂（继承30%攻击，持续10秒，最多3个）」
+	# 正好命中它，于是**真的召唤动作被压成了一个攻击力百分比**。
+	# 更具体的规则必须排在更宽泛的规则前面。
+	if s.contains("召唤其灵魂"):
+		return "[%d, \"summon_soul\", 0.10, 0.0]" % OP_TRIGGER_BUFF
+	if s.contains("召唤一个灵魂"):
+		return "[%d, \"summon_soul\", 1.0, 0.0]" % OP_TRIGGER_BUFF
 	if s.contains("冲刺后留下分身") or s.contains("冲刺后留下残影") \
 			or s.contains("召唤") and s.contains("持续") and s.contains("秒"):
 		return "[%d, 0.10, true]" % SP["summon_dmg"]
@@ -945,7 +959,10 @@ func _parse_one(s: String) -> String:
 		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
 	m = _re(r"释放终极技能消耗所有灵魂，每层\s*\+?(\d+)%\s*伤害").search(s)
 	if m:
-		return "[%d, 15, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
+		# 与 1654 行同一条机制：触发条件是 AT_FULL(5)，不是字面量 15。
+		# 15 是笔误（落在 trigger 槽位上），且 2026-09-24 新增 SHIELD_UP=15
+		# 后它会静默变成「护盾存在时触发」。
+		return "[%d, 5, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
 	m = _re(r"复仇波命中敌人回复\s*(\d+)%\s*最大生命").search(s)
 	if m:
 		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
@@ -1062,7 +1079,28 @@ func _parse_one(s: String) -> String:
 	if m:
 		return "[%d, %s, true]" % [SP["exp_gain"], _f(m.get_string(1))]
 	if s.contains("暗影波击杀敌人时，层数不清空") or s.contains("雷电新星触发后，充能层数不清空"):
-		return "[%d, 15, Stat.ATK, 0.02, 0]" % OP_STACK_GAIN
+		# 「层数不清空」修饰的是**满层爆发后的层数处理**，不是数值。
+		#
+		# 旧代码这里写的是字面量 `15`，落在了 **trigger 槽位**上
+		#（形态是 `[4, trigger, stat, value, stack_max]`）——那是笔误，
+		# 本意应是 `stack_max`。旧 Trigger 枚举只到 13，故 15 是**无效值**、
+		# 该词条一直不触发；而 2026-09-24 新增 `SHIELD_UP=15` 后，
+		# 它会静默变成「护盾存在时触发」。
+		#
+		# 现在改为返回 `soul_persist` 词条——由
+		# `PlayerEquipmentEffects._consume_stacks` 在满层爆发时读取，
+		# 从而真正实现「不清空」。**不要再返回一个假的 STACK_GAIN 数值**：
+		# 那会凭空给玩家一个永久 +2% 攻击力，与规格语义无关。
+		return "[%d, \"soul_persist\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+	# —— 灵魂叠层强化（装备参考2：「暗影波击杀敌人时，层数不清空」
+	#    「终极技能消耗灵魂后，返还50%层数」）——
+	#
+	# 这两条修饰的是**满层爆发后的层数处理**，不是数值。用 buff 词条承载，
+	# 由 `PlayerEquipmentEffects._consume_stacks` 在爆发时读。
+	if s.contains("层数不清空"):
+		return "[%d, \"soul_persist\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+	if s.contains("返还50%层数"):
+		return "[%d, \"soul_refund\", 1.0, 0.0]" % OP_TRIGGER_BUFF
 	if s.contains("受到伤害时获得1层“充能”"):
 		return "[%d, %d, Stat.ATK, 0.02, 5]" % [OP_STACK_GAIN, TRIG_ON_HURT]
 	m = _re(r"(?:燃烧|爆炸)范围(?:扩大|\+)\s*(\d+)\s*米?").search(s)
@@ -1620,7 +1658,9 @@ func _parse_one(s: String) -> String:
 		return "[%d, %d, Stat.HP, 0.10, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
 	m = _re(r"满层时释放终极技能消耗所有灵魂，每层额外造成\s*(\d+)%\s*伤害").search(s)
 	if m:
-		return "[%d, 15, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
+		# 「每层额外造成 N% 伤害」是**满层爆发的倍率**，触发条件是 AT_FULL(5)。
+		# 旧代码写的字面量 `15` 落在 trigger 槽位上，是笔误（见上一条说明）。
+		return "[%d, 5, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
 	if s.contains("元素终焉触发后，获得对应元素护盾"):
 		return "[%d, %s, true]" % [SP["elem_resist"], _f("15")]
 	m = _re(r"\d+\s*层时触发“元素终焉”.*?(\d+)%\s*法强").search(s)
