@@ -166,7 +166,7 @@ func _on_game_started() -> void:
 # 职业 / 形态 / 技能（策划《角色设计分册》）
 # ============================================================
 
-## 职业资源容器（怒气/魔力/专注/裁决/气劲）。
+## 职业资源容器（怒气 / 魔力 / 气劲——见 ClassResource.DEFS）。
 ## **留在 Player 上**：45 处战斗逻辑直接读它，且它是实体身份的一部分。
 var class_resource: ClassResource = null
 ## 当前职业 id（来自 GameManager.run_info["character"]）

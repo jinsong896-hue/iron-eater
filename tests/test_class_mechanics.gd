@@ -500,15 +500,54 @@ func _test_resource_system() -> void:
 	probe.apply_hit(p2, enemy, 1.0, 0.0)
 	_check(r2.value > 0.0, "普攻命中积攒怒气（0 → %.0f）" % r2.value)
 
-	# —— 击杀积攒（判官 +20）——
+	# —— 三职业统一为魔力：命中 + 暴击 + 自动回复 ——
+	#
+	# **原测试是「击杀积攒裁决（判官 +20）」**，但 2026-09-26 用户决定
+	# 把猎人/法师/审判官三者统一成通用蓝量、**连积攒规则也统一**——
+	# `gain_on_kill` 归零，该机制不再存在。
+	#
+	# 故改测统一后的规则。**直接调 `ClassResource.on_hit(crit)`**：
+	# 那是积攒逻辑的真正入口，且不依赖暴击随机（走 `_apply_hit` 测不准）。
 	await _start("judge", 0)
 	var p3 = _player()
 	var r3 = p3.get("class_resource")
-	r3.value = 0.0
-	# 直接走击杀信号链路
-	EventBus.enemy_died.emit(null, Vector3.ZERO, [])
-	await get_tree().process_frame
-	_check(r3.value >= 20.0, "击杀积攒裁决（0 → %.0f）" % r3.value)
+	_check(r3.res_name == "魔力", "审判官资源名为「魔力」", [r3.res_name])
+
+	# 三职业的积攒档位应完全一致（「统一」的直接判据）
+	var expect_hit := 5.0
+	var expect_crit := 10.0   # 命中 5 + 暴击额外 5
+	var mismatched: Array = []
+	var names: Array = []
+	for cid in ["mage", "hunter", "judge"]:
+		var r := ClassResource.create(str(cid))
+		names.append(r.res_name)
+		r.value = 0.0
+		r.on_hit(false)
+		var h: float = r.value
+		r.value = 0.0
+		r.on_hit(true)
+		var c: float = r.value
+		if absf(h - expect_hit) > 0.01 or absf(c - expect_crit) > 0.01:
+			mismatched.append("%s 命中%.1f 暴击%.1f" % [cid, h, c])
+	_check(mismatched.is_empty(),
+		"法师/猎人/审判官的积攒档位完全一致（命中 %.0f、暴击 %.0f）" % [expect_hit, expect_crit],
+		[str(mismatched)])
+	_check(names == ["魔力", "魔力", "魔力"],
+		"三职业的资源显示名统一为「魔力」", [str(names)])
+
+	# 自动回复：三者的每秒回复也应一致
+	#
+	# 推进 20 帧 × 0.1s = **2 秒**，6/秒 → 期望 12 点。
+	#（`tick` 是累积到整点才进 value，故要推进足够长的时间）
+	var regen_bad: Array = []
+	for cid2 in ["mage", "hunter", "judge"]:
+		var rr := ClassResource.create(str(cid2))
+		rr.value = 0.0
+		for i in 20:
+			rr.tick(0.1)
+		if absf(rr.value - 12.0) > 0.5:
+			regen_bad.append("%s 回%.1f" % [cid2, rr.value])
+	_check(regen_bad.is_empty(), "三职业 2 秒自动回复一致（约 12 点）", [str(regen_bad)])
 
 	# —— 扣费拦截：资源差 1 点必须拒绝，且不进入冷却 ——
 	await _start("warrior", 1)

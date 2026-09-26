@@ -418,7 +418,7 @@ func _update_display() -> void:
 	if health_label:
 		health_label.text = "%d" % int(hp)
 
-	# 职业资源球（怒气/魔力/专注/裁决/气劲）
+	# 职业资源球（怒气 / 魔力 / 气劲）
 	# 此前这里显示的是「连击伤害加成」——那是技能系统未实装时的临时占位
 	# （见旧注释「原 MP 球」）。技能与资源已实装，改回真实数据。
 	var p := _local_player()
