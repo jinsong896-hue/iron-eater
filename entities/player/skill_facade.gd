@@ -301,7 +301,17 @@ func poll_input() -> void:
 ## 资源自然回复 + 技能冷却推进。**两者都无条件走**，不受状态机影响。
 func tick(delta: float) -> void:
 	if player.class_resource != null:
+		var before: float = player.class_resource.value
 		player.class_resource.tick(delta)
+		# 装备触发条件（装备参考2：「资源满时，下次攻击释放资源冲击波」
+		# 「储存满时…」等 4 条）——资源**刚好**填满的那一帧触发一次。
+		#
+		# 用「跨过满值」判定而不是「当前等于满值」：后者每帧都会命中，
+		# 会让效果持续重放。`before < max` 且 `now >= max` 才是「填满的瞬间」。
+		if before < player.class_resource.max_value() \
+				and player.class_resource.value >= player.class_resource.max_value() - 0.001:
+			if player.equip_fx != null:
+				player.equip_fx.on_resource_full()
 	if _skills != null:
 		_skills.update_cooldowns(delta)
 

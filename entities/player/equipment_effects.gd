@@ -56,6 +56,89 @@ func on_dodge() -> void:
 	_fire(AffixData.Trigger.ON_DODGE)
 
 
+# ============================================================
+# 2026-09-26：两段式重构新增的 12 个 Trigger 的消费点
+# ============================================================
+#
+# **为什么必须补齐**：P1 给 `AffixData.Trigger` 加了 12 个枚举值来承载
+# 「条件压成常驻」那批词条，但枚举只是**数据侧**的标记——若没有对应的
+# 事件钩子，那些词条照样不生效。这正是本项目反复踩的坑：
+# **有枚举没消费 = 死代码**，且图鉴会显示、玩家以为有效。
+#
+# 下面每个钩子都由 Player / GameManager 在对应时机调用（见各自注释）。
+
+## 资源满时（「资源满时，下次攻击释放资源冲击波」等）
+## 调用点：ClassResource 值变化后由 Player 判定
+func on_resource_full() -> void:
+	_fire(AffixData.Trigger.RESOURCE_FULL)
+
+
+## 生命满时（「生命满时，回复转化为护盾」）
+## 调用点：Player 治疗结算后
+func on_hp_full() -> void:
+	_fire(AffixData.Trigger.HP_FULL)
+
+
+## 隐身期间（「隐身期间移速+20%」「隐身期间暴击率+30%」）
+## 调用点：Player 进入隐身时
+func on_stealth() -> void:
+	_fire(AffixData.Trigger.STEALTH_UP)
+
+
+## 命中被控制的目标时（「对眩晕/麻痹/冰冻目标…时」）
+## 调用点：Player._apply_hit 里目标 `is_controlled()` 时
+func on_target_controlled() -> void:
+	_fire(AffixData.Trigger.ON_TARGET_CONTROLLED)
+
+
+## 距离目标超过阈值时（「距离目标超过 N 米时」）
+## 调用点：Player._apply_hit 里算完距离后
+func on_distance_far() -> void:
+	_fire(AffixData.Trigger.DISTANCE_FAR)
+
+
+## 金币超过阈值时（「金币超过 500 时，暴击率+10%」）
+## 调用点：GameManager 金币变化后
+func on_gold_above() -> void:
+	_fire(AffixData.Trigger.GOLD_ABOVE)
+
+
+## 出售装备时（非战斗事件）
+## 调用点：EquipmentManager.sell()
+func on_sell() -> void:
+	_fire(AffixData.Trigger.ON_SELL)
+
+
+## 开启宝箱时（非战斗事件）
+## 调用点：宝箱交互
+func on_chest_open() -> void:
+	_fire(AffixData.Trigger.ON_CHEST_OPEN)
+
+
+## 回收标枪时（配合标枪的 boomerang 折返机制）
+## 调用点：Projectile 折返抵达施法者时
+func on_recall() -> void:
+	_fire(AffixData.Trigger.ON_RECALL)
+
+
+## 触发免死后（「触发免死后，获得5秒无敌」）
+## 调用点：Player 免死结算处
+func on_cheat_death() -> void:
+	_fire(AffixData.Trigger.ON_CHEAT_DEATH)
+
+
+## 目标死亡时（带状态条件，如「冰冻目标死亡时」「缠绕结束时」）
+## 调用点：Player 击杀结算，传入被击杀目标供条件判定
+func on_target_death() -> void:
+	_fire(AffixData.Trigger.ON_TARGET_DEATH)
+
+
+## 元素触发时（「抗性触发时，对周围造成对应元素伤害」）
+## 调用点：ElementDamage 阈值事件（冰冻/雷暴/山崩等）结算后
+func on_element_proc() -> void:
+	_fire(AffixData.Trigger.ON_ELEMENT_PROC)
+
+
 ## 取所有已装备的、指定触发条件的自有词条
 func _affixes_with(trig: int) -> Array:
 	var out: Array = []

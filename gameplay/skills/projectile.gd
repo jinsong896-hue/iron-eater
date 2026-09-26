@@ -294,6 +294,7 @@ func _advance_return(delta: float) -> void:
 	var dist := to_owner.length()
 	# 抵达判定：1 米内即视为接住
 	if dist < 1.0 or _elapsed >= lifetime:
+		_notify_recall()
 		queue_free()
 		return
 	direction = to_owner.normalized()
@@ -311,6 +312,18 @@ func _find_owner() -> Node3D:
 	if ps.is_empty():
 		return null
 	return ps[0] as Node3D
+
+
+## 回旋弹被接住 → 结算「回收标枪时…」类装备词条（装备参考2：`ON_RECALL`）
+##
+## 规格：「回收标枪时，对路径敌人造成牵引」。这是标枪独有的时机——
+## 普通弓弩的子弹飞完就消失，没有"回收"这个动作。
+func _notify_recall() -> void:
+	if _return_target == null or not is_instance_valid(_return_target):
+		return
+	var fx = _return_target.get("equip_fx")
+	if fx != null and fx.has_method("on_recall"):
+		fx.call("on_recall")
 
 
 ## 落地进入引信倒计时（延时炸弹）

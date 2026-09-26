@@ -44,6 +44,7 @@ func _ready() -> void:
 	await _test_fusion_channel()
 	await _test_frozen_dmg_channel()
 	await _test_cdr_channel()
+	_test_new_triggers_have_callers()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -334,6 +335,96 @@ func _skill_cooldown_of(player: Node3D, skill_id: String) -> float:
 func _player() -> Node3D:
 	var ps := get_tree().get_nodes_in_group("player")
 	return ps[0] as Node3D if not ps.is_empty() else null
+
+
+## 9. P1 新增的 12 个 Trigger：**每个都必须有调用点**
+##
+## ## 为什么单独测这个
+##
+## P1 给 `AffixData.Trigger` 加了 12 个枚举值来承载「条件压成常驻」那批
+## 词条，但**枚举只是数据侧的标记**。本项目反复踩的坑正是：
+## **有枚举没消费 = 死代码**——图鉴会显示、玩家以为有效、实际毫无反应。
+##
+## 本测试用**静态检查**（读源码找调用点）而非行为断言：这些钩子分布在
+## 战斗/经济/元素多个子系统，逐个构造触发场景成本过高，且行为测试
+## 已在各自模块覆盖。这里要防的是「加了钩子却忘了接」。
+##
+## **允许无调用点的**（机制本身不存在，不臆造）：
+##   · `on_sell`        —— 项目没有「出售装备」入口
+##   · `on_cheat_death` —— 项目没有「免死」机制
+func _test_new_triggers_have_callers() -> void:
+	print("\n--- 新增 Trigger 的调用点检查 ---")
+	var wired := [
+		"on_resource_full", "on_hp_full", "on_stealth",
+		"on_target_controlled", "on_distance_far",
+		"on_gold_above", "on_chest_open", "on_recall",
+		"on_target_death", "on_element_proc",
+	]
+	var dirs := ["entities/", "gameplay/", "core/"]
+	var missing: Array = []
+	for h in wired:
+		if not _has_caller(str(h), dirs):
+			missing.append(h)
+	_check(missing.is_empty(),
+		"应接线的 %d 个钩子都有调用点" % wired.size(),
+		["无调用点：%s" % str(missing)])
+
+	# 反向检查：故意不接的两个，确认它们确实没有调用点
+	#（若将来有人接上了，这条会失败并提醒把测试更新掉）
+	var unexpectedly_wired: Array = []
+	for h in ["on_sell", "on_cheat_death"]:
+		if _has_caller(h, dirs):
+			unexpectedly_wired.append(h)
+	_check(unexpectedly_wired.is_empty(),
+		"「机制不存在」的两个钩子仍未接线（若已接线请更新本测试）",
+		[str(unexpectedly_wired)])
+
+
+## 源码里是否存在对该钩子的调用（`x.on_hook()` 或 `call("on_hook")`）
+func _has_caller(hook: String, dirs: Array) -> bool:
+	for d in dirs:
+		if _scan_dir_for("res://" + str(d), hook):
+			return true
+	return false
+
+
+func _scan_dir_for(dir_path: String, hook: String) -> bool:
+	var d := DirAccess.open(dir_path)
+	if d == null:
+		return false
+	d.list_dir_begin()
+	var f := d.get_next()
+	while f != "":
+		if d.current_is_dir():
+			if not f.begins_with(".") and _scan_dir_for(dir_path + f + "/", hook):
+				d.list_dir_end()
+				return true
+		elif f.ends_with(".gd"):
+			if _file_calls(dir_path + f, hook):
+				d.list_dir_end()
+				return true
+		f = d.get_next()
+	d.list_dir_end()
+	return false
+
+
+func _file_calls(path: String, hook: String) -> bool:
+	# 定义它的文件本身不算调用点
+	if path.ends_with("equipment_effects.gd"):
+		return false
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return false
+	var found := false
+	while not f.eof_reached():
+		var line := f.get_line()
+		if line.strip_edges().begins_with("#"):
+			continue
+		if line.contains(".%s()" % hook) or line.contains("call(\"%s\")" % hook):
+			found = true
+			break
+	f.close()
+	return found
 
 
 ## 开一局指定职业/形态（与 test_class_mechanics 同一套口径）

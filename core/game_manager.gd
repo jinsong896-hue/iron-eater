@@ -23,7 +23,34 @@ var consumable_inventory   # ConsumableInventory
 ## 放这里而不是 Player 上：切房会重建 Player 节点，挂它身上会丢配置。
 var skill_loadout      # SkillLoadout
 var rng := RandomNumberGenerator.new()
-var gold := 0
+## 金币。**写入走 setter**——装备词条「金币超过 500 时，暴击率+10%」
+## 需要在金币跨过阈值的那一刻触发，而金币的写入点分散在
+## `shop_controller` 的 10+ 处（购买/出售/贷款/奖励…），逐个挂钩必漏。
+## 集中到 setter 是唯一可靠的做法。
+var gold := 0:
+	set(v):
+		var was_below := gold < GOLD_ABOVE_THRESHOLD
+		gold = v
+		# 只在**跨过**阈值的那一刻触发（从低于变为不低于），
+		# 避免每次加钱都重放效果
+		if was_below and gold >= GOLD_ABOVE_THRESHOLD:
+			_notify_gold_above()
+
+## 「金币超过 N 时」类词条的阈值（装备参考2：`GOLD_ABOVE`）
+##
+## 规格原文写的就是「金币超过 500 时」，故直接用 500。
+const GOLD_ABOVE_THRESHOLD := 500
+
+
+## 金币跨过阈值 → 通知玩家结算装备词条
+func _notify_gold_above() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	for p in tree.get_nodes_in_group("player"):
+		var fx = p.get("equip_fx")
+		if fx != null and fx.has_method("on_gold_above"):
+			fx.call("on_gold_above")
 var kills := 0
 ## 本局玩家**造成**的总伤害（结算数据用）。
 ##

@@ -66,6 +66,12 @@ var _state_machine: StateMachine = null
 
 const ATTACK_REACH := 2.0
 
+## 「距离目标超过 N 米」类词条的判定阈值（装备参考2：`DISTANCE_FAR`）
+##
+## 规格里只写「距离目标超过 N 米时」，没给 N。取 4 米——远于近战射程
+##（2.0~3.2 米）、近于远程射程（约 25 米），是「远程风筝」的合理分界。
+const DISTANCE_FAR_THRESHOLD := 4.0
+
 ## 顿帧时的时间缩放（配合 _hitstop，必须保证还原）
 const HITSTOP_TIME_SCALE := 0.05
 
@@ -121,6 +127,10 @@ func _ready() -> void:
 	var bus := get_node_or_null("/root/EventBus")
 	if bus and bus.has_signal("enemy_died"):
 		bus.enemy_died.connect(_on_enemy_killed)
+	# 装备触发条件·开启宝箱（装备参考2：「开启宝箱时，有10%概率额外
+	# 获得1件白装」）——信号由宝箱交互发出，此前无人监听。
+	if bus and bus.has_signal("chest_opened"):
+		bus.chest_opened.connect(_on_chest_opened)
 	# 装备变更 → 重算攻击元素（武器决定元素，护甲/饰品只给元素亲和）
 	if bus and bus.has_signal("equipment_changed"):
 		bus.equipment_changed.connect(func(_s, _i): _refresh_attack_element())
@@ -393,6 +403,12 @@ func enter_state(state_name: String) -> void:
 
 
 ## 击杀回血回调
+## 宝箱开启 → 结算「开启宝箱时…」类装备词条（装备参考2）
+func _on_chest_opened(_gold: int, _pos: Vector3) -> void:
+	if equip_fx != null:
+		equip_fx.on_chest_open()
+
+
 func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 	# 职业资源：击杀积攒（策划 6.1 判官「击杀 +20」）。
 	# 与命中积攒同属"打怪回资源"链路，此前同样从未被调用。
@@ -400,6 +416,10 @@ func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 	# 装备触发条件（装备参考2：「每击杀一个敌人…」类自有词条）
 	if equip_fx != null:
 		equip_fx.on_kill()
+		# 「冰冻目标死亡时」「缠绕结束时」等**带目标状态**的击杀词条。
+		# 与 on_kill 分开：那个是「击杀即触发」，这个要看**目标死时带什么状态**。
+		# 目前两条词条的状态条件由 PlayerEquipmentEffects 内部判定。
+		equip_fx.on_target_death()
 	# 装备词条·击杀刷新冷却（`cd_refresh_pct` 通道）。
 	#
 	# 规格里有多件装备带「击杀目标后刷新所有技能冷却」/「闪避时 N% 概率
@@ -991,6 +1011,12 @@ func weapon_forbidden() -> bool:
 func _on_healed(amount: float) -> void:
 	if amount > 0.0:
 		_gain_light_layer()
+		# 装备触发条件（装备参考2：「生命满时，回复转化为护盾」
+		# 「生命满时，回复量转化为护盾」）——治疗结算后判定是否满血。
+		if equip_fx != null:
+			var attrs = GameManager.attributes
+			if attrs != null and attrs.hp >= attrs.max_hp - 0.01:
+				equip_fx.on_hp_full()
 
 
 ## 普攻命中后的形态附加效果（策划 6/7/8 章）。
@@ -1537,6 +1563,17 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	_apply_element_to(enemy)
 	# 装备触发型词条：按概率给目标施加状态（眩晕/破甲/致盲/缴械/范围伤害）
 	_apply_trigger_affixes(enemy, total)
+	# 装备触发条件·命中时的**目标状态**判定（装备参考2）
+	#   「对眩晕/麻痹/冰冻目标…时」→ ON_TARGET_CONTROLLED
+	#   「距离目标超过 N 米时」      → DISTANCE_FAR
+	# 这两条的判定都要读**目标**，故只能在命中漏斗里做。
+	if equip_fx != null:
+		var tb = enemy.get("buffs")
+		if tb != null and tb.has_method("is_controlled") and bool(tb.call("is_controlled")):
+			equip_fx.on_target_controlled()
+		var far_m := global_position.distance_to(enemy.global_position)
+		if far_m >= DISTANCE_FAR_THRESHOLD:
+			equip_fx.on_distance_far()
 	EventBus.damage_popup.emit(enemy.global_position, total, "crit" if crit else "normal")
 	# 暴击/终结技 hitstop 顿帧。
 	# 阈值必须是「罕见时刻」而非常规段位——旧值 1.5 把普攻4（1.8）、
@@ -1737,11 +1774,20 @@ func _apply_element_to_holder(tgt) -> void:
 	if attack_element < 0 or tgt == null:
 		return
 	var out: Dictionary = ElementDamage.attack(tgt, attack_element)
-	for ev in out.get("events", []):
+	var events: Array = out.get("events", [])
+	for ev in events:
 		var ctrl_id: String = ElementDamage.control_for_event(str(ev))
 		if ctrl_id != "":
 			tgt.apply(ctrl_id, "element")
 			EventBus.message.emit("触发%s" % ElementDamage.event_name(str(ev)))
+	# 装备触发条件（装备参考2：「抗性触发时，对周围造成对应元素伤害」
+	# 「元素终焉触发后…」等 2 条）——**只要有阈值事件发生**就触发一次。
+	#
+	# 判定放在循环**外面**：一次攻击可能同时触发多个事件（冰冻+冰裂），
+	# 但装备词条是「元素触发时」而非「每个事件触发一次」，放在循环里
+	# 会重复结算。
+	if not events.is_empty() and equip_fx != null:
+		equip_fx.on_element_proc()
 
 
 ## 形态印记（咒焰/虚空印记）挂到目标身上（按 holder 版本）。
@@ -2289,6 +2335,11 @@ func enter_stealth(seconds: float, speed_pct: float,
 	_stealth_next_hit_bonus = next_hit_bonus
 	_stealth_invuln = invuln
 	_apply_stealth_visual(true)
+	# 装备触发条件（装备参考2：「隐身期间移速+20%」「隐身期间暴击率+30%」
+	# 「隐身期间免疫控制」等 7 条）——此前这些词条有数据、有 Trigger 枚举，
+	# 但**没有任何事件钩子**，故从未生效。
+	if equip_fx != null:
+		equip_fx.on_stealth()
 	EventBus.message.emit("进入隐身")
 
 
