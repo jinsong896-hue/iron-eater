@@ -139,6 +139,12 @@ func on_element_proc() -> void:
 	_fire(AffixData.Trigger.ON_ELEMENT_PROC)
 
 
+## 连击时（「连击时获得1点气劲」）
+## 调用点：Player._register_hit_combo
+func on_combo() -> void:
+	_fire(AffixData.Trigger.ON_COMBO)
+
+
 ## 取所有已装备的、指定触发条件的自有词条
 func _affixes_with(trig: int) -> Array:
 	var out: Array = []
@@ -181,6 +187,16 @@ func _apply_trigger(a: AffixData, inst) -> void:
 	# 既无意义又会污染词条栏。
 	if a.is_trigger() and a.trigger_buff == "summon_soul":
 		_summon_soul()
+		return
+	# **职业资源点**（`res_gain` / stat 142）：不是「挂一个状态」，而是
+	# **真的加资源**。走 `ClassResource.gain()`——把值当 buff 施加会变成
+	# 「玩家身上多了个叫 eqtrig_*_142 的状态」，资源一点都不涨。
+	#
+	# 这类词条由生成器产出 `[4, <trigger>, 142, N, 0]`，`value` 就是点数。
+	if a.stat == EquipmentDB.special_enum_of("res_gain"):
+		var r = player.get("class_resource")
+		if r != null and r.has_method("gain_from_equip"):
+			r.call("gain_from_equip", float(a.value))
 		return
 	if a.stack_max > 0:
 		_apply_stacked(a)

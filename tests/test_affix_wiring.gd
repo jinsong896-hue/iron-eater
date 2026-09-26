@@ -45,6 +45,7 @@ func _ready() -> void:
 	await _test_frozen_dmg_channel()
 	await _test_cdr_channel()
 	_test_new_triggers_have_callers()
+	await _test_resource_channels()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -52,6 +53,79 @@ func _ready() -> void:
 	else:
 		print("AFFIX WIRING TESTS FAILED: %d" % failed)
 		get_tree().quit(1)
+
+
+## 10. 职业资源通道（装备参考2：「获得 N 点怒气/魔力/…」）
+##
+## ## 这里修了一个通道错误
+##
+## 旧生成器把「击杀敌人回复 N 点**职业资源**」映射到 `exp_gain`
+##（经验获取）——**与经验无关**。修正为 `res_gain`，并让
+## `PlayerEquipmentEffects` 真正调 `ClassResource.gain_from_equip()`。
+##
+## ## 资源已统一（用户 2026-09-26 决策）
+##
+## 猎人/法师/审判官三者都是「魔力」，故这些词条不再绑死职业——
+## 谁装备谁生效。
+func _test_resource_channels() -> void:
+	print("\n--- 职业资源通道 ---")
+	var em = GameManager.equipment_manager
+	if em == null:
+		_check(false, "equipment_manager 就绪")
+		return
+
+	# ① 通道汇总存在
+	var sp: Dictionary = em.special_modifiers()
+	for k in ["resource_gain_flat", "resource_gain_pct", "resource_max_pct",
+			"resource_regen_flat"]:
+		_check(sp.has(k), "通道 %s 在汇总里" % k)
+
+	# ② 装上「怒气护腕」（自有列 = **受击时 +2 点**）
+	#
+	# **注意交付路径**：这类词条是 `STACK_GAIN` 形态（`[4, trigger, 142, N, 0]`），
+	# 走**触发路径**（`equip_fx.on_hurt()` → `_apply_trigger` → `gain_from_equip`），
+	# **不是** `special_modifiers` 通道——后者只收 `is_stat()`（FLAT/PERCENT），
+	# `STACK_GAIN` 会被过滤掉。
+	#
+	# 早期版本断言「special_modifiers 里 resource_gain_flat > 0」——
+	# 那是**断言错了机制**，必然失败且与接线无关。
+	_reset()
+	await get_tree().process_frame
+	var player := _player()
+	if player == null:
+		_check(false, "找到玩家节点")
+		return
+
+	var inst := _make_inst_by_name("怒气护腕")
+	if inst == null:
+		_check(false, "构造「怒气护腕」实例")
+		return
+	em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst)
+	await get_tree().process_frame
+
+	# ③ **行为断言**：触发受击事件 → 资源真的增加
+	var r = player.get("class_resource")
+	if r == null:
+		_check(false, "玩家有 class_resource")
+		return
+	r.value = 0.0
+	if player.equip_fx != null:
+		player.equip_fx.on_hurt()
+	_check(r.value > 0.0,
+		"「怒气护腕」受击触发 → 资源真的增加（0 → %.1f）" % r.value)
+
+	# ④ 资源上限乘区（「资源上限护符」= resource_max_pct，这是真·通道）
+	_reset()
+	await get_tree().process_frame
+	var base_max := ClassResource.create("mage").max_value()
+	var inst2 := _make_inst_by_name("资源上限护符")
+	if inst2 != null:
+		em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst2)
+		await get_tree().process_frame
+		var r3 := ClassResource.create("mage")
+		_check(r3.max_value() > base_max,
+			"「资源上限护符」提高资源上限（%.0f → %.0f）" % [base_max, r3.max_value()])
+	_reset()
 
 
 ## 1. `special_modifiers()` 必须把新增通道**汇总出来**

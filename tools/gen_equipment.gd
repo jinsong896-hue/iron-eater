@@ -97,6 +97,8 @@ const SP := {
 	"shadow_resist": 134,
 	"ranged_dmg": 135, "aoe_dmg": 136, "trap_dmg": 137, "projectile_dmg": 138,
 	"debuff_resist": 139, "shield_power": 140, "frozen_dmg": 141,
+	# 2026-09-26：职业资源（装备参考2 的「获得 N 点怒气/魔力/…」）
+	"res_gain": 142, "res_gain_pct": 143, "res_max": 144, "res_regen": 145,
 }
 
 ## Operation / Trigger 枚举值（与 AffixData 一致）
@@ -660,7 +662,66 @@ func _parse_main(s: String) -> String:
 			OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(2)), m.get_string(1)]
 	m = _re(r"击杀敌人回复\s*(\d+)\s*点职业资源").search(s)
 	if m:
-		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, SP["exp_gain"], _f(m.get_string(1))]
+		# **通道修正**：旧代码映射到 `exp_gain`（经验获取）——那是错的，
+		# 词条说的是「回复 N 点**职业资源**」，与经验无关。
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, SP["res_gain"], _raw(m.get_string(1))]
+	# ---------- 3b. 职业资源点（装备参考2：「获得 N 点怒气/魔力/…」） ----------
+	#
+	# 资源已统一为怒气/魔力/气劲三种（用户 2026-09-26 决策），
+	# 故这些词条一律按「获得 N 点**职业资源**」处理——谁装备谁生效，
+	# 不再绑死某个职业。规格里的「（战士）」「（猎人）」等括号是**说明**，
+	# 不是限定条件。
+	#
+	# 触发时机按从句区分：击杀 / 受击 / 命中 / 暴击 / 连击。
+	# **数值用 `_raw` 不除 100**：「获得 5 点」是绝对点数，不是百分比。
+	m = _re(r"击杀敌人(?:时)?获得\s*(\d+)\s*点(?:怒气|魔力|专注|裁决|气劲|职业资源)").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, SP["res_gain"], _raw(m.get_string(1))]
+	m = _re(r"击杀敌人回复\s*(\d+)\s*点(?:怒气|魔力|专注|裁决|气劲)").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, SP["res_gain"], _raw(m.get_string(1))]
+	m = _re(r"受到伤害时获得\s*(\d+)\s*点(?:怒气|魔力|专注|裁决|气劲|职业资源)").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HURT, SP["res_gain"], _raw(m.get_string(1))]
+	m = _re(r"攻击命中时获得\s*(\d+)\s*点(?:怒气|魔力|专注|裁决|气劲|职业资源)").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, SP["res_gain"], _raw(m.get_string(1))]
+	m = _re(r"暴击时获得\s*(\d+)\s*点(?:怒气|魔力|专注|裁决|气劲|职业资源)").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_CRIT, SP["res_gain"], _raw(m.get_string(1))]
+	m = _re(r"连击时获得\s*(\d+)\s*点(?:怒气|魔力|专注|裁决|气劲|职业资源)").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_COMBO, SP["res_gain"], _raw(m.get_string(1))]
+	# 每秒回复 N 点魔力（法师）——**速率**，不是一次性获得。
+	#
+	# 走独立通道 `res_regen`：`res_gain` 是「某个事件发生时获得 N 点」，
+	# 而这个是「持续每秒回 N 点」。语义不同，混用会让「每秒回 1 点」
+	# 变成「永远只回 1 点」。
+	m = _re(r"每秒回复\s*(\d+)\s*点(?:怒气|魔力|专注|裁决|气劲)").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["res_regen"], _raw(m.get_string(1))]
+	# 「怒气获取量增加 0.5%」类——资源积攒量的百分比乘区
+	m = _re(r"(?:怒气|魔力|专注|裁决|气劲|资源)获取量增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["res_gain_pct"], _f(m.get_string(1))]
+	# 「魔力回复速度增加 0.5%」——同上（写法变体）
+	m = _re(r"(?:怒气|魔力|专注|裁决|气劲|资源)回复速度增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["res_gain_pct"], _f(m.get_string(1))]
+	# 「最大怒气/魔力/专注/裁决/气劲增加 3%」——资源上限乘区
+	m = _re(r"最大(?:怒气|魔力|专注|裁决|气劲)(?:/[^\s]+)*增加\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["res_max"], _f(m.get_string(1))]
+	# 「击杀敌人回复 2% 最大魔力」——按**百分比**回复资源
+	#（与「获得 N 点」的绝对点数不同，故走同一个 flat 通道但值是百分比化的？
+	#  不——语义不同：这是「回复上限的 2%」。用 res_gain_pct 会让它变成
+	#  「积攒量 +2%」，也是错的。
+	#  正确做法：折算成点数存进 res_gain（上限 100 的 2% = 2 点），
+	#  因为资源上限统一是 100。见 ClassResource.DEFS 的 max 字段。）
+	m = _re(r"击杀敌人回复\s*(\d+(?:\.\d+)?)%\s*最大(?:怒气|魔力|专注|裁决|气劲)").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, SP["res_gain"],
+			_raw("%.1f" % float(m.get_string(1)))]
 	m = _re(r"击杀敌人回复\s*(\d+(?:\.\d+)?)%\s*最大生命").search(s)
 	if m:
 		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
@@ -786,7 +847,8 @@ func _parse_main(s: String) -> String:
 		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
 	m = _re(r"攻击命中回复\s*(\d+)\s*点职业资源").search(s)
 	if m:
-		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, SP["exp_gain"], _f(m.get_string(1))]
+		# 同 663 行：通道修正 `exp_gain` → `res_gain`，且用 `_raw` 不除 100
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, SP["res_gain"], _raw(m.get_string(1))]
 
 	# ---------- 9. 数值型（统一查找：面板属性优先，再扩展通道） ----------
 	#
@@ -2131,6 +2193,14 @@ func _parse_main(s: String) -> String:
 ## 数值字符串 → 百分比浮点（"50" → "0.5000"）
 func _f(pct: String) -> String:
 	return "%.4f" % (float(pct) / 100.0)
+
+
+## 原始数值字符串 → 浮点字面量（**不除以 100**）
+##
+## 用于「获得 5 点怒气」这类**绝对点数**——`_f` 会把它变成 0.05，
+## 那是百分比的转换，对点数不适用。
+func _raw(v: String) -> String:
+	return "%.4f" % float(v)
 
 
 # ============================================================

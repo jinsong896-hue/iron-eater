@@ -148,9 +148,20 @@ func _ready() -> void:
 	# 只有 30%」的偏移 bug 一路放行——center_offset 未随 size 同步更新）
 	_c(absf(full_mesh.center_offset.x) < 0.01, "满血时填充与背景条对齐",
 		"center_offset.x=%.3f" % full_mesh.center_offset.x)
+	# **断言紧接在 take_damage 之后，不 await**。
+	#
+	# `take_damage` 同步调 `visuals.flash_hit()`，而后者同步把
+	# `_flash_timer` 置为 `HIT_FLASH_DURATION`（0.18）。故此刻读它必然 > 0。
+	#
+	# 旧写法先 `await process_frame` 再断言，会**偶发失败**：
+	# `_flash_timer` 每帧递减，而 headless 下进程帧耗时不受限——
+	# 若那一帧恰好 > 0.18s（机器抖动），计时器已归零。
+	# 实测 1/6 概率失败（跑 6 次挂 1 次），且与产品行为无关。
 	e.take_damage(10.0)
+	var flash_after_hit: float = probe.enemy_flash_timer(e)
+	_c(flash_after_hit > 0.0, "受击进入闪红状态",
+		"flash_timer=%.3f" % flash_after_hit)
 	await get_tree().process_frame
-	_c(probe.enemy_flash_timer(e) > 0.0, "受击进入闪红状态")
 	# 断言 **mesh.size.x**（真实渲染量）而非节点 scale：billboard 材质
 	# 渲染时忽略节点 scale（实测 scale 改了屏幕像素宽纹丝不动），
 	# 旧断言读 scale.x 时曾把这种视觉冻结放行成绿灯。

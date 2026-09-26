@@ -1990,6 +1990,10 @@ func _is_valid_enemy(enemy: Node) -> bool:
 func _register_hit_combo() -> void:
 	_hit_combo_count += 1
 	_hit_combo_time = 2.0
+	# 装备触发条件（装备参考2：「连击时获得1点气劲（武僧）」）——
+	# 连击数是玩家侧状态，故只能在这里判定。
+	if equip_fx != null:
+		equip_fx.on_combo()
 	# 形态·连击回复（策划 7.3 疾风「连击≥10 时每次攻击恢复 2% 已损生命」）
 	_apply_combo_heal()
 

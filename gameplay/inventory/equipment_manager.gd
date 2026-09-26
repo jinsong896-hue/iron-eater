@@ -591,6 +591,9 @@ func special_modifiers() -> Dictionary:
 		"ranged_dmg_pct": 0.0, "aoe_dmg_pct": 0.0, "trap_dmg_pct": 0.0,
 		"projectile_dmg_pct": 0.0, "debuff_resist_pct": 0.0,
 		"shield_power_pct": 0.0, "frozen_dmg_pct": 0.0,
+		# 2026-09-26：职业资源（装备参考2 的「获得 N 点怒气/魔力/…」）
+		"resource_gain_flat": 0.0, "resource_gain_pct": 0.0,
+		"resource_max_pct": 0.0, "resource_regen_flat": 0.0,
 	}
 	for slot in _equipped:
 		var inst = _equipped[slot]

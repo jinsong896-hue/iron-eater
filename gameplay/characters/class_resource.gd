@@ -83,6 +83,30 @@ const DEFS := {
 	},
 }
 
+## 装备词条对**资源获取**的加成（装备参考2 的 `resource_gain_*` 通道）
+##
+## ## 为什么直接读 equipment_manager 而不是缓存字段
+##
+## 装备的穿戴/卸下/融合/吞噬都会改变这些值，缓存需要**在每条变更路径上
+## 刷新**——而变更路径有 5+ 条（equip/unequip/fuse/devour/读档）。
+## 漏掉任何一条就会出现「卸了装备加成还在」或反之。
+##
+## 直接读 `special_modifiers()` 是**无状态**的，永远与当前装备一致。
+## 代价是每次积攒都查一次字典——但那是哈希查找，且积攒是低频事件
+##（击杀/受击/命中，不是每帧）。
+func _equip_res(key: String) -> float:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return 0.0
+	var gm = tree.root.get_node_or_null("GameManager")
+	if gm == null:
+		return 0.0
+	var em = gm.get("equipment_manager")
+	if em == null or not em.has_method("special_modifiers"):
+		return 0.0
+	var sp: Dictionary = em.call("special_modifiers")
+	return float(sp.get(key, 0.0))
+
 ## 当前资源所属职业（空 = 无资源系统）
 var class_id := ""
 ## 资源显示名（怒气/魔力/…）
@@ -126,9 +150,13 @@ func is_active() -> bool:
 	return DEFS.has(class_id)
 
 
-## 当前上限（基础 + 加成）
+## 当前上限（基础 + 形态加成 + 装备词条乘区）
+##
+## 装备参考2：「最大怒气/魔力/专注/裁决/气劲增加 3%」（`resource_max_pct`）。
+## 走乘区而不是固定值——规格写的是百分比。
 func max_value() -> float:
-	return maxf(base_max + _max_bonus, 1.0)
+	var equip_pct := _equip_res("resource_max_pct")
+	return maxf((base_max + _max_bonus) * (1.0 + equip_pct), 1.0)
 
 
 ## 资源比例（0~1），供 UI 画球
@@ -185,7 +213,9 @@ func tick(delta: float) -> void:
 	if not is_active():
 		return
 	var d: Dictionary = DEFS[class_id]
-	var regen := float(d.get("regen_per_sec", 0.0))
+	# 装备词条·每秒回复 N 点（`resource_regen_flat`）——与职业基础回复**叠加**。
+	# 规格：「每秒回复1点魔力（法师）」。
+	var regen := float(d.get("regen_per_sec", 0.0)) + _equip_res("resource_regen_flat")
 	if regen <= 0.0:
 		return
 	_regen_accum += regen * maxf(regen_mult, 0.0) * delta
@@ -206,16 +236,25 @@ func on_hit(crit: bool = false) -> void:
 	if not is_active():
 		return
 	var d: Dictionary = DEFS[class_id]
-	gain(float(d.get("gain_on_hit", 0.0)))
+	_gain_with_bonus(float(d.get("gain_on_hit", 0.0)))
 	if crit:
-		gain(float(d.get("gain_on_crit_bonus", 0.0)))
+		_gain_with_bonus(float(d.get("gain_on_crit_bonus", 0.0)))
 
 
 ## 击杀敌人时按职业规则积攒（策划 6.1：判官击杀 +20）
 func on_kill() -> void:
 	if not is_active():
 		return
-	gain(float(DEFS[class_id].get("gain_on_kill", 0.0)))
+	_gain_with_bonus(float(DEFS[class_id].get("gain_on_kill", 0.0)))
+
+
+## 连击时积攒（装备参考2：「连击时获得1点气劲」）
+##
+## 独立于 `on_hit`：规格把它写成单独的触发时机，与命中不是一回事。
+func on_combo() -> void:
+	if not is_active():
+		return
+	_gain_with_bonus(0.0)   # 基础为 0，全靠装备词条的 flat 提供
 
 
 ## 受到伤害时按比例积攒（战士怒气）
@@ -225,7 +264,36 @@ func on_damage_taken(damage: float) -> void:
 	var d: Dictionary = DEFS[class_id]
 	var pct := float(d.get("gain_on_taken_pct", 0.0))
 	if pct > 0.0:
-		gain(damage * pct)
+		_gain_with_bonus(damage * pct)
+
+
+## 装备词条直接给资源（装备参考2：「击杀敌人获得5点怒气」）
+##
+## **走这个入口而不是 `gain()`**：`gain` 是裸加法，不吃 `resource_gain_pct`
+## 乘区。「怒气获取量 +50%」应该让「获得 5 点」变成 7.5 点——
+## 但**不该**让固定值本身被放大（见 `_gain_with_bonus` 的说明）。
+##
+## 故这里传 `base = 0`，只让 `flat` 部分生效，再统一乘百分比。
+func gain_from_equip(amount: float) -> void:
+	if not is_active() or amount <= 0.0:
+		return
+	gain(amount * (1.0 + _equip_res("resource_gain_pct")))
+
+
+## 带**装备加成**的资源积攒
+##
+## 装备参考2 里有两类加成：
+##   · `resource_gain_flat` —— 「击杀敌人获得 5 点怒气」（固定值）
+##   · `resource_gain_pct`  —— 「怒气获取量增加 0.5%」（乘区）
+##
+## 两者的先后：先乘百分比再叠加固定值。理由是固定值词条写的是
+## 「获得 N 点」——那是**绝对点数**，不该被百分比放大
+##（否则「获取量+50%」会让「+5点」变成 +7.5，与规格的绝对语义不符）。
+func _gain_with_bonus(base: float) -> void:
+	var flat := _equip_res("resource_gain_flat")
+	if base <= 0.0 and flat <= 0.0:
+		return
+	gain(base * (1.0 + _equip_res("resource_gain_pct")) + flat)
 
 
 ## 新一层/新一局时重置（资源不跨层保留，避免开局满资源）

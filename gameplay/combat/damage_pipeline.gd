@@ -91,3 +91,31 @@ static func elemental_attack(atk: float, skill_multiplier: float, bonus: float,
 		"damage_type": dtype,
 		"element": element,
 	}
+
+
+## **附加元素伤害**（装备参考2：「攻击附带 N% 火焰伤害」）。
+##
+## ## 与 `elemental_attack` 的区别
+##
+## `elemental_attack` 把**整段伤害**按元素规则结算（火/冰/雷/毒无视护甲）；
+## 本函数算的是**额外多出的一段**——本体伤害照常结算，这一段另算后加上去。
+##
+## 规格原文的语义就是「附带」：烈焰法杖打人时，物理本体照打，
+## **额外**再造成 50% 法强的火焰伤害。
+##
+## ## 参数
+##   base    —— 计算基准（武器攻击力或法强）
+##   ratio   —— 附带比例（0.5 = 50%）
+##   element —— 元素 key（fire/frost/static/earth/wind/poison）
+##   target_resist —— 目标对该元素的抗性（0~1）
+##
+## 返回附加伤害值（>= 0）。
+static func bonus_element_damage(base: float, ratio: float,
+		element: String, target_resist: float = 0.0) -> float:
+	if base <= 0.0 or ratio <= 0.0:
+		return 0.0
+	if element.is_empty():
+		return 0.0
+	# 元素抗性减免（与 elemental 同口径：1 - 抗性）
+	var r := clampf(target_resist, 0.0, 0.95)
+	return maxf(base * ratio * (1.0 - r), 0.0)

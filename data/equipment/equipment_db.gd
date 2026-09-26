@@ -131,6 +131,13 @@ const SPECIAL_STAT := {
 	"debuff_resist":  {"enum": 139, "out": "debuff_resist_pct"},   # 异常状态抗性 +N%
 	"shield_power":   {"enum": 140, "out": "shield_power_pct"},    # 护盾强度/获取量 +N%
 	"frozen_dmg":     {"enum": 141, "out": "frozen_dmg_pct"},      # 对被冻结目标增伤 +N%
+	# —— 2026-09-26：职业资源点（装备参考2 的「获得 N 点怒气/魔力/…」）——
+	# 资源已统一为怒气/魔力/气劲三种，这些词条按「获得 N 点职业资源」处理，
+	# 谁装备谁生效（不再绑死某个职业）。
+	"res_gain":       {"enum": 142, "out": "resource_gain_flat"},   # 获得 N 点职业资源（固定值）
+	"res_gain_pct":   {"enum": 143, "out": "resource_gain_pct"},    # 资源获取量 +N%
+	"res_max":        {"enum": 144, "out": "resource_max_pct"},     # 资源上限 +N%
+	"res_regen":      {"enum": 145, "out": "resource_regen_flat"},  # 每秒回复 N 点资源
 }
 
 ## 扩展修饰量的枚举值 → 输出键（special_modifiers 用）
@@ -751,11 +758,11 @@ const CURATED_TABLE := [
   ["G021", "寻宝者背包", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[114, 0.0300, true]], [[114, 0.0030, true]], [[4, 32, 114, 0.1000, 0]]],
   ["G022", "破碎的钥匙链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[109, 0.0200, true]], [[109, 0.0020, true]], [[109, 0.0500, true]]],
   ["G023", "记忆碎片护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[4, 1, 119, 0.0100, 0]], [[119, 0.0050, true]], [[119, 0.0500, true]]],
-  ["G024", "怒气护腕", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [], [], []],
-  ["G025", "魔力护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [], [], []],
-  ["G026", "专注指环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [], [], []],
-  ["G027", "裁决徽章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [], [], []],
-  ["G028", "气劲腰带", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [], [], []],
+  ["G024", "怒气护腕", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[4, 2, 142, 2.0000, 0]], [[143, 0.0050, true]], [[4, 1, 142, 5.0000, 0]]],
+  ["G025", "魔力护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[145, 1.0000, true]], [[143, 0.0050, true]], [[4, 1, 142, 2.0000, 0]]],
+  ["G026", "专注指环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[4, 6, 142, 2.0000, 0]], [[143, 0.0050, true]], [[4, 1, 142, 3.0000, 0]]],
+  ["G027", "裁决徽章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[4, 3, 142, 1.0000, 0]], [[143, 0.0050, true]], [[4, 1, 142, 5.0000, 0]]],
+  ["G028", "气劲腰带", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[4, 7, 142, 1.0000, 0]], [[143, 0.0050, true]], [[4, 1, 142, 3.0000, 0]]],
   ["G029", "冷却沙漏", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[Stat.CDR, 0.0100, true]], [[Stat.CDR, 0.0020, true]], [[4, 1, Stat.CDR, 0.20, 0]]],
   ["G030", "迅捷之翼", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[Stat.CDR, 0.0500, true]], [[Stat.SPD, 0.0030, true]], [[Stat.SPD, 0.0500, true]]],
   ["G031", "冰霜护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[2, "freeze", 0.0500, 1.0]], [[122, 0.0050, true]], [[4, 28, 117, 0.0500, 0]]],
@@ -783,7 +790,7 @@ const CURATED_TABLE := [
   ["G053", "穿透弹头", "crossbow", ["远程", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 56.0, false]], [[103, 0.0500, true]], [[103, 0.0020, true]], [[138, 0.1000, true]]],
   ["G054", "爆炸符文", "staff", ["魔法", "双手", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.AP, 72.8, false]], [[117, 0.3000, true]], [[136, 0.0030, true]], []],
   ["G055", "远程精准镜", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[4, 29, 117, 0.0300, 0]], [[135, 0.0030, true]], [[4, 1, Stat.CRT, 0.50, 0]]],
-  ["G056", "资源上限护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [], [[119, 0.0030, true]], [[4, 25, 117, 0.1000, 0]]],
+  ["G056", "资源上限护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[144, 0.0300, true]], [[119, 0.0030, true]], [[4, 25, 117, 0.1000, 0]]],
   ["G057", "猎人印记", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[117, 0.0300, true]], [[117, 0.0030, true]], []],
   ["G058", "元素穿透指环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[103, 0.0300, true]], [[103, 0.0030, true]], [[103, 0.30, true]]],
   ["G059", "真实伤害护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [], [[118, 0.0030, true]], []],
@@ -812,7 +819,7 @@ const CURATED_TABLE := [
   ["B022", "反伤巨剑", "greatsword", ["近战", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 140.0, false]], [[104, 0.3000, true], [7, "eq_反伤巨剑", "反击风暴"]], [[104, 0.0200, true]], []],
   ["B023", "空间匕首", "dagger", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 65.6, false]], [[4, 10, 117, 0.5000, 0]], [[117, 0.0200, true]], [[117, 0.3000, true]]],
   ["B024", "标记重弩", "crossbow", ["远程", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 87.5, false]], [[2, "mark", 0.0800, 5.0]], [[117, 0.0100, true]], [[2, "burn", 0.30, 3.0]]],
-  ["B025", "资源长矛", "spear", ["近战", "双手", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 87.5, false]], [[4, 3, 119, 0.0200, 0]], [], []],
+  ["B025", "资源长矛", "spear", ["近战", "双手", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 87.5, false]], [[4, 3, 142, 2.0000, 0]], [[143, 0.0200, true]], []],
   ["B026", "元素战镰", "scythe", ["近战", "双手", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 140.0, false]], [[3, "fire", 0.3000]], [[117, 0.0200, true]], []],
   ["B027", "守护者之盾", "shield", ["防御"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.DEF, 87.5, false]], [[4, 9, 106, 0.0200, 5]], [[110, 0.0200, true]], [[4, 5, 111, 0.5000, 0]]],
   ["B028", "毒牙短刃", "dagger", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 65.6, false]], [[2, "poison_rot", 0.0800, 3.0]], [[126, 0.0200, true]], [[2, "burn", 0.30, 3.0]]],
@@ -827,7 +834,7 @@ const CURATED_TABLE := [
   ["B037", "召唤胸甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[4, 17, 106, 0.05, 0], [4, 1, Stat.HP, 0.0500, 0]], [[116, 0.0200, true]], [[116, 0.10, true]]],
   ["B038", "反伤肩甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[104, 0.2000, true], [7, "eq_反伤肩甲", "荆棘爆发"]], [[104, 0.0200, true]], [[4, 24, Stat.DEF, 0.3000, 0]]],
   ["B039", "护盾护手", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[106, 0.0500, true], [4, 15, Stat.ATK, 0.0500, 0]], [[140, 0.0200, true]], [[4, 14, Stat.ATK, 0.8000, 0]]],
-  ["B040", "资源腿甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[4, 1, 119, 0.0300, 0]], [[119, 0.0200, true]], [[4, 25, Stat.SPD, 0.1500, 0]]],
+  ["B040", "资源腿甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[4, 1, 142, 3.0000, 0]], [[119, 0.0200, true]], [[4, 25, Stat.SPD, 0.1500, 0]]],
   ["B041", "位移战靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[Stat.CDR, 0.1000, true], [111, 0.0500, true]], [[Stat.SPD, 0.0200, true]], [[117, 0.3000, true]]],
   ["B042", "标记头盔", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[2, "mark", 0.0600, 5.0]], [[105, 0.0100, true]], [[2, "burn", 0.30, 3.0]]],
   ["B043", "元素抗性胸甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[106, 0.0500, true], [106, 0.0500, true]], [[106, 0.0100, true]], [[4, 14, Stat.AP, 0.0, 0]]],
