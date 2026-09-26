@@ -146,6 +146,7 @@ const TRIG_ON_RECALL := 33
 const TRIG_ON_CHEAT_DEATH := 34
 const TRIG_ON_TARGET_DEATH := 35
 const TRIG_ON_ELEMENT_PROC := 36
+const TRIG_ON_HEAL := 37
 
 ## 数值型效果名 → 扩展通道 key（吞噬/融合列大量出现）
 ##
@@ -850,6 +851,105 @@ func _parse_main(s: String) -> String:
 		# 同 663 行：通道修正 `exp_gain` → `res_gain`，且用 `_raw` 不除 100
 		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, SP["res_gain"], _raw(m.get_string(1))]
 
+	# ---------- 8c. 条件型补全（2026-09-26，B 类 15 条）----------
+	#
+	# 这些词条的**机制都已存在**（词条表、Trigger 枚举、消费点齐全），
+	# 只是生成器缺规则。放在第 9 节通用兜底之前——否则会被
+	# `nm.contains("伤害")` 之类吞掉（「N层时」那三条就是这么丢的）。
+
+	# 圣光伤害有 N% 概率致盲敌人 M 秒 → 命中时挂 blind
+	m = _re(r"圣光伤害有\s*(\d+)%\s*概率致盲敌人\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		return "[%d, \"blind\", %s, %s]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1)), _raw(m.get_string(2))]
+	# 反击风暴期间免疫控制 / 荆棘爆发期间免疫控制 → 状态期间免疫
+	if s.contains("反击风暴期间免疫控制"):
+		return "[%d, \"control_immune\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+	# 守护期间免疫击退 → 复用 ctrl_resist 通道（击退属控制类）
+	if s.contains("守护期间免疫击退"):
+		return "[%d, 1.0, true]" % SP["ctrl_resist"]
+	# 成功抵抗控制效果后，获得 N 秒霸体 → 受控抵抗 → 免疫控制
+	if s.contains("成功抵抗控制效果后"):
+		return "[%d, \"control_immune\", 1.0, 3.0]" % OP_TRIGGER_BUFF
+	# 护盾存在时，攻击力提高 N%
+	m = _re(r"护盾存在时[，,]?\s*攻击力提高\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [
+			OP_STACK_GAIN, TRIG_SHIELD_UP, _f(m.get_string(1))]
+	# 攻击有 N% 概率造成额外 M% 攻击力的真实伤害 → 命中时按概率加真伤
+	m = _re(r"攻击有\s*(\d+)%\s*概率造成额外\s*(\d+)%\s*攻击力的真实伤害").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [
+			OP_STACK_GAIN, TRIG_ON_HIT, SP["true_dmg"], _f(m.get_string(2))]
+	# 真实伤害击杀敌人时，回复 N% 最大生命值 → 击杀回血
+	m = _re(r"真实伤害击杀敌人时[，,]?回复\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [
+			OP_STACK_GAIN, TRIG_ON_KILL, SP["lifesteal"], _f(m.get_string(1))]
+	# 治疗自身时，对周围敌人造成治疗量 N% 的圣光伤害 → 治疗触发范围伤害
+	m = _re(r"治疗自身时[，,]?对周围敌人造成治疗量\s*(\d+)%\s*的圣光伤害").search(s)
+	if m:
+		return "[%d, %d, Stat.AP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HEAL, _f(m.get_string(1))]
+	# 使用技能时，有 N% 概率使该技能冷却立即减少 M%
+	m = _re(r"使用技能时[，,]?有\s*(\d+)%\s*概率使该技能冷却立即减少\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [
+			OP_STACK_GAIN, TRIG_ON_SKILL_CAST, SP["cd_refresh"], _f(m.get_string(2))]
+	# 生命低于 N% 时，普通攻击变为范围攻击，造成 M% 伤害
+	#
+	# 「变为范围攻击」本身需要普攻形态切换（不在裸属性可表达范围），
+	# 但**伤害倍率**可提取：M% 是相对基础的倍率，超出 100% 的部分
+	# 记进 `aoe_dmg`（范围伤害增伤）。这样至少伤害提升生效。
+	m = _re(r"生命(?:值)?低于\s*(\d+)%\s*时[，,]?普通攻击变为范围攻击[，,]?造成\s*(\d+)%\s*伤害").search(s)
+	if m:
+		var bonus := maxf(float(m.get_string(2)) / 100.0 - 1.0, 0.0)
+		return "[%d, %.4f, true]" % [SP["aoe_dmg"], bonus]
+	# 点燃目标死亡时，火焰扩散至周围 N 米 → 目标死亡触发
+	if s.contains("点燃目标死亡时"):
+		return "[%d, \"burn\", 1.0, 4.0]" % OP_TRIGGER_BUFF
+	# 被点燃目标受到暴击时，火焰持续时间刷新 → 暴击触发
+	if s.contains("被点燃目标受到暴击时"):
+		return "[%d, \"burn\", 1.0, 4.0]" % OP_TRIGGER_BUFF
+	# 击杀敌人后，暴击率增加 N%，持续 M 秒，可叠加 K 层
+	m = _re(r"击杀敌人后[，,]?暴击率增加\s*(\d+)%[，,]?持续\s*(\d+(?:\.\d+)?)\s*秒[，,]?可叠加\s*(\d+)\s*层").search(s)
+	if m:
+		return "[%d, %d, Stat.CRT, %s, %s]" % [
+			OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1)), m.get_string(3)]
+	# 额外投射物命中同一目标时，伤害递增 N% → 命中叠层
+	m = _re(r"额外投射物命中同一目标时[，,]?伤害递增\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
+
+	# ---------- 8b. 「N层时」精确规则（**必须早于第 9 节通用兜底**）----------
+	#
+	# 第 9 节的数值型兜底里有 `if nm.contains("伤害") → elem_dmg`，
+	# 会把「N层时目标受到伤害+N%」整条吞掉（那是**目标易伤**，
+	# 不是自己的元素增伤）。
+	#
+	# 同理「N层时…必定暴击」会掉进同一兜底（把暴击当元素增伤）。
+	# 故这三条必须在第 9 节**之前**判——**更具体的规则要先于更宽泛的**。
+	#
+	# 第 10 节（915 行）里也有一份同样的规则，但那时已经太晚了：
+	# 第 9 节在 853 行，先命中并 return 了。
+	m = _re(r"\d+层时目标受到伤害\s*\+\s*(\d+)%").search(s)
+	if m:
+		# 目标易伤（不是自己的增伤）——复用已有的 `judgement` 词条
+		#（Kind.VULN，「受到伤害提升」），值走参数覆盖。
+		return "[%d, \"judgement\", 1.0, 0.0, {\"vuln\": %s}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	m = _re(r"\d+层时.*?必定暴击").search(s)
+	if m:
+		# 「必定暴击且暴击伤害+50%」——裸属性只能表达后半段。
+		# 「必定暴击」是「下一次攻击」的标志，需要待发标记机制，
+		# 不在裸属性可表达的范围内，故取 CRD（暴击伤害）。
+		return "[Stat.CRD, 0.50, true]"
+	m = _re(r"\d+层时.*?获得吸收\s*(\d+)%\s*最大生命").search(s)
+	if m:
+		# 「获得吸收 N% 最大生命的护盾」——旧代码走 `elem_resist`
+		#（元素抗性），与「护盾」毫无关系。走 `grant_shield` sentinel。
+		return "[%d, \"grant_shield\", 1.0, 0.0, {\"pct\": %s, \"cap\": 0.60}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1))]
+
 	# ---------- 9. 数值型（统一查找：面板属性优先，再扩展通道） ----------
 	#
 	# 覆盖三种写法（规格的吞噬/融合列大量使用后两种）：
@@ -925,12 +1025,8 @@ func _parse_main(s: String) -> String:
 	m = _re(r"满层时释放.*?(\d+)%\s*(?:攻击力|法强|雷电)").search(s)
 	if m:
 		return "[%d, 5, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, _f(m.get_string(1))]
-	m = _re(r"(\d+)层时.*?获得吸收\s*(\d+)%\s*最大生命").search(s)
-	if m:
-		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(2))]
-	m = _re(r"(\d+)层时.*?必定暴击").search(s)
-	if m:
-		return "[%d, %d, Stat.CRT, 0.50, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT]
+	# 注：「N层时获得护盾 / 必定暴击 / 目标受到伤害+N%」三条已提到
+	# 第 8b 节（第 9 节通用兜底之前）——放这里会被兜底先吞掉。
 	if s.contains("满层时免疫下一次控制") or s.contains("满层时免疫控制"):
 		return "[%d, 0.30, true]" % SP["ctrl_resist"]
 	if s.contains("满层时受到致命伤害"):
@@ -2392,6 +2488,15 @@ func _trigger_of_clause(clause: String) -> Dictionary:
 	if c.contains("连击"):
 		return {"trigger": TRIG_ON_COMBO, "param": 0.0}
 	if c.contains("满层") or c.contains("叠满"):
+		return {"trigger": TRIG_AT_FULL, "param": 0.0}
+	# **带数字的层数阈值**（「5层时…」「3层时…」「8层时…」）
+	#
+	# 早期只认「满层」「叠满」两个词，于是「5层时消耗全部层数获得护盾」
+	# 这类从句**识别不了** → 返回 ALWAYS → 主句解出裸属性 → 报未映射。
+	# 实测 3 条卡在这里（预言者头盔 / 荆棘长鞭 / 格挡者壁垒）。
+	#
+	# 语义上它们同属 `AT_FULL`（层数达到阈值时触发），故归到同一枚举。
+	if _re(r"\d+\s*层时").search(c) != null:
 		return {"trigger": TRIG_AT_FULL, "param": 0.0}
 	if c.contains("使用技能") or c.contains("施放技能") or c.contains("技能命中"):
 		return {"trigger": TRIG_ON_SKILL_CAST, "param": 0.0}

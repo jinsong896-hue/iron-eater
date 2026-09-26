@@ -86,6 +86,7 @@ enum Trigger {
 	ON_CHEAT_DEATH,       ## 触发免死后（「触发免死后，获得5秒无敌」）
 	ON_TARGET_DEATH,      ## 目标在特定状态下死亡（「冰冻目标死亡时」）
 	ON_ELEMENT_PROC,      ## 元素阈值事件触发后（「元素终焉触发后」）
+	ON_HEAL,              ## 治疗结算后（「治疗自身时，对周围敌人造成治疗量50%的圣光伤害」）
 }
 
 ## 触发条件的中文名（供 UI 显示）
@@ -127,6 +128,7 @@ const TRIGGER_NAMES := {
 	Trigger.ON_CHEAT_DEATH: "免死触发后",
 	Trigger.ON_TARGET_DEATH: "目标死亡时",
 	Trigger.ON_ELEMENT_PROC: "元素事件后",
+	Trigger.ON_HEAL: "治疗时",
 }
 
 @export var id: StringName = &""

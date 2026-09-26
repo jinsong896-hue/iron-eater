@@ -1011,8 +1011,11 @@ func weapon_forbidden() -> bool:
 func _on_healed(amount: float) -> void:
 	if amount > 0.0:
 		_gain_light_layer()
-		# 装备触发条件（装备参考2：「生命满时，回复转化为护盾」
-		# 「生命满时，回复量转化为护盾」）——治疗结算后判定是否满血。
+		# 装备触发条件（装备参考2：「治疗自身时，对周围敌人造成
+		# 治疗量 50% 的圣光伤害」）
+		if equip_fx != null:
+			equip_fx.on_heal()
+		# 「生命满时，回复转化为护盾」——治疗结算后判定是否满血。
 		if equip_fx != null:
 			var attrs = GameManager.attributes
 			if attrs != null and attrs.hp >= attrs.max_hp - 0.01:

@@ -432,7 +432,7 @@ func _test_new_triggers_have_callers() -> void:
 		"on_resource_full", "on_hp_full", "on_stealth",
 		"on_target_controlled", "on_distance_far",
 		"on_gold_above", "on_chest_open", "on_recall",
-		"on_target_death", "on_element_proc",
+		"on_target_death", "on_element_proc", "on_heal",
 	]
 	var dirs := ["entities/", "gameplay/", "core/"]
 	var missing: Array = []

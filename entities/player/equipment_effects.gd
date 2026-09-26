@@ -145,6 +145,12 @@ func on_combo() -> void:
 	_fire(AffixData.Trigger.ON_COMBO)
 
 
+## 治疗结算后（「治疗自身时，对周围敌人造成治疗量50%的圣光伤害」）
+## 调用点：Player._on_healed（已挂在 AttributeSystem.heal_listeners 上）
+func on_heal() -> void:
+	_fire(AffixData.Trigger.ON_HEAL)
+
+
 ## 取所有已装备的、指定触发条件的自有词条
 ##
 ## ## 为什么要遍历三个来源（此前只读一个）
