@@ -29,6 +29,8 @@ extends SceneTree
 ## ```
 
 const TRACE := "res://tools/data/parse_trace.txt"
+## 完整问题明细（供重构前后 diff）
+const ISSUES_PATH := "res://tools/data/fidelity_issues.txt"
 
 ## Trigger 枚举（与 AffixData.Trigger 一致）
 const TRIG_ALWAYS := 0
@@ -62,6 +64,20 @@ func _init() -> void:
 	print("\n=== 明细（前 60 条）===")
 	for i in mini(_issues.size(), 60):
 		print("  " + _issues[i])
+
+	# **完整明细落盘**——终端只打印 60 条，但做「重构前后对比」时
+	# 截断会让 diff 失真：只在前 60 条里出现的差异被当成真差异，
+	# 而实际是列表顺序变化导致的。实测踩过：误判 4 条既有问题为回归。
+	#
+	# 用 `sort` 保证跨次运行顺序稳定，diff 才有意义。
+	var sorted := _issues.duplicate()
+	sorted.sort()
+	var f := FileAccess.open(ISSUES_PATH, FileAccess.WRITE)
+	if f != null:
+		for s in sorted:
+			f.store_line(s)
+		f.close()
+		print("\n完整明细已写入 %s（%d 条）" % [ISSUES_PATH, sorted.size()])
 
 	quit(0 if _issues.is_empty() else 1)
 

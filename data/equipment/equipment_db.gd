@@ -776,7 +776,7 @@ const CURATED_TABLE := [
   ["G046", "闪避之靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[113, 0.0500, true]], [[111, 0.0030, true]], [[Stat.SPD, 0.0500, true]]],
   ["G047", "荆棘护盾", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[4, 15, 104, 0.0500, 0]], [[140, 0.0050, true]], [[4, 14, Stat.ATK, 1.0000, 0]]],
   ["G048", "连击指环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[4, 7, Stat.ATK, 0.0100, 5]], [[4, 7, Stat.ATK, 0.0030, 0]], [[4, 7, Stat.ATK, 0.50, 0]]],
-  ["G049", "处决者之刃", "sword", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 56.0, false]], [[105, 0.1000, true]], [[105, 0.0020, true]], [[4, 11, Stat.HP, 0.0500, 0]]],
+  ["G049", "处决者之刃", "sword", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 56.0, false]], [[105, 0.1000, true]], [[105, 0.0020, true]], [[4, 1, Stat.HP, 0.0500, 0]]],
   ["G050", "背刺匕首", "dagger", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 42.0, false]], [[Stat.CRD, 0.1000, true]], [[105, 0.0050, true]], [[4, 1, 111, 0.2000, 0]]],
   ["G051", "弱点探测器", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[2, "mark", 0.0500, 3.0]], [[105, 0.0020, true]], [[2, "burn", 0.30, 3.0]]],
   ["G052", "分裂箭袋", "bow", ["远程", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 56.0, false]], [[117, 0.0500, true]], [[138, 0.0030, true]], [[117, 0.1000, true]]],

@@ -533,12 +533,39 @@ func _parse_one(s: String) -> String:
 	if cur >= 0:
 		if cur == trig:
 			return spec
-		# **触发条件错**（实测 48 条：原文说「击杀」解析成「命中」）
-		# → 以从句为准覆盖
-		return _replace_trigger(spec, trig)
+		# 触发条件不一致时**不急着覆盖**——先看旧规则是不是解出了
+		# 比「裸属性」更具体的东西。
+		#
+		# 实测：我新增的从句规则会盖掉更精确的旧解析。例：
+		#   「飞斧命中后弹射至最近敌人（50%伤害）」
+		#   旧规则 → `[117, 0.15, true]`（弹射伤害加成，合理）
+		#   我覆盖 → `[4, 10, 117, 0.15, 0]`（变成「攻击时加元素伤害」）
+		#
+		# 故只在旧结果是**叠层型**（trigger 明确且本就是条件语义）时才覆盖；
+		# 裸属性/其他形态交给下面的分支处理。
+		if _is_stack_spec(spec):
+			return _replace_trigger(spec, trig)
+		return spec
 
 	# **裸属性 = 条件被吞**（这正是本轮要修的 bug）→ 包上从句触发
-	return _wrap_with_trigger(spec, trig, float(t["param"]))
+	if _is_plain_spec(spec):
+		return _wrap_with_trigger(spec, trig, float(t["param"]))
+
+	# 其他形态（扩展通道、周期型等）：**保留旧解析**
+	#
+	# 这些形态的旧解析往往已表达完整语义（如 `[117, 0.15, true]` 是
+	# 「弹射伤害 +15%」），硬包一层会把语义改掉。
+	return spec
+
+
+## 结果是否是**叠层型**（`[4, trigger, ...]`）
+func _is_stack_spec(spec: String) -> bool:
+	return _re(r"^\[4,\s*\d+,").search(spec) != null
+
+
+## 结果是否是**裸属性**（`[Stat.X, v, bool]` / `[NNN, v, true]`）
+func _is_plain_spec(spec: String) -> bool:
+	return _re(r"^\[(?:[A-Za-z_.]+|\d+),\s*-?[\d.]+,\s*(?:true|false)\]$").search(spec) != null
 
 
 ## 从解析结果里取 trigger 槽位；**不带触发语义时返回 -1**
@@ -2168,6 +2195,16 @@ func _trigger_of_clause(clause: String) -> Dictionary:
 		return {"trigger": TRIG_ON_SHIELD_BREAK, "param": 0.0}
 	if c.contains("护盾存在"):
 		return {"trigger": TRIG_SHIELD_UP, "param": 0.0}
+
+	# ---- 击杀 + 目标低血（**必须先于纯生命阈值判**）----
+	#
+	# 「击杀生命值低于15%的敌人时，回复5%最大生命值」——这里「生命值低于15%」
+	# 修饰的是**目标**（处决线），不是玩家自己。当成 `LOW_HP` 会让语义反转：
+	# 变成「自己血低于15%时回血」。
+	#
+	# 实测这是本类规则引入的**真回归**（处决者之刃），故显式优先判。
+	if c.contains("击杀") and (c.contains("生命") or c.contains("血量")):
+		return {"trigger": TRIG_ON_KILL, "param": 0.0}
 
 	# ---- 生命阈值 / 满血（「满」先于「低于」）----
 	if c.contains("生命满") or c.contains("满血"):
