@@ -172,6 +172,20 @@ const TRIGGER_NAMES := {
 @export var trigger_chance: float = 0.0
 ## 覆盖词条时长（秒）。<=0 表示用 BuffDefs 表里的默认时长。
 @export var trigger_duration: float = 0.0
+## 触发型词条的**数值覆盖**（施加时覆盖 BuffDefs 表里的默认参数）
+##
+## ## 为什么需要
+##
+## 规格里同一类效果的值各不相同：「受到伤害时有 10% 概率**减少 50% 伤害**」
+## vs 「…减少 30% 伤害」——它们用的是**同一个 buff id**（减伤），
+## 但数值来自装备。
+##
+## 不给覆盖的话只能为每个数值开一条 BuffDefs 词条（组合爆炸），
+## 或者把值写死（那就与规格不符）。
+##
+## 格式与 `BuffHolder.apply` 的 `override_params` 一致，如
+## `{"dmg_taken_down": 0.5}`。
+@export var trigger_params: Dictionary = {}
 
 # —— 随机词条专属字段（装备参考2 规格）——
 #

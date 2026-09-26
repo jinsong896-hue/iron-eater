@@ -1667,6 +1667,31 @@ func _parse_main(s: String) -> String:
 	m = _re(r"受到伤害时有\s*(\d+)%\s*概率免疫此次伤害").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["dodge"], _f(m.get_string(1))]
+	# ---------- 32b. 受击概率减伤 / 低血护盾（2026-09-26 补） ----------
+	#
+	# 「受到伤害时，有 10% 概率减少 50% 伤害」——给**自己**挂一条限时减伤。
+	# 形态 `[OP_TRIGGER_BUFF, buff_id, chance, duration, params]`，
+	# 第 5 项是数值覆盖（同一条 `gen_sustain_2` 承载不同数值）。
+	m = _re(r"受到伤害时[，,]?有\s*(\d+)%\s*概率减少\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, \"gen_sustain_2\", %s, 0.0, {\"dmg_taken_down\": %s}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1)), _f(m.get_string(2))]
+	# 「生命值低于 20% 时，获得一个吸收 30% 最大生命值的护盾，持续 10 秒」
+	#
+	# **不用 `shield` 词条**：`BuffDefs` 里那条的 `absorb` 是固定值，
+	# 且玩家侧**没有 absorb 的消费点**（只有敌人侧读）。走它也加不了护盾。
+	# 改为 `grant_shield` sentinel —— `PlayerEquipmentEffects` 识别后调
+	# `Player._add_shield()`（`shield_power_pct` 用的同一入口，已有消费点）。
+	m = _re(r"生命值低于\s*(\d+)%\s*时[，,]?获得一个吸收\s*(\d+)%\s*最大生命值的护盾").search(s)
+	if m:
+		return "[%d, \"grant_shield\", 1.0, 0.0, {\"pct\": %s, \"cap\": 0.60}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(2))]
+	# 「满血时回复转护盾（最多 15%）」
+	m = _re(r"满血时回复转(?:化为)?护盾(?:（最多\s*(\d+)%）)?").search(s)
+	if m:
+		var cap: String = _f(m.get_string(1)) if not m.get_string(1).is_empty() else "0.1500"
+		return "[%d, \"grant_shield\", 1.0, 0.0, {\"pct\": %s, \"cap\": %s}]" % [
+			OP_TRIGGER_BUFF, cap, cap]
 	m = _re(r"格挡时有\s*(\d+)%\s*概率完全免疫该次伤害").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["block"], _f(m.get_string(1))]

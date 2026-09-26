@@ -146,6 +146,16 @@ func on_combo() -> void:
 
 
 ## 取所有已装备的、指定触发条件的自有词条
+##
+## ## 为什么要遍历三个来源（此前只读一个）
+##
+## 旧实现只读 `tpl.own_affix`——那是 `own_affixes[0]` 的**单数访问器**。
+## 于是漏掉两类：
+##   · 自有列的**第 2 条起**（`own_affixes` 是数组）
+##   · **融合进主装备**的触发词条（住在 `inst.extra_affixes`）
+##
+## 实测**融合列有 60 条触发型词条**（「护盾被击破时…」「击杀敌人后…」等），
+## 它们通过 `fuse()` 并进 `extra_affixes` 后**从未被触发过**。
 func _affixes_with(trig: int) -> Array:
 	var out: Array = []
 	var em = _em()
@@ -155,11 +165,16 @@ func _affixes_with(trig: int) -> Array:
 		if inst == null:
 			continue
 		var tpl = inst.get_template()
-		if tpl == null or tpl.own_affix == null:
+		if tpl == null:
 			continue
-		if int(tpl.own_affix.trigger) != trig:
-			continue
-		out.append({"affix": tpl.own_affix, "inst": inst})
+		# 自有列全部（不止第一条）
+		for a in tpl.own_affixes:
+			if a != null and int(a.trigger) == trig:
+				out.append({"affix": a, "inst": inst})
+		# 融合进来的（`fuse()` 把材料的 fusion_affixes 并进这里）
+		for a in inst.extra_affixes:
+			if a != null and int(a.trigger) == trig:
+				out.append({"affix": a, "inst": inst})
 	return out
 
 
@@ -188,6 +203,12 @@ func _apply_trigger(a: AffixData, inst) -> void:
 	if a.is_trigger() and a.trigger_buff == "summon_soul":
 		_summon_soul()
 		return
+	# 给护盾（装备参考2：「生命值低于20%时，获得一个吸收30%最大生命的护盾」
+	# 「满血时回复转护盾」）——调 `Player._add_shield`（已有消费点，
+	# 与 `shield_power_pct` 同一入口）。
+	if a.is_trigger() and a.trigger_buff == "grant_shield":
+		_grant_shield(a)
+		return
 	# **职业资源点**（`res_gain` / stat 142）：不是「挂一个状态」，而是
 	# **真的加资源**。走 `ClassResource.gain()`——把值当 buff 施加会变成
 	# 「玩家身上多了个叫 eqtrig_*_142 的状态」，资源一点都不涨。
@@ -198,10 +219,42 @@ func _apply_trigger(a: AffixData, inst) -> void:
 		if r != null and r.has_method("gain_from_equip"):
 			r.call("gain_from_equip", float(a.value))
 		return
+	# **触发型词条**（`OP_TRIGGER_BUFF`）：给自己挂一条具名词条。
+	#
+	# 与 `_apply_instant` 的区别：那个是「把词条的 stat/value 当属性修饰量」，
+	# 这个的语义是「施加一个 BuffDefs 里定义的**具名状态**」
+	#（如「受到伤害时 10% 概率减少 50% 伤害」→ 挂一条减伤词条）。
+	if a.is_trigger() and not a.trigger_buff.is_empty():
+		_apply_self_trigger_buff(a)
+		return
 	if a.stack_max > 0:
 		_apply_stacked(a)
 	else:
 		_apply_instant(a, inst)
+
+
+## 触发型词条：给**自己**挂一条具名词条（可带数值覆盖）
+##
+## ## 为什么需要
+##
+## 规格里大量「受到伤害时有 N% 概率减少 M% 伤害」这类词条——
+## 它们的效果是**给自己挂一个限时减伤状态**，而不是给敌人挂。
+##
+## 现有的 `_apply_trigger_affixes`（在 `Player._apply_hit` 里）只处理
+## **给敌人挂**的那类（眩晕/破甲/致盲）。两条路径的宿主不同，不能复用。
+##
+## 数值走 `a.trigger_params` 覆盖：同一条 buff id 承载不同数值
+##（「减少50%」vs「减少30%」），见 `AffixData.trigger_params` 说明。
+func _apply_self_trigger_buff(a: AffixData) -> void:
+	if player == null or player.buffs == null:
+		return
+	if a.trigger_buff.is_empty():
+		return
+	# 概率门槛（「有 10% 概率减少 50% 伤害」）
+	if a.trigger_chance < 1.0 and randf() > a.trigger_chance:
+		return
+	player.buffs.apply(a.trigger_buff, "equip_trigger",
+		1, a.trigger_duration, a.trigger_params)
 
 
 ## 叠层型：挂一条同名叠层词条。
@@ -249,9 +302,34 @@ func _consume_stacks(bid: String, max_stacks: int) -> void:
 	player.buffs.remove(bid)
 
 
-## 击杀时召唤灵魂（装备参考2：「击杀敌人召唤一个灵魂（继承30%攻击，
-## 持续10秒，最多3个）」）
+## 给玩家加护盾（装备参考2：「生命值低于20%时，获得一个吸收30%
+## 最大生命值的护盾」「满血时回复转护盾」）
 ##
+## 走 `Player._add_shield(amount, cap_pct)` —— 与 `shield_power_pct` 通道
+## **同一入口**，故护盾强度词条会自动放大它（语义正确：护盾就是护盾）。
+##
+## 数值来自 `a.trigger_params`：`pct` 是占最大生命的比例，
+## `cap` 是护盾上限比例（防止无限叠）。
+func _grant_shield(a: AffixData) -> void:
+	if player == null or not is_instance_valid(player):
+		return
+	if not player.has_method("_add_shield"):
+		return
+	var p := a.trigger_params
+	var pct := float(p.get("pct", 0.0))
+	var cap := float(p.get("cap", 0.60))
+	if pct <= 0.0:
+		return
+	var max_hp := 0.0
+	if GameManager.attributes != null:
+		max_hp = float(GameManager.attributes.max_hp)
+	if max_hp <= 0.0:
+		return
+	player.call("_add_shield", max_hp * pct, cap)
+
+
+## 击杀时召唤灵魂（装备参考2：「击杀敌人召唤一个灵魂（继承30%攻击，
+## 持续10秒，最多3个）」）##
 ## 走已有的 `SummonManager` 链路，不另造召唤系统。召唤物上限由
 ## SummonManager 自己管（`limit()`），满了会发消息提示。
 func _summon_soul() -> void:

@@ -651,6 +651,10 @@ static func _make_one_affix(spec: Array) -> AffixData:
 				a.trigger_buff = str(spec[1])
 				a.trigger_chance = float(spec[2]) if spec.size() > 2 else 0.0
 				a.trigger_duration = float(spec[3]) if spec.size() > 3 else 0.0
+				# 数值覆盖（第 5 项，可选）：同一条 buff id 承载不同数值
+				# （「减少50%伤害」vs「减少30%伤害」），见 trigger_params 说明。
+				if spec.size() > 4 and spec[4] is Dictionary:
+					a.trigger_params = spec[4]
 			AffixData.Operation.PERIODIC:
 				a.value = float(spec[1]) if spec.size() > 1 else 0.0
 				a.trigger_buff = str(spec[2]) if spec.size() > 2 else ""
@@ -753,7 +757,7 @@ const CURATED_TABLE := [
   ["G016", "嗜血项链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[100, 0.0300, true]], [[100, 0.0050, true]], [[4, 6, Stat.HP, 0.0500, 0]]],
   ["G017", "元素指环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[117, 0.0500, true]], [[117, 0.0050, true]], [[4, 10, 117, 0.5000, 0]]],
   ["G018", "猎人徽章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[105, 0.1000, true]], [[Stat.CRT, 0.0050, true]], []],
-  ["G019", "守护护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [], [[117, 0.0050, true]], []],
+  ["G019", "守护护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[2, "gen_sustain_2", 0.1000, 0.0, {"dmg_taken_down": 0.5000}]], [[117, 0.0050, true]], [[2, "grant_shield", 1.0, 0.0, {"pct": 0.3000, "cap": 0.60}]]],
   ["G020", "淘金者之镐", "axe", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 56.0, false]], [[2, "bonus_gold", 0.0500, 0.0]], [[107, 0.0050, true]], [[4, 1, 107, 0.0100, 5]]],
   ["G021", "寻宝者背包", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[114, 0.0300, true]], [[114, 0.0030, true]], [[4, 32, 114, 0.1000, 0]]],
   ["G022", "破碎的钥匙链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[109, 0.0200, true]], [[109, 0.0020, true]], [[109, 0.0500, true]]],
@@ -976,7 +980,7 @@ const CURATED_TABLE := [
   ["P039", "荆棘之环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[104, 0.1500, true], [117, 0.1000, true]], [[104, 0.0300, true]], [[104, 0.1500, true]]],
   ["P040", "猎杀者徽章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[Stat.CRT, 0.0300, true], [4, 3, Stat.CRT, 0.50, 0]], [[Stat.CRT, 0.0200, true]], [[105, 0.0500, true]]],
   ["P041", "元素之戒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[117, 0.2000, true]], [[117, 0.0300, true]], []],
-  ["P042", "生命之泉", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[100, 0.0150, true]], [[100, 0.0300, true]], [[4, 14, Stat.ATK, 0.5000, 0]]],
+  ["P042", "生命之泉", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[100, 0.0150, true], [2, "grant_shield", 1.0, 0.0, {"pct": 0.1500, "cap": 0.1500}]], [[100, 0.0300, true]], [[4, 14, Stat.ATK, 0.5000, 0]]],
   ["P043", "时空沙漏", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[Stat.CDR, 0.0800, true], [4, 18, Stat.CDR, 0.20, 0]], [[Stat.CDR, 0.0200, true]], [[4, 5, 119, 1.0, 0]]],
   ["P044", "贪婪之心", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[Stat.ATK, 0.0100, true]], [[107, 0.0300, true]], [[4, 30, Stat.CRT, 0.1000, 0]]],
   ["P045", "记忆碎片", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[4, 1, 119, 0.0200, 0], [Stat.ATK, 0.0050, true]], [[119, 0.0300, true]], [[119, 0.1000, true]]],
