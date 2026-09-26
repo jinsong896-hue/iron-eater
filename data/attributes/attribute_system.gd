@@ -79,6 +79,38 @@ func percent_of(stat: int) -> float:
 	return pct
 
 
+## 某项属性的**固定值加成合计**（不含 percent、不含 base）
+func flat_of(stat: int) -> float:
+	var flat := 0.0
+	for m in _modifiers:
+		if m.stat == stat:
+			flat += float(m.get("flat", 0.0))
+	return flat
+
+
+## 「本身就是百分比」的属性的**有效值** = flat + percent
+##
+## ## 为什么不能直接用 `get_value`
+##
+## `get_value` 的公式是 `base + flat + base × percent`——percent 是
+## **base 的乘数**。对 ATK/HP 这类有实数值的属性没问题，
+## 但对 `CDR`（冷却缩减）这类「值本身就是百分比、base = 0」的属性：
+##
+## ```
+## get_value(CDR) = 0 + flat + 0 × percent = flat
+##                                          ↑ percent 恒为 0，全部失效
+## ```
+##
+## 实测：`冷却沙漏(G029)` 的 CDR 词条写的是 `percent` 通道（0.01），
+## 装备后 `get_value(CDR)` 仍是 0——**装备上的 CDR 完全没用**。
+## 而职业给的是 `flat`（0.30），那条反而有效。
+##
+## 故这类属性走本函数：flat 与 percent **直接相加**，两者语义相同
+##（都表示「缩减百分之多少」），只是数据来源不同（职业用 flat、装备用 percent）。
+func ratio_stat_value(stat: int) -> float:
+	return flat_of(stat) + percent_of(stat)
+
+
 func take_damage(amount: float) -> void:
 	hp = maxf(hp - amount, 0.0)
 

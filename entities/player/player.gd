@@ -255,6 +255,15 @@ func skill_cooldown_left(skill_id: String) -> float:
 	return skills.skill_cooldown_left(skill_id)
 
 
+## 清空全部技能冷却（转发）。
+##
+## **此前 Player 上没有这个转发**——`PlayerSkills` 有实现、`SkillSystem` 也有，
+## 但 Player 层没暴露，于是测试里 `player.call("reset_skill_cooldowns")`
+## 会因方法不存在而静默失败（`call` 对不存在的方法返回 null 不报错）。
+func reset_skill_cooldowns() -> void:
+	skills.reset_skill_cooldowns()
+
+
 ## 冲刺类技能的位移执行（转发；SkillSystem 经 has_method 回调它）
 func apply_skill_dash(dir: Vector3, dist: float) -> void:
 	skills.apply_skill_dash(dir, dist)

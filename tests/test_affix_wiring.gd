@@ -43,6 +43,7 @@ func _ready() -> void:
 	await _test_devour_special_channel()
 	await _test_fusion_channel()
 	await _test_frozen_dmg_channel()
+	await _test_cdr_channel()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -217,9 +218,132 @@ func _test_frozen_dmg_channel() -> void:
 # 辅助
 # ============================================================
 
+## 8. CDR（冷却缩减）：装备上的 CDR 必须真的缩短技能冷却
+##
+## ## 这里此前有两层问题
+##
+## ① **零消费点**：技能冷却直接取表值 `_cooldowns[id] = sd.cooldown`，
+##    CDR 完全没参与。
+## ② **percent 通道失效**：装备的 CDR 词条全写在 percent 通道，
+##    而 `get_value(CDR) = base(0) + flat + base(0)×percent` ——
+##    base 是 0，故 percent 项恒为 0。实测「冷却沙漏 G029」装上后
+##    `get_value(CDR)` 仍是 0。
+##
+## 故 CDR 走 `AttributeSystem.ratio_stat_value`（flat + percent 直接相加）。
+func _test_cdr_channel() -> void:
+	print("\n--- CDR 冷却缩减行为验证 ---")
+	# **必须切到有技能的形态**：战士初始形态 `skills: []`（ClassDefs），
+	# 拿不到任何技能就无法验证「冷却被缩短」。
+	# **所有职业的初始形态（slot 0）都是空技能表**，技能从进阶形态才有。
+	# 判官 slot 1「锁链判官」有 `verdict_chain`。
+	await _start("judge", 1)
+	_reset()
+	await get_tree().process_frame
+	var attrs = GameManager.attributes
+	var em = GameManager.equipment_manager
+
+	# 基线：判官职业不给 CDR
+	var base_cdr := float(attrs.ratio_stat_value(AttributeSystem.Stat.CDR))
+	_check(base_cdr <= 0.001, "基线 CDR = 0（判官无 CDR 加成）",
+		["实际=%.4f" % base_cdr])
+
+	var player := _player()
+	if player == null:
+		_check(false, "找到玩家节点")
+		return
+	var probe_skill := _pick_skill_with_cooldown(player)
+	if probe_skill.is_empty():
+		_check(false, "找到一个有冷却的技能")
+		return
+	# **顺序很重要**：必须在**装 CDR 装备之前**测基线冷却。
+	# 早期版本先装了 G029 再测基线，两次测量都带 CDR，比值恒为 1。
+	var cd_before := _cast_and_read_cooldown(player, str(probe_skill["id"]))
+	var declared := float(probe_skill.get("cooldown", 0.0))
+	_check(absf(cd_before - declared) < 0.01,
+		"无 CDR 时冷却 = 技能表声明值（%.2fs）" % declared,
+		["实测=%.2f" % cd_before])
+
+	# 冷却沙漏 G029 的自有词条是 CDR（percent 通道）
+	if not _equip_by_id("G029", EquipmentDefs.Slot.ACCESSORY_1):
+		_check(false, "装上「冷却沙漏」(G029)")
+		return
+	await get_tree().process_frame
+	var after_cdr := float(attrs.ratio_stat_value(AttributeSystem.Stat.CDR))
+	_check(after_cdr > base_cdr, "装备的 CDR 词条进入有效值（percent 通道不再失效）",
+		["基线=%.4f 装后=%.4f" % [base_cdr, after_cdr]])
+	# 旧的 get_value 路径仍应为 0——这正是当初的 bug，记下来防回归
+	var via_get_value := float(attrs.get_value(AttributeSystem.Stat.CDR))
+	_check(via_get_value <= 0.001,
+		"get_value(CDR) 仍为 0（证明必须走 ratio_stat_value，不能走 get_value）",
+		["实际=%.4f" % via_get_value])
+
+	# **关键断言**：技能实际冷却真的被缩短
+	var cd_after := _cast_and_read_cooldown(player, str(probe_skill["id"]))
+	_check(cd_after < cd_before,
+		"CDR 生效：技能冷却被缩短（%.2fs → %.2fs）" % [cd_before, cd_after],
+		["CDR=%.4f" % after_cdr])
+	# 缩短比例应精确等于 CDR（5.0 × (1-0.01) = 4.95）
+	var expect := declared * (1.0 - after_cdr)
+	_check(absf(cd_after - expect) < 0.02,
+		"缩短比例精确等于 CDR（期望 %.2fs，实测 %.2fs）" % [expect, cd_after])
+	_check(cd_after > 0.0, "冷却不会变成 0 或负数（%.2fs）" % cd_after)
+	await _start("warrior", 0)
+
+
+## 找一个「有冷却」的技能（冷却 > 0，避免无意义比较）
+##
+## **不用 `player.current_skills()`**：那读的是**技能槽**（`equipped_skills()`），
+## 开局可能为空。直接查该职业形态的原始技能表更可靠。
+func _pick_skill_with_cooldown(player: Node3D) -> Dictionary:
+	var cid := str(player.get("class_id"))
+	var slot := int(player.get("form_slot"))
+	for sk in ClassDefs.skills_of(cid, slot):
+		if sk is Dictionary and float(sk.get("cooldown", 0.0)) > 0.0:
+			return sk
+	return {}
+
+
+## 放一次技能并读回它写入的剩余冷却
+##
+## 走 `cast_skill` 的**真实路径**——冷却是在那里算的（`_cooldowns[id] = ...`），
+## 故这能直接验证 CDR 是否参与了公式。每次先重置冷却，保证可比。
+func _cast_and_read_cooldown(player: Node3D, skill_id: String) -> float:
+	player.call("reset_skill_cooldowns")
+	var r: Dictionary = player.call("cast_skill", skill_id)
+	if not bool(r.get("ok", false)):
+		print("    [诊断] cast_skill(%s) 失败：%s" % [skill_id, str(r.get("reason", "?"))])
+		return -1.0
+	var left := float(player.call("skill_cooldown_left", skill_id))
+	if left <= 0.0:
+		print("    [诊断] cast_skill(%s) 返回 ok 但冷却为 0（技能表 cooldown=%s）"
+			% [skill_id, str(_skill_cooldown_of(player, skill_id))])
+	return left
+
+
+## 从技能表取该技能的声明冷却（诊断用）
+func _skill_cooldown_of(player: Node3D, skill_id: String) -> float:
+	var cid := str(player.get("class_id"))
+	var slot := int(player.get("form_slot"))
+	for sk in ClassDefs.skills_of(cid, slot):
+		if sk is Dictionary and str(sk.get("id", "")) == skill_id:
+			return float(sk.get("cooldown", 0.0))
+	var es := EquipmentSkills.skill_by_id(skill_id)
+	return float(es.get("cooldown", -1.0)) if not es.is_empty() else -1.0
+
+
 func _player() -> Node3D:
 	var ps := get_tree().get_nodes_in_group("player")
 	return ps[0] as Node3D if not ps.is_empty() else null
+
+
+## 开一局指定职业/形态（与 test_class_mechanics 同一套口径）
+func _start(class_id: String, form: int) -> void:
+	GameManager.start_new_run({
+		"character": class_id, "form": form,
+		"mode": "dungeon", "difficulty": "normal", "floor": 1, "seed": 11,
+	})
+	await get_tree().process_frame
+	await get_tree().process_frame
 
 
 ## 读某个装备通道的当前汇总值

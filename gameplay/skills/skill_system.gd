@@ -57,7 +57,19 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 		resource.spend(cost)
 	if hp_cost_pct > 0.0:
 		_apply_hp_cost(caster, hp_cost_pct)
-	_cooldowns[skill_id] = float(sd.get("cooldown", 1.0))
+	# **冷却缩减（CDR）**——此前全项目零消费点：技能冷却直接取表值，
+	# 装备上的 12 条 CDR 词条（`[Stat.CDR, x, true]`）完全没用。
+	#
+	# ## 必须用减法，且必须 clamp
+	#
+	# CDR 的语义是「缩短百分之多少」，故 `cd × (1 - cdr)`。
+	# **写成加法会让 CD 反而变长**——职业给的 `flat=0.30` 会变成 ×1.3
+	#（用户明确要求防这个）。
+	#
+	# 上界 0.75：防止叠满后 0 冷却（技能无限连放，战斗失去节奏）。
+	# 下界 0.0：防止负 CDR 把减法反转成加长。
+	var cdr := _cdr_of(caster)
+	_cooldowns[skill_id] = maxf(float(sd.get("cooldown", 1.0)) * (1.0 - cdr), 0.05)
 
 	var dir := direction.normalized()
 	if dir.length_squared() < 0.001:
@@ -1010,6 +1022,28 @@ func _equip_affix_pct(caster: Node3D, key: String) -> float:
 		return 0.0
 	var sp: Dictionary = em.call("special_modifiers")
 	return float(sp.get(key, 0.0))
+
+
+## 施法者的冷却缩减（0~0.75）
+##
+## 走 `AttributeSystem.ratio_stat_value` 而**不是** `GameManager.stat_value`：
+## 后者走 `get_value`，公式是 `base + flat + base × percent`——
+## CDR 的 base 是 0，故 **percent 通道恒失效**。
+## 而装备的 CDR 词条恰恰全写在 percent 通道（实测「冷却沙漏 G029」装上后
+## `get_value(CDR)` 仍是 0），只有职业的 `flat=0.30` 有效。
+##
+## `ratio_stat_value` 把 flat 与 percent 直接相加——对 CDR 这类
+## 「值本身就是百分比」的属性，两者语义相同，只是数据来源不同。
+func _cdr_of(caster: Node3D) -> float:
+	var gm := _game_manager()
+	if gm == null or gm.get("attributes") == null:
+		return 0.0
+	var attrs = gm.attributes
+	# 施法者不是玩家时不吃 CDR（CDR 来自装备，装备只挂玩家）
+	if caster != null and caster.has_method("is_in_group") \
+			and not caster.is_in_group("player"):
+		return 0.0
+	return clampf(float(attrs.ratio_stat_value(AttributeSystem.Stat.CDR)), 0.0, 0.75)
 
 
 ## 该 kind 是否属于「范围伤害」（吃 `aoe_dmg_pct`）
