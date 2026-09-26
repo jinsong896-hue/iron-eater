@@ -111,7 +111,7 @@ func _test_own_affix_channel() -> void:
 	await get_tree().process_frame
 	var base := _channel("trap_dmg_pct")
 
-	if not _equip_by_id("B049", EquipmentDefs.Slot.ACCESSORY_1):
+	if not _equip_by_name("陷阱护符", EquipmentDefs.Slot.ACCESSORY_1):
 		_check(false, "装上「陷阱护符」(B049)")
 		return
 	await get_tree().process_frame
@@ -133,12 +133,12 @@ func _test_devour_special_channel() -> void:
 	var base := _channel("shield_power_pct")
 
 	# 护盾发生器 G037 的吞噬词条是「护盾获取量增加0.5%」
-	var inst := _make_inst("G037")
+	var inst := _make_inst_by_name("护盾发生器")
 	if inst == null:
-		_check(false, "构造 G037 实例")
+		_check(false, "构造「护盾发生器」实例")
 		return
 	var r: Dictionary = GameManager.equipment_manager.devour(inst)
-	_check(bool(r.get("ok", false)), "吞噬 G037 成功", [str(r.get("reason", ""))])
+	_check(bool(r.get("ok", false)), "吞噬「护盾发生器」成功", [str(r.get("reason", ""))])
 	await get_tree().process_frame
 	var after := _channel("shield_power_pct")
 	_check(after > base, "吞噬「护盾获取量 +0.5%」→ shield_power_pct 生效",
@@ -157,8 +157,8 @@ func _test_fusion_channel() -> void:
 	var base := _channel("frozen_dmg_pct")
 
 	# 主装备用任意胸甲，材料用带 frozen_dmg 的 B083
-	var main_inst := _make_inst("G011")   # 吸血脉甲（ARMOR/CHEST，与 B083 同大类）
-	var mat_inst := _make_inst("B083")    # 冰霜新星胸甲（融合词条 = 被冻结敌人增伤）
+	var main_inst := _make_inst_by_name("吸血脉甲")   # ARMOR/CHEST，与材料同大类
+	var mat_inst := _make_inst_by_name("冰霜新星胸甲")   # 融合词条 = 被冻结敌人增伤
 	if main_inst == null or mat_inst == null:
 		_check(false, "构造融合主/材料实例")
 		return
@@ -187,8 +187,8 @@ func _test_frozen_dmg_channel() -> void:
 	var unfrozen := _ranged_damage(player)
 
 	# 融合出带 frozen_dmg 的胸甲并穿上
-	var main_inst := _make_inst("G011")
-	var mat_inst := _make_inst("B083")
+	var main_inst := _make_inst_by_name("吸血脉甲")
+	var mat_inst := _make_inst_by_name("冰霜新星胸甲")
 	if main_inst == null or mat_inst == null:
 		_check(false, "构造融合实例")
 		return
@@ -241,6 +241,41 @@ func _ranged_damage(player: Node3D) -> float:
 func _make_inst(id: String) -> EquipmentInstance:
 	var tpl = EquipmentDB.get_template(id)
 	return EquipmentInstance.create(tpl) if tpl != null else null
+
+
+## 按**显示名**构造实例（优先于硬编码 ID）
+##
+## ## 为什么不用硬编码 ID
+##
+## 装备 ID 是**按稀有度内的出现顺序**生成的。策划往 TSV 里插一件装备，
+## 其后所有同稀有度装备的 ID 都会**整体后移**——实测本轮就位移了
+##（`陷阱护符` B049 → B051、`护盾发生器` G037 → G044、
+## `冰霜新星胸甲` B083 → B086、`远程精准镜` G048 → G055）。
+##
+## 硬编码 ID 的测试会在数据变化时**静默测错对象**——不报错，
+## 只是测了别的装备。这是最坏的一种测试失败。
+func _make_inst_by_name(name: String) -> EquipmentInstance:
+	var tpl = _find_by_name(name)
+	return EquipmentInstance.create(tpl) if tpl != null else null
+
+
+func _find_by_name(name: String):
+	for t in EquipmentDB.all_templates():
+		var id := str(t.id)
+		if not (id.length() >= 2 and id.substr(1, 1).is_valid_int() \
+				and id.substr(0, 1) in "GBPO"):
+			continue
+		if t.display_name == name:
+			return t
+	return null
+
+
+func _equip_by_name(name: String, slot: int) -> bool:
+	var inst := _make_inst_by_name(name)
+	if inst == null:
+		return false
+	GameManager.equipment_manager.equip(slot, inst)
+	return true
 
 
 func _equip_by_id(id: String, slot: int) -> bool:

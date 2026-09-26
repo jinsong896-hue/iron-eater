@@ -70,6 +70,22 @@ enum Trigger {
 	ON_WHIRLWIND,     ## 旋风斩期间（「旋风斩期间移速 +N%」）
 	ON_TIME_SLOW,     ## 时间减缓期间（「时间减缓期间自身攻速 +N%」）
 	ON_FRENZY,        ## 荆棘爆发/狂暴期间（「荆棘爆发期间免疫控制」）
+	# —— 2026-09-26 补全（两段式重构暴露的剩余条件型词条）——
+	#
+	# 这批是「条件压成常驻」审计里最后剩下的从句类型。
+	# 编号从 25 起，与生成器的 `TRIG_*` 常量一一对应。
+	RESOURCE_FULL,        ## 资源满时 / 储存满时（「资源满时，下次攻击释放冲击波」）
+	HP_FULL,              ## 生命满时（「生命满时，回复转化为护盾」）
+	STEALTH_UP,           ## 隐身期间（「隐身期间暴击率 +30%」）
+	ON_TARGET_CONTROLLED, ## 目标处于控制状态时（「冰冻敌人时，对其造成额外伤害」）
+	DISTANCE_FAR,         ## 距离目标超过 N 米（带阈值）
+	GOLD_ABOVE,           ## 金币超过 N 时（带阈值）
+	ON_SELL,              ## 出售装备时
+	ON_CHEST_OPEN,        ## 开启宝箱时
+	ON_RECALL,            ## 回收标枪时（配合标枪的「去而复返」机制）
+	ON_CHEAT_DEATH,       ## 触发免死后（「触发免死后，获得5秒无敌」）
+	ON_TARGET_DEATH,      ## 目标在特定状态下死亡（「冰冻目标死亡时」）
+	ON_ELEMENT_PROC,      ## 元素阈值事件触发后（「元素终焉触发后」）
 }
 
 ## 触发条件的中文名（供 UI 显示）
@@ -99,6 +115,18 @@ const TRIGGER_NAMES := {
 	Trigger.ON_WHIRLWIND: "旋风斩期间",
 	Trigger.ON_TIME_SLOW: "减速期间",
 	Trigger.ON_FRENZY: "狂暴期间",
+	Trigger.RESOURCE_FULL: "资源满时",
+	Trigger.HP_FULL: "满血时",
+	Trigger.STEALTH_UP: "隐身期间",
+	Trigger.ON_TARGET_CONTROLLED: "目标受控时",
+	Trigger.DISTANCE_FAR: "距离过远",
+	Trigger.GOLD_ABOVE: "金币超阈值",
+	Trigger.ON_SELL: "出售时",
+	Trigger.ON_CHEST_OPEN: "开箱时",
+	Trigger.ON_RECALL: "回收时",
+	Trigger.ON_CHEAT_DEATH: "免死触发后",
+	Trigger.ON_TARGET_DEATH: "目标死亡时",
+	Trigger.ON_ELEMENT_PROC: "元素事件后",
 }
 
 @export var id: StringName = &""

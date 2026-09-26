@@ -187,6 +187,14 @@ func _model_aabb(node: Node3D) -> AABB:
 func _update_camera() -> void:
 	if _camera == null:
 		return
+	# **未入树时不能调 `look_at`**——它会报
+	# 「Node not inside tree. Use look_at_from_position() instead.」
+	# 并让调用方（界面构建）中断。
+	#
+	# `_init` 里 `_build()` 会走到这里，而那时节点还没入树。
+	# 入树后 `_ready` 会再调一次，届时才真正定位。
+	if not is_inside_tree():
+		return
 	var dist := _base_dist * _zoom
 	var dir := Vector3(
 		cos(_pitch) * sin(_yaw),
@@ -195,6 +203,11 @@ func _update_camera() -> void:
 	)
 	_camera.position = dir * dist
 	_camera.look_at(Vector3.ZERO, Vector3.UP)
+
+
+func _ready() -> void:
+	# 入树后补一次相机定位（`_init` 里那次被跳过了）
+	_update_camera()
 
 
 # ============================================================

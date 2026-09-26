@@ -107,6 +107,14 @@ const TRIG_ON_DODGE := 4
 const TRIG_ON_COMBO := 7
 const TRIG_ON_BLOCK := 9
 const TRIG_ON_CRIT := 6
+# 2026-09-26 两段式重构补全（与 AffixData.Trigger 一一对应）
+const TRIG_ALWAYS := 0
+const TRIG_AT_FULL := 5
+const TRIG_ON_DASH := 8
+const TRIG_ON_ATTACK := 10
+const TRIG_LOW_HP := 11
+const TRIG_STATIONARY := 12
+const TRIG_ON_ROOM_ENTER := 13
 # 2026-09-24 补全：条件型词条实测需要（与 AffixData.Trigger 一致）
 const TRIG_ON_SHIELD_BREAK := 14
 const TRIG_SHIELD_UP := 15
@@ -119,6 +127,19 @@ const TRIG_ON_BLOCK_STANCE := 21
 const TRIG_ON_WHIRLWIND := 22
 const TRIG_ON_TIME_SLOW := 23
 const TRIG_ON_FRENZY := 24
+# 2026-09-26 两段式重构补全（与 AffixData.Trigger 一一对应）
+const TRIG_RESOURCE_FULL := 25
+const TRIG_HP_FULL := 26
+const TRIG_STEALTH_UP := 27
+const TRIG_ON_TARGET_CONTROLLED := 28
+const TRIG_DISTANCE_FAR := 29
+const TRIG_GOLD_ABOVE := 30
+const TRIG_ON_SELL := 31
+const TRIG_ON_CHEST_OPEN := 32
+const TRIG_ON_RECALL := 33
+const TRIG_ON_CHEAT_DEATH := 34
+const TRIG_ON_TARGET_DEATH := 35
+const TRIG_ON_ELEMENT_PROC := 36
 
 ## 数值型效果名 → 扩展通道 key（吞噬/融合列大量出现）
 ##
@@ -379,7 +400,11 @@ func _parse_affix_text(text: String) -> String:
 			c["total"] = int(c["total"]) + 1
 
 			var r := _parse_one(s)
-			if r.is_empty():
+			# **哨兵值必须一起判**：`_parse_main` 解不出来时返回
+			# `"__UNMAPPED__"` 而不是空串（避免重复计数）。只判 `is_empty()`
+			# 会让哨兵被当成词条字面量写进数据——
+			# 实测产出 `[__UNMAPPED__]`，整个 equipment_db.gd 编译失败。
+			if r.is_empty() or r == "__UNMAPPED__":
 				# 记下**是哪件装备的哪条**——只报词条文本会丢失上下文，
 				# 而同一词条文本可能出现在多件装备上，改起来无从下手。
 				c["miss"] = int(c["miss"]) + 1
@@ -436,7 +461,117 @@ func _dump_unmapped() -> void:
 ##   ""           —— 无法映射（已记入 _unmapped）
 ##   "__SKILL__"  —— 装备技能的修饰（不属于词条层级）
 ##   其他         —— 词条规格的 GDScript 字面量
+##
+## ## 从句**只作校验与修正**，不改解析路径（2026-09-26 重构）
+##
+## 起初试的是「切掉从句 → 主句走规则」，但实测**大面积失配**：
+## 46 节规则里有相当一批是按「从句 + 主句」**整体**匹配的
+##（如第 46 节 `s.contains("护盾存在时")`），切掉从句它们就再也匹配不到，
+## 未映射从 8 条暴涨到 344 条。
+##
+## 现在的做法是**加法而非改路**：
+##   ① 完整文本走原有规则（行为与重构前**完全一致**）
+##   ② 从句识别出 Trigger 后，只做三件事：
+##      · 结果已是触发型且 trigger 一致 → 不动
+##      · 结果 trigger 不一致 → **以从句为准**覆盖
+##      · 结果是**裸属性**（条件被吞）→ 包上从句的 trigger
+##
+## **不变量**：`原文含触发从句` ⟹ `结果必须带 trigger`。
+## 从句识别不了时**报未映射**，绝不静默压成常驻。
 func _parse_one(s: String) -> String:
+	if s.is_empty():
+		return ""
+	# 装备技能整体跳过——**必须在从句处理之前**，
+	# 否则技能描述里的「使用技能后…」会被误当成触发从句
+	if s.begins_with("主动技能"):
+		return "__SKILL__"
+	if _RE_SKILL_NOTE.search(s) != null:
+		return "__SKILL__"
+
+	# ---- ① 完整文本走原有规则（一字未改）----
+	var spec := _parse_main(s)
+
+	# ---- ② 从句校验 / 修正 ----
+	var parts := _split_clause(s)
+	var clause: String = parts["clause"]
+	if clause.is_empty():
+		return spec   # 无触发从句 → 原样返回
+
+	# **主句回退**：完整文本解不出来时，试主句部分。
+	#
+	# 两个方向都要试，因为规则表里两种写法都有：
+	#   · 按**完整文本**匹配的（第 46 节 `s.contains("护盾存在时")`）
+	#   · 按**主句**匹配的（第 9 节数值型，从句会干扰它）
+	# 只试一边必然漏掉另一边。
+	if spec.is_empty():
+		spec = _parse_main(str(parts["main"]))
+
+	var t := _trigger_of_clause(clause)
+	var trig := int(t["trigger"])
+	if trig == TRIG_ALWAYS:
+		# 从句**识别不了**。两种可能：
+		#   · 旧规则已把它处理成带触发语义的形态（如 `[2,"buff",…]`、
+		#     `[4,5,…]`）——那是好的，**保留**
+		#   · 结果仍是**裸属性**——说明条件被吞（正是本轮要修的 bug），
+		#     此时报未映射
+		#
+		# 不能一律报未映射：实测那样会让 56 条旧规则本已处理的词条
+		# 变成「未映射」（如「5层时…」「标记目标死亡时…」这类，
+		# 我的从句映射表没穷举到，但旧规则认得）。
+		if _trigger_of_spec(spec) >= 0:
+			return spec
+		_unmapped.append(s)
+		return ""
+
+	if spec.is_empty() or spec == "__UNMAPPED__" or spec == "__SKILL__":
+		# 解不出来：把整条记未映射（不能只记主句，否则报告缺上下文）
+		_unmapped.append(s)
+		return spec if spec == "__SKILL__" else ""
+
+	# 结果自带触发条件吗？
+	var cur := _trigger_of_spec(spec)
+	if cur >= 0:
+		if cur == trig:
+			return spec
+		# **触发条件错**（实测 48 条：原文说「击杀」解析成「命中」）
+		# → 以从句为准覆盖
+		return _replace_trigger(spec, trig)
+
+	# **裸属性 = 条件被吞**（这正是本轮要修的 bug）→ 包上从句触发
+	return _wrap_with_trigger(spec, trig, float(t["param"]))
+
+
+## 从解析结果里取 trigger 槽位；**不带触发语义时返回 -1**
+##
+## 三种形态：
+##   `[4, trigger, stat, v, stack_max]`  叠层型 → 第 2 位
+##   `[2, "buff", chance, dur]`          触发型 → **自带触发语义**（返回 0，
+##                                        表示「已经是触发型，不必再包」）
+##   `[3, "elem", v]`                    附带元素 → 同上
+##   `[Stat.X, v, bool]` / `[NNN, v, true]` 裸属性 → -1
+func _trigger_of_spec(spec: String) -> int:
+	var m := _re(r"^\[4,\s*(\d+),").search(spec)
+	if m:
+		return int(m.get_string(1))
+	if spec.begins_with("[%d," % OP_TRIGGER_BUFF) \
+			or spec.begins_with("[%d," % OP_BONUS_ELEMENT):
+		return TRIG_ALWAYS   # 已是触发型，视为「不必再包」
+	return -1
+
+
+## 替换叠层型结果的 trigger 槽位（其余部分不动）
+func _replace_trigger(spec: String, trig: int) -> String:
+	var m := _re(r"^\[4,\s*\d+,\s*(.+)\]$").search(spec)
+	if m:
+		return "[%d, %d, %s]" % [OP_STACK_GAIN, trig, m.get_string(1)]
+	return spec
+
+
+## 主句解析 —— **原有 46 节规则全部在这里**，一字未改
+##
+## 拆出来只为让 `_parse_one` 能在它前后加从句处理。
+## 改规则时仍然改这里。
+func _parse_main(s: String) -> String:
 	if s.is_empty():
 		return ""
 	# ---------- 0. 装备技能的修饰（**不是词条**） ----------
@@ -1948,13 +2083,225 @@ func _parse_one(s: String) -> String:
 	# 报告如实显示 8 条缺口。**不静默丢弃、不伪装成正常跳过。**
 
 	# ---------- 无法映射 ----------
-	_unmapped.append(s)
-	return ""
+	# **返回哨兵值而不是在这里记 `_unmapped`**：
+	# `_parse_one` 会对同一条文本调用 `_parse_main` **两次**
+	#（完整文本 + 主句），若在这里记录就会重复计数
+	#（实测未映射数虚高：57 → 133）。由调用方统一记录。
+	return "__UNMAPPED__"
 
 
 ## 数值字符串 → 百分比浮点（"50" → "0.5000"）
 func _f(pct: String) -> String:
 	return "%.4f" % (float(pct) / 100.0)
+
+
+# ============================================================
+# 两段式：从句剥离 / 从句 → Trigger / 包上触发
+# ============================================================
+
+## 把一条词条拆成「触发从句」+「主句」
+##
+## ## 为什么需要
+##
+## 文档里大量词条是「**条件**，**效果**」的形式：
+##   「生命值低于30%时，吸血效果提升20%」
+##   「击杀敌人后，移动速度增加20%，持续3秒」
+##   「受到伤害时，有10%概率反弹50%伤害给攻击者」
+##
+## 单段式解析会拿整条去匹配规则，末尾的宽泛兜底把「伤害」类文本
+## 一律压成常驻属性——**条件被静默丢弃**。
+##
+## ## 判据
+##
+## 从句必须**同时**满足：
+##   · 出现在句首（或分号后的段首）
+##   · 以「时，」「后，」「期间」「存在时」等**条件标记**结尾
+##   · 长度合理（2~24 字）——太长的多半是主句的一部分
+##
+## 返回 `{clause, main}`。无从句时 `clause` 为空、`main` 为原文。
+##
+## **不切分「攻击有N%概率」**：那是「攻击时」的概率，不是独立条件，
+## 且现有规则（第 2 节）已能正确处理。切了反而会把概率参数弄丢。
+func _split_clause(s: String) -> Dictionary:
+	var out := {"clause": "", "main": s}
+
+	# 从句标记（按长度降序匹配，避免「时」先于「存在时」命中）
+	var markers := ["存在时", "期间", "触发时", "被击破时", "满层时", "层时"]
+	for mk in markers:
+		var idx := s.find(mk)
+		if idx > 0 and idx <= 24:
+			# 「期间」等不带逗号，其后可能直接接主句
+			var cut := idx + str(mk).length()
+			if cut < s.length() and s[cut] in ["，", ","]:
+				cut += 1
+			out["clause"] = s.substr(0, idx + str(mk).length())
+			out["main"] = s.substr(cut).strip_edges()
+			if not str(out["main"]).is_empty():
+				return out
+
+	# 「X时，」「X后，」——要求逗号紧跟，避免切到「攻击时造成」这类
+	var m := _re(r"^([^，,]{2,24}?(?:时|后))[，,](.+)$").search(s)
+	if m:
+		var main := m.get_string(2).strip_edges()
+		if not main.is_empty():
+			out["clause"] = m.get_string(1)
+			out["main"] = main
+	return out
+
+
+## 从句 → `{trigger, param}`（识别不了返回 `{trigger: ALWAYS}`）
+##
+## `param` 承载阈值类从句的数值（「低于30%时」→ 0.30，
+## 「金币超过500时」→ 500.0）。非阈值类为 0.0。
+##
+## **顺序即优先级**：更具体的写法排在前面。例如「生命满时」必须在
+## 「生命低于」之前判（否则「满」会被「低于」的正则漏掉），
+## 「护盾被击破时」必须在「护盾存在时」之前判。
+func _trigger_of_clause(clause: String) -> Dictionary:
+	var none := {"trigger": TRIG_ALWAYS, "param": 0.0}
+	if clause.is_empty():
+		return none
+	var c := clause
+
+	# ---- 护盾类（「被击破」必须先于「存在时」）----
+	if c.contains("护盾被击破") or c.contains("破除护盾"):
+		return {"trigger": TRIG_ON_SHIELD_BREAK, "param": 0.0}
+	if c.contains("护盾存在"):
+		return {"trigger": TRIG_SHIELD_UP, "param": 0.0}
+
+	# ---- 生命阈值 / 满血（「满」先于「低于」）----
+	if c.contains("生命满") or c.contains("满血"):
+		return {"trigger": TRIG_HP_FULL, "param": 0.0}
+	var m := _re(r"生命(?:值)?低于\s*(\d+)%").search(c)
+	if m:
+		return {"trigger": TRIG_LOW_HP, "param": float(m.get_string(1)) / 100.0}
+	if c.contains("生命低于") or c.contains("血量低于"):
+		return {"trigger": TRIG_LOW_HP, "param": 0.5}
+
+	# ---- 资源类 ----
+	if c.contains("资源满") or c.contains("储存满") or c.contains("魔力满"):
+		return {"trigger": TRIG_RESOURCE_FULL, "param": 0.0}
+
+	# ---- 金币阈值 ----
+	m = _re(r"金币(?:超过|大于|达到)\s*(\d+)").search(c)
+	if m:
+		return {"trigger": TRIG_GOLD_ABOVE, "param": float(m.get_string(1))}
+
+	# ---- 状态期间 ----
+	if c.contains("隐身"):
+		return {"trigger": TRIG_STEALTH_UP, "param": 0.0}
+	if c.contains("石肤") or c.contains("大地守护") or c.contains("钢铁之躯") \
+			or c.contains("血海狂") or c.contains("不灭"):
+		return {"trigger": TRIG_ON_BLOCK_STANCE, "param": 0.0}
+	if c.contains("旋风斩"):
+		return {"trigger": TRIG_ON_WHIRLWIND, "param": 0.0}
+	if c.contains("时间减缓"):
+		return {"trigger": TRIG_ON_TIME_SLOW, "param": 0.0}
+	if c.contains("荆棘") or c.contains("反击姿态") or c.contains("狂暴"):
+		return {"trigger": TRIG_ON_FRENZY, "param": 0.0}
+	if c.contains("嘲讽"):
+		return {"trigger": TRIG_ON_TAUNT, "param": 0.0}
+	if c.contains("疾跑") or c.contains("冲刺"):
+		return {"trigger": TRIG_ON_SPRINT, "param": 0.0}
+	if c.contains("召唤物") or c.contains("影分身") or c.contains("图腾") \
+			or c.contains("残影"):
+		return {"trigger": TRIG_ON_SUMMON_ALIVE, "param": 0.0}
+
+	# ---- 目标状态 ----
+	if c.contains("冰冻") or c.contains("冻结") or c.contains("眩晕") \
+			or c.contains("麻痹"):
+		# 「冰冻目标死亡时」是目标死亡事件，不是「目标受控时」
+		if c.contains("死亡"):
+			return {"trigger": TRIG_ON_TARGET_DEATH, "param": 0.0}
+		return {"trigger": TRIG_ON_TARGET_CONTROLLED, "param": 0.0}
+	if c.contains("缠绕结束"):
+		return {"trigger": TRIG_ON_TARGET_DEATH, "param": 0.0}
+
+	# ---- 距离阈值 ----
+	m = _re(r"(?:距离|超过)\s*(\d+(?:\.\d+)?)\s*米").search(c)
+	if m and (c.contains("距离") or c.contains("远")):
+		return {"trigger": TRIG_DISTANCE_FAR, "param": float(m.get_string(1))}
+
+	# ---- 非战斗事件 ----
+	if c.contains("出售"):
+		return {"trigger": TRIG_ON_SELL, "param": 0.0}
+	if c.contains("宝箱") or c.contains("开箱"):
+		return {"trigger": TRIG_ON_CHEST_OPEN, "param": 0.0}
+	if c.contains("回收标枪"):
+		return {"trigger": TRIG_ON_RECALL, "param": 0.0}
+	if c.contains("免死") or c.contains("致命伤害"):
+		return {"trigger": TRIG_ON_CHEAT_DEATH, "param": 0.0}
+	if c.contains("元素终焉") or c.contains("抗性触发") or c.contains("元素爆发"):
+		return {"trigger": TRIG_ON_ELEMENT_PROC, "param": 0.0}
+
+	# ---- 既有 Trigger（与旧规则一致的口径）----
+	if c.contains("击杀"):
+		return {"trigger": TRIG_ON_KILL, "param": 0.0}
+	if c.contains("受到伤害") or c.contains("受到近战") or c.contains("受击") \
+			or c.contains("受到元素"):
+		return {"trigger": TRIG_ON_HURT, "param": 0.0}
+	if c.contains("暴击"):
+		return {"trigger": TRIG_ON_CRIT, "param": 0.0}
+	if c.contains("闪避"):
+		return {"trigger": TRIG_ON_DODGE, "param": 0.0}
+	if c.contains("格挡"):
+		return {"trigger": TRIG_ON_BLOCK, "param": 0.0}
+	if c.contains("连击"):
+		return {"trigger": TRIG_ON_COMBO, "param": 0.0}
+	if c.contains("满层") or c.contains("叠满"):
+		return {"trigger": TRIG_AT_FULL, "param": 0.0}
+	if c.contains("使用技能") or c.contains("施放技能") or c.contains("技能命中"):
+		return {"trigger": TRIG_ON_SKILL_CAST, "param": 0.0}
+	if c.contains("进入新房间") or c.contains("未探索房间"):
+		return {"trigger": TRIG_ON_ROOM_ENTER, "param": 0.0}
+	if c.contains("陷阱触发"):
+		return {"trigger": TRIG_ON_TRAP_TRIGGER, "param": 0.0}
+	if c.contains("静止"):
+		return {"trigger": TRIG_STATIONARY, "param": 0.0}
+	if c.contains("攻击时") or c.contains("攻击命中") or c.contains("攻击有"):
+		return {"trigger": TRIG_ON_ATTACK, "param": 0.0}
+
+	# 识别不了 —— 调用方据此报未映射（**不猜**）
+	return none
+
+
+## 把主句的解析结果**包上触发条件**
+##
+## ## 三种形态的处理
+##
+## | 主句结果形态 | 处理 |
+## |---|---|
+## | `[Stat.X, v, bool]` 面板属性 | 转成 `[OP_STACK_GAIN, trig, Stat.X, v, 0]` |
+## | `[NNN, v, true]` 扩展通道 | 同上（`NNN` 直接作 stat） |
+## | `[2, "buff", chance, dur]` 触发型 | 已是触发语义，**保留原样** |
+## | `[3, "elem", v]` 附带元素 | 保留原样（附带是命中时的固有行为） |
+##
+## ## 为什么不给「触发型」再包一层
+##
+## `[2, "slow", 0.1, 2.0]` 本身表达「命中时按 10% 概率施加减速」——
+## 再包一层 `[4, trig, ...]` 会变成「条件满足时施加一个 buff」，
+## 语义重复且 `_make_one_affix` 解不出来。故原样保留。
+func _wrap_with_trigger(spec: String, trig: int, param: float) -> String:
+	# 触发型 / 附带元素型：原样保留（它们自带触发语义）
+	if spec.begins_with("[%d," % OP_TRIGGER_BUFF) \
+			or spec.begins_with("[%d," % OP_BONUS_ELEMENT):
+		return spec
+
+	# 已经是叠层型：把它的 trigger 换掉（主句解出的 trigger 可能不对）
+	var m := _re(r"^\[4,\s*(\d+),\s*(.+)\]$").search(spec)
+	if m:
+		var rest := m.get_string(2)
+		return "[%d, %d, %s]" % [OP_STACK_GAIN, trig, rest]
+
+	# 面板属性 / 扩展通道 → 包成叠层型
+	m = _re(r"^\[([A-Za-z_.]+|\d+),\s*([-\d.]+),\s*(true|false)\]$").search(spec)
+	if m:
+		var stat := m.get_string(1)
+		var v := m.get_string(2)
+		return "[%d, %d, %s, %s, 0]" % [OP_STACK_GAIN, trig, stat, v]
+
+	# 其他形态（周期型等）：原样保留，不强行包装
+	return spec
 
 
 var _re_cache := {}
