@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://cr60dwnj7eyph"
-valid=false
+path="res://.godot/imported/tower-square-top-roof-high-windows.glb-d4eede3623999af3cba74fb7d586428b.scn"
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/tower-square-top-roof-high-windows.glb"
+dest_files=["res://.godot/imported/tower-square-top-roof-high-windows.glb-d4eede3623999af3cba74fb7d586428b.scn"]
 
 [params]
 

@@ -98,6 +98,7 @@ run_scene_suite  "skill_mech   (技能机制落地)" "res://tests/test_skill_mec
 run_scene_suite  "ranged_atk   (远程普攻)" "res://tests/test_ranged_attack.tscn"
 run_scene_suite  "equip_elem   (装备元素词条)" "res://tests/test_equip_element.tscn"
 run_scene_suite  "affix_wire   (词条接线)" "res://tests/test_affix_wiring.tscn"
+run_scene_suite  "art_registry (美术资源配置)" "res://tests/test_art_registry.tscn"
 
 echo
 echo "=============================================="

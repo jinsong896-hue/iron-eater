@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://bbydfh35j1eb1"
-valid=false
+path="res://.godot/imported/siege-tower-demolished.glb-1950ff47fc32ec7ec077ace9f4d13c9c.scn"
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/siege-tower-demolished.glb"
+dest_files=["res://.godot/imported/siege-tower-demolished.glb-1950ff47fc32ec7ec077ace9f4d13c9c.scn"]
 
 [params]
 

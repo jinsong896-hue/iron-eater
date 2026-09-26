@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://hjhnd30sr7dm"
-valid=false
+path="res://.godot/imported/tower-square-top-color.glb-efee2cbb5dd705e69caf0afd70feae3b.scn"
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/tower-square-top-color.glb"
+dest_files=["res://.godot/imported/tower-square-top-color.glb-efee2cbb5dd705e69caf0afd70feae3b.scn"]
 
 [params]
 

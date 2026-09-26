@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://2gpj53vmk67n"
-valid=false
+path="res://.godot/imported/siege-trebuchet-demolished.glb-0756be0ef753b1f1abc04297b1cbdef1.scn"
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/siege-trebuchet-demolished.glb"
+dest_files=["res://.godot/imported/siege-trebuchet-demolished.glb-0756be0ef753b1f1abc04297b1cbdef1.scn"]
 
 [params]
 

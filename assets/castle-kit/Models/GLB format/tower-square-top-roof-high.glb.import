@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://cf5482q300yba"
-valid=false
+path="res://.godot/imported/tower-square-top-roof-high.glb-4dc2a1c578f000b9d762e7d653972ba3.scn"
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/tower-square-top-roof-high.glb"
+dest_files=["res://.godot/imported/tower-square-top-roof-high.glb-4dc2a1c578f000b9d762e7d653972ba3.scn"]
 
 [params]
 

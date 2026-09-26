@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="ArtProfile" format=3]
+
+[ext_resource type="Script" path="res://data/art/art_profile.gd" id="1_dlavn"]
+
+[resource]
+script = ExtResource("1_dlavn")
+props = {
+"barrel": {
+"model_path": "res://assets/castle-kit/Models/GLB format/rocks-small.glb",
+"scale": 1.0,
+"y_offset": 0.0,
+"y_rotation_deg": 0.0
+},
+"pillar": {
+"model_path": "res://assets/castle-kit/Models/GLB format/wall-pillar.glb",
+"scale": 1.0,
+"y_offset": 0.0,
+"y_rotation_deg": 0.0
+},
+"torch": {
+"model_path": "res://assets/castle-kit/Models/GLB format/flag-pennant.glb",
+"scale": 1.0,
+"y_offset": 0.0,
+"y_rotation_deg": 0.0
+}
+}

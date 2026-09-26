@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://3herldjl1yu4"
-valid=false
+path="res://.godot/imported/tower-hexagon-roof.glb-f128218ec44ff623cea9eaf8326caa33.scn"
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/tower-hexagon-roof.glb"
+dest_files=["res://.godot/imported/tower-hexagon-roof.glb-f128218ec44ff623cea9eaf8326caa33.scn"]
 
 [params]
 

@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://dkh6ofg34sai2"
-valid=false
+path="res://.godot/imported/tree-large.glb-882733237dca87899972333405456a8a.scn"
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/tree-large.glb"
+dest_files=["res://.godot/imported/tree-large.glb-882733237dca87899972333405456a8a.scn"]
 
 [params]
 

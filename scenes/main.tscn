@@ -13,6 +13,7 @@
 [ext_resource type="PackedScene" path="res://ui/debug/debug_panel.tscn" id="21_dbgpanel"]
 [ext_resource type="PackedScene" path="res://scenes/ui/settings_panel.tscn" id="11_settings"]
 [ext_resource type="Script" path="res://rendering/effects/mass_text_renderer.gd" id="9_dmg_text"]
+[ext_resource type="PackedScene" path="res://ui/art/art_browser.tscn" id="22_artbrowser"]
 
 [sub_resource type="Environment" id="Environment_hd2d"]
 background_mode = 1
@@ -103,6 +104,9 @@ script = ExtResource("7_pixel")
 [node name="DebugPanel" parent="UI" unique_id=1774521002 instance=ExtResource("21_dbgpanel")]
 
 [node name="SettingsPanel" parent="UI" unique_id=1193802774 instance=ExtResource("11_settings")]
+
+[node name="ArtBrowser" parent="UI" unique_id=1193802775 instance=ExtResource("22_artbrowser")]
+
 visible = false
 
 visible = false

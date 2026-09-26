@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://bmm8w8jciy0hd"
-valid=false
+path="res://.godot/imported/tower-hexagon-top-wood.glb-7247fddb41c83a709f75c64cf1387c82.scn"
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/tower-hexagon-top-wood.glb"
+dest_files=["res://.godot/imported/tower-hexagon-top-wood.glb-7247fddb41c83a709f75c64cf1387c82.scn"]
 
 [params]
 

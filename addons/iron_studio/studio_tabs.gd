@@ -1,6 +1,6 @@
 @tool
 extends Control
-## IronEater Studio 主面板 —— 六标签页
+## IronEater Studio 主面板 —— 九标签页
 
 var _editor_interface: EditorInterface = null
 
@@ -17,6 +17,7 @@ func setup(editor_interface: EditorInterface) -> void:
 	_safe_call(tabs, "怪物", "setup", [editor_interface])
 	_safe_call(tabs, "数值", "setup", [editor_interface])
 	_safe_call(tabs, "资源", "setup", [editor_interface])
+	_safe_call(tabs, "美术", "setup", [editor_interface])
 	_safe_call(tabs, "Buff", "setup", [editor_interface])
 	_safe_call(tabs, "房间", "setup", [editor_interface])
 

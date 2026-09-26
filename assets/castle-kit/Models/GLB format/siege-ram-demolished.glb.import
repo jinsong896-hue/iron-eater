@@ -4,11 +4,12 @@ importer="scene"
 importer_version=1
 type="PackedScene"
 uid="uid://cl807pfts55vj"
-valid=false
+path="res://.godot/imported/siege-ram-demolished.glb-6546c5a15c238fe5d6be1ef5c2a46b4e.scn"
 
 [deps]
 
 source_file="res://assets/castle-kit/Models/GLB format/siege-ram-demolished.glb"
+dest_files=["res://.godot/imported/siege-ram-demolished.glb-6546c5a15c238fe5d6be1ef5c2a46b4e.scn"]
 
 [params]
 
