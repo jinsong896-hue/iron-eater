@@ -553,6 +553,11 @@ func _spawn_one_projectile(caster: Node3D, sd: Dictionary, dir: Vector3,
 		"lifetime": float(sd.get("lifetime", 2.0)),
 		"element": str(sd.get("element", "")),
 		"pierce_count": int(sd.get("pierce_count", 0)),
+		# 标枪类技能：到射程上限折返（用户决策，见 Projectile.boomerang）。
+		# 由技能表声明 `"boomerang": true`，或技能 id/名字含「标枪」自动判定
+		#（规格里「雷霆标枪」就是投掷类，但表里没写这个标记）。
+		"boomerang": bool(sd.get("boomerang", false))
+			or str(sd.get("name", "")).contains("标枪"),
 	}
 	# 旧节点路径：spawn 返回节点，位置也在这里摆一次（幂等）。
 	# 核路径下 spawn 返回 null，位置已由上面的 data["position"] 带进去。

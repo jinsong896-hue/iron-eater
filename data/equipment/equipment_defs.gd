@@ -45,7 +45,7 @@ const RARITY_COLORS := {
 	Rarity.RED: Color(0.95, 0.15, 0.15),
 }
 
-const SINGLE_HAND_WEAPONS := ["sword", "dagger", "axe", "crossbow", "shield"]
+const SINGLE_HAND_WEAPONS := ["sword", "dagger", "axe", "crossbow", "shield", "javelin"]
 
 # ============================================================
 # 武器类型标签（装备参考2 规格）

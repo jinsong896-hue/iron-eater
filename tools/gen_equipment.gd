@@ -52,11 +52,15 @@ const WEAPON_TAGS := {
 	"scythe": "近战,双手,长杆,物理", "bow": "远程,双手,物理",
 	"crossbow": "远程,单手,物理", "heavy_crossbow": "远程,双手,物理",
 	"staff": "魔法,双手,长杆,法术", "shield": "防御",
+	# 标枪（2026-09-26 用户决策）：改为**普通远程武器**的攻击方式。
+	# 与 spear 分开是因为攻击方式不同——长矛近战突刺、标枪投掷（远程）。
+	"javelin": "远程,单手,物理",
 }
 const WT_MULT := {
 	"sword": 1.0, "greatsword": 1.6, "dagger": 0.75, "axe": 1.0,
 	"greataxe": 1.6, "spear": 1.0, "scythe": 1.6, "bow": 1.0,
 	"crossbow": 1.0, "heavy_crossbow": 1.6, "staff": 1.3, "shield": 1.0,
+	"javelin": 1.0,
 }
 
 ## 元素中文名 → ElementDefs 的 key
@@ -273,6 +277,13 @@ func _initialize() -> void:
 		var slot_e: String = "EquipmentDefs.Slot.WEAPON_1" if cat == "WEAPON" \
 			else str(SLOT_ENUM.get(wtype, "EquipmentDefs.Slot.ACCESSORY_1"))
 		var wt: String = wtype if cat == "WEAPON" else ""
+		# **标枪走 javelin 类型**（2026-09-26 用户决策：改为普通远程武器）。
+		#
+		# 规格表里标枪的 weapon_type 是 `spear`（与长矛共用），但攻击方式
+		# 完全不同——长矛近战突刺、标枪投掷。故按**名字含「标枪」**细分。
+		# 实测 8 个 spear 里恰好 2 个是标枪（雷霆标枪 / 猎手标枪）。
+		if wt == "spear" and name.contains("标枪"):
+			wt = "javelin"
 		var tags: String = str(WEAPON_TAGS.get(wt, "")) if cat == "WEAPON" else ""
 
 		# 基础属性：武器给攻击/法强；**防御武器无攻击**（规格）；其余给防御

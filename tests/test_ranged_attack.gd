@@ -32,6 +32,8 @@ func _ready() -> void:
 	await _test_ranged_attack_spawns_projectile()
 	await _test_melee_weapon_still_melee()
 	await _test_hit_callback_reaches_player()
+	await _test_javelin_is_ranged()
+	await _test_boomerang_returns()
 
 	if failed == 0:
 		print("ALL RANGED ATTACK TESTS PASSED")
@@ -39,6 +41,114 @@ func _ready() -> void:
 	else:
 		print("RANGED ATTACK TESTS FAILED: %d" % failed)
 		get_tree().quit(1)
+
+
+## 5. 标枪是远程武器（用户决策：改为普通远程武器的攻击方式）
+##
+## 规格表里标枪的 `weapon_type` 是 `spear`（与长矛共用），生成器按
+## **名字含「标枪」**细分成 `javelin`——因为攻击方式完全不同
+##（长矛近战突刺、标枪投掷）。
+func _test_javelin_is_ranged() -> void:
+	print("\n--- 标枪是远程武器 ---")
+	var tpl = EquipmentDB.get_template("B113")   # 雷霆标枪
+	if tpl == null:
+		_check(false, "找到「雷霆标枪」(B113)")
+		return
+	_check(str(tpl.weapon_type) == "javelin",
+		"雷霆标枪的 weapon_type = javelin", ["实际=%s" % tpl.weapon_type])
+	var tags: Array = EquipmentDefs.weapon_tags_of(tpl.weapon_type, tpl.tags)
+	_check("ranged" in tags, "雷霆标枪带「远程」标签（走远程普攻链路）", [str(tags)])
+
+	# 普通长矛不该被误判为远程（防「一刀切」）
+	var spear = EquipmentDB.get_template("B107")   # 击退长矛（spear）
+	if spear != null:
+		var stags: Array = EquipmentDefs.weapon_tags_of(spear.weapon_type, spear.tags)
+		_check(str(spear.weapon_type) == "spear" and not ("ranged" in stags),
+			"普通长矛仍是近战（未被标枪规则误伤）", [str(stags)])
+
+
+## 6. 标枪子弹到射程上限**折返**而非消失（用户决策）
+func _test_boomerang_returns() -> void:
+	print("\n--- 标枪回旋（boomerang）---")
+	var player := _player()
+	if player == null:
+		_check(false, "找到玩家节点")
+		return
+	var em = GameManager.equipment_manager
+	if em == null:
+		_check(false, "equipment_manager 就绪")
+		return
+
+	# 装标枪
+	if not _equip_by_id("B113", EquipmentDefs.Slot.WEAPON_1):
+		_check(false, "装上「雷霆标枪」")
+		return
+	await get_tree().process_frame
+	_check(player.call("_main_weapon_is_javelin"), "主手判定为标枪")
+
+	# 发一弹，找到它
+	var before := _projectiles()
+	player.call("_start_normal_attack")
+	await get_tree().process_frame
+	var after := _projectiles()
+	_check(after.size() > before.size(), "标枪普攻生成了投射物",
+		["before=%d after=%d" % [before.size(), after.size()]])
+	if after.is_empty():
+		return
+	var proj = after[0]
+	_check(bool(proj.get("boomerang")), "该投射物启用了 boomerang 模式")
+
+	# 推进到超过 lifetime，确认**没有销毁**而是进入折返
+	var lt: float = float(proj.get("lifetime"))
+	var frames := int(lt / 0.0166) + 10
+	for i in frames:
+		await get_tree().physics_frame
+		if not is_instance_valid(proj):
+			break
+	_check(is_instance_valid(proj),
+		"到达射程上限后**没有消失**（%.2fs 后仍在）" % lt,
+		["投射物已销毁"])
+	if is_instance_valid(proj):
+		_check(bool(proj.get("_returning")), "已进入折返状态（_returning = true）")
+		# 折返应朝玩家飞：距离缩小
+		var d0: float = proj.global_position.distance_to(player.global_position)
+		for i in 20:
+			await get_tree().physics_frame
+			if not is_instance_valid(proj):
+				break
+		if is_instance_valid(proj):
+			var d1: float = proj.global_position.distance_to(player.global_position)
+			_check(d1 < d0, "折返中距离玩家越来越近（%.1f → %.1f）" % [d0, d1])
+
+	# 最终应被回收（飞抵玩家身边 1 米内销毁）
+	for i in 200:
+		await get_tree().physics_frame
+		if not is_instance_valid(proj):
+			break
+	_check(not is_instance_valid(proj), "飞抵玩家身边后销毁（不会永久残留）")
+
+	em.unequip(EquipmentDefs.Slot.WEAPON_1)
+
+
+## 场景里全部投射物
+func _projectiles() -> Array:
+	var out: Array = []
+	var stack: Array = [get_tree().root]
+	while not stack.is_empty():
+		var cur: Node = stack.pop_back()
+		if cur is Projectile:
+			out.append(cur)
+		for c in cur.get_children():
+			stack.append(c)
+	return out
+
+
+func _equip_by_id(id: String, slot: int) -> bool:
+	var tpl = EquipmentDB.get_template(id)
+	if tpl == null:
+		return false
+	GameManager.equipment_manager.equip(slot, EquipmentInstance.create(tpl))
+	return true
 
 
 # ============================================================

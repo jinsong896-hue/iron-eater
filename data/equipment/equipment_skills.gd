@@ -148,7 +148,7 @@ const TABLE := [
   ["闪现护手", "闪现", "dash", 15.0, 0.0, 0.0, 0.0, "主动技能“闪现”——瞬移4米，冷却15秒", {"range": 4.0}],
   ["雷霆一击战锤", "雷霆一击", "aoe", 10.0, 1.2, 0.0, 0.0, "主动技能“雷霆一击”——砸击地面，对周围3米造成120%攻击力雷电伤害并麻痹1秒，冷却10秒", {"control": "paralyze", "control_seconds": 1.0, "element": "static", "radius": 3.0}],
   ["雷霆万钧", "雷霆万钧", "aoe", 15.0, 2.0, 0.0, 0.0, "主动技能“雷霆万钧”——召唤雷电轰击目标区域，造成200%攻击力雷电伤害并麻痹1.5秒，冷却15秒", {"at_aim": true, "control": "paralyze", "control_seconds": 1.5, "element": "static"}],
-  ["雷霆标枪", "雷霆标枪", "projectile", 10.0, 1.3, 0.0, 0.0, "主动技能“雷霆标枪”——投掷雷电标枪，对目标造成130%攻击力雷电伤害并麻痹0.5秒，冷却10秒", {"control": "paralyze", "control_seconds": 0.5, "element": "static"}],
+  ["雷霆标枪", "雷霆标枪", "projectile", 10.0, 1.3, 0.0, 0.0, "主动技能“雷霆标枪”——投掷雷电标枪，对目标造成130%攻击力雷电伤害并麻痹0.5秒，冷却10秒", {"control": "paralyze", "control_seconds": 0.5, "element": "static", "boomerang": true, "pierce_count": 3}],
   ["风之屏障", "风之屏障", "buff", 18.0, 0.0, 0.0, 0.0, "主动技能“风之屏障”——3秒内格挡所有远程攻击并反弹50%伤害，冷却18秒", {"block_ranged": true, "duration_seconds": 3.0, "reflect_pct": 0.5}],
   ["风之箭长弓", "风之箭", "projectile", 6.0, 1.2, 0.0, 0.0, "主动技能“风之箭”——射出穿透风箭，穿透所有敌人，造成120%攻击力风元素伤害，冷却6秒", {"element": "wind", "pierce_count": 99}],
   ["风刃长弓", "风刃", "projectile", 8.0, 0.9, 0.0, 0.0, "主动技能“风刃”——射出风刃，穿透所有敌人，造成90%攻击力风元素伤害，冷却8秒", {"element": "wind", "pierce_count": 99}],

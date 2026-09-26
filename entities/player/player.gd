@@ -576,16 +576,28 @@ func _start_normal_attack() -> void:
 ## 弓/弩/带「远程」标签的法杖都会返回 `ranged`。
 ## **近战武器槽为空时返回 false**——空手（武僧 `no_weapon` 形态）走近战。
 func _main_weapon_is_ranged() -> bool:
-	var em = GameManager.equipment_manager
-	if em == null:
-		return false
-	var inst = em.get_equipped().get(EquipmentDefs.Slot.WEAPON_1, null)
-	if inst == null:
-		return false
-	var tpl = inst.get_template()
+	var tpl = _main_weapon_template()
 	if tpl == null:
 		return false
 	return "ranged" in EquipmentDefs.weapon_tags_of(tpl.weapon_type, tpl.tags)
+
+
+## 主手武器的模板（槽位空 / 无模板时返回 null）
+func _main_weapon_template():
+	var em = GameManager.equipment_manager
+	if em == null:
+		return null
+	var inst = em.get_equipped().get(EquipmentDefs.Slot.WEAPON_1, null)
+	return inst.get_template() if inst != null else null
+
+
+## 主手武器是否为**标枪类**（走回旋弹）
+##
+## 用户决策：标枪「发射的子弹附带穿透效果；到达射程上限时不是消失，
+## 而是沿『终点→玩家』的路径快速返回」。
+func _main_weapon_is_javelin() -> bool:
+	var tpl = _main_weapon_template()
+	return tpl != null and str(tpl.weapon_type) == "javelin"
 
 
 ## 远程连段器（懒建，与近战 `_combo` 分开）
@@ -759,6 +771,8 @@ func _perform_ranged_attack(multiplier: float, speed: float,
 		# **强制节点路径**：模拟核不带目标引用、Callable 也跨不过 C++ 边界，
 		# 走核会让 on_hit 永不触发 → 伤害为 0 且普攻效果全丢。见 Projectile.spawn。
 		"force_node": true,
+		# 标枪：到射程上限折返（用户决策，见 Projectile.boomerang）
+		"boomerang": _main_weapon_is_javelin(),
 	}, parent)
 
 

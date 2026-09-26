@@ -72,6 +72,22 @@ var _owner_faction := TARGET_ENEMY   ## 本投射物"属于"哪一方（决定�
 var _elapsed := 0.0
 var _hit_count := 0
 
+# —— 回旋（boomerang）模式 ——
+#
+# 装备参考2：标枪类武器「投掷后留在目标位置；再次使用可回收」。
+# 用户 2026-09-26 决定改为**普通远程武器**的攻击方式：
+# 「发射的子弹附带穿透效果；到达射程上限时不是消失，而是沿
+#  『终点→玩家』的路径快速返回」。
+#
+## >0 时启用回旋：到达射程上限后折返向施法者，飞抵身边才销毁
+var boomerang := false
+## 回程速度倍率（比去程快，避免玩家干等）
+var boomerang_speed_mult := 2.2
+## 回程已开启（避免重复触发折返）
+var _returning := false
+## 折返的目标（施法者）；失效时直接销毁
+var _return_target: Node3D = null
+
 
 ## 配置并生成。data 键与旧接口兼容（direction/speed/damage/lifetime/element/pierce_count），
 ## 另支持 bounces / arc / fuse / explode_radius / explode_damage / split 等。
@@ -134,6 +150,8 @@ static func spawn(data: Dictionary, parent: Node3D, target_group: String = TARGE
 	p.zone_on_land = data.get("zone_on_land", {})
 	# 命中回调（玩家远程普攻接管结算用，见该字段的说明）
 	p.on_hit = data.get("on_hit", Callable())
+	# 回旋模式（标枪：到射程上限折返，见 boomerang 字段说明）
+	p.boomerang = bool(data.get("boomerang", false))
 	# 保留原始配置：分裂时要据此复制出同类型小弹
 	p.data = data
 
@@ -211,9 +229,19 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_elapsed += delta
+	# —— 回旋模式：去程到寿命上限时**折返**，而不是销毁 ——
+	#
+	# 用户决策：标枪「到达射程上限时不是消失，而是沿『终点→玩家』
+	# 的路径快速返回」。折返后 `_returning` 置位，后续帧朝施法者飞。
+	if boomerang and _returning:
+		_advance_return(delta)
+		return
 	if _elapsed >= lifetime:
 		if fuse > 0.0:
 			_arm_fuse()
+			return
+		if boomerang:
+			_start_return()
 			return
 		queue_free()
 		return
@@ -231,6 +259,58 @@ func _advance_arc(delta: float) -> void:
 	var base := _arc_start.lerp(_arc_landing, t)
 	base.y += 4.0 * _arc_height * t * (1.0 - t)   # 标准抛物线 4h·t(1-t)
 	position = base
+
+
+## 开启折返：朝施法者飞回去
+##
+## 用户决策：标枪「到达射程上限时不是消失，而是沿『终点→玩家』的路径
+## 快速返回」。折返期间**重置命中记录**——回程要能再穿一次
+##（去程+回程各结算一次，这是「贯穿来回」的手感）。
+func _start_return() -> void:
+	_returning = true
+	_elapsed = 0.0
+	# 回程给足时间：以「当前距离 ÷ 回程速度」为基准，再留 50% 余量
+	var owner_node := _find_owner()
+	if owner_node != null:
+		_return_target = owner_node
+		var d := global_position.distance_to(owner_node.global_position)
+		lifetime = maxf(d / maxf(speed * boomerang_speed_mult, 1.0) * 1.5, 0.3)
+	else:
+		# 找不到施法者（已销毁）：直接结束，避免变成永不消失的子弹
+		lifetime = 0.3
+	# 清空命中记录：回程可以再打一次
+	_hit_targets.clear()
+	_hit_count = 0
+
+
+## 回程推进：朝施法者飞，抵达即销毁
+func _advance_return(delta: float) -> void:
+	_elapsed += delta
+	# 目标失效（施法者死亡/换房）→ 立刻销毁，避免飞向空处
+	if _return_target == null or not is_instance_valid(_return_target):
+		queue_free()
+		return
+	var to_owner: Vector3 = _return_target.global_position - global_position
+	var dist := to_owner.length()
+	# 抵达判定：1 米内即视为接住
+	if dist < 1.0 or _elapsed >= lifetime:
+		queue_free()
+		return
+	direction = to_owner.normalized()
+	position += direction * speed * boomerang_speed_mult * delta
+
+
+## 找施法者（本投射物的"主人"）
+##
+## 挂载父节点下找 `player` 组；找不到返回 null（投射物会立刻结束）。
+func _find_owner() -> Node3D:
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var ps := tree.get_nodes_in_group("player")
+	if ps.is_empty():
+		return null
+	return ps[0] as Node3D
 
 
 ## 落地进入引信倒计时（延时炸弹）
