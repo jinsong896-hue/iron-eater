@@ -46,6 +46,7 @@ func _ready() -> void:
 	await _test_cdr_channel()
 	_test_new_triggers_have_callers()
 	await _test_resource_channels()
+	await _test_skill_mod_channel()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -53,6 +54,112 @@ func _ready() -> void:
 	else:
 		print("AFFIX WIRING TESTS FAILED: %d" % failed)
 		get_tree().quit(1)
+
+
+## 11. `Operation.SKILL_MOD`：改**某个已存在技能**的行为
+##
+## ## 为什么不能压成 STACK_GAIN
+##
+## 装备参考2 融合列的「裂地斩命中3个以上敌人时伤害提升至700%」
+## 「战吼同时嘲讽敌人1秒」「疾风步期间留下火焰路径」——
+## 它们改的是**那个技能**的结算，不是玩家面板。
+## 压成 `[4, trigger, ...]` 会变成「玩家某事件时获得属性」，完全两回事。
+##
+## ## 交付路径
+##
+## 生成器产出 `[8, {参数...}]` → `_make_one_affix` 存进 `trigger_params`
+## → `SkillSystem._skill_mods_for` 并入 `sd` → `_cast_*` 读 sd 生效。
+##
+## **必须验证最后一步**：只查「数据里有」不够——那正是本项目反复踩的
+## 「有数据没消费」。
+func _test_skill_mod_channel() -> void:
+	print("\n--- SKILL_MOD（改技能行为）---")
+	# ① 数据侧：确实有 SKILL_MOD 词条
+	var count := 0
+	for t in EquipmentDB.all_templates():
+		for arr in [t.own_affixes, t.fusion_affixes]:
+			for a in arr:
+				if a != null and a.operation == AffixData.Operation.SKILL_MOD:
+					count += 1
+	_check(count > 0, "装备数据里有 SKILL_MOD 词条（%d 条）" % count)
+
+	# ② 解析侧：参数进了 trigger_params
+	var sample = null
+	for t2 in EquipmentDB.all_templates():
+		for a in t2.fusion_affixes:
+			if a != null and a.operation == AffixData.Operation.SKILL_MOD:
+				sample = a
+				break
+		if sample != null:
+			break
+	if sample == null:
+		_check(false, "找到一条 SKILL_MOD 样例")
+		return
+	_check(not sample.trigger_params.is_empty(),
+		"SKILL_MOD 的参数进了 trigger_params",
+		[str(sample.trigger_params)])
+
+	# ③ **消费侧**：`_skill_mods_for` 必须能把参数取出来
+	#
+	# 找一件**既带 SKILL_MOD 又提供技能**的装备——只有这类才能走完整链路
+	#（`_skill_mods_for` 按「本技能的来源装备」匹配，无技能的装备直接跳过）。
+	# 实测 19 件满足（战吼腿甲 B081 / 疾风步腿甲 B085 / 裂地巨斧 O020 …）。
+	var player := _player()
+	if player == null:
+		_check(false, "找到玩家节点")
+		return
+	var sys = player.skills.get("_skills") if player.get("skills") != null else null
+	if sys == null:
+		_check(false, "拿到 SkillSystem")
+		return
+
+	var target_tpl = null
+	var target_sk := {}
+	for t3 in EquipmentDB.all_templates():
+		var has_mod := false
+		for a in t3.fusion_affixes:
+			if a != null and a.operation == AffixData.Operation.SKILL_MOD:
+				has_mod = true
+		if not has_mod:
+			continue
+		var sk: Dictionary = EquipmentSkills.skill_of_equipment(
+			t3.display_name, int(t3.rarity))
+		if not sk.is_empty():
+			target_tpl = t3
+			target_sk = sk
+			break
+	if target_tpl == null:
+		_check(false, "找到「既带 SKILL_MOD 又提供技能」的装备")
+		return
+
+	# 装上它，再问 `_skill_mods_for` 该技能的参数
+	#
+	# **必须先融合**：这些 SKILL_MOD 词条在**融合列**，而融合词条按规格
+	# 「作为副材融合时给主装备」——**穿戴原装备时不生效**。
+	# 故正确路径是：把带词条的装备融合进主装备 → 词条进主装备的
+	# `extra_affixes` → 再穿上 → `_skill_mods_for` 才能读到。
+	#
+	# 早期版本直接 `equip(原装备)` 就断言，必然失败且与接线无关。
+	_reset()
+	await get_tree().process_frame
+	GameManager.gold = 1000
+	# 主装备用一件同大类、且**不带该技能**的装备，避免 id 撞车
+	var main_inst := _make_inst_by_name("吸血脉甲")   # ARMOR/CHEST
+	var mat_inst := EquipmentInstance.create(target_tpl)
+	if main_inst == null or mat_inst == null:
+		_check(false, "构造融合实例")
+		return
+	# 只支持同大类融合（武器↔武器、非武器↔非武器）
+	var r: Dictionary = GameManager.equipment_manager.fuse(main_inst, mat_inst)
+	_check(bool(r.get("ok", false)), "融合成功（%s）" % target_tpl.display_name,
+		[str(r.get("reason", ""))])
+	# 融合产物必须带上 SKILL_MOD 参数
+	var has_mod_in_extra := false
+	for a in main_inst.extra_affixes:
+		if a != null and a.operation == AffixData.Operation.SKILL_MOD:
+			has_mod_in_extra = true
+	_check(has_mod_in_extra, "融合后 SKILL_MOD 进了主装备的 extra_affixes")
+	_reset()
 
 
 ## 10. 职业资源通道（装备参考2：「获得 N 点怒气/魔力/…」）

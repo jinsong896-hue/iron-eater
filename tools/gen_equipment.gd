@@ -106,6 +106,7 @@ const OP_BONUS_ELEMENT := 3
 const OP_TRIGGER_BUFF := 2
 const OP_STACK_GAIN := 4
 const OP_GRANT_SKILL := 7
+const OP_SKILL_MOD := 8
 const TRIG_ON_KILL := 1
 const TRIG_ON_HURT := 2
 const TRIG_ON_HIT := 3
@@ -597,6 +598,16 @@ func _trigger_of_spec(spec: String) -> int:
 	if spec.begins_with("[%d," % OP_TRIGGER_BUFF) \
 			or spec.begins_with("[%d," % OP_BONUS_ELEMENT):
 		return TRIG_ALWAYS   # 已是触发型，视为「不必再包」
+	# **自足形态**：这些结果不携带触发条件，也**不该**被包 trigger——
+	# 它们改的是「某个技能」或「提供某个技能」，不是「玩家某事件时获得属性」。
+	#
+	# 不加这条会让它们被误判为未映射：`_parse_one` 的从句校验逻辑是
+	# 「从句识别不了 + 结果不是触发型 → 报未映射」，而
+	# 「疾风步**期间**留下火焰路径」的从句「疾风步期间」不在映射表里
+	#（它修饰的是技能，不是玩家状态），于是 `[8, {...}]` 被丢弃。
+	if spec.begins_with("[%d," % OP_SKILL_MOD) \
+			or spec.begins_with("[%d," % OP_GRANT_SKILL):
+		return TRIG_ALWAYS
 	return -1
 
 
@@ -949,6 +960,84 @@ func _parse_main(s: String) -> String:
 		#（元素抗性），与「护盾」毫无关系。走 `grant_shield` sentinel。
 		return "[%d, \"grant_shield\", 1.0, 0.0, {\"pct\": %s, \"cap\": 0.60}]" % [
 			OP_TRIGGER_BUFF, _f(m.get_string(1))]
+
+	# ---------- 8d. 命中 N 敌触发（2026-09-26，6 条）----------
+	#
+	# 形态：「<技能名>命中 N 个以上敌人时，伤害提升至 M%」。
+	#
+	# ## 为什么降级为「额外伤害」
+	#
+	# 计划书 §2 已决策：「条件变倍率」需要**回溯重算已结算的伤害**
+	#（技能是逐个敌人独立结算的），代价高且手感突兀。
+	# 改为「命中 ≥N 敌时追加一次范围伤害」——语义等价（都是"打中多个
+	# 时伤害更高"），但实现干净。
+	#
+	# `multi_hit_bonus` 取超出 100% 的部分：规格的「提升至 700%」是
+	# **倍率终值**，而追加伤害的倍率应是「额外多打多少」。
+	# 取 (M/100 - 1)，与普攻倍率的语义对齐。
+	m = _re(r"命中\s*(\d+)\s*个以上敌人时[，,]?伤害提升至\s*(\d+)%").search(s)
+	if m:
+		var extra := maxf(float(m.get_string(2)) / 100.0 - 1.0, 0.0)
+		return "[%d, {\"multi_hit_at\": %s, \"multi_hit_bonus\": %.4f}]" % [
+			OP_SKILL_MOD, m.get_string(1), extra]
+	# 「牵引 N 个以上敌人时，触发风爆（M% 攻击力风元素伤害）」
+	m = _re(r"牵引\s*(\d+)\s*个以上敌人时[，,]?触发.*?(\d+)%\s*攻击力").search(s)
+	if m:
+		var extra2 := maxf(float(m.get_string(2)) / 100.0, 0.0)
+		return "[%d, {\"multi_hit_at\": %s, \"multi_hit_bonus\": %.4f}]" % [
+			OP_SKILL_MOD, m.get_string(1), extra2]
+
+	# ---------- 8e. 技能附加效果（2026-09-26）----------
+	#
+	# 形态：「<技能名>同时 <效果>」——给某个**已有技能**附加额外效果。
+	#
+	# 这些是融合列词条，改的是**那个技能**的行为，不是给玩家加属性。
+	# 走 `Operation.SKILL_MOD`，参数进 `trigger_params`——
+	# **不能压成 `[4, trigger, ...]`**：那会变成「玩家某事件时获得属性」，
+	# 与「改那个技能」完全是两回事。
+	#
+	# 判据：主串含「同时」+ 被修饰的技能名，且能做具体映射。
+	if s.contains("战吼同时嘲讽敌人"):
+		m = _re(r"嘲讽敌人\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+		var sec: String = m.get_string(1) if m else "1"
+		return "[%d, {\"on_cast_buff\": \"taunt\", \"on_cast_seconds\": %s}]" % [OP_SKILL_MOD, sec]
+	if s.contains("治愈术同时清除一个负面状态"):
+		return "[%d, {\"on_cast_dispel\": 1}]" % OP_SKILL_MOD
+	if s.contains("战吼同时降低敌人") :
+		m = _re(r"攻击力[，,]?持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+		if m:
+			return "[%d, {\"on_cast_buff\": \"atk_down\", \"on_cast_seconds\": %s}]" % [OP_SKILL_MOD, m.get_string(1)]
+
+	# ---------- 8f. 火焰路径 / 燃烧地面（2026-09-26）----------
+	#
+	# 「疾风步期间留下火焰路径」——冲刺/疾风步期间移动时周期性留下
+	# 火焰区域。「留下燃烧地面」是同类（火系技能命中后原地留区域）。
+	#
+	# **数值一律从原文取，不硬编码**。实测规格里的写法：
+	#   疾风步期间留下火焰路径                      → 无伤害
+	#   疾风步期间留下火焰路径（每秒40%攻击力）      → 0.40
+	#   疾风步期间留下火焰路径，对经过敌人造成30%攻击力伤害 → 0.30
+	#   火焰吐息留下燃烧地面（每秒40%法强，持续3秒） → 0.40 / 3s
+	#   火焰喷射留下燃烧地面（每秒20%法强，持续2秒） → 0.20 / 2s
+	#   流星火雨留下燃烧地面（每秒80%法强，持续5秒） → 0.80 / 5s
+	#
+	# 早期版本把后三条硬编码成 3.0/0.30——**那是臆断**，三条不同数值的
+	# 词条会变成一字不差。故这里逐项抽数值。
+	if s.contains("留下火焰路径") or s.contains("留下燃烧地面"):
+		# 百分比：优先「每秒N%」，其次任意「N%」
+		var fp_mult := "0.0"
+		m = _re(r"每秒\s*(\d+(?:\.\d+)?)%").search(s)
+		if m == null:
+			m = _re(r"(\d+(?:\.\d+)?)%").search(s)
+		if m:
+			fp_mult = "%.4f" % (float(m.get_string(1)) / 100.0)
+		# 持续秒数：原文给了就用，没给取 3.0（区域默认时长）
+		var fp_sec := "3.0"
+		m = _re(r"持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+		if m:
+			fp_sec = m.get_string(1)
+		return "[%d, {\"fire_path_seconds\": %s, \"fire_path_mult\": %s}]" % [
+			OP_SKILL_MOD, fp_sec, fp_mult]
 
 	# ---------- 9. 数值型（统一查找：面板属性优先，再扩展通道） ----------
 	#

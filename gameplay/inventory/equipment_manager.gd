@@ -335,18 +335,38 @@ func fuse(main: EquipmentInstance, material: EquipmentInstance) -> Dictionary:
 	if mat_tpl_for_count != null:
 		main.note_same_fuse(mat_tpl_for_count.id)
 	# **素材的融合词条**（规格第 3 条）：「这件装备作为素材融合到其他装备上时
-	# 产生的额外加成词条」——故取的是**素材**的 fusion_affix，不是主装备的。
+	# 产生的额外加成词条」——故取的是**素材**的 fusion_affixes，不是主装备的。
 	# 累加进主装备的 extra_affixes，成为它的一部分（可多件叠加）。
 	# 数值按「同件累计」缩放（融合同一件多次 → 越融越强）。
-	if mat_tpl_for_count != null and mat_tpl_for_count.fusion_affix != null:
-		var fa := mat_tpl_for_count.fusion_affix
+	#
+	# ## 这里此前有两个 bug（同一类：**单数访问器 + 强制转型**）
+	#
+	# ① 用 `fusion_affix`（单数 = `fusion_affixes[0]`）→ **只搬第一条**，
+	#    装备有 2+ 条融合词条时后面的全丢。
+	# ② 用 `AffixData.make_stat(...)` **强制当属性词条**——遇到
+	#    `Operation.SKILL_MOD`（改技能行为）这类非属性词条会直接丢弃，
+	#    于是「裂地斩命中3个以上敌人时伤害提升至700%」融合后消失。
+	#
+	# 现改为：遍历全部融合词条，属性型走原逻辑（吃同件累计缩放），
+	# 非属性型**原样搬过去**（它们的参数在 trigger_params 里，
+	# 缩放会破坏语义）。
+	if mat_tpl_for_count != null:
 		var times := main.same_fuse_level(mat_tpl_for_count.id)
 		var fv := EquipmentInstance.fusion_value_at(mat_tpl_for_count, times)
-		var granted := AffixData.make_stat(fa.stat, fv,
-			fa.operation == AffixData.Operation.PERCENT)
-		# id 带素材 id，让「同素材重复融合」能识别为同一条并升级
-		granted.id = StringName("fus_%s" % str(mat_tpl_for_count.id))
-		_merge_fusion_affix(main, granted)
+		for fa in mat_tpl_for_count.fusion_affixes:
+			if fa == null:
+				continue
+			var granted: AffixData
+			if fa.is_stat():
+				granted = AffixData.make_stat(fa.stat, fv,
+					fa.operation == AffixData.Operation.PERCENT)
+			else:
+				# 非属性型（SKILL_MOD / TRIGGER_BUFF / BONUS_ELEMENT …）
+				# 原样复制——参数与形态都要保留
+				granted = fa.duplicate() as AffixData
+			# id 带素材 id，让「同素材重复融合」能识别为同一条并升级
+			granted.id = StringName("fus_%s_%d" % [str(mat_tpl_for_count.id), fa.stat])
+			_merge_fusion_affix(main, granted)
 	if gm:
 		gm.gold -= cost
 		gm.fusion_count += 1

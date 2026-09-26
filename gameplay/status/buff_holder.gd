@@ -149,6 +149,28 @@ func active_ids() -> Array:
 	return _buffs.keys()
 
 
+## 清除负面状态（装备参考2：「治愈术同时清除一个负面状态」
+## 「净化——清除自身及周围友方所有负面状态」）
+##
+## `count <= 0` 或 `count >= 99` 时清**全部**负面；
+## 否则按 `active_ids()` 的顺序清前 `count` 个。
+##
+## **只清负面**（`_is_debuff_kind`）：增益不能被净化掉——那会让
+## 「清除负面状态」变成「清空所有状态」，与规格相反。
+## 返回实际清除的条数。
+func cleanse(count: int = 1) -> int:
+	var cleared := 0
+	for id in active_ids():
+		if count > 0 and count < 99 and cleared >= count:
+			break
+		var e: Dictionary = _buffs[id]
+		if not _is_debuff_kind(int(e.get("kind", -1))):
+			continue
+		remove(str(id))
+		cleared += 1
+	return cleared
+
+
 ## 供 UI 渲染的完整状态快照。
 ## 返回 [{id, name, stacks, remaining, total, permanent, kind, is_debuff}, ...]
 ## `remaining/total` 用于画剩余时间进度条；duration=0 的永久词条

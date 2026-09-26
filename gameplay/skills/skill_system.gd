@@ -52,6 +52,8 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 	# 生命消耗型技能（鲜血献祭）：血量不足也拒绝，避免自杀
 	var hp_cost_pct := float(sd.get("hp_cost_pct", 0.0))
 
+	# 新一次施法：重置命中记录（见 `_hit_enemies_this_cast` 说明）
+	_hit_enemies_this_cast.clear()
 	# 先扣资源再进冷却——两处都通过后才算"真的放出去了"
 	if resource != null and cost > 0.0:
 		resource.spend(cost)
@@ -83,6 +85,20 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 		var bonus: float = minf(float(combo) / 10.0 * 0.10, 1.0)
 		sd = sd.duplicate()
 		sd["damage_mult"] = float(sd.get("damage_mult", 1.0)) * (1.0 + bonus)
+
+	# 装备词条·**修改本技能行为**（`Operation.SKILL_MOD`）
+	#
+	# 装备参考2 融合列的「裂地斩命中3个以上敌人时伤害提升至700%」
+	# 「战吼同时嘲讽敌人1秒」等。它们改的是**这个技能**的结算，
+	# 不是玩家面板，故在这里并入 `sd`（`_cast_*` 读 sd 就自动生效）。
+	#
+	# **必须 duplicate 后再改**：sd 来自 ClassDefs / EquipmentSkills 的
+	# 常量表，原地改会永久污染全局（放一次技能后所有后续施法都带着它）。
+	var skill_mods := _skill_mods_for(caster, sd)
+	if not skill_mods.is_empty():
+		sd = sd.duplicate()
+		for k in skill_mods:
+			sd[k] = skill_mods[k]
 
 	# 形态·技能范围（策划 4.1 元素使 +15%、4.5 共鸣师 +30%）。
 	# 在这一处统一放大几何参数，所有 _cast_* 自动受益，不必逐个改。
@@ -164,7 +180,72 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 	var cg := int(sd.get("combo_gain", 0))
 	if cg > 0 and caster.has_method("add_hit_combo"):
 		caster.call("add_hit_combo", cg)
+	# 「命中 N 敌时」额外效果（装备参考2）
+	#
+	# 规格：「裂地斩命中3个以上敌人时，伤害提升至700%」。
+	# 计划书 §2 已决策**降级为额外伤害**——「条件变倍率」需要回溯
+	# 重算已结算的伤害，代价高且手感突兀；改为「命中 ≥N 敌时追加一次
+	# 范围伤害」。
+	_check_multi_hit_bonus(caster, sd)
+	# 「技能附加效果」（`SKILL_MOD` 的 on_cast_* 参数）——施法后结算
+	_apply_on_cast_extras(caster, sd)
 	return {"ok": true, "skill": skill_id, "name": str(sd.get("name", skill_id))}
+
+
+## 施法后的附加效果（装备参考2 融合列：「战吼同时嘲讽敌人1秒」
+## 「治愈术同时清除一个负面状态」）
+##
+## 由 `_skill_mods_for` 并入 `sd`，故这里直接读 `sd` 的 `on_cast_*` 键。
+func _apply_on_cast_extras(caster: Node3D, sd: Dictionary) -> void:
+	# 清除自身负面状态（「治愈术同时清除一个负面状态」）
+	var dispel := int(sd.get("on_cast_dispel", 0))
+	if dispel > 0:
+		var b = caster.get("buffs")
+		if b != null and b.has_method("cleanse"):
+			b.call("cleanse", dispel)
+	# 给周围敌人施加词条（「战吼同时嘲讽敌人1秒」）
+	var bid := str(sd.get("on_cast_buff", ""))
+	if not bid.is_empty():
+		var sec := float(sd.get("on_cast_seconds", 0.0))
+		var radius := float(sd.get("on_cast_radius", 4.0))
+		for e in _enemies():
+			if caster.global_position.distance_to(e.global_position) > radius:
+				continue
+			var tb = e.get("buffs")
+			if tb == null:
+				continue
+			tb.call("apply", bid, "skill", 1, sec)
+	# 火焰路径（「疾风步期间留下火焰路径」）——激活玩家的路径生成状态
+	# 由 `Player._tick_fire_path` 每帧留痕。
+	var fp_sec := float(sd.get("fire_path_seconds", 0.0))
+	if fp_sec > 0.0 and caster.has_method("activate_fire_path"):
+		caster.call("activate_fire_path", fp_sec, float(sd.get("fire_path_mult", 0.0)))
+
+
+## 「命中 N 敌时」追加范围伤害
+##
+## 技能表字段：`multi_hit_at`（阈值，默认 3）、`multi_hit_bonus`（追加倍率）。
+## 未声明这两个字段的技能不受影响。
+func _check_multi_hit_bonus(caster: Node3D, sd: Dictionary) -> void:
+	var at := int(sd.get("multi_hit_at", 0))
+	if at <= 0:
+		return
+	if _hit_enemies_this_cast.size() < at:
+		return
+	var bonus := float(sd.get("multi_hit_bonus", 0.0))
+	if bonus <= 0.0:
+		return
+	# 以**最后一个被命中的敌人**为中心追加范围伤害
+	#（技能的作用点在哪就炸在哪，比以自身为中心更符合直觉）
+	var center_enemy = _hit_enemies_this_cast.back()
+	if center_enemy == null or not is_instance_valid(center_enemy):
+		return
+	var center: Vector3 = (center_enemy as Node3D).global_position
+	var radius := float(sd.get("multi_hit_radius", 3.0))
+	for e in _enemies():
+		if center.distance_to(e.global_position) > radius:
+			continue
+		_deal_damage(caster, e, bonus, 0.0, false, sd)
 
 
 ## 技能是否会对敌人造成命中（决定形态印记要不要生效）
@@ -178,6 +259,16 @@ func _skill_hits_enemies(sd: Dictionary) -> bool:
 ## 必须是实例状态而非局部变量：`cast_skill` 与 `_deal_damage` 之间有
 ## `_cast_*` 一层间接调用。
 var _pending_stack_marks: Array = []
+
+## 本次施法**累计命中**的敌人（去重），用于「命中 N 敌时」类词条。
+##
+## 装备参考2：「裂地斩命中3个以上敌人时，伤害提升至700%」——
+## 需要知道「本次技能总共打中几个」。而 `_cast_*` 里的 `hits` 计数是
+## **局部的**（结算完就丢），且按 kind 各写一份，故收口到这里。
+##
+## **必须去重**：同一敌人被多段伤害（`multi_hit`）或回旋弹打中两次
+## 只算「1 个敌人」——规格说的是「命中 N 个敌人」，不是「命中 N 次」。
+var _hit_enemies_this_cast: Array = []
 
 
 ## 给刚被命中的那个敌人叠一层形态印记。
@@ -695,6 +786,9 @@ func _deal_damage(caster: Node3D, enemy: Node3D, mult: float, knockback: float,
 		return
 	if backstab:
 		mult *= _form_special_float(caster, "backstab_mult", 1.0)
+	# 累计本次施法命中（去重），供 `cast_skill` 末尾的「命中 N 敌」判定
+	if not _hit_enemies_this_cast.has(enemy):
+		_hit_enemies_this_cast.append(enemy)
 	var atk := _panel_atk(caster)
 	var target_def := float(enemy.get("defense")) if enemy.get("defense") != null else 0.0
 	# 形态·护甲穿透（与普攻同口径，见 player._apply_hit）。
@@ -1027,6 +1121,60 @@ func _equip_affix_pct(caster: Node3D, key: String) -> float:
 		return 0.0
 	var sp: Dictionary = em.call("special_modifiers")
 	return float(sp.get(key, 0.0))
+
+
+## 装备词条·**修改某个已存在技能**的行为（`Operation.SKILL_MOD`）
+##
+## 装备参考2 的融合列有这类词条：
+##   「裂地斩命中3个以上敌人时，伤害提升至700%」
+##   「战吼同时嘲讽敌人1秒」
+##   「治愈术同时清除一个负面状态」
+##
+## ## 与「给玩家加属性」的本质区别
+##
+## 这些词条改的是**那个技能**的结算，不是玩家的面板。故不能压成
+## `[4, trigger, ...]`（那会变成「玩家某事件时获得属性」）。
+##
+## ## 匹配规则：只看**本技能的来源装备**
+##
+## 规格里词条原文写的是技能名（「裂地斩」「战吼」），但那不一定是
+## `EquipmentSkills` 里的技能名（实测「星辰碎片」「剑气」「风爆」都不是）。
+## 而这些词条只出现在它们所属装备的融合列——融合后并入主装备，
+## 故「谁带着这条词条，就改谁的技能」。
+##
+## 返回合并后的参数（无匹配则空字典）。
+func _skill_mods_for(caster: Node3D, sd: Dictionary) -> Dictionary:
+	var gm := _game_manager()
+	if gm == null:
+		return {}
+	var em = gm.get("equipment_manager")
+	if em == null or not em.has_method("get_equipped"):
+		return {}
+	var my_id := str(sd.get("id", ""))
+	if my_id.is_empty():
+		return {}
+	var out: Dictionary = {}
+	var equipped: Dictionary = em.call("get_equipped")
+	for slot in equipped:
+		var inst = equipped[slot]
+		if inst == null:
+			continue
+		var tpl = inst.get_template()
+		if tpl == null:
+			continue
+		# 只收**本技能来自这件装备**的词条——避免 A 装备的词条改了 B 技能
+		var own: Dictionary = EquipmentSkills.skill_of_equipment(
+			tpl.display_name, int(tpl.rarity))
+		if str(own.get("id", "")) != my_id:
+			continue
+		# 自有 + 融合两列都可能是 SKILL_MOD（融合列为主）
+		for arr in [tpl.own_affixes, inst.extra_affixes]:
+			for a in arr:
+				if a == null or a.operation != AffixData.Operation.SKILL_MOD:
+					continue
+				for k in a.trigger_params:
+					out[k] = a.trigger_params[k]
+	return out
 
 
 ## 施法者的冷却缩减（0~0.75）

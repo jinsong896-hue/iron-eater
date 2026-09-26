@@ -106,6 +106,24 @@ var _stealth_invuln := false
 ## 破隐一击的伤害加成（下次攻击消费一次）
 var _stealth_next_hit_bonus := 0.0
 
+# —— 火焰路径（装备参考2：「疾风步期间留下火焰路径」）——
+#
+# 冲刺/疾风步期间，玩家移动时**周期性在脚下留下火焰区域**。
+# 三条词条都是这个机制（差别只在数值与是否给经过的敌人伤害）。
+#
+# 实现走已有的 `DamageZone`（它支持 `on_tick` 回调 + 主动轮询），
+# 不新造区域系统。
+## 火焰路径剩余时长（秒）。>0 时每 `_fire_path_interval` 秒留一处
+var _fire_path_timer := 0.0
+## 每处火焰区域的伤害倍率（占面板 ATK 的比例）
+var _fire_path_mult := 0.0
+## 留痕间隔（秒）——太密会刷出几十个区域节点，太疏则连不成"路径"
+const FIRE_PATH_INTERVAL := 0.25
+## 累计的留痕计时
+var _fire_path_accum := 0.0
+## 上一处留痕的位置（移动不足阈值就不留，避免原地站桩刷区域）
+var _fire_path_last_pos := Vector3.ZERO
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -470,6 +488,8 @@ func _physics_process(delta: float) -> void:
 	# 职业资源与技能（策划《角色设计分册》）
 	# 资源自然回复（法师回蓝）+ 技能冷却推进，都在这里无条件走
 	skills.tick(delta)
+	# 火焰路径（装备参考2：疾风步期间留下火焰路径）
+	_tick_fire_path(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
 	if not _typing_input():
 		_poll_skill_input()
@@ -2353,6 +2373,62 @@ func enter_stealth(seconds: float, speed_pct: float,
 ## 当前是否处于隐身
 func is_stealthed() -> bool:
 	return _stealth_timer > 0.0
+
+
+## 激活火焰路径（装备参考2：「疾风步期间留下火焰路径」）
+##
+## 由 `SkillSystem` 在冲刺/疾风步类技能施放时调用。`mult` 是每处区域的
+## 伤害倍率（占面板 ATK 的比例）——规格里三件装备分别是
+## 「每秒40%攻击力」「对经过敌人造成30%攻击力」等，由技能表传入。
+func activate_fire_path(seconds: float, mult: float) -> void:
+	_fire_path_timer = maxf(seconds, 0.1)
+	_fire_path_mult = maxf(mult, 0.0)
+	_fire_path_accum = FIRE_PATH_INTERVAL   # 立即留第一处
+	_fire_path_last_pos = global_position
+
+
+## 每帧推进火焰路径：移动足够远时在脚下留一处伤害区
+##
+## **只在移动时留痕**：原地站桩不该刷出几十个区域节点
+##（那既浪费性能，也让"路径"失去意义）。
+func _tick_fire_path(delta: float) -> void:
+	if _fire_path_timer <= 0.0:
+		return
+	_fire_path_timer = maxf(_fire_path_timer - delta, 0.0)
+	_fire_path_accum += delta
+	if _fire_path_accum < FIRE_PATH_INTERVAL:
+		return
+	# 移动不足 0.5 米不留（避免站桩刷区域）
+	if global_position.distance_to(_fire_path_last_pos) < 0.5:
+		return
+	_fire_path_accum = 0.0
+	_fire_path_last_pos = global_position
+	_spawn_fire_patch()
+
+
+## 在当前位置生成一处火焰区域
+func _spawn_fire_patch() -> void:
+	var parent := _projectile_parent()
+	if parent == null:
+		return
+	var atk := GameManager.stat_value("atk")
+	DamageZone.spawn({
+		"radius": 1.2,
+		"duration": 3.0,
+		"tick_interval": 0.5,
+		"damage": 0.0,          # 伤害由 on_tick 接管
+		"target_group": DamageZone.TARGET_ENEMY,
+		"position": global_position,
+		"color": Color(1.0, 0.4, 0.1, 0.35),
+		"on_tick": func(_z, node: Node3D) -> bool:
+			if not is_instance_valid(node):
+				return true
+			var dmg := atk * _fire_path_mult
+			if dmg > 0.0:
+				node.call("take_damage", dmg, false, Vector3.ZERO, self)
+				EventBus.damage_popup.emit(node.global_position, dmg, "normal")
+			return true,
+	}, parent)
 
 
 ## 退出隐身（破隐/超时）
