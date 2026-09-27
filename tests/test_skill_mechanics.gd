@@ -1,5 +1,5 @@
 extends Node
-## 技能机制测试 —— 验证 133 条装备技能 + 40 条职业技能的**机制落地**
+## 技能机制测试 —— 验证 139 条装备技能 + 40 条职业技能的**机制落地**
 ##
 ## ## 这个套件要回答的问题
 ##
@@ -56,19 +56,26 @@ func _ready() -> void:
 # 数据层
 # ============================================================
 
-## 技能表完整性：133 条、extra 非空、字段值合法
+## 技能表完整性：139 条、extra 非空、字段值合法
 func _test_equipment_skill_table() -> void:
 	_test = "SkillTable"
 	print("\n--- %s ---" % _test)
 
 	var all: Array = EquipmentSkills.all_skills()
-	_check(all.size() == 133, "装备技能共 133 条（含同名两版）", [str(all.size())])
+	# **139 条**：原 133 条 + 2026-09-27 补的 6 条（8 条设计缺失里已实现的 8 个
+	# 设备名对应条目——召唤元素戒指×2 / 猎人标记徽章×2 / 猎人标记 / 混沌之门）。
+	#
+	# 起因：`equipment_db.gd` 有 4 个装备名（6 件装备）的 `GRANT_SKILL`
+	# 查不到技能定义，装了**技能永远放不出来**且不报错。现已有专门的
+	# 交叉校验（见 `tests/test_affix_wiring.gd` 的「装备技能表交叉校验」），
+	# 这条数字断言只保证总量不再悄悄缩水。
+	_check(all.size() == 139, "装备技能共 139 条（含同名两版）", [str(all.size())])
 
 	# 技能必须有可执行内容。**注意不能要求 extra 非空**：
 	# 「暗影箭匕首」描述只有「发射暗影箭，造成 100% 攻击力暗影伤害」——
 	# 暗影不是 ElementDefs 的元素、也没有别的机制键，extra 空是**正确的**
 	#（伤害靠 damage_mult 走 kind=projectile 结算）。要求非空会逼着人编造数据。
-	# 真正该断言的是「不是 133 条全空」——全空正是当初的故障形态。
+	# 真正该断言的是「不是全部为空」——全空正是当初的故障形态。
 	var empty: Array = []
 	for d in all:
 		var n := 0
@@ -108,7 +115,7 @@ func _test_kind_coverage() -> void:
 	var kinds := {}
 	for d in EquipmentSkills.all_skills():
 		kinds[str(d.get("kind", ""))] = true
-	var known := ["aoe", "cone", "dash", "pull", "buff", "projectile",
+	var known := ["aoe", "cone", "dash", "pull", "buff", "projectile", "chaos",
 		"teleport", "multi_hit", "detonate", "spread", "summon", "stealth"]
 	var unknown: Array = []
 	for k in kinds:

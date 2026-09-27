@@ -21,6 +21,7 @@ extends RefCounted
 ##   multi_hit  对单目标连续 N 次伤害（疾风连打 / 影子风暴）
 ##   detonate   引爆目标身上的某词条，按层数结算伤害（连锁引爆）
 ##   spread     把某词条复制给范围内所有敌人（裁决锁链 / 共鸣引爆）
+##   chaos      随机挑一个效果执行（混沌之门）——见 `_cast_chaos`
 
 var _cooldowns: Dictionary = {}   # skill_id -> remaining_time
 var _rng := RandomNumberGenerator.new()
@@ -124,6 +125,7 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 		"spread":     _cast_spread(caster, sd, dir)
 		"summon":     _cast_summon(caster, sd)
 		"stealth":    _cast_stealth(caster, sd)
+		"chaos":      _cast_chaos(caster, sd, dir)
 		_:
 			# 未知 kind：报错并**退化为 aoe**，而不是什么都不做。
 			#
@@ -342,6 +344,25 @@ func _cast_aoe(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 		_spawn_zone(caster, sd, center, radius)
 		return
 
+	# **单目标瞄准**（装备参考2：猎人标记「标记**一个**敌人」）
+	#
+	# 这类技能的描述是单体（上 `mark` 易伤），但 kind 仍是 aoe——
+	# 不加这条会变成「周围 3 米内所有敌人全被标记」，
+	# 与规格的「一个敌人」不符，且把单体技能的强度放大成群体。
+	#
+	# `reach` 走自己的键（技能表第 5 列是 damage_mult 的副本，已清零，
+	# 不能用它——同 `_cast_cone` 的 reach 陷阱）。
+	if bool(sd.get("single_target", false)):
+		var reach := float(sd.get("reach", 8.0))
+		var t := _nearest_enemy_in_range(caster, reach)
+		if t == null:
+			return
+		_deal_damage(caster, t, float(sd.get("damage_mult", 1.0)),
+			float(sd.get("knockback", 0.0)), false, sd)
+		_apply_control(t, sd)
+		_apply_target_buffs(t, sd)
+		return
+
 	var mult := float(sd.get("damage_mult", 1.0))
 	var knockback := float(sd.get("knockback", 0.0))
 	var hits := 0
@@ -355,6 +376,87 @@ func _cast_aoe(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
 	var heal_pct := float(sd.get("heal_per_hit_pct", 0.0))
 	if heal_pct > 0.0 and hits > 0:
 		_heal_lost_hp(caster, heal_pct * float(hits))
+
+
+## 随机效果技能（装备参考2：混沌之门）
+##
+## ## 规格
+##
+## 「随机释放以下之一：全屏伤害/全屏治疗/全屏护盾/全屏减速，冷却30秒」
+## 「融合：混沌之门触发时，额外释放一次随机效果（50%效果）」
+##
+## ## 实现方式：**复用已有的 `_cast_*`**，不另写四套结算
+##
+## 四个效果各自都已经有实现——伤害走 `_cast_aoe`、治疗/护盾走
+## `_apply_heal_and_shield`、减速挂 `slow` 词条。故这里只做
+## **随机挑选 + 参数打折**，把参数拼成一个 `sd` 丢给对应的现成路径。
+## 这样元素管线 / 伤害口径 / 护盾上限全都自动一致。
+##
+## ## `chaos_times`：融合的「额外释放一次」
+##
+## 实测第 1 次的，第 2 次**重新随机**（规格写的是「额外释放一次随机效果」，
+## 不是「重复上一次」）。`chaos_scale` 给第 2 次打折到 50%。
+func _cast_chaos(caster: Node3D, sd: Dictionary, dir: Vector3) -> void:
+	var effects: Array = sd.get("chaos_effects", ["damage"])
+	if effects.is_empty():
+		return
+	var times := maxi(int(sd.get("chaos_times", 2)), 1)
+	for i in times:
+		# 第 1 次全额；之后按 `chaos_scale`（缺省 0.5 = 「50%效果」）
+		var scale := 1.0 if i == 0 else float(sd.get("chaos_scale", 0.5))
+		var pick := str(effects[_rng.randi() % effects.size()])
+		_chaos_apply(caster, sd, dir, pick, scale)
+
+
+## 执行混沌之门的**一个**随机效果（`scale` 是效果折扣）
+func _chaos_apply(caster: Node3D, sd: Dictionary, dir: Vector3,
+		pick: String, scale: float) -> void:
+	match pick:
+		"damage":
+			# 全屏伤害：镇中在施法者身上、半径由技能表的 `radius` 给
+			var sd2 := sd.duplicate()
+			sd2["damage_mult"] = float(sd.get("chaos_damage_mult", 2.0)) * scale
+			_cast_aoe(caster, sd2, dir)
+		"heal":
+			var h := sd.duplicate()
+			h["heal_pct"] = float(sd.get("chaos_heal_pct", 0.3)) * scale
+			_apply_heal_and_shield(caster, h)
+		"shield":
+			var s := sd.duplicate()
+			s["shield_pct"] = float(sd.get("chaos_shield_pct", 0.4)) * scale
+			_apply_heal_and_shield(caster, s)
+		"slow":
+			# 减速挂在周围敌人身上——`slow` 词条的 `slow` 参数是固定 0.25，
+			# 故这里用 override_params 把技能表的值覆盖进去（同装备数值口径）。
+			var pct := float(sd.get("chaos_slow_pct", 0.5)) * scale
+			var dur := float(sd.get("chaos_slow_seconds", 5.0))
+			var radius := float(sd.get("radius", 12.0))
+			for e in _enemies():
+				if caster.global_position.distance_to(e.global_position) > radius:
+					continue
+				var tb = e.get("buffs")
+				if tb != null:
+					tb.call("apply", "slow", "skill", 1, dur, {"slow": pct})
+		_:
+			push_warning("[SkillSystem] 未知 chaos 效果 '%s'（技能 %s）" % [
+				pick, str(sd.get("id", "?"))])
+
+
+## 最近的敌人（限定 `max_range` 米内，取不到返回 null）
+## 与 `_nearest_enemy_in_cone` 的分工：那个按**朝向扇形**筛，
+## 这个只按**距离**筛——用于「标记一个敌人」这类不限定朝向的单体技能。
+func _nearest_enemy_in_range(caster: Node3D, max_range: float) -> Node3D:
+	var best: Node3D = null
+	var best_d := max_range
+	for e in _enemies():
+		var n := e as Node3D
+		if n == null or not is_instance_valid(n):
+			continue
+		var d := caster.global_position.distance_to(n.global_position)
+		if d <= best_d:
+			best_d = d
+			best = n
+	return best
 
 
 ## 扇形伤害：面朝方向

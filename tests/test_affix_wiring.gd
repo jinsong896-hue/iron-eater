@@ -52,6 +52,7 @@ func _ready() -> void:
 	await _test_b4_cheat_death()
 	await _test_skill_mod_channel()
 	await _test_b7_low_hp()
+	_test_equipment_skills_exist()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -1109,7 +1110,6 @@ func _test_b7_low_hp() -> void:
 	_check(absf(pct_sum - 0.6) < 0.001,
 		"低血 modifier 的 percent = 0.60（规格「攻击力+60%」）",
 		["实际=%.3f" % pct_sum])
-
 	# 回血：必须撤销
 	attrs.hp = float(attrs.max_hp)
 	player.call("_tick_low_hp", 0.016)
@@ -1132,3 +1132,34 @@ func _test_b7_low_hp() -> void:
 			["实际=%.3f" % float(sp.get("dmg_reduction_pct", 0.0))])
 	_check(true, "（若上一项缺失说明词条未接入）")
 	_reset()
+
+
+## 13. 装备表引用的技能必须**都在技能表里**
+##
+## ## 为什么这是一条独立的断言
+##
+## 实测有 4 个装备名（召唤元素戒指 / 混沌之门 / 猎人标记 / 猎人标记徽章，
+## 共 6 件装备）在 `equipment_db.gd` 里 `GRANT_SKILL` 指向 `eq_XXX`，
+## 但 `EquipmentSkills.TABLE` 里**没有该装备名**——`skill_of_equipment`
+## 返回空字典，玩家装了这些装备**技能永远放不出来**，且不报任何错。
+##
+## 这是「两张表不同步」的典型：两边各自看都正常，交叉验证才暴露。
+## 故这里做**全量交叉校验**，而不是只查那 4 个已知的——
+## 将来任何一边改漏都会被立刻抓住。
+func _test_equipment_skills_exist() -> void:
+	print("\n--- 装备技能表交叉校验 ---")
+	var missing: Array = []
+	var checked := 0
+	for t in EquipmentDB.all_templates():
+		for a in t.own_affixes:
+			if a == null or a.operation != AffixData.Operation.GRANT_SKILL:
+				continue
+			checked += 1
+			var sk: Dictionary = EquipmentSkills.skill_of_equipment(
+				t.display_name, int(t.rarity))
+			if sk.is_empty():
+				missing.append("%s(%s) → %s" % [t.display_name, t.id, a.granted_skill])
+	_check(checked > 100, "装备表里有 GRANT_SKILL 词条（%d 条）" % checked)
+	_check(missing.is_empty(),
+		"全部 GRANT_SKILL 都能在技能表里查到（%d 条无一悬空）" % checked,
+		missing.slice(0, 8))

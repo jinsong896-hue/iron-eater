@@ -1442,6 +1442,19 @@ func _parse_main(s: String) -> String:
 		return "[Stat.CDR, 0.20, true]"
 	if s.contains("触发时额外释放一次该技能") or s.contains("下次技能额外释放一次"):
 		return "[%d, \"atk_up_self\", 1.0, 0.0]" % OP_TRIGGER_BUFF
+	# 混沌之门融合列：「混沌之门触发时，额外释放一次随机效果（50%效果）」
+	#
+	# 这是**改混沌之门这个技能**（多放一次、效果打折），不是给玩家挂属性，
+	# 故必须走 `SKILL_MOD`。压成 `[4, trigger, ...]` 会变成
+	# 「玩家某事件时获得属性」，语义完全不对。
+	#
+	# 折扣数值从文本取（「（50%效果）」→ 0.5），缺省 0.5。
+	m = _re(r"额外释放一次随机效果[（(]\s*(\d+)%\s*效果").search(s)
+	if m:
+		return "[%d, {\"chaos_times\": 2, \"chaos_scale\": %.4f}]" % [
+			OP_SKILL_MOD, float(m.get_string(1)) / 100.0]
+	if s.contains("额外释放一次随机效果"):
+		return "[%d, {\"chaos_times\": 2, \"chaos_scale\": 0.5000}]" % OP_SKILL_MOD
 
 	# ---------- 12. 资源型（记忆残渣 / 钥匙碎片 / 金币持有量） ----------
 	m = _re(r"每点记忆残渣.*?攻击力提高\s*(\d+(?:\.\d+)?)%").search(s)
