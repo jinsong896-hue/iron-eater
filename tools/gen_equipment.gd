@@ -511,6 +511,8 @@ func _parse_one(s: String) -> String:
 
 	# ---- ① 完整文本走原有规则（一字未改）----
 	var spec := _parse_main(s)
+	# 时长兜底（见 `_time_bound_wrap` 的说明）
+	spec = _time_bound_wrap(spec, s)
 
 	# ---- ② 从句校验 / 修正 ----
 	var parts := _split_clause(s)
@@ -577,8 +579,14 @@ func _parse_one(s: String) -> String:
 		return spec
 
 	# **裸属性 = 条件被吞**（这正是本轮要修的 bug）→ 包上从句触发
+	#
+	# **时长也要带上**：原文「击杀后获得3秒暴击率+15%」的 `3秒`
+	# 与条件同样重要——不带的话落地成**永久** +15% 暴击率，
+	# 强度完全不是一个量级。规格里这类写法很常见（击杀后/冲刺后/拖拽后）。
+	# 时长从**整条原文**取（主句里通常没有），失败则 0（= 永久，与旧行为一致）。
+	var dur := _duration_from_text(s)
 	if _is_plain_spec(spec):
-		return _wrap_with_trigger(spec, trig, float(t["param"]))
+		return _wrap_with_trigger(spec, trig, float(t["param"]), dur)
 
 	# 其他形态（扩展通道、周期型等）：**保留旧解析**
 	#
@@ -595,7 +603,6 @@ func _is_stack_spec(spec: String) -> bool:
 ## 结果是否是**裸属性**（`[Stat.X, v, bool]` / `[NNN, v, true]`）
 func _is_plain_spec(spec: String) -> bool:
 	return _re(r"^\[(?:[A-Za-z_.]+|\d+),\s*-?[\d.]+,\s*(?:true|false)\]$").search(spec) != null
-
 
 ## 从解析结果里取 trigger 槽位；**不带触发语义时返回 -1**
 ##
@@ -1381,6 +1388,17 @@ func _parse_main(s: String) -> String:
 		if nm.contains("技能冷却缩减"):
 			return "[Stat.CDR, %.4f, true]" % v
 		# ⑥ 减伤 / 增伤
+		#
+		# **必须先判「受到伤害」**：`nm.contains("伤害")` 会把它一起吞掉，
+		# 于是「受到伤害叠加1层…每层+3%减伤」里的「受到伤害」被当成增伤
+		# 关键词，整条落到 `elem_dmg`（**玩家自己的伤害 +3%**）。
+		# 那是**方向完全反了**：原文说的是「每层减伤 3%」。
+		#
+		# 实测 3 条同类：不朽壁垒 / 不灭壁垒 / 减伤叠层胸甲。
+		if nm.contains("受到伤害") or nm.contains("承受伤害") or nm.contains("受到的元素伤害"):
+			return "[%d, %.4f, true]" % [SP["dmg_reduction"], v]
+		if nm.contains("反伤") or nm.contains("反弹"):
+			return "[%d, %.4f, true]" % [SP["reflect"], v]
 		if nm.contains("减伤"):
 			return "[%d, %.4f, true]" % [SP["dmg_reduction"], v]
 		if nm.contains("增伤") or nm.contains("伤害"):
@@ -3040,7 +3058,8 @@ func _trigger_of_clause(clause: String) -> Dictionary:
 ## `[2, "slow", 0.1, 2.0]` 本身表达「命中时按 10% 概率施加减速」——
 ## 再包一层 `[4, trig, ...]` 会变成「条件满足时施加一个 buff」，
 ## 语义重复且 `_make_one_affix` 解不出来。故原样保留。
-func _wrap_with_trigger(spec: String, trig: int, param: float) -> String:
+func _wrap_with_trigger(spec: String, trig: int, param: float,
+		duration: float = 0.0) -> String:
 	# 触发型 / 附带元素型：原样保留（它们自带触发语义）
 	if spec.begins_with("[%d," % OP_TRIGGER_BUFF) \
 			or spec.begins_with("[%d," % OP_BONUS_ELEMENT):
@@ -3063,10 +3082,109 @@ func _wrap_with_trigger(spec: String, trig: int, param: float) -> String:
 		if trig == TRIG_LOW_HP and param > 0.0:
 			return "[%d, %d, %s, %s, 0, %.4f]" % [OP_STACK_GAIN, trig, stat, v,
 				param]
+		# 第 6 槽留给条件阈值，故时长走**第 7 槽的参数字典**——
+		# `STACK_GAIN` 的解析已支持第 7 槽（见 equipment_db 的 `_make_one_affix`）。
+		if duration > 0.0:
+			return "[%d, %d, %s, %s, 0, 0, {\"seconds\": %.4f}]" % [
+				OP_STACK_GAIN, trig, stat, v, duration]
 		return "[%d, %d, %s, %s, 0]" % [OP_STACK_GAIN, trig, stat, v]
 
 	# 其他形态（周期型等）：原样保留，不强行包装
 	return spec
+
+
+## 从原文抽「持续 N 秒」（无则 0）
+##
+## 支持三种写法：`持续N秒` / `获得N秒` / `N秒内`——规格里混用。
+func _duration_from_text(s: String) -> float:
+	for pat in [
+		r"持续\s*(\d+(?:\.\d+)?)\s*秒",
+		r"获得\s*(\d+(?:\.\d+)?)\s*秒",
+		r"(\d+(?:\.\d+)?)\s*秒内",
+	]:
+		var m := _re(pat).search(s)
+		if m:
+			return float(m.get_string(1))
+	return 0.0
+
+
+## **时长兜底**：原文带「N秒」而结果没带时，把时长补进去
+##
+## ## 为什么需要
+##
+## 「击杀后获得3秒暴击率+15%」「冲刺后获得5%移速，持续2秒」这类写法，
+## `_split_clause` **不切分**（从句标记「X时，/X后，」要带逗号，而这两条
+## 是「击杀后获得」「冲刺后获得」，无逗号），于是直接命中第 42 节的规则
+## ——那些规则只产出裸属性，**时长全丢**，落地成**永久**加成。
+## 一条条改规则既漏又散，故在 `_parse_one` 里统一补。
+##
+## ## **只在安全形态下补**（这条限制很重要）
+##
+## 原文里的「持续N秒」不都属于**词条本身**：
+##   · 「攻击施加"猎神标记"（最多8层，持续10秒），每层+5%受到伤害」
+##     —— 10 秒是**标记**的时长（子效果），不是这条词条的时长
+##   · 「坠落点留下星尘区域（每秒30%法强，持续3秒）」—— 是**区域**的时长
+## 给这些补时长会张冠李戴。故限定：
+##   ① 时长出现在**括号之外**（`（…）` 里的属子效果，一律跳过）
+##   ② 结果形如「…获得 N% X，持续 M 秒」——`获得` 与 `持续` 同属一个分句
+func _time_bound_wrap(spec: String, text: String) -> String:
+	if spec.is_empty() or spec.begins_with("__"):
+		return spec
+	# 括号内的时长属于子效果（标记/区域/分身），不补
+	if text.contains("（") or text.contains("("):
+		return spec
+	# 必须是「获得…持续N秒」这种自身增益写法
+	if not text.contains("获得"):
+		return spec
+	var dur := _duration_from_text(text)
+	if dur <= 0.0:
+		return spec
+	# 叠层型：**已有触发条件、只缺时长** → 补第 7 槽
+	if _is_stack_spec(spec):
+		if spec.contains("{"):
+			return spec
+		var m := _re(r"^\[4,\s*(\d+),\s*(.+)\]$").search(spec)
+		if m == null:
+			return spec
+		var slots := m.get_string(2).split(",")
+		while slots.size() < 5:
+			slots.append(" 0")
+		return "[%d, %s, %s, {\"seconds\": %.4f}]" % [
+			OP_STACK_GAIN, m.get_string(1), ", ".join(slots), dur]
+	# 裸属性：条件也没了（无逗号的「X后获得…」）→ 一并补上 trigger 与时长
+	if _is_plain_spec(spec):
+		var trig := _infer_trigger_from_text(text)
+		if trig == TRIG_ALWAYS:
+			return spec
+		return _wrap_with_trigger(spec, trig, 0.0, dur)
+	return spec
+
+
+## 从**整条原文**推断触发条件（`_trigger_of_clause` 的宽松版）
+##
+## `_trigger_of_clause` 只接受「从句片段」，而这里拿到的是整条文本——
+## 无逗号的写法（「冲锋后获得5%减伤」「冲刺后获得5%移速」）切不出从句，
+## 故按**关键词**兜底推断。顺序即优先级（更具体的在前）。
+func _infer_trigger_from_text(t: String) -> int:
+	if t.contains("击杀"):
+		return TRIG_ON_KILL
+	if t.contains("受到伤害") or t.contains("受击"):
+		return TRIG_ON_HURT
+	if t.contains("暴击"):
+		return TRIG_ON_CRIT
+	if t.contains("格挡"):
+		return TRIG_ON_BLOCK
+	if t.contains("闪避"):
+		return TRIG_ON_DODGE
+	if t.contains("冲刺") or t.contains("冲锋") or t.contains("疾跑"):
+		return TRIG_ON_SPRINT
+	if t.contains("召唤"):
+		return TRIG_ON_SUMMON_ALIVE
+	if t.contains("陷阱"):
+		return TRIG_ON_TRAP_TRIGGER
+	if t.contains("技能") and (t.contains("释放") or t.contains("使用")):
+		return TRIG_ON_SKILL_CAST
+	return TRIG_ALWAYS
 
 
 var _re_cache := {}

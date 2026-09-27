@@ -172,15 +172,23 @@ func _check_one(r: Dictionary) -> void:
 	# 判据：原文写了时长，结果里就该有时长的痕迹。合法载体三种：
 	#   `[2+..., chance, duration, ...]`      —— 第 4 槽是时长
 	#   `[4, t, stat, v, stack_max, ...]`     —— 叠层类靠 `stack_max` 表达
-	#   参数字典里带 `_seconds` / `duration`   —— sentinel 类
+	#   参数字典里带 `seconds` / `duration`    —— sentinel 类
 	#
 	# **旧判据是坏的**：`not spec.contains(".") and not spec.contains(",")`
-	# 对任何数组字面量都恒假（spec 必然含逗号），于是这条**从未触发**——
-	# 22 条真丢时长的词条（「冲刺后获得5%移速，持续2秒」→ 常驻 `Stat.SPD`）
-	# 一条都没被报出来。
-	if _re(r"持续\s*\d+\s*秒").search(text) != null:
+	# 对任何数组字面量都恒假（spec 必然含逗号），于是这条**从未触发**。
+	#
+	# ## 只查「自身增益」的时长
+	#
+	# 原文里的「持续N秒」不都属于**词条本身**：
+	# 「攻击施加"猎神标记"（最多8层，持续10秒）」的 10 秒是**标记**的时长、
+	# 「坠落点留下星尘区域（每秒30%法强，持续3秒）」是**区域**的时长——
+	# 这些词条的效果是「施加标记」「留下区域」，本身没有时长可言。
+	# 故只在「…获得…持续N秒」这种**自身增益**写法上校验，
+	# 与生成器侧 `_time_bound_wrap` 的口径一致。
+	if _re(r"获得.{0,12}持续\s*\d+\s*秒").search(text) != null \
+			and not text.contains("（") and not text.contains("("):
 		if not _has_duration(spec):
-			_issues.append("时长丢失 | %s\n      原文有「持续N秒」但结果无时长（变成永久常驻）"
+			_issues.append("时长丢失 | %s\n      原文有「获得…持续N秒」但结果无时长（变成永久常驻）"
 				% tag)
 
 	# —— 6. **概率条件被当成效果量** ——
@@ -256,8 +264,8 @@ func _threshold_of(spec: String) -> float:
 
 ## 解析结果里是否带时长痕迹
 func _has_duration(spec: String) -> bool:
-	# 参数字典里的 seconds / duration 键
-	if spec.contains("_seconds") or spec.contains("duration"):
+	# 参数字典里的时长键（`seconds` 是生成器的写法，`_seconds` 是历史写法）
+	if spec.contains("seconds") or spec.contains("duration"):
 		return true
 	# 触发型 `[2, "id", chance, dur]`——第 4 槽 > 0 即有时长
 	var m := _re(r"^\[2,\s*\"[^\"]*\",\s*[\d.]+,\s*([\d.]+)").search(spec)

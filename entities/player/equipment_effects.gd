@@ -709,9 +709,15 @@ func _apply_instant(a: AffixData, inst) -> void:
 			if healed > 0.0:
 				EventBus.damage_popup.emit(player.global_position, healed, "heal")
 		return
-	# 其余扩展修饰量：挂一条永久词条（本局有效）
+	# 其余扩展修饰量：挂一条词条
+	#
+	# **时长来自词条本身**（`a.trigger_params["seconds"]`）——规格里
+	# 「击杀后获得3秒暴击率+15%」是**限时**增益，挂成永久会让强度
+	# 翻几倍。生成器把从句里的「N秒」写进第 7 槽的参数字典；
+	# 没有该键时退化为永久（与旧行为一致）。
+	var dur := float(a.trigger_params.get("seconds", 0.0))
 	var bid := _stack_buff_id(a)
-	BuffDefs.register_equipment_stack(bid, a.stat, a.value, 0.0, 0)
+	BuffDefs.register_equipment_stack(bid, a.stat, a.value, dur, 0)
 	player.buffs.apply(bid, "equip_trigger")
 
 
