@@ -847,6 +847,13 @@ func _parse_main(s: String) -> String:
 	m = _re(r"对生命值?低于\s*\d+%\s*的敌人.*?额外\s*(\d+)%\s*伤害").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+	# 「对生命值低于 N% 的**敌人**伤害+M%」——同一条语义的另一种写法。
+	#
+	# **注意「的敌人」这个限定**：没有它的话会误伤「每层目标受到伤害+4%」
+	# 这类**易伤**词条（那是对目标的 debuff，不是自己的处决线）。
+	m = _re(r"对生命值?低于\s*\d+%\s*的敌人\s*伤害\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
 	m = _re(r"对满血敌人造成额外\s*(\d+)%\s*伤害").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
@@ -1121,6 +1128,23 @@ func _parse_main(s: String) -> String:
 		#（Kind.VULN，「受到伤害提升」），值走参数覆盖。
 		return "[%d, \"judgement\", 1.0, 0.0, {\"vuln\": %s}]" % [
 			OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	# **「目标/敌人受到伤害 +N%」的通用写法**（2026-09-27）
+	#
+	# 判据是「**目标/敌人** + 受到伤害」这个组合——它明确说的是**对方**
+	# 挨打更疼（易伤），而第 9 节兜底的 `nm.contains("受到伤害")` 会把它
+	# 当成「玩家自己减伤」（`dmg_reduction`），**方向反了**。
+	#
+	# 实测 7 条落错：猎杀者长弓 / 风暴之眼 / 荆棘囚笼 / 荆棘链刃 /
+	# 腐蚀之刃 / 锁链拖拽链刃 / 霜噬巨剑。
+	# 必须放在第 9 节**之前**。
+	#
+	# **排除「被冻结/被冰冻敌人」**：那条有自己的通道 `frozen_dmg`(141)
+	#（有专门的消费点），走通用易伤会把它覆盖掉——实测测试立刻抓到。
+	if not s.contains("冻结") and not s.contains("冰冻"):
+		m = _re(r"(?:目标|敌人)[^。]{0,14}?受到(?:冰霜|火焰|雷电|毒素|暗影)?伤害\s*\+?\s*(\d+)%").search(s)
+		if m:
+			return "[%d, \"judgement\", 1.0, 0.0, {\"vuln\": %s}]" % [
+				OP_TRIGGER_BUFF, _f(m.get_string(1))]
 	m = _re(r"\d+层时.*?必定暴击").search(s)
 	if m:
 		# 「必定暴击且暴击伤害+50%」——裸属性只能表达后半段。
@@ -1727,9 +1751,12 @@ func _parse_main(s: String) -> String:
 	m = _re(r"攻击施加.*?每层\s*\+?(\d+)%\s*暴击率").search(s)
 	if m:
 		return "[Stat.CRT, %s, true]" % _f(m.get_string(1))
+	# 「攻击施加"猎神标记"…每层+5%受到伤害」——这是给**目标**的易伤，
+	# 不是自己的处决线。见下方 `target_vuln` 规则的说明。
 	m = _re(r"攻击施加.*?每层\s*\+?(\d+)%\s*受到伤害").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+		return "[%d, \"target_vuln\", 1.0, 0.0, {\"pct\": %s, \"per_stack\": true}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1))]
 	m = _re(r"暴击时减少所有技能冷却\s*(\d+)\s*秒").search(s)
 	if m:
 		return "[Stat.CDR, 0.20, true]"

@@ -552,8 +552,16 @@ func equipped_trigger_affixes() -> Array:
 ##
 ## `triggers` 传 AffixData.Trigger 的枚举值数组。合并规则：概率相加
 ##（上限 1.0）、时长取更长的那个（多件叠加时不缩短）。
+##
+## ## 合并键带上参数签名（2026-09-27）
+##
+## 同一条 buff id 可以承载**不同数值**（`trigger_params` 覆盖，
+## 如「受到伤害+4%」与「受到伤害+10%」都是易伤但数值不同）。
+## 旧实现只按 id 合并——后写入的那件会把先前的**参数冲掉**，
+## 表现为「两件不同数值的易伤装备只生效一件，且数值随机」。
+## 故键改为 `id + 参数签名`，数值不同就各自成条。
 func trigger_affixes_of(triggers: Array) -> Array:
-	var merged := {}   # buff_id -> {chance, duration}
+	var merged := {}   # key -> {buff, chance, duration, params}
 	for slot in _equipped:
 		var inst = _equipped[slot]
 		if inst == null:
@@ -569,18 +577,25 @@ func trigger_affixes_of(triggers: Array) -> Array:
 			var bid: String = affix.trigger_buff
 			if bid.is_empty():
 				continue
-			if not merged.has(bid):
-				merged[bid] = {"chance": 0.0, "duration": affix.trigger_duration}
-			var e: Dictionary = merged[bid]
+			var params: Dictionary = affix.trigger_params
+			var key := bid if params.is_empty() else "%s|%s" % [bid, str(params)]
+			if not merged.has(key):
+				merged[key] = {
+					"buff": bid, "chance": 0.0,
+					"duration": affix.trigger_duration,
+					"params": params.duplicate(),
+				}
+			var e: Dictionary = merged[key]
 			e["chance"] = float(e["chance"]) + affix.trigger_chance
 			# 时长取更长的那个（多件叠加时不缩短）
 			e["duration"] = maxf(float(e["duration"]), affix.trigger_duration)
 	var out: Array = []
-	for bid in merged:
+	for key in merged:
 		out.append({
-			"buff": bid,
-			"chance": minf(float(merged[bid]["chance"]), 1.0),
-			"duration": float(merged[bid]["duration"]),
+			"buff": str(merged[key]["buff"]),
+			"chance": minf(float(merged[key]["chance"]), 1.0),
+			"duration": float(merged[key]["duration"]),
+			"params": merged[key]["params"],
 		})
 	return out
 

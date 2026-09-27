@@ -965,7 +965,11 @@ func _apply_target_buffs(enemy: Node3D, sd: Dictionary) -> void:
 	if tb == null:
 		return
 	for b in sd.get("target_buffs", []):
-		tb.apply(str(b.get("id", "")), "skill")
+		# **数值覆盖必须传进去**：技能表里同一条词条承载不同数值
+		#（「猎人标记」三版：+25% / +20% / +15% 受到伤害），
+		# 不传的话全部退化成 BuffDefs 表里的默认值——三版一模一样。
+		var over: Dictionary = b.get("params", {})
+		tb.apply(str(b.get("id", "")), "skill", 1, float(b.get("seconds", 0.0)), over)
 
 
 ## 结算技能的**治疗**与**护盾**（按最大生命百分比）。

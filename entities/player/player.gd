@@ -1833,8 +1833,7 @@ func _target_elem_resist(enemy: Node3D) -> float:
 
 
 ## 取已装备的特殊修饰量汇总（生命偷取/击退加成/负效时长/元素穿透/
-## 反弹/处决线）。装备管理器不可用时返回全 0，调用方无需判空。
-## 当前生效的**装备条件通道**（低血等）——
+## 反弹/处决线）。装备管理器不可用时返回全 0，调用方无需判空。## 当前生效的**装备条件通道**（低血等）——
 ##
 ## `special_modifiers()` 返回的是**无条件常驻**的通道聚合，而
 ## `Trigger.LOW_HP` 这类条件型词条（`[4, 11, 106, 0.2, 0]` = 「生命低于50%
@@ -1957,13 +1956,53 @@ func _apply_trigger_affixes(enemy: Node3D, damage: float) -> void:
 		if bid == "splash":
 			_apply_splash_damage(enemy, damage)
 			continue
+		# **给目标的易伤**（装备参考2：「攻击施加"猎神标记"，每层+5%受到伤害」
+		# 「被冻结敌人受到伤害+15%」「囚笼内敌人受到伤害+20%」）。
+		#
+		# 这类词的「受到伤害」修饰的是**目标**——旧解析落到
+		# `execute_line` / `elem_dmg`（**玩家自己的**增伤），反了。
+		# 现走这条 sentinel，按 `trigger_params.pct` 给目标挂易伤词条。
+		if bid == "target_vuln":
+			_apply_target_vuln(enemy, t.get("params", {}), damage)
+			continue
 		# 时长：词条自带时长 ×(1+负效加成)；<=0 表示用表定值
 		var dur: float = float(t.get("duration", 0.0))
-		tgt_buffs.apply(bid, "equip")
+		# **数值覆盖必须传进去**（`trigger_params`）：同一条 buff id 承载
+		# 不同数值时（「受到伤害+4%」vs「受到伤害+10%」），不传就会
+		# 全部退化成 BuffDefs 表里的默认值。
+		tgt_buffs.apply(bid, "equip", 1, dur, t.get("params", {}))
 		# 施加后按加成延长（BuffHolder 记录的是表定 remaining，这里补差）
 		if dur_bonus > 0.0:
 			extend_buff_duration(tgt_buffs, bid, dur_bonus)
 		EventBus.message.emit("触发【%s】" % _buff_name(bid))
+
+
+## 给目标挂「受到伤害 +N%」的易伤词条
+##
+## ## 为什么单独一条
+##
+## `BuffHolder` 的 `total_vulnerability()` 会累加所有词条的 `vuln` 参数，
+## 故只需注册一条带 `vuln` 的词条即可，伤害管线自动生效。
+##
+## `per_stack` 用于「攻击施加标记，每层+5%受到伤害」——那类词的易伤
+## 由**标记层数**承载（标记词条自己已带 `vuln`），故这里不重复施加，
+## 只把数值登记成标记层的参数。目前两者都落到同一入口。
+func _apply_target_vuln(enemy: Node3D, params: Dictionary, _damage: float) -> void:
+	var tb = enemy.get("buffs")
+	if tb == null:
+		return
+	var pct := float(params.get("pct", 0.0))
+	if pct <= 0.0:
+		return
+	# 按数值做唯一 id（不同装备的易伤数值不同，不能共用一条被互相覆盖）
+	var bid := "eq_vuln_%d" % int(round(pct * 1000.0))
+	BuffDefs.register_equipment_stack(bid, AttributeSystem.Stat.ATK, 0.0, 0.0, 0)
+	tb.call("apply", bid, "equip")
+	# 覆盖 `vuln` 参数（BuffHolder 读 `params_of_active`）
+	var holder_rec = tb.get("_buffs")
+	if holder_rec is Dictionary and (holder_rec as Dictionary).has(bid):
+		(holder_rec as Dictionary)[bid]["params_override"] = {"vuln": pct}
+	EventBus.message.emit("目标易伤 +%d%%" % int(pct * 100.0))
 
 
 ## 延长目标身上某词条的剩余时长（负效时长 +N%）。
