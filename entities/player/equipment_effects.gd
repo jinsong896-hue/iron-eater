@@ -56,6 +56,34 @@ func on_dodge() -> void:
 	_fire(AffixData.Trigger.ON_DODGE)
 
 
+## **重新装配常驻规则**（`Trigger.ALWAYS` 的 sentinel 词条）
+##
+## ## 为什么单独一条路径
+##
+## `_fire(trig)` 是**事件驱动**的——只在「击杀/受击/…」发生时遍历一次。
+## 而 `stationary_buff` / `aura_damage` / `summon_death_boom` 这类是
+## **常驻规则**（写成 `Trigger.ALWAYS`），需要一个「装备变化时」的时机
+## 把规则交给 Player。
+##
+## ## 为什么先清空再装配
+##
+## 卸下装备后规则必须消失——否则「站立 buff」会永远挂着。
+## 故每轮先清空三个规则槽，再按当前装备重建。
+func reload_passives() -> void:
+	if player == null:
+		return
+	# 先清空（卸下装备时规则要消失）
+	if player.has_method("clear_passive_rules"):
+		player.call("clear_passive_rules")
+	# 再按当前装备重建
+	_fire(AffixData.Trigger.ALWAYS)
+
+
+## 装备变化时由 Player 调用（订阅 `equipment_changed`）
+func on_equipment_changed() -> void:
+	reload_passives()
+
+
 # ============================================================
 # 2026-09-26：两段式重构新增的 12 个 Trigger 的消费点
 # ============================================================
@@ -225,6 +253,26 @@ func _apply_trigger(a: AffixData, inst) -> void:
 		if r != null and r.has_method("gain_from_equip"):
 			r.call("gain_from_equip", float(a.value))
 		return
+	# —— 2026-09-27：B1 五族的 sentinel 动作 ——
+	# 与上面两个同理：它们是「触发一个动作」，不是「挂一个状态」。
+	if a.is_trigger():
+		match a.trigger_buff:
+			"stationary_buff":
+				_activate_stationary(a)
+				return
+			"spread_mark":
+				# 这个动作需要「被击杀目标」才能判定，故不在这里结算——
+				# 由 `Player._on_enemy_killed` 经 `on_marked_target_death` 触发。
+				return
+			"summon_death_boom":
+				_register_summon_death_boom(a)
+				return
+			"aura_damage":
+				_activate_aura(a)
+				return
+			"res_shockwave":
+				_arm_res_shockwave(a)
+				return
 	# **触发型词条**（`OP_TRIGGER_BUFF`）：给自己挂一条具名词条。
 	#
 	# 与 `_apply_instant` 的区别：那个是「把词条的 stat/value 当属性修饰量」，
@@ -358,6 +406,83 @@ func _fire_stack_full(stat: int) -> bool:
 		_burst(a)
 		fired = true
 	return fired
+
+
+# ============================================================
+# B1 五族（2026-09-27）
+# ============================================================
+#
+# 这五条的机制基础设施都已存在，缺的只是「接线」。
+# 全部走 sentinel 动作（`trigger_buff` 是动作名，不是 buff id）。
+
+## ① 站立静止（「站立不动1秒后获得"大地守护"，移动后失效」）
+##
+## 把「站够 N 秒」的阈值与 buff 参数存到 player 上，由
+## `Player._tick_stationary` 每帧判定。**不在本函数里计时**——
+## 触发是「装备变更时」的一次性事件，而计时是每帧的事。
+func _activate_stationary(a: AffixData) -> void:
+	if player == null or not player.has_method("set_stationary_rule"):
+		return
+	var p: Dictionary = a.trigger_params
+	player.call("set_stationary_rule",
+		float(p.get("stationary_seconds", 1.0)),
+		float(p.get("dr_pct", 0.0)),
+		float(p.get("reflect_pct", 0.0)))
+
+
+## ② 印记扩散（「印记目标死亡时，印记扩散至周围2名敌人」）
+##
+## 由 `Player._on_enemy_killed` 调用（那里能拿到被击杀目标）。
+## 本函数只负责**取参数**，判定与扩散在 Player 侧（它持有敌人组查询）。
+func spread_mark_from(enemy: Node, a: AffixData) -> void:
+	if player == null or not player.has_method("spread_mark_from"):
+		return
+	var count := int(a.trigger_params.get("count", 2)) if a != null else 2
+	player.call("spread_mark_from", enemy, count)
+
+
+## ② 触发「印记目标死亡时」类词条（由 `Player._on_enemy_killed` 调用）
+func on_marked_target_death(enemy: Node) -> void:
+	for e in _affixes_with(AffixData.Trigger.ON_TARGET_DEATH):
+		var a: AffixData = e["affix"]
+		if a == null or a.trigger_buff != "spread_mark":
+			continue
+		spread_mark_from(enemy, a)
+
+
+## ③ 召唤物死亡爆炸（「护卫死亡时爆炸，造成50%法强伤害」）
+##
+## 订阅 `SummonManager` 的召唤物死亡信号。**信号已存在**
+##（`EnemyBase:43` 声明 `signal died`，`SummonBase` 继承并 emit）——
+## 初版清单写「没有死亡事件」是错的（只 grep 了子类，没往上找父类）。
+func _register_summon_death_boom(a: AffixData) -> void:
+	var mgr = player.get("summons") if player != null else null
+	if mgr == null or not mgr.has_method("set_death_boom"):
+		return
+	mgr.call("set_death_boom", float(a.trigger_params.get("mult", 0.5)))
+
+
+## ④ 周期伤害光环（「周围3米敌人每秒受到15%攻击力伤害」）
+##
+## 常驻效果，由 `Player._tick_aura` 每帧推进。
+func _activate_aura(a: AffixData) -> void:
+	if player == null or not player.has_method("set_aura_rule"):
+		return
+	var p: Dictionary = a.trigger_params
+	player.call("set_aura_rule",
+		float(p.get("aura_radius", 3.0)),
+		float(p.get("aura_mult", 0.15)),
+		float(p.get("aura_interval", 1.0)))
+
+
+## ⑤ 资源满时下次攻击释放冲击波（「资源满时，下次攻击释放资源冲击波」）
+##
+## 与已有的 `RESOURCE_FULL` 触发衔接：那条在资源填满的**那一帧**触发，
+## 这里把「待释放」标记置位，下次普攻消费。
+func _arm_res_shockwave(a: AffixData) -> void:
+	if player == null or not player.has_method("arm_res_shockwave"):
+		return
+	player.call("arm_res_shockwave", float(a.trigger_params.get("mult", 1.0)))
 
 
 ## 满层爆发：以玩家为中心的范围伤害，倍率 = `a.value × 面板攻击力`

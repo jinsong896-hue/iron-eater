@@ -148,6 +148,8 @@ const TRIG_ON_CHEAT_DEATH := 34
 const TRIG_ON_TARGET_DEATH := 35
 const TRIG_ON_ELEMENT_PROC := 36
 const TRIG_ON_HEAL := 37
+const TRIG_ON_SUMMON_DEATH := 38
+const TRIG_ON_STATIONARY := 39
 
 ## 数值型效果名 → 扩展通道 key（吞噬/融合列大量出现）
 ##
@@ -974,10 +976,15 @@ func _parse_main(s: String) -> String:
 	#
 	# `multi_hit_bonus` 取超出 100% 的部分：规格的「提升至 700%」是
 	# **倍率终值**，而追加伤害的倍率应是「额外多打多少」。
-	# 取 (M/100 - 1)，与普攻倍率的语义对齐。
+	#
+	# **不能用 `M/100 - 1`**：M 可能**小于** 100（爆炸符文是「提升至50%」），
+	# 那会算出负数并被 `maxf(...,0)` 夹成 0，效果整个消失。
+	# 追加伤害直接取 `M/100`——语义是「额外再打 M% 攻击力」，
+	# 与「提升至」的差值在数值上不等价，但**方向正确且不会归零**。
+	# 这是计划书 §2「降级为额外伤害」决策的固有代价，已在文档标注。
 	m = _re(r"命中\s*(\d+)\s*个以上敌人时[，,]?伤害提升至\s*(\d+)%").search(s)
 	if m:
-		var extra := maxf(float(m.get_string(2)) / 100.0 - 1.0, 0.0)
+		var extra := maxf(float(m.get_string(2)) / 100.0, 0.0)
 		return "[%d, {\"multi_hit_at\": %s, \"multi_hit_bonus\": %.4f}]" % [
 			OP_SKILL_MOD, m.get_string(1), extra]
 	# 「牵引 N 个以上敌人时，触发风爆（M% 攻击力风元素伤害）」
@@ -1038,6 +1045,66 @@ func _parse_main(s: String) -> String:
 			fp_sec = m.get_string(1)
 		return "[%d, {\"fire_path_seconds\": %s, \"fire_path_mult\": %s}]" % [
 			OP_SKILL_MOD, fp_sec, fp_mult]
+
+	# ---------- 8g. 低难度杂项族（2026-09-27，5 条）----------
+	#
+	# 这五条各自独立，但都属于「机制基础设施已有、只差接线」。
+	# 逐条从原文抽数值，不硬编码。
+
+	# ① 站立静止（「站立不动1秒后获得"大地守护"（+20%减伤，+10%反伤），移动后失效」）
+	#
+	# **走 `OP_TRIGGER_BUFF` 而不是 `SKILL_MOD`**：这是**玩家状态**
+	#（站够时间给自己挂 buff），不是「改某个技能」。早期版本误用了
+	# SKILL_MOD——那需要「来源装备提供技能」才生效，而大地守护这件
+	# 装备本身不带技能，会永远取不到。
+	#
+	# `Trigger.STATIONARY`(12) 早就存在但**零消费**，这里是它的第一个真实用途。
+	if s.contains("站立不动") and s.contains("获得"):
+		var dr := "0.0"
+		var refl := "0.0"
+		m = _re(r"\+?(\d+(?:\.\d+)?)%\s*减伤").search(s)
+		if m:
+			dr = _f(m.get_string(1))
+		m = _re(r"\+?(\d+(?:\.\d+)?)%\s*反伤").search(s)
+		if m:
+			refl = _f(m.get_string(1))
+		var secs := "1.0"
+		m = _re(r"站立不动\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+		if m:
+			secs = m.get_string(1)
+		return "[%d, \"stationary_buff\", 1.0, 0.0, {\"stationary_seconds\": %s, \"dr_pct\": %s, \"reflect_pct\": %s}]" % [
+			OP_TRIGGER_BUFF, secs, dr, refl]
+
+	# ② 印记扩散（「印记目标死亡时，印记扩散至周围2名敌人」）
+	if s.contains("印记目标死亡时") and s.contains("扩散"):
+		m = _re(r"扩散至周围\s*(\d+)\s*名敌人").search(s)
+		var cnt: String = m.get_string(1) if m else "2"
+		return "[%d, \"spread_mark\", 1.0, 0.0, {\"count\": %s}]" % [OP_TRIGGER_BUFF, cnt]
+
+	# ③ 召唤物死亡爆炸（「护卫死亡时爆炸，造成50%法强伤害」）
+	if s.contains("死亡时爆炸"):
+		m = _re(r"造成\s*(\d+(?:\.\d+)?)%\s*(?:法强|攻击力)").search(s)
+		var mult: String = _f(m.get_string(1)) if m else "0.5"
+		return "[%d, \"summon_death_boom\", 1.0, 0.0, {\"mult\": %s}]" % [OP_TRIGGER_BUFF, mult]
+
+	# ④ 周期伤害光环（「周围3米敌人每秒受到15%攻击力伤害」）
+	#
+	# **同样不是技能**——它是**常驻光环**（装备穿着即生效），
+	# 由 `PlayerEquipmentEffects.tick` 每帧推进。故走 TRIGGER_BUFF sentinel，
+	# 不走 SKILL_MOD（后者需要「本装备提供技能」才生效）。
+	if s.contains("每秒受到") and s.contains("攻击力伤害"):
+		m = _re(r"周围\s*(\d+(?:\.\d+)?)\s*米").search(s)
+		var rad: String = m.get_string(1) if m else "3.0"
+		m = _re(r"每秒受到\s*(\d+(?:\.\d+)?)%\s*攻击力").search(s)
+		var am: String = _f(m.get_string(1)) if m else "0.15"
+		return "[%d, \"aura_damage\", 1.0, 0.0, {\"aura_radius\": %s, \"aura_mult\": %s, \"aura_interval\": 1.0}]" % [
+			OP_TRIGGER_BUFF, rad, am]
+
+	# ⑤ 资源满时下次攻击释放冲击波（「资源满时，下次攻击释放资源冲击波（100%攻击力）」）
+	if s.contains("资源满时") and s.contains("下次攻击"):
+		m = _re(r"释放.*?(\d+(?:\.\d+)?)%\s*攻击力").search(s)
+		var sw: String = _f(m.get_string(1)) if m else "1.0"
+		return "[%d, \"res_shockwave\", 1.0, 0.0, {\"mult\": %s}]" % [OP_TRIGGER_BUFF, sw]
 
 	# ---------- 9. 数值型（统一查找：面板属性优先，再扩展通道） ----------
 	#

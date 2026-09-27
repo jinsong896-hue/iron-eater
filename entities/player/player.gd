@@ -124,6 +124,26 @@ var _fire_path_accum := 0.0
 ## 上一处留痕的位置（移动不足阈值就不留，避免原地站桩刷区域）
 var _fire_path_last_pos := Vector3.ZERO
 
+# —— B1 四族（2026-09-27）——
+# 全部由 `PlayerEquipmentEffects` 在装备变更时写入规则，本类每帧推进。
+
+## ① 站立静止规则：{seconds, dr_pct, reflect_pct}；空 = 无此装备
+var _stationary_rule: Dictionary = {}
+## 已静止的时长（秒）
+var _stationary_time := 0.0
+## 静止 buff 是否已挂上（避免每帧重复 apply）
+var _stationary_active := false
+## 静止期间的反伤比例（写进 `_equip_special_mods` 的读法之外的独立通道）
+var _stationary_reflect := 0.0
+
+## ④ 伤害光环规则：{radius, mult, interval}；空 = 无
+var _aura_rule: Dictionary = {}
+## 光环的结算累计计时
+var _aura_accum := 0.0
+
+## ⑤ 资源满时的待发冲击波倍率；>0 表示「下次攻击释放」
+var _res_shockwave_mult := 0.0
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -152,6 +172,12 @@ func _ready() -> void:
 	# 装备变更 → 重算攻击元素（武器决定元素，护甲/饰品只给元素亲和）
 	if bus and bus.has_signal("equipment_changed"):
 		bus.equipment_changed.connect(func(_s, _i): _refresh_attack_element())
+		# 装备变化 → 重装常驻规则（站立 buff / 伤害光环 / 召唤物死亡爆炸）。
+		# 无此订阅时那些规则**永不生效**——`Trigger.ALWAYS` 不被任何
+		# 战斗事件驱动（见 `PlayerEquipmentEffects.reload_passives`）。
+		bus.equipment_changed.connect(func(_s, _i):
+			if equip_fx != null:
+				equip_fx.on_equipment_changed())
 	_refresh_attack_element()
 	# 开局重配：**必须在 start_new_run 之后**才能拿到玩家选的职业/形态。
 	#
@@ -187,6 +213,11 @@ func _on_game_started() -> void:
 	_refresh_attack_element()
 	# AttributeSystem 每次开局都会被重建，监听要重新挂
 	_bind_heal_listener()
+	# 开局装配常驻规则（站立 buff / 光环 / 召唤物死亡爆炸）。
+	# **必须在 `_setup_class` 之后**——那里才发放初始装备，
+	# 而初始装备的 `equipment_changed` 可能早于本函数的订阅。
+	if equip_fx != null:
+		equip_fx.on_equipment_changed()
 	EventBus.stats_changed.emit()
 
 
@@ -438,6 +469,9 @@ func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 		# 与 on_kill 分开：那个是「击杀即触发」，这个要看**目标死时带什么状态**。
 		# 目前两条词条的状态条件由 PlayerEquipmentEffects 内部判定。
 		equip_fx.on_target_death()
+		# 「印记目标死亡时，印记扩散至周围2名敌人」——需要**被击杀目标**，
+		# 故单独传进去（`on_target_death` 拿不到它）。
+		equip_fx.on_marked_target_death(_enemy)
 	# 装备词条·击杀刷新冷却（`cd_refresh_pct` 通道）。
 	#
 	# 规格里有多件装备带「击杀目标后刷新所有技能冷却」/「闪避时 N% 概率
@@ -490,6 +524,9 @@ func _physics_process(delta: float) -> void:
 	skills.tick(delta)
 	# 火焰路径（装备参考2：疾风步期间留下火焰路径）
 	_tick_fire_path(delta)
+	# B1 四族（2026-09-27）：站立静止 / 伤害光环
+	_tick_stationary(delta)
+	_tick_aura(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
 	if not _typing_input():
 		_poll_skill_input()
@@ -1586,6 +1623,9 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	_apply_element_to(enemy)
 	# 装备触发型词条：按概率给目标施加状态（眩晕/破甲/致盲/缴械/范围伤害）
 	_apply_trigger_affixes(enemy, total)
+	# 资源满时攒下的冲击波（「资源满时，下次攻击释放资源冲击波」）——
+	# 在**命中的这一刻**消费，故放在这里而不是命中前。
+	_consume_res_shockwave(enemy)
 	# 装备触发条件·命中时的**目标状态**判定（装备参考2）
 	#   「对眩晕/麻痹/冰冻目标…时」→ ON_TARGET_CONTROLLED
 	#   「距离目标超过 N 米时」      → DISTANCE_FAR
@@ -2429,6 +2469,171 @@ func _spawn_fire_patch() -> void:
 				EventBus.damage_popup.emit(node.global_position, dmg, "normal")
 			return true,
 	}, parent)
+
+
+# ============================================================
+# B1 四族（2026-09-27）
+# ============================================================
+#
+# 全部由 `PlayerEquipmentEffects` 在装备变更时写入「规则」，
+# 本类每帧推进。**规则用字典而不是多个字段**：装备卸下时清空一个
+# 字典比逐个字段清零更不容易漏。
+
+## ① 写入站立静止规则（装备参考2：「站立不动1秒后获得大地守护」）
+func set_stationary_rule(seconds: float, dr_pct: float, reflect_pct: float) -> void:
+	_stationary_rule = {
+		"seconds": maxf(seconds, 0.1),
+		"dr": dr_pct,
+		"reflect": reflect_pct,
+	}
+	_stationary_time = 0.0
+
+
+## ① 每帧判定站立静止
+##
+## 「移动后失效」——故**移动即清零计时并摘掉 buff**，
+## 而不是等 buff 自然到期。
+func _tick_stationary(delta: float) -> void:
+	if _stationary_rule.is_empty():
+		if _stationary_active:
+			_clear_stationary_buff()
+		return
+	# 有位移 → 重置
+	var moving := velocity.length() > 0.1 or _is_sprinting or _is_dodging
+	if moving:
+		_stationary_time = 0.0
+		if _stationary_active:
+			_clear_stationary_buff()
+		return
+	_stationary_time += delta
+	if _stationary_time >= float(_stationary_rule.get("seconds", 1.0)) \
+			and not _stationary_active:
+		_apply_stationary_buff()
+
+
+## 挂上「大地守护」buff（减伤 + 反伤）
+##
+## 走 `BuffDefs.register_equipment_stack` 动态注册——参数来自装备，
+## 不能预置在静态表里。
+func _apply_stationary_buff() -> void:
+	if buffs == null:
+		return
+	var dr := float(_stationary_rule.get("dr", 0.0))
+	var refl := float(_stationary_rule.get("reflect", 0.0))
+	if dr <= 0.0 and refl <= 0.0:
+		return
+	BuffDefs.register_equipment_stack("eq_stationary_guard",
+		AttributeSystem.Stat.DEF, dr, 0.0, 0)
+	buffs.apply("eq_stationary_guard", "equip_trigger")
+	# 反伤走已有的 `reflect_pct` 通道（`_equip_special_mods` 读它）
+	if refl > 0.0:
+		_stationary_reflect = refl
+	_stationary_active = true
+
+
+## 摘掉「大地守护」buff
+func _clear_stationary_buff() -> void:
+	if buffs != null:
+		buffs.remove("eq_stationary_guard")
+	_stationary_reflect = 0.0
+	_stationary_active = false
+
+
+## ② 印记扩散（「印记目标死亡时，印记扩散至周围2名敌人」）
+##
+## 由 `_on_enemy_killed` 调用，传入**被击杀的目标**。
+## 先确认它带印记，再找周围敌人挂上——不带印记的目标死亡不该触发。
+func spread_mark_from(enemy: Node, count: int) -> void:
+	if enemy == null or not is_instance_valid(enemy):
+		return
+	var tb = enemy.get("buffs")
+	if tb == null or not tb.has_method("has"):
+		return
+	if not bool(tb.call("has", "mark")):
+		return
+	var pos: Vector3 = (enemy as Node3D).global_position
+	var spread := 0
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if e == enemy or not _is_valid_enemy(e):
+			continue
+		if pos.distance_to((e as Node3D).global_position) > 6.0:
+			continue
+		var eb = e.get("buffs")
+		if eb != null and eb.has_method("apply"):
+			eb.call("apply", "mark", "equip_spread")
+			spread += 1
+		if spread >= count:
+			break
+
+
+## ④ 写入伤害光环规则（「周围3米敌人每秒受到15%攻击力伤害」）
+func set_aura_rule(radius: float, mult: float, interval: float) -> void:
+	_aura_rule = {
+		"radius": maxf(radius, 0.5),
+		"mult": maxf(mult, 0.0),
+		"interval": maxf(interval, 0.2),
+	}
+	_aura_accum = 0.0
+
+
+## ④ 每帧推进伤害光环
+func _tick_aura(delta: float) -> void:
+	if _aura_rule.is_empty():
+		return
+	_aura_accum += delta
+	if _aura_accum < float(_aura_rule.get("interval", 1.0)):
+		return
+	_aura_accum = 0.0
+	var atk := GameManager.stat_value("atk")
+	var dmg := atk * float(_aura_rule.get("mult", 0.0))
+	if dmg <= 0.0:
+		return
+	var radius := float(_aura_rule.get("radius", 3.0))
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not _is_valid_enemy(e):
+			continue
+		if global_position.distance_to((e as Node3D).global_position) > radius:
+			continue
+		(e as Node3D).call("take_damage", dmg, false, Vector3.ZERO, self)
+		EventBus.damage_popup.emit((e as Node3D).global_position, dmg, "normal")
+
+
+## ⑤ 置位「资源满 → 下次攻击释放冲击波」（「资源满时，下次攻击释放资源冲击波」）
+func arm_res_shockwave(mult: float) -> void:
+	_res_shockwave_mult = maxf(mult, 0.0)
+
+
+## 清空全部**常驻规则**（站立/光环）——装备变化时先清后建
+##
+## **必须先清**：卸下装备后规则要消失，否则「站立 buff」会永远挂着。
+## 由 `PlayerEquipmentEffects.reload_passives` 每轮调用。
+func clear_passive_rules() -> void:
+	_stationary_rule = {}
+	_stationary_time = 0.0
+	_aura_rule = {}
+	_aura_accum = 0.0
+	if _stationary_active:
+		_clear_stationary_buff()
+
+
+## ⑤ 消费待发冲击波（由普攻命中调用），返回是否释放了
+func _consume_res_shockwave(enemy: Node3D) -> bool:
+	if _res_shockwave_mult <= 0.0:
+		return false
+	var atk := GameManager.stat_value("atk")
+	var dmg := atk * _res_shockwave_mult
+	_res_shockwave_mult = 0.0
+	if dmg <= 0.0:
+		return false
+	# 以被命中目标为中心的范围伤害
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not _is_valid_enemy(e):
+			continue
+		if enemy.global_position.distance_to((e as Node3D).global_position) > 3.0:
+			continue
+		(e as Node3D).call("take_damage", dmg, false, Vector3.ZERO, self)
+		EventBus.damage_popup.emit((e as Node3D).global_position, dmg, "crit")
+	return true
 
 
 ## 退出隐身（破隐/超时）

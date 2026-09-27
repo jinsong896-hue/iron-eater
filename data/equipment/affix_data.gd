@@ -96,7 +96,9 @@ enum Trigger {
 	ON_CHEAT_DEATH,       ## 触发免死后（「触发免死后，获得5秒无敌」）
 	ON_TARGET_DEATH,      ## 目标在特定状态下死亡（「冰冻目标死亡时」）
 	ON_ELEMENT_PROC,      ## 元素阈值事件触发后（「元素终焉触发后」）
-	ON_HEAL,              ## 治疗结算后（「治疗自身时，对周围敌人造成治疗量50%的圣光伤害」）
+	ON_HEAL,              ## 受到治疗时（「治疗自身时，对周围敌人造成…」）
+	ON_SUMMON_DEATH,      ## 召唤物死亡时（「护卫死亡时爆炸」）
+	ON_STATIONARY,        ## 静止达标时（「站立不动1秒后获得大地守护」）
 }
 
 ## 触发条件的中文名（供 UI 显示）
@@ -138,7 +140,9 @@ const TRIGGER_NAMES := {
 	Trigger.ON_CHEAT_DEATH: "免死触发后",
 	Trigger.ON_TARGET_DEATH: "目标死亡时",
 	Trigger.ON_ELEMENT_PROC: "元素事件后",
-	Trigger.ON_HEAL: "治疗时",
+	Trigger.ON_HEAL: "受治疗时",
+	Trigger.ON_SUMMON_DEATH: "召唤物死亡",
+	Trigger.ON_STATIONARY: "静止达标",
 }
 
 @export var id: StringName = &""

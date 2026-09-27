@@ -21,6 +21,8 @@ var player: Node3D = null
 var _alive: Array[Node] = []
 ## 上限（装备的 summon_limit 词条可提升）
 var base_limit := 3
+## 「召唤物死亡时爆炸」的伤害倍率（占法强的比例）；0 = 无此装备
+var _death_boom_mult := 0.0
 
 
 func setup(owner_player: Node3D) -> void:
@@ -77,7 +79,50 @@ func summon(hp_ratio: float, atk_ratio: float, ap_ratio: float,
 			var sp: Dictionary = em.call("special_modifiers")
 			s.atk *= 1.0 + float(sp.get("summon_dmg_pct", 0.0))
 	_alive.append(s)
+	# 订阅死亡信号 → 结算「召唤物死亡时爆炸」（装备参考2）
+	#
+	# **信号已存在**：`EnemyBase:43` 声明 `signal died(world_position)`，
+	# `SummonBase` 继承它并在销毁前 emit。此处只需订阅。
+	# 早期清单写「没有死亡事件广播」是错的——只 grep 了子类没往上找父类。
+	if s.has_signal("died"):
+		s.died.connect(_on_summon_died)
 	return s
+
+
+## 召唤物死亡 → 若有「死亡爆炸」装备则在该位置生成伤害区
+func _on_summon_died(pos: Vector3) -> void:
+	if _death_boom_mult <= 0.0:
+		return
+	var gm = get_node_or_null("/root/GameManager")
+	if gm == null or player == null or not is_instance_valid(player):
+		return
+	# 伤害基准取**法强**（规格：「造成50%法强伤害」）
+	var ap: float = float(gm.call("stat_value", "ap")) if gm.has_method("stat_value") else 0.0
+	var dmg := ap * _death_boom_mult
+	if dmg <= 0.0:
+		return
+	var parent := _spawn_parent()
+	if parent == null:
+		return
+	DamageZone.spawn({
+		"radius": 2.5,
+		"duration": 0.4,
+		"tick_interval": 0.4,
+		"damage": 0.0,
+		"target_group": DamageZone.TARGET_ENEMY,
+		"position": pos,
+		"color": Color(0.6, 0.8, 1.0, 0.4),
+		"on_tick": func(_z, node: Node3D) -> bool:
+			if is_instance_valid(node):
+				node.call("take_damage", dmg, false, Vector3.ZERO, player)
+				EventBus.damage_popup.emit(node.global_position, dmg, "normal")
+			return true,
+	}, parent)
+
+
+## 设置「召唤物死亡爆炸」的倍率（由 `PlayerEquipmentEffects` 在装备变更时调用）
+func set_death_boom(mult: float) -> void:
+	_death_boom_mult = maxf(mult, 0.0)
 
 
 ## 回收全部召唤物（换房/玩家死亡时调用）

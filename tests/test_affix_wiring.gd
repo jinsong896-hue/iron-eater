@@ -46,6 +46,7 @@ func _ready() -> void:
 	await _test_cdr_channel()
 	_test_new_triggers_have_callers()
 	await _test_resource_channels()
+	await _test_b1_passives()
 	await _test_skill_mod_channel()
 
 	if failed == 0:
@@ -712,3 +713,91 @@ func _check(c: bool, name: String, detail: Array = []) -> void:
 		print("  [FAIL] %s" % name)
 		for d in detail:
 			print("    %s" % d)
+
+
+## 11. B1 五族（2026-09-27）：站立 / 印记 / 召唤物 / 光环 / 资源满
+##
+## ## 这里暴露过的一个架构缺陷
+##
+## 这五条写成 `Trigger.ALWAYS`（常驻规则），但 `_fire(trig)` 是**事件驱动**
+## 的——`ALWAYS` 不被任何战斗事件触发，于是它们**永不生效**。
+## 修法是新增 `reload_passives()`：在装备变化时把规则装配给 Player。
+func _test_b1_passives() -> void:
+	print("\n--- B1 常驻规则（站立/光环/召唤物）---")
+	var player := _player()
+	if player == null:
+		_check(false, "找到玩家节点")
+		return
+	if player.equip_fx == null:
+		_check(false, "玩家有 equip_fx")
+		return
+	if not player.has_method("clear_passive_rules"):
+		_check(false, "Player 暴露 clear_passive_rules")
+		return
+
+	# ① 站立静止：装上「大地守护」后规则应装配
+	_reset()
+	await get_tree().process_frame
+	if not _equip_by_name("大地守护", EquipmentDefs.Slot.ACCESSORY_1):
+		_check(false, "装上「大地守护」")
+		return
+	player.equip_fx.reload_passives()
+	await get_tree().process_frame
+	var srule: Dictionary = player.get("_stationary_rule")
+	_check(not srule.is_empty(), "「大地守护」装配了站立规则",
+		["实际=%s" % str(srule)])
+	if not srule.is_empty():
+		_check(absf(float(srule.get("dr", 0.0)) - 0.20) < 0.01,
+			"站立规则减伤 = 20%（规格原值）", ["实际=%.3f" % float(srule.get("dr", 0.0))])
+		_check(absf(float(srule.get("reflect", 0.0)) - 0.10) < 0.01,
+			"站立规则反伤 = 10%", ["实际=%.3f" % float(srule.get("reflect", 0.0))])
+
+	# ② 卸下后规则必须清空（否则「站立 buff」永远挂着）
+	_reset()
+	player.equip_fx.reload_passives()
+	await get_tree().process_frame
+	_check((player.get("_stationary_rule") as Dictionary).is_empty(),
+		"卸下后站立规则被清空")
+
+	# ③ 伤害光环：装上「荆棘领域」后规则应装配
+	if _equip_by_name("荆棘领域", EquipmentDefs.Slot.ACCESSORY_1):
+		player.equip_fx.reload_passives()
+		await get_tree().process_frame
+		var arule: Dictionary = player.get("_aura_rule")
+		_check(not arule.is_empty(), "「荆棘领域」装配了伤害光环",
+			["实际=%s" % str(arule)])
+		if not arule.is_empty():
+			_check(absf(float(arule.get("radius", 0.0)) - 3.0) < 0.01,
+				"光环半径 = 3 米（规格原值）", ["实际=%.1f" % float(arule.get("radius", 0.0))])
+			_check(absf(float(arule.get("mult", 0.0)) - 0.15) < 0.01,
+				"光环倍率 = 15%（规格原值）", ["实际=%.3f" % float(arule.get("mult", 0.0))])
+	_reset()
+
+	# ④ 召唤物死亡爆炸：**走融合路径**
+	#
+	# `summon_death_boom` 写在「召唤护卫胸甲」的**融合列**——按规格
+	# 「作为副材融合时给主装备」，**穿戴原装备时不生效**。
+	# 必须：融合进主装备 → 词条进 `extra_affixes` → 再穿上 → 装配。
+	#
+	# 早期版本直接 `equip(召唤护卫胸甲)` 就断言，必然失败且与接线无关
+	#（与 SKILL_MOD 那节踩的是同一个坑）。
+	_reset()
+	await get_tree().process_frame
+	GameManager.gold = 1000
+	var boom_main := _make_inst_by_name("吸血脉甲")     # ARMOR/CHEST
+	var boom_mat := _make_inst_by_name("召唤护卫胸甲")   # ARMOR/CHEST，融合列带词条
+	if boom_main == null or boom_mat == null:
+		_check(false, "构造召唤物爆炸的融合实例")
+		return
+	var fr: Dictionary = GameManager.equipment_manager.fuse(boom_main, boom_mat)
+	_check(bool(fr.get("ok", false)), "融合出召唤物死亡爆炸",
+		[str(fr.get("reason", ""))])
+	GameManager.equipment_manager.equip(EquipmentDefs.Slot.CHEST, boom_main)
+	player.equip_fx.reload_passives()
+	await get_tree().process_frame
+	var mgr = player.get("summons")
+	if mgr != null:
+		_check(float(mgr.get("_death_boom_mult")) > 0.0,
+			"召唤物死亡爆炸倍率已装配（融合后生效）",
+			["实际=%.3f" % float(mgr.get("_death_boom_mult"))])
+	_reset()
