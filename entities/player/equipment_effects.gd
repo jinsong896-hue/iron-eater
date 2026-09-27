@@ -922,3 +922,43 @@ func _flush_attack_bonus() -> void:
 	if player.has_method("set_attack_bonus_rule"):
 		player.call("set_attack_bonus_rule", _attack_bonus_pending.duplicate(true))
 	_attack_bonus_dirty = false
+
+
+## 反弹伤害时给**攻击者**挂状态（装备参考2：反伤徽章 / 荆棘系列）
+##
+## ## 为什么不能复用 `_fire`
+##
+## `_fire(trig)` 的 `_apply_trigger` 把状态挂到 **`player.buffs`（自己）**——
+## 而「反弹伤害时眩晕攻击者」的目标是**打你的人**。
+## 宿主不同，故必须单独一条路径，由 `Player._reflect_damage` 调用。
+##
+## ## 与「概率当效果」的关系
+##
+## 这批词条的原文是「反弹伤害有10%概率眩晕攻击者1秒」——`10%` 是**概率**，
+## 但旧生成器把它当成了 `reflect_pct` 的**数值**。结果反伤徽章
+## 真实反弹量变成 40%（10% 自有 + 10% 格挡翻倍 + 10% 融合 + 10% 眩晕），
+## 而「眩晕」这个效果整个不存在。
+func on_reflect(attacker: Node3D) -> void:
+	if attacker == null or not is_instance_valid(attacker):
+		return
+	var tb = attacker.get("buffs")
+	if tb == null:
+		return
+	# 负效时长 +N%（`debuff_dur_pct` 通道）放大本次施加的持续时间
+	var dur_bonus := 0.0
+	var em = _em()
+	if em != null and em.has_method("special_modifiers"):
+		dur_bonus = float(em.call("special_modifiers").get("debuff_dur_pct", 0.0))
+	for e in _affixes_with(AffixData.Trigger.ON_REFLECT):
+		var a: AffixData = e["affix"]
+		if a == null:
+			continue
+		var bid := a.trigger_buff
+		if bid.is_empty():
+			continue
+		if a.trigger_chance < 1.0 and randf() > a.trigger_chance:
+			continue
+		tb.call("apply", bid, "equip_reflect", 1, a.trigger_duration)
+		if dur_bonus > 0.0 and player != null and player.has_method("extend_buff_duration"):
+			player.call("extend_buff_duration", tb, bid, dur_bonus)
+		EventBus.message.emit("反弹【%s】" % str(BuffDefs.get_buff(bid)[1]))

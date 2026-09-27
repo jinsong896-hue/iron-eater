@@ -3051,6 +3051,10 @@ func _reflect_damage(attacker: Node3D, amount: float) -> void:
 	if attacker.has_method("take_damage"):
 		attacker.call("take_damage", back, false, Vector3.ZERO)
 		EventBus.damage_popup.emit(attacker.global_position, back, "aoe")
+	# 「反弹伤害有 N% 概率眩晕/流血攻击者」（反伤徽章 / 荆棘系列）。
+	# 目标必须是**攻击者**——故单独一条路径，不能走 `_fire`（那条挂自己）。
+	if equip_fx != null:
+		equip_fx.on_reflect(attacker)
 
 
 ## 受击击退（石翼蝙蝠等怪物机制调用）

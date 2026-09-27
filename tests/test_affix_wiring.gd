@@ -56,6 +56,7 @@ func _ready() -> void:
 	await _test_b7_afterimage()
 	await _test_b7_prophecy()
 	await _test_e_attack_bonus()
+	await _test_e_reflect_buff()
 	_test_equipment_skills_exist()
 
 	if failed == 0:
@@ -1589,4 +1590,82 @@ func _test_e_attack_bonus() -> void:
 		"消费返回攻速倍率 2.0")
 	_check(absf(float(player.call("_consume_quick_attack")) - 1.0) < 0.001,
 		"已消费后再取返回 1.0（一次性，不是永久）")
+	_reset()
+
+
+## 18. E4：反弹伤害时给**攻击者**挂状态
+##
+## ## 这里同时修了一个数值错，不只是「概率当效果」
+##
+## 「反弹伤害有10%概率眩晕攻击者1秒」的 `10%` 是**概率**，
+## 旧生成器把它当成了 `reflect_pct` 的数值 → 反伤徽章的反弹量变成
+## 10%(自有) + 20%(格挡翻倍) + 10%(融合) + 10%(眩晕) = **50%**，
+## 而「眩晕」这个效果整个不存在。
+func _test_e_reflect_buff() -> void:
+	print("\n--- E4：反弹伤害时给攻击者挂状态 ---")
+	var em = GameManager.equipment_manager
+	_reset()
+	await get_tree().process_frame
+
+	# —— 数据侧 ——
+	var tpl = _find_by_name("反伤徽章")
+	if tpl == null:
+		_check(false, "找到「反伤徽章」")
+		return
+	var found := false
+	for a in tpl.fusion_affixes:
+		if a != null and int(a.trigger) == AffixData.Trigger.ON_REFLECT:
+			found = true
+			_check(a.trigger_buff == "stun", "带 `stun` 词条", [a.trigger_buff])
+			_check(absf(a.trigger_chance - 0.10) < 0.001,
+				"概率 10%（是概率，不是反弹量）",
+				["实际=%.3f" % a.trigger_chance])
+			_check(absf(a.trigger_duration - 1.0) < 0.001,
+				"眩晕 1 秒（规格原值）", ["实际=%.1f" % a.trigger_duration])
+	_check(found, "融合列产出 ON_REFLECT 词条")
+
+	# 反向断言：不该再是 `reflect_pct` 数值
+	var bad := false
+	for a2 in tpl.fusion_affixes:
+		if a2 != null and a2.stat == EquipmentDB.special_enum_of("reflect"):
+			bad = true
+	_check(not bad, "融合列**没有**被误当成 reflect_pct（旧的数值错）")
+
+	# —— 行为侧：反弹时给攻击者挂上 ——
+	#
+	# 这条词条在**融合列**——按规格「作为副材融合时给主装备」，
+	# 穿戴原装备时不生效。必须：融合进主装备 → 进 extra_affixes → 再穿上。
+	# （本项目已第 4 次踩这个交付路径的坑，见文件头部的三条路径表。）
+	_reset()
+	await get_tree().process_frame
+	GameManager.gold = 1000
+	var main_inst := _make_inst_by_name("吸血脉甲")   # ARMOR/CHEST
+	var mat_inst := _make_inst_by_name("反伤徽章")     # ARMOR，融合列带 ON_REFLECT
+	if main_inst == null or mat_inst == null:
+		_check(false, "构造融合实例")
+		return
+	var fr: Dictionary = em.fuse(main_inst, mat_inst)
+	_check(bool(fr.get("ok", false)), "融合出「反弹眩晕」", [str(fr.get("reason", ""))])
+	em.equip(EquipmentDefs.Slot.CHEST, main_inst)
+	await get_tree().process_frame
+	var player: Node3D = _player()
+	if player == null:
+		return
+	var attacker = _spawn_dummy(player)
+	if attacker == null:
+		_check(false, "生成攻击者替身")
+		return
+	await get_tree().process_frame
+	# **把概率拉到 100%**：规格是 10%，直接调用会 90% 概率不触发 ——
+	# 那样断言就是**偶发**的（早期版本漏了这一步，测试时绿时红）。
+	for e in player.equip_fx._affixes_with(AffixData.Trigger.ON_REFLECT):
+		var ra: AffixData = e["affix"]
+		if ra != null:
+			ra.trigger_chance = 1.0
+	player.equip_fx.on_reflect(attacker)
+	var ab = attacker.get("buffs")
+	_check(ab != null and bool(ab.call("has", "stun")),
+		"反弹时攻击者被眩晕（挂到**攻击者**而不是自己）",
+		["attacker_buffs=%s" % str(ab.call("active_ids") if ab != null else [])])
+	_check(not player.buffs.has("stun"), "玩家自己**没有**被挂眩晕（宿主正确）")
 	_reset()

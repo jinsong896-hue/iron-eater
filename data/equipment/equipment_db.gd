@@ -685,6 +685,12 @@ static func _make_one_affix(spec: Array) -> AffixData:
 				# （「减少50%伤害」vs「减少30%伤害」），见 trigger_params 说明。
 				if spec.size() > 4 and spec[4] is Dictionary:
 					a.trigger_params = spec[4]
+					# **触发时机覆盖**：默认 `TRIGGER_BUFF` 由命中路径消费，
+					# 但有些词条的效果目标是**攻击者**而非自己
+					#（「反弹伤害有10%概率眩晕攻击者」）——那类必须显式声明
+					# `{"trigger": ON_REFLECT}`，否则会被挂到自己身上。
+					if a.trigger_params.has("trigger"):
+						a.trigger = int(a.trigger_params["trigger"])
 			AffixData.Operation.PERIODIC:
 				a.value = float(spec[1]) if spec.size() > 1 else 0.0
 				a.trigger_buff = str(spec[2]) if spec.size() > 2 else ""
@@ -848,7 +854,7 @@ const CURATED_TABLE := [
   ["B006", "疾风长矛", "spear", ["近战", "双手", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 87.5, false]], [[117, 0.2000, true], [3, "wind", 0.3000]], [[125, 0.0200, true]], [[117, 0.5000, true]]],
   ["B007", "噬魂战镰", "scythe", ["近战", "双手", "长杆", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 140.0, false]], [[4, 1, Stat.ATK,  0.0300,  5,  0], [4, 5, Stat.ATK, 2.0000, 0]], [[4, 1, Stat.HP, 0.0050, 0]], [[4, 5, 117, 0.2000, 0]]],
   ["B008", "暗影斗篷", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[111, 0.1000, true], [7, "eq_暗影斗篷", "暗影刺杀"]], [[111, 0.1000, true]], [[4, 13, 111, 0.1000, 0]]],
-  ["B009", "荆棘头盔", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[4, 2, 104, 0.3000, 0]], [[Stat.DEF, 0.0200, true]], [[104, 0.2000, true]]],
+  ["B009", "荆棘头盔", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[4, 2, 104, 0.3000, 0]], [[Stat.DEF, 0.0200, true]], [[2, "bleed", 0.2000, 3.0, {"trigger": 40}]]],
   ["B010", "守护肩甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[4, 11, 146, 0.2000, 0, 0.5000]], [[117, 0.0100, true]], [[4, 11, 106, 0.1500, 0, 0.3000]]],
   ["B011", "迅捷护手", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[Stat.ASPD, 0.0800, true], [4, 3, Stat.ASPD,  0.0200,  5,  0]], [[Stat.ASPD, 0.0100, true]], [[4, 5, Stat.ATK, 0.50, 0]]],
   ["B012", "坚韧腿甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[112, 0.3000, true], [106, 0.1000, true]], [[139, 0.0200, true]], [[2, "control_immune", 1.0, 3.0]]],
@@ -888,10 +894,10 @@ const CURATED_TABLE := [
   ["B046", "记忆腿甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[4, 1, 119, 0.0100, 0]], [[119, 0.0200, true]], [[119, 0.0500, true]]],
   ["B047", "召唤战靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[116, 0.1000, true], [4, 17, 106, 0.05, 0]], [[116, 0.0200, true]], [[2, "slow", 1.0, 3.0]]],
   ["B048", "护盾头盔", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[4, 11, 106, 0.1000, 0, 0.5000]], [[140, 0.0200, true]], [[2, "control_immune", 1.0, 0.0]]],
-  ["B049", "反伤胸甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[104, 0.1000, true], [104, 0.20, true]], [[104, 0.0200, true]], [[104, 0.1000, true]]],
+  ["B049", "反伤胸甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 10.5, false]], [[104, 0.1000, true], [104, 0.20, true]], [[104, 0.0200, true]], [[2, "bleed", 0.1000, 3.0, {"trigger": 40}]]],
   ["B050", "召唤戒指", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 10.5, false]], [[116, 0.1000, true], [120, 1, false]], [[116, 0.0200, true]], [[116, 0.1000, true]]],
   ["B051", "陷阱护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 10.5, false]], [[137, 0.1500, true]], [[137, 0.0200, true]], [[4, 16, Stat.ATK, 0.5000, 0]]],
-  ["B052", "反伤徽章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 10.5, false]], [[104, 0.1000, true], [104, 0.20, true]], [[104, 0.0200, true]], [[104, 0.1000, true]]],
+  ["B052", "反伤徽章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 10.5, false]], [[104, 0.1000, true], [104, 0.20, true]], [[104, 0.0200, true]], [[2, "stun", 0.1000, 1.0, {"trigger": 40}]]],
   ["B053", "资源项链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 10.5, false]], [[119, 0.1000, true], [119, 0.1000, true]], [[119, 0.0200, true]], [[4, 25, 117, 0.1500, 0]]],
   ["B054", "位移戒指", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 10.5, false]], [[4, 19, Stat.SPD, 0.1000, 0, 0, {"seconds": 3.0000}], [Stat.CDR, 0.0500, true]], [[Stat.SPD, 0.0200, true]], [[4, 3, Stat.ATK, 0.3000, 0]]],
   ["B055", "标记护符", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 10.5, false]], [[2, "mark", 0.0600, 5.0]], [[105, 0.0100, true]], [[4, 1, Stat.HP, 0.0500, 0]]],
@@ -1018,7 +1024,7 @@ const CURATED_TABLE := [
   ["P036", "复仇之甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[4, 2, Stat.ATK,  0.0200,  10,  0], [4, 5, Stat.ATK, 1.5000, 0]], [[Stat.ATK, 0.0200, true]], [[4, 3, Stat.HP, 0.0500, 0]]],
   ["P037", "元素调和者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[4, 2, 117, 0.1500, 3]], [[117, 0.0300, true]], [[4, 5, Stat.ATK, 1.0000, 0]]],
   ["P038", "灵魂锁链", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[4, 1, Stat.ATK,  0.0200,  10,  0], [4, 5, 119, 0.50, 0]], [[119, 0.0300, true]], [[8, {"ultimate_soul_per_stack": 0.2000}]]],
-  ["P039", "荆棘之环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[104, 0.1500, true], [2, "aura_damage", 1.0, 0.0, {"aura_radius": 3.0, "aura_mult": 0.1000, "aura_interval": 1.0}]], [[104, 0.0300, true]], [[104, 0.1500, true]]],
+  ["P039", "荆棘之环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[104, 0.1500, true], [2, "aura_damage", 1.0, 0.0, {"aura_radius": 3.0, "aura_mult": 0.1000, "aura_interval": 1.0}]], [[104, 0.0300, true]], [[2, "bleed", 0.1500, 3.0, {"trigger": 40}]]],
   ["P040", "猎杀者徽章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[2, "mark", 1.0, 0.0, {"max_stacks": 5}], [4, 5, Stat.CRD, 0.50, 0]], [[Stat.CRT, 0.0200, true]], [[105, 0.0500, true]]],
   ["P041", "元素之戒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[117, 0.2000, true]], [[117, 0.0300, true]], [[2, "elem_seq_distinct", 1.0, 0.0, {"count": 3, "mult": 1.5000, "use_ap": true}]]],
   ["P042", "生命之泉", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[100, 0.0150, true], [2, "grant_shield", 1.0, 0.0, {"pct": 0.1500, "cap": 0.1500}]], [[100, 0.0300, true]], [[4, 14, Stat.ATK, 0.5000, 0]]],
@@ -1113,7 +1119,7 @@ const CURATED_TABLE := [
   ["O012", "元素洪流", "staff", ["魔法", "双手", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.AP, 295.8, false]], [[4, 18, 117, 0.8000, 0]], [[Stat.AP, 0.0500, true]], [[2, "atk_up_self", 1.0, 0.0]]],
   ["O013", "猎杀者", "bow", ["远程", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 227.5, false]], [[105, 0.3000, true], [4, 1, Stat.ATK, 1.5000, 0]], [[135, 0.0500, true]], [[113, 1.0, true]]],
   ["O014", "不朽者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[2, "cheat_death", 1.0, 0.0, {"heal_pct": 0.5000, "boom_pct": 0.0, "cooldown": 120}]], [[Stat.HP, 0.0500, true]], [[111, 0.5000, true]]],
-  ["O015", "荆棘之王", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[104, 0.5000, true], [104, 0.20, true]], [[Stat.DEF, 0.0500, true]], [[104, 0.2000, true]]],
+  ["O015", "荆棘之王", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[104, 0.5000, true], [104, 0.20, true]], [[Stat.DEF, 0.0500, true]], [[2, "stun", 0.2000, 1.0, {"trigger": 40}]]],
   ["O016", "疾风之靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[Stat.CDR, 0.5000, true], [4, 4, Stat.SPD, 0.5000, 0, 0, {"seconds": 3.0000}]], [[Stat.SPD, 0.0500, true]], [[117, 1.0000, true]]],
   ["O017", "暴君之眼", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[Stat.CRT, 0.2500, true], [4, 6, Stat.HP, 0.0300, 0]], [[Stat.CRT, 0.0300, true]], [[148, 0.0500, true]]],
   ["O018", "元素之心", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[117, 0.4000, true], [2, "burn", 0.15, 3.0]], [[117, 0.0500, true]], [[102, 1.0, true]]],

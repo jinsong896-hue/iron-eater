@@ -157,6 +157,7 @@ const TRIG_ON_ELEMENT_PROC := 36
 const TRIG_ON_HEAL := 37
 const TRIG_ON_SUMMON_DEATH := 38
 const TRIG_ON_STATIONARY := 39
+const TRIG_ON_REFLECT := 40
 
 ## 数值型效果名 → 扩展通道 key（吞噬/融合列大量出现）
 ##
@@ -590,7 +591,7 @@ func _parse_one(s: String) -> String:
 	var dur := _duration_from_text(s)
 	if _is_plain_spec(spec):
 		return _wrap_with_trigger(spec, trig, float(t["param"]), dur,
-			_stack_max_from_text(s))
+			_stack_max_from_text(s), s)
 
 	# 其他形态（扩展通道、周期型等）：**保留旧解析**
 	#
@@ -1082,6 +1083,26 @@ func _parse_main(s: String) -> String:
 		if m:
 			return "[%d, \"prophecy_self\", 1.0, 0.0, {\"self_crt\": %.4f, \"self_crt_seconds\": %s}]" % [
 				OP_TRIGGER_BUFF, float(m.get_string(2)) / 100.0, m.get_string(1)]
+
+	# —— 反弹伤害时给攻击者挂状态（反伤徽章 / 荆棘系列，5 条）——
+	#
+	# ## 这里同时修了一个**数值错**，不只是「概率当效果」
+	#
+	# 原文「反弹伤害有10%概率眩晕攻击者1秒」里 `10%` 是**概率**。
+	# 旧规则把它当成了 `reflect_pct` 的数值 → 反伤徽章的反弹量变成
+	# 10%(自有) + 10%(格挡翻倍) + 10%(融合) + 10%(眩晕) = **40%**，
+	# 而「眩晕」整个不存在。修好后反弹量回到 30%，并真的会眩晕。
+	#
+	# 形态：「反弹伤害有 N% 概率眩晕攻击者 M 秒」
+	m = _re(r"反弹伤害有\s*(\d+)%\s*概率眩晕攻击者\s*(\d+)\s*秒").search(s)
+	if m:
+		return "[%d, \"stun\", %.4f, %s.0, {\"trigger\": %d}]" % [OP_TRIGGER_BUFF,
+			float(m.get_string(1)) / 100.0, m.get_string(2), TRIG_ON_REFLECT]
+	# 形态：「反弹伤害有 N% 概率(使攻击者)?流血 M 秒」（荆棘之环少一个「使」字）
+	m = _re(r"反弹伤害有\s*(\d+)%\s*概率(?:使攻击者)?流血\s*(\d+)\s*秒").search(s)
+	if m:
+		return "[%d, \"bleed\", %.4f, %s.0, {\"trigger\": %d}]" % [OP_TRIGGER_BUFF,
+			float(m.get_string(1)) / 100.0, m.get_string(2), TRIG_ON_REFLECT]
 
 	# ---------- E 组：概率攻击效果（2026-09-28） ----------
 	#
@@ -3202,10 +3223,22 @@ func _trigger_of_clause(clause: String) -> Dictionary:
 ## 再包一层 `[4, trig, ...]` 会变成「条件满足时施加一个 buff」，
 ## 语义重复且 `_make_one_affix` 解不出来。故原样保留。
 func _wrap_with_trigger(spec: String, trig: int, param: float,
-		duration: float = 0.0, stack_max: int = 0) -> String:
+		duration: float = 0.0, stack_max: int = 0, text: String = "") -> String:
 	# 触发型 / 附带元素型：原样保留（它们自带触发语义）
-	if spec.begins_with("[%d," % OP_TRIGGER_BUFF) \
-			or spec.begins_with("[%d," % OP_BONUS_ELEMENT):
+	#
+	# **但「反弹伤害时」是个例外**：`TRIGGER_BUFF` 的既有消费
+	#（`_apply_self_trigger_buff`）把状态挂到**自己**身上，
+	# 而「反弹时眩晕攻击者」的目标是**打你的人**。故这里把 trigger
+	# 标成 `ON_REFLECT`，由 `PlayerEquipmentEffects.on_reflect` 单独处理。
+	if spec.begins_with("[%d," % OP_TRIGGER_BUFF):
+		if _is_reflect_target_buff(text):
+			var mm := _re(r"^\[2,\s*(\"[^\"]*\"),\s*([\d.]+),\s*([\d.]+)").search(spec)
+			if mm != null:
+				return "[%d, \"%s\", %s, %s, {\"trigger\": %d}]" % [OP_TRIGGER_BUFF,
+					mm.get_string(1).replace("\"", ""), mm.get_string(2),
+					mm.get_string(3), TRIG_ON_REFLECT]
+		return spec
+	if spec.begins_with("[%d," % OP_BONUS_ELEMENT):
 		return spec
 
 	# 已经是叠层型：把它的 trigger 换掉（主句解出的 trigger 可能不对）
@@ -3221,7 +3254,7 @@ func _wrap_with_trigger(spec: String, trig: int, param: float,
 	if _is_multi_spec(spec):
 		var wrapped: Array = []
 		for sub in _sub_specs(spec):
-			wrapped.append(_wrap_with_trigger(sub, trig, param, duration, stack_max))
+			wrapped.append(_wrap_with_trigger(sub, trig, param, duration, stack_max, text))
 		return "[" + ", ".join(wrapped) + "]"
 
 	m = _re(r"^\[([A-Za-z_.]+|\d+),\s*([-\d.]+),\s*(true|false)\]$").search(spec)
@@ -3271,6 +3304,15 @@ func _all_stats_spec(v: float, is_percent: bool = true) -> String:
 		parts.append("[%s, %s, %s]" % [s, vs, t])
 	return "[" + ", ".join(parts) + "]"
 ##
+## 该词条的效果目标是**攻击者**（而非自己）吗？
+##
+## 判据：「反弹伤害有 N% 概率<给攻击者挂状态>」。这类词条的宿主是
+## **打你的人**，故不能走 `_apply_self_trigger_buff`（那条挂自己）。
+func _is_reflect_target_buff(t: String) -> bool:
+	return t.contains("反弹伤害有") and t.contains("概率") \
+		and (t.contains("眩晕攻击者") or t.contains("流血"))
+
+
 ## 必须优先取「最多/可叠」：「受到伤害叠加1层"不朽"（最多15层）」里
 ## 两个数字**都是层数**但含义相反——`1` 是每次叠几层，`15` 才是上限。
 func _stack_max_from_text(t: String) -> int:
@@ -3332,7 +3374,7 @@ func _time_bound_wrap(spec: String, text: String) -> String:
 		var wrapped: Array = []
 		for sub in _sub_specs(spec):
 			wrapped.append(_wrap_with_trigger(sub, _infer_trigger_from_text(text),
-				0.0, dur, want_stack))
+				0.0, dur, want_stack, text))
 		return "[" + ", ".join(wrapped) + "]"
 	# 叠层型：**已有触发条件、只缺时长/层数** → 补第 5 槽与第 7 槽
 	if _is_stack_spec(spec):
@@ -3367,7 +3409,7 @@ func _time_bound_wrap(spec: String, text: String) -> String:
 		var trig := _infer_trigger_from_text(text)
 		if trig == TRIG_ALWAYS:
 			return spec
-		return _wrap_with_trigger(spec, trig, 0.0, dur, want_stack)
+		return _wrap_with_trigger(spec, trig, 0.0, dur, want_stack, text)
 	return spec
 
 

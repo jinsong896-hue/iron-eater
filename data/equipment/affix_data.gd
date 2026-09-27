@@ -99,6 +99,7 @@ enum Trigger {
 	ON_HEAL,              ## 受到治疗时（「治疗自身时，对周围敌人造成…」）
 	ON_SUMMON_DEATH,      ## 召唤物死亡时（「护卫死亡时爆炸」）
 	ON_STATIONARY,        ## 静止达标时（「站立不动1秒后获得大地守护」）
+	ON_REFLECT,           ## 反弹伤害时（「反弹伤害有10%概率眩晕攻击者1秒」）
 }
 
 ## 触发条件的中文名（供 UI 显示）
@@ -143,6 +144,7 @@ const TRIGGER_NAMES := {
 	Trigger.ON_HEAL: "受治疗时",
 	Trigger.ON_SUMMON_DEATH: "召唤物死亡",
 	Trigger.ON_STATIONARY: "静止达标",
+	Trigger.ON_REFLECT: "反弹伤害时",
 }
 
 @export var id: StringName = &""
