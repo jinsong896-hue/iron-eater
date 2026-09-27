@@ -48,6 +48,7 @@ func _ready() -> void:
 	await _test_resource_channels()
 	await _test_b1_passives()
 	await _test_b2_energy_store()
+	await _test_b3_elem_sequence()
 	await _test_skill_mod_channel()
 
 	if failed == 0:
@@ -764,6 +765,106 @@ func _test_b2_energy_store() -> void:
 	_check(capped <= max_hp + 0.01, "储存上限 = 100% 最大生命",
 		["实际=%.1f 上限=%.1f" % [capped, max_hp]])
 	_reset()
+
+
+## 13. B3 元素序列 / 终焉
+##
+## ## 这是全新机制
+##
+## 装备参考2 的「连续3次**不同**元素后触发元素爆炸」「连续攻击**同一目标**
+## 3次后触发」需要一个**序列追踪器**——记录最近几次攻击的元素与目标。
+## 项目此前只有「单次攻击的元素结算」（`ElementDamage.attack`），
+## 没有任何跨次记忆。
+##
+## 追踪器落在 `Player._elem_sequence`（环形缓冲）+ `_last_elem_target`。
+func _test_b3_elem_sequence() -> void:
+	print("\n--- B3 元素序列 ---")
+	var player := _player()
+	if player == null:
+		_check(false, "找到玩家节点")
+		return
+	if not player.has_method("add_elem_rule") or not player.has_method("clear_elem_rules"):
+		_check(false, "Player 暴露 add_elem_rule / clear_elem_rules")
+		return
+
+	# ① 规则装配：**走融合路径**
+	#
+	# `elem_seq_distinct` 写在「元素之戒」的**融合列**——按规格
+	# 「作为副材融合时给主装备」，穿戴原装备**不生效**。
+	# 这是本文件第三次遇到同一个模式（B2 的 splash / 召唤物爆炸 / 这里），
+	# 故 `_reset` 之外统一用「融合进主装备再穿」的写法。
+	_reset()
+	await get_tree().process_frame
+	GameManager.gold = 1000
+	var elem_main := _make_inst_by_name("吸血脉甲")   # ARMOR/CHEST（非武器）
+	var elem_mat := _make_inst_by_name("元素之戒")     # ACCESSORY（非武器）
+	if elem_main == null or elem_mat == null:
+		_check(false, "构造元素之戒的融合实例")
+		return
+	var er: Dictionary = GameManager.equipment_manager.fuse(elem_main, elem_mat)
+	_check(bool(er.get("ok", false)), "融合出元素序列规则",
+		[str(er.get("reason", ""))])
+	GameManager.equipment_manager.equip(EquipmentDefs.Slot.CHEST, elem_main)
+	player.equip_fx.reload_passives()
+	await get_tree().process_frame
+	var rules: Dictionary = player.get("_elem_rules")
+	_check(rules.has("elem_seq_distinct"), "「元素之戒」装配了连续不同元素规则",
+		["实际=%s" % str(rules.keys())])
+
+	# ② **行为断言**：喂 3 次不同元素 → 序列判定为「全不同」
+	player.call("clear_elem_rules")
+	player.call("add_elem_rule", "elem_seq_distinct",
+		{"count": 3, "mult": 1.5, "use_ap": true})
+	# 造一个木桩接收爆炸
+	var enemy = _spawn_dummy(player)
+	if enemy == null:
+		_check(false, "刷出测试木桩")
+		return
+	player.set("_elem_sequence", [] as Array[int])
+	# 前两次不同元素：不该触发（不足 3 次）
+	player.set("_last_elem_target", enemy)
+	player.call("_record_elem_attack", 0, enemy)   # 火
+	player.call("_record_elem_attack", 1, enemy)   # 冰
+	_check(int(player.get("_elem_same_target_count")) == 2,
+		"连续同一目标计数 = 2", ["实际=%d" % int(player.get("_elem_same_target_count"))])
+	# 第三次仍是不同元素 → 触发爆炸（序列被清空）
+	player.call("_record_elem_attack", 2, enemy)   # 雷
+	_check((player.get("_elem_sequence") as Array).is_empty(),
+		"触发后序列被清空（避免每击都炸）")
+
+	# ③ 重复元素不该触发：喂 火火火
+	player.call("_record_elem_attack", 0, enemy)
+	player.call("_record_elem_attack", 0, enemy)
+	player.call("_record_elem_attack", 0, enemy)
+	_check(not (player.get("_elem_sequence") as Array).is_empty(),
+		"三个**相同**元素不触发（序列未被清空）",
+		["序列=%s" % str(player.get("_elem_sequence"))])
+
+	# ④ `_last_n_all_distinct` 的边界
+	player.set("_elem_sequence", [0, 1, 2] as Array[int])
+	_check(bool(player.call("_last_n_all_distinct", 3)), "三个不同元素 → true")
+	player.set("_elem_sequence", [0, 1, 1] as Array[int])
+	_check(not bool(player.call("_last_n_all_distinct", 3)), "含重复 → false")
+	player.set("_elem_sequence", [0, 1] as Array[int])
+	_check(not bool(player.call("_last_n_all_distinct", 3)), "不足 3 个 → false")
+
+	player.call("clear_elem_rules")
+	enemy.queue_free()
+	_reset()
+
+
+## 刷一个测试木桩（血厚、无护甲、无闪避）
+func _spawn_dummy(player: Node3D):
+	var EB = load("res://entities/enemies/enemy_base.gd")
+	if EB == null:
+		return null
+	var e = EB.new()
+	get_tree().current_scene.add_child(e)
+	e.global_position = player.global_position + Vector3(0, 0, -2)
+	e.set("_hp", 1000000.0)
+	e.set("defense", 0.0)
+	e.set("dodge_pct", 0.0)
+	return e
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:

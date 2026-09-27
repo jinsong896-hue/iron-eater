@@ -346,6 +346,15 @@ func elem_stacks(elem: int) -> int:
 	return int(_elem_stacks.get(elem, 0))
 
 
+## 清空**全部**元素层数（装备参考2：元素终焉「清空所有状态」）
+##
+## 与 `clear()` 的区别：那个连 buff 一起清（换层/重开局用），
+## 这个只清元素叠层——终焉只该清元素，不该顺带清掉护盾/增益。
+func clear_elements() -> void:
+	_elem_stacks.clear()
+	_frozen_until = 0.0
+
+
 ## 元素上下文（供联动判定与伤害结算取用）
 func element_context(elem: int) -> Dictionary:
 	var cfg: Dictionary = ElementDefs.get_element(elem)

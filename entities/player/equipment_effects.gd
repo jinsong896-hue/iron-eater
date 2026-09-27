@@ -36,6 +36,9 @@ var _energy_store_dirty := false
 ## 故不能走 `_fire(trig)`，必须走 `_fire_all_sentinels`。
 const _SENTINEL_RULES := [
 	"stationary_buff", "aura_damage", "energy_store", "summon_death_boom",
+	# B3 元素序列（2026-09-27）
+	"elem_seq_distinct", "elem_seq_same_target", "elem_finale",
+	"elem_finale_refresh", "elem_rotate", "elem_next_skill",
 ]
 
 
@@ -337,6 +340,13 @@ func _apply_trigger(a: AffixData, inst) -> void:
 				return
 			"energy_store":
 				_merge_energy_store(a)
+				return
+			# —— B3 元素序列（2026-09-27）——
+			"elem_seq_distinct", "elem_seq_same_target", "elem_finale", \
+			"elem_finale_refresh", "elem_rotate", "elem_next_skill":
+				if player.has_method("add_elem_rule"):
+					player.call("add_elem_rule", a.trigger_buff,
+						a.trigger_params.duplicate(true))
 				return
 	# **触发型词条**（`OP_TRIGGER_BUFF`）：给自己挂一条具名词条。
 	#

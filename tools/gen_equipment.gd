@@ -1139,6 +1139,47 @@ func _parse_main(s: String) -> String:
 		return "[%d, \"energy_store\", 1.0, 0.0, {\"splash_pct\": %s}]" % [
 			OP_TRIGGER_BUFF, splash]
 
+	# ---------- 8i. 元素序列 / 终焉（2026-09-27，6 条）----------
+	#
+	# 这一族需要一个**元素序列追踪器**：记录最近几次攻击用的元素与目标，
+	# 才能判定「连续3次**不同**元素」「连续攻击**同一目标**3次」。
+	#
+	# 追踪器落在 `Player._elem_sequence`（环形缓冲）+ `_last_hit_target`。
+	# 三条词条各自声明判定条件，由 `_check_elem_sequence` 结算。
+
+	# ① 连续 N 次不同元素 → 元素爆炸（「连续3次不同元素后，触发元素爆炸（150%法强）」）
+	if s.contains("不同元素") and s.contains("元素爆炸"):
+		m = _re(r"连续\s*(\d+)\s*次不同元素").search(s)
+		var n1: String = m.get_string(1) if m else "3"
+		m = _re(r"元素爆炸[（(]\s*(\d+(?:\.\d+)?)%\s*法强").search(s)
+		var m1: String = _f(m.get_string(1)) if m else "1.5"
+		return "[%d, \"elem_seq_distinct\", 1.0, 0.0, {\"count\": %s, \"mult\": %s, \"use_ap\": true}]" % [
+			OP_TRIGGER_BUFF, n1, m1]
+	# ② 连续攻击同一目标 N 次 → 元素爆炸（「连续攻击同一目标3次后，触发元素爆炸（150%攻击力）」）
+	if s.contains("同一目标") and s.contains("元素爆炸"):
+		m = _re(r"连续攻击同一目标\s*(\d+)\s*次").search(s)
+		var n2: String = m.get_string(1) if m else "3"
+		m = _re(r"元素爆炸[（(]\s*(\d+(?:\.\d+)?)%\s*攻击力").search(s)
+		var m2: String = _f(m.get_string(1)) if m else "1.5"
+		return "[%d, \"elem_seq_same_target\", 1.0, 0.0, {\"count\": %s, \"mult\": %s}]" % [
+			OP_TRIGGER_BUFF, n2, m2]
+	# ③ 使用不同元素技能 → 下一技能增伤（「使用不同元素技能时，下一个技能伤害+25%并附带对应元素状态」）
+	if s.contains("使用不同元素技能时"):
+		m = _re(r"下一个技能伤害\s*\+\s*(\d+(?:\.\d+)?)%").search(s)
+		var p3: String = _f(m.get_string(1)) if m else "0.25"
+		return "[%d, \"elem_next_skill\", 1.0, 0.0, {\"bonus_pct\": %s}]" % [OP_TRIGGER_BUFF, p3]
+	# ④ 六种状态同时存在 → 元素终焉（「造成600%法强全元素伤害并清空所有状态」）
+	if s.contains("六种状态同时存在时"):
+		m = _re(r"造成\s*(\d+(?:\.\d+)?)%\s*法强").search(s)
+		var m4: String = _f(m.get_string(1)) if m else "6.0"
+		return "[%d, \"elem_finale\", 1.0, 0.0, {\"mult\": %s, \"clear\": true}]" % [OP_TRIGGER_BUFF, m4]
+	# ⑤ 终焉触发后重新施加（「元素终焉触发后，六种状态重新施加且持续时间刷新」）
+	if s.contains("元素终焉触发后"):
+		return "[%d, \"elem_finale_refresh\", 1.0, 0.0, {\"refresh\": true}]" % OP_TRIGGER_BUFF
+	# ⑥ 技能自动轮转六元素（「技能自动轮转六元素；每种元素对敌人施加独立状态」）
+	if s.contains("自动轮转六元素"):
+		return "[%d, \"elem_rotate\", 1.0, 0.0, {\"rotate\": true}]" % OP_TRIGGER_BUFF
+
 	# ---------- 9. 数值型（统一查找：面板属性优先，再扩展通道） ----------
 	#
 	# 覆盖三种写法（规格的吞噬/融合列大量使用后两种）：

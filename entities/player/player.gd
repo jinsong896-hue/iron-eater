@@ -150,6 +150,23 @@ var _energy_rule: Dictionary = {}
 ## 当前储存的能量（点数）
 var _energy_stored := 0.0
 
+# —— B3 元素序列（2026-09-27）——
+## 最近几次攻击的元素（环形缓冲，最多 8 个）
+##
+## 装备参考2：「连续3次不同元素后，触发元素爆炸」需要它。
+## 只存元素、不存目标——「同一目标」另有 `_last_elem_target` 追踪。
+var _elem_sequence: Array[int] = []
+## 最近一次被元素攻击命中的目标（判「连续攻击同一目标 N 次」）
+var _last_elem_target: Node3D = null
+## 连续命中同一目标的次数
+var _elem_same_target_count := 0
+## 元素规则：{seq_distinct, seq_same, finale, refresh, rotate, next_skill}
+var _elem_rules: Dictionary = {}
+## 「使用不同元素技能 → 下一个技能增伤」的待发加成
+var _elem_next_skill_bonus := 0.0
+## 本件装备是否已触发过终焉（防止重复，直到状态被清空）
+var _elem_finale_fired := false
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -1835,6 +1852,11 @@ func _apply_splash_damage(center: Node3D, _base_damage: float) -> void:
 ## 把本次攻击的元素叠到目标身上，并处理阈值触发（冰冻/雷暴）## 攻击元素来源：已装备武器的 element 字段；未赋予则为纯物理，不叠层。
 func _apply_element_to(enemy: Node3D) -> void:
 	_apply_element_to_holder(enemy.get("buffs"))
+	# B3 元素序列：记录本次元素攻击 + 目标，供「连续N次不同元素」
+	# 「连续攻击同一目标N次」「六种状态共存」判定使用。
+	# **必须在这里记录**（有节点引用）——`_apply_element_to_holder`
+	# 只拿到 BuffHolder，「同一目标」判定无从下手。
+	_record_elem_attack(attack_element, enemy)
 
 
 ## 给目标挂元素层数（按 holder 版本）。
@@ -2624,6 +2646,7 @@ func clear_passive_rules() -> void:
 	_aura_accum = 0.0
 	_energy_rule = {}
 	_energy_stored = 0.0
+	clear_elem_rules()
 	if _stationary_active:
 		_clear_stationary_buff()
 
@@ -2674,6 +2697,123 @@ func _release_stored_energy(enemy: Node3D) -> float:
 			(e as Node3D).call("take_damage", sd, false, Vector3.ZERO, self)
 			EventBus.damage_popup.emit((e as Node3D).global_position, sd, "normal")
 	return dmg
+
+
+# ============================================================
+# B3 元素序列 / 终焉（2026-09-27）
+# ============================================================
+
+## 写入元素序列规则（由 `PlayerEquipmentEffects` 在装备变更时调用）
+##
+## `key` 是规则名（`elem_seq_distinct` / `elem_finale` / …），
+## `params` 是该规则自己的参数字典。
+func add_elem_rule(key: String, params: Dictionary) -> void:
+	_elem_rules[key] = params
+
+
+## 记录一次元素攻击，推进序列与「同一目标」计数
+##
+## 由 `_apply_element_to_holder` 调用（那里知道本次攻击的元素与目标）。
+## **非元素攻击不记录**——序列的语义是「元素攻击的序列」，
+## 混入物理攻击会让「连续3次不同元素」永远判定失败。
+func _record_elem_attack(elem: int, target: Node3D) -> void:
+	if elem < 0:
+		return
+	# 环形缓冲，保留最近 8 次
+	_elem_sequence.append(elem)
+	if _elem_sequence.size() > 8:
+		_elem_sequence.pop_front()
+	# 「连续攻击同一目标」计数：换了目标就重置为 1
+	if target != null and target == _last_elem_target:
+		_elem_same_target_count += 1
+	else:
+		_elem_same_target_count = 1
+		_last_elem_target = target
+	# 本件装备的终焉只触发一次，直到状态被清空
+	_check_elem_sequence(target)
+
+
+## 判定元素序列规则（三条：连续不同元素 / 同一目标 / 终焉）
+func _check_elem_sequence(target: Node3D) -> void:
+	if _elem_rules.is_empty():
+		return
+	# ① 连续 N 次**不同**元素 → 元素爆炸
+	if _elem_rules.has("elem_seq_distinct") and target != null:
+		var p: Dictionary = _elem_rules["elem_seq_distinct"]
+		var need := int(p.get("count", 3))
+		if _last_n_all_distinct(need):
+			_elem_explode(target, float(p.get("mult", 1.5)), bool(p.get("use_ap", false)))
+			_elem_sequence.clear()   # 触发后清空，避免每击都炸
+	# ② 连续攻击**同一目标** N 次 → 元素爆炸
+	if _elem_rules.has("elem_seq_same_target") and target != null:
+		var p2: Dictionary = _elem_rules["elem_seq_same_target"]
+		if _elem_same_target_count >= int(p2.get("count", 3)):
+			_elem_explode(target, float(p2.get("mult", 1.5)), false)
+			_elem_same_target_count = 0   # 同上
+	# ③ 六种状态同时存在 → 元素终焉
+	if _elem_rules.has("elem_finale") and target != null and not _elem_finale_fired:
+		if _has_all_six_elements(target):
+			var p3: Dictionary = _elem_rules["elem_finale"]
+			_elem_explode(target, float(p3.get("mult", 6.0)), true)
+			# 「并清空所有状态」
+			if bool(p3.get("clear", false)):
+				_clear_target_elements(target)
+			_elem_finale_fired = true
+
+
+## 最近 `n` 个元素是否**两两不同**
+func _last_n_all_distinct(n: int) -> bool:
+	if n <= 0 or _elem_sequence.size() < n:
+		return false
+	var tail := _elem_sequence.slice(_elem_sequence.size() - n, _elem_sequence.size())
+	var seen := {}
+	for e in tail:
+		if seen.has(e):
+			return false
+		seen[e] = true
+	return true
+
+
+## 目标身上六种元素状态是否都在（`elem_stacks > 0` 即算）
+func _has_all_six_elements(target: Node3D) -> bool:
+	var tb = target.get("buffs")
+	if tb == null or not tb.has_method("elem_stacks"):
+		return false
+	for i in 6:   # ElementDefs.Elem 是 0..5（火冰雷土风毒）
+		if int(tb.call("elem_stacks", i)) <= 0:
+			return false
+	return true
+
+
+## 清空目标的六种元素层数（终焉的「清空所有状态」）
+func _clear_target_elements(target: Node3D) -> void:
+	var tb = target.get("buffs")
+	if tb == null:
+		return
+	# 元素层数住在 BuffHolder 的内部表；走 `reset_elements` 统一清
+	if tb.has_method("clear_elements"):
+		tb.call("clear_elements")
+
+
+## 元素爆炸：对目标造成一段伤害
+func _elem_explode(target: Node3D, mult: float, use_ap: bool) -> void:
+	var base := GameManager.stat_value("ap") if use_ap else GameManager.stat_value("atk")
+	var dmg := base * mult
+	if dmg <= 0.0:
+		return
+	target.call("take_damage", dmg, false, Vector3.ZERO, self)
+	EventBus.damage_popup.emit(target.global_position, dmg, "crit")
+	EventBus.message.emit("元素爆炸！")
+
+
+## 清空元素规则（装备变更时）
+func clear_elem_rules() -> void:
+	_elem_rules = {}
+	_elem_sequence.clear()
+	_last_elem_target = null
+	_elem_same_target_count = 0
+	_elem_finale_fired = false
+	_elem_next_skill_bonus = 0.0
 
 
 ## ⑤ 消费待发冲击波（由普攻命中调用），返回是否释放了
