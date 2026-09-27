@@ -358,8 +358,17 @@ func _trigger_of(spec: String) -> int:
 
 
 ## 从规格字面量里取 stack_max（STACK_GAIN 的第 5 项）
+##
+## **不能要求到行尾**：尾部还可能跟第 6 槽（条件阈值）与第 7 槽（参数字典）。
+## 旧正则结尾是 `\]`，于是 `[4, 1, Stat.ATK, 0.03, 5, 0]` 匹配失败、
+## 被当成 stack_max=0——**检查器自己的假警报**。
 func _stack_of(spec: String) -> int:
-	var m := _re(r"^\[4,\s*\d+,\s*[^,]+,\s*[^,]+,\s*(\d+)\]").search(spec)
+	var m := _re(r"^\[4,\s*\d+,\s*[^,]+,\s*[^,]+,\s*(\d+)").search(spec)
+	if m:
+		return int(m.get_string(1))
+	# 触发型可以在参数字典里覆盖层数上限（装备参考2：同一条词条
+	# 「（最多5层）」vs「（最多8层）」——表定值不够用）
+	m = _re(r"\"max_stacks\":\s*(\d+)").search(spec)
 	if m:
 		return int(m.get_string(1))
 	return 0

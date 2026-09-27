@@ -69,6 +69,13 @@ func apply(buff_id: String, source: String = "buff", stacks: int = 1,
 		if resist > 0.0 and randf() < clampf(resist, 0.0, 0.75):
 			return {"ok": false, "reason": "被异常状态抗性抵抗"}
 	var max_stacks := int(row[4])
+	# **层数上限可被本次施加覆盖**（`override_params.max_stacks`）。
+	#
+	# 装备参考2 里同一条词条不同装备的**层数上限不同**：
+	# 「攻击施加"猎杀标记"（最多5层）」vs「（最多8层）」——`BuffDefs`
+	# 只能写一个值。不覆盖的话两件装备的标记会共用同一个上限。
+	if override_params.has("max_stacks"):
+		max_stacks = int(override_params["max_stacks"])
 	if not _buffs.has(buff_id):
 		_buffs[buff_id] = {
 			"stacks": 0, "remaining": float(row[3]),

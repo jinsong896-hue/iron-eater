@@ -586,7 +586,8 @@ func _parse_one(s: String) -> String:
 	# 时长从**整条原文**取（主句里通常没有），失败则 0（= 永久，与旧行为一致）。
 	var dur := _duration_from_text(s)
 	if _is_plain_spec(spec):
-		return _wrap_with_trigger(spec, trig, float(t["param"]), dur)
+		return _wrap_with_trigger(spec, trig, float(t["param"]), dur,
+			_stack_max_from_text(s))
 
 	# 其他形态（扩展通道、周期型等）：**保留旧解析**
 	#
@@ -717,8 +718,12 @@ func _parse_main(s: String) -> String:
 		var md0 := _re(r"持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
 		if md0:
 			dur = float(md0.get_string(1))
-		return "[%d, \"%s\", 1.0, %.1f]" % [
-			OP_TRIGGER_BUFF, str(BUFF_OF.get(m.get_string(1), "poison_rot")), dur]
+		# 「（…最多5层）」的层数上限必须带上：`poison_rot` 表定 30 层，
+		# 而这条装备说的是 5 层——不带就被表定值盖掉。
+		var ms := _stack_max_from_text(s)
+		var extra := "" if ms <= 0 else ", {\"max_stacks\": %d}" % ms
+		return "[%d, \"%s\", 1.0, %.1f%s]" % [
+			OP_TRIGGER_BUFF, str(BUFF_OF.get(m.get_string(1), "poison_rot")), dur, extra]
 	m = _re(r"攻击有\s*(\d+)%\s*概率\s*(冰冻|麻痹|眩晕|缠绕|减速|中毒|燃烧|点燃|标记|沉默|缴械|恐惧|嘲讽)").search(s)
 	if m:
 		var dur := 0.0
@@ -1143,8 +1148,15 @@ func _parse_main(s: String) -> String:
 	if not s.contains("冻结") and not s.contains("冰冻"):
 		m = _re(r"(?:目标|敌人)[^。]{0,14}?受到(?:冰霜|火焰|雷电|毒素|暗影)?伤害\s*\+?\s*(\d+)%").search(s)
 		if m:
-			return "[%d, \"judgement\", 1.0, 0.0, {\"vuln\": %s}]" % [
-				OP_TRIGGER_BUFF, _f(m.get_string(1))]
+			# 「（最多8层，持续6秒），每层使目标…」——层数上限与时长一并带上
+			var ms3 := _stack_max_from_text(s)
+			var p3: String = "\"vuln\": %s" % _f(m.get_string(1))
+			if ms3 > 0:
+				p3 += ", \"max_stacks\": %d" % ms3
+			var d3 := _duration_from_text(s)
+			if d3 > 0.0:
+				p3 += ", \"seconds\": %.4f" % d3
+			return "[%d, \"judgement\", 1.0, 0.0, {%s}]" % [OP_TRIGGER_BUFF, p3]
 	m = _re(r"\d+层时.*?必定暴击").search(s)
 	if m:
 		# 「必定暴击且暴击伤害+50%」——裸属性只能表达后半段。
@@ -1750,13 +1762,20 @@ func _parse_main(s: String) -> String:
 		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
 	m = _re(r"攻击施加.*?每层\s*\+?(\d+)%\s*暴击率").search(s)
 	if m:
-		return "[Stat.CRT, %s, true]" % _f(m.get_string(1))
+		# 「攻击施加"猎杀标记"（最多5层），每层+3%暴击率」——
+		# 机制是**给目标挂标记**，玩家自己拿的是标记带来的**对自己**增益
+		# （暴击率）。层数上限必须带上，否则退化成 `BuffDefs` 表定值。
+		var ms := _stack_max_from_text(s)
+		var ex := "" if ms <= 0 else ", {\"max_stacks\": %d}" % ms
+		return "[%d, \"mark\", 1.0, 0.0%s]" % [OP_TRIGGER_BUFF, ex]
 	# 「攻击施加"猎神标记"…每层+5%受到伤害」——这是给**目标**的易伤，
 	# 不是自己的处决线。见下方 `target_vuln` 规则的说明。
 	m = _re(r"攻击施加.*?每层\s*\+?(\d+)%\s*受到伤害").search(s)
 	if m:
-		return "[%d, \"target_vuln\", 1.0, 0.0, {\"pct\": %s, \"per_stack\": true}]" % [
-			OP_TRIGGER_BUFF, _f(m.get_string(1))]
+		var ms2 := _stack_max_from_text(s)
+		var ms_slot := "" if ms2 <= 0 else ", \"max_stacks\": %d" % ms2
+		return "[%d, \"target_vuln\", 1.0, 0.0, {\"pct\": %s, \"per_stack\": true%s}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1)), ms_slot]
 	m = _re(r"暴击时减少所有技能冷却\s*(\d+)\s*秒").search(s)
 	if m:
 		return "[Stat.CDR, 0.20, true]"
@@ -3086,7 +3105,7 @@ func _trigger_of_clause(clause: String) -> Dictionary:
 ## 再包一层 `[4, trig, ...]` 会变成「条件满足时施加一个 buff」，
 ## 语义重复且 `_make_one_affix` 解不出来。故原样保留。
 func _wrap_with_trigger(spec: String, trig: int, param: float,
-		duration: float = 0.0) -> String:
+		duration: float = 0.0, stack_max: int = 0) -> String:
 	# 触发型 / 附带元素型：原样保留（它们自带触发语义）
 	if spec.begins_with("[%d," % OP_TRIGGER_BUFF) \
 			or spec.begins_with("[%d," % OP_BONUS_ELEMENT):
@@ -3107,17 +3126,31 @@ func _wrap_with_trigger(spec: String, trig: int, param: float,
 		# 「生命低于30%时…」与「生命低于50%时…」是两条独立词条，
 		# 若都退化成 0.5，低血 30% 那条会在 30%~50% 区间**提前生效**。
 		if trig == TRIG_LOW_HP and param > 0.0:
-			return "[%d, %d, %s, %s, 0, %.4f]" % [OP_STACK_GAIN, trig, stat, v,
-				param]
-		# 第 6 槽留给条件阈值，故时长走**第 7 槽的参数字典**——
-		# `STACK_GAIN` 的解析已支持第 7 槽（见 equipment_db 的 `_make_one_affix`）。
+			return "[%d, %d, %s, %s, %d, %.4f]" % [OP_STACK_GAIN, trig, stat, v,
+				stack_max, param]
+		# **层数上限（第 5 槽）**：「每次冲刺叠加1层"踏虚"（最多3层）」少了它
+		# 就**永不叠层**——「最多3层」形同虚设。此前被硬编码成 0。
 		if duration > 0.0:
-			return "[%d, %d, %s, %s, 0, 0, {\"seconds\": %.4f}]" % [
-				OP_STACK_GAIN, trig, stat, v, duration]
-		return "[%d, %d, %s, %s, 0]" % [OP_STACK_GAIN, trig, stat, v]
+			return "[%d, %d, %s, %s, %d, 0, {\"seconds\": %.4f}]" % [
+				OP_STACK_GAIN, trig, stat, v, stack_max, duration]
+		return "[%d, %d, %s, %s, %d]" % [OP_STACK_GAIN, trig, stat, v, stack_max]
 
 	# 其他形态（周期型等）：原样保留，不强行包装
 	return spec
+
+
+## 从原文抽「叠加 N 层」的**上限**（无则 0）
+##
+## 必须优先取「最多/可叠」：「受到伤害叠加1层"不朽"（最多15层）」里
+## 两个数字**都是层数**但含义相反——`1` 是每次叠几层，`15` 才是上限。
+func _stack_max_from_text(t: String) -> int:
+	var m := _re(r"(?:最多|可叠加?|最多可叠)\s*(\d+)\s*层").search(t)
+	if m:
+		return int(m.get_string(1))
+	m = _re(r"叠加\s*(\d+)\s*层").search(t)
+	if m:
+		return int(m.get_string(1))
+	return 0
 
 
 ## 从原文抽「持续 N 秒」（无则 0）
@@ -3157,33 +3190,47 @@ func _duration_from_text(s: String) -> float:
 func _time_bound_wrap(spec: String, text: String) -> String:
 	if spec.is_empty() or spec.begins_with("__"):
 		return spec
-	# 括号内的时长属于子效果（标记/区域/分身），不补
-	if text.contains("（") or text.contains("("):
+	# 括号内的时长属于子效果（标记/区域/分身），不补。
+	# **但层数上限恰恰常写在括号里**（「（最多15层）」），故单独取。
+	var has_dur := not (text.contains("（") or text.contains("("))
+	var dur := _duration_from_text(text) if (has_dur and text.contains("获得")) else 0.0
+	var want_stack := _stack_max_from_text(text)
+	if dur <= 0.0 and want_stack <= 0:
 		return spec
-	# 必须是「获得…持续N秒」这种自身增益写法
-	if not text.contains("获得"):
-		return spec
-	var dur := _duration_from_text(text)
-	if dur <= 0.0:
-		return spec
-	# 叠层型：**已有触发条件、只缺时长** → 补第 7 槽
+	# 叠层型：**已有触发条件、只缺时长/层数** → 补第 5 槽与第 7 槽
 	if _is_stack_spec(spec):
+		# 已带参数字典时**只补层数**（时长/其它参数已有，重建会破坏）
 		if spec.contains("{"):
-			return spec
+			if want_stack <= 0:
+				return spec
+			var mm := _re(r"^\[4,\s*(\d+),\s*([^,]+),\s*([^,]+),\s*(\d+),\s*(.+)\]$").search(spec)
+			if mm == null or int(mm.get_string(4)) != 0:
+				return spec
+			return "[%d, %s, %s, %s, %d, %s]" % [OP_STACK_GAIN,
+				mm.get_string(1), mm.get_string(2), mm.get_string(3),
+				want_stack, mm.get_string(5)]
 		var m := _re(r"^\[4,\s*(\d+),\s*(.+)\]$").search(spec)
 		if m == null:
 			return spec
-		var slots := m.get_string(2).split(",")
-		while slots.size() < 5:
+		var trig := m.get_string(1)
+		var slots: Array = m.get_string(2).split(",")
+		# 归一化成 `[stat, value, stack_max, threshold]` 四槽
+		while slots.size() < 4:
 			slots.append(" 0")
-		return "[%d, %s, %s, {\"seconds\": %.4f}]" % [
-			OP_STACK_GAIN, m.get_string(1), ", ".join(slots), dur]
+		# **层数上限要从原文补**：`每次冲刺叠加1层"踏虚"（最多3层），每层+5%闪避`
+		# 少了 stack_max 就**永不叠层**——「最多3层」形同虚设。
+		if want_stack > 0 and int(str(slots[2]).strip_edges()) == 0:
+			slots[2] = " %d" % want_stack
+		if dur > 0.0:
+			return "[%d, %s, %s, {\"seconds\": %.4f}]" % [
+				OP_STACK_GAIN, trig, ", ".join(slots), dur]
+		return "[%d, %s, %s]" % [OP_STACK_GAIN, trig, ", ".join(slots)]
 	# 裸属性：条件也没了（无逗号的「X后获得…」）→ 一并补上 trigger 与时长
 	if _is_plain_spec(spec):
 		var trig := _infer_trigger_from_text(text)
 		if trig == TRIG_ALWAYS:
 			return spec
-		return _wrap_with_trigger(spec, trig, 0.0, dur)
+		return _wrap_with_trigger(spec, trig, 0.0, dur, want_stack)
 	return spec
 
 
@@ -3205,6 +3252,8 @@ func _infer_trigger_from_text(t: String) -> int:
 		return TRIG_ON_DODGE
 	if t.contains("冲刺") or t.contains("冲锋") or t.contains("疾跑"):
 		return TRIG_ON_SPRINT
+	if t.contains("受到元素伤害") or t.contains("元素抗性触发"):
+		return TRIG_ON_ELEMENT_PROC
 	if t.contains("召唤"):
 		return TRIG_ON_SUMMON_ALIVE
 	if t.contains("陷阱"):
