@@ -807,11 +807,129 @@ func _perform_jump_landing() -> void:
 
 
 ## 扇形近战判定（普攻/连段用）
+##
+## **低血范围化**（装备参考2 狂战士之怒「生命低于50%时，普通攻击变为
+## 范围攻击，造成150%伤害」）：低血时改用**圆形 AOE**判定，半径由
+## `basic_attack_expand_radius`（融合列「范围扩大」）决定，缺省 `BA_AOE_RADIUS`。
+## 伤害倍率在 `_basic_attack_aoe_mult()` 里乘上（150% → ×1.5）。
+##
+## 融合列的「范围扩大」只给半径、不给倍率——两者是同一机制的**两半**，
+## 故这里合并判定：只要有 `basic_attack_aoe` 或 `basic_attack_expand_radius`
+## 任一且处于低血，就切圆形判定。
 func _perform_melee_attack(multiplier: float, reach: float, half_angle: float, knockback: float) -> void:
-	var hit_any := _hit_enemies_in_cone(multiplier, reach, half_angle, knockback)
+	var hit_any: bool
+	if _basic_attack_is_aoe():
+		multiplier *= _basic_attack_aoe_mult()
+		var radius := _basic_attack_aoe_radius(reach)
+		hit_any = _hit_enemies_in_circle(multiplier, radius, knockback)
+	else:
+		hit_any = _hit_enemies_in_cone(multiplier, reach, half_angle, knockback)
 	if hit_any:
 		_register_hit_combo()
 	_finish_attack_feedback(hit_any)
+
+
+## 低血普攻范围化的默认半径（米）
+##
+## 规格只写了「变为范围攻击」，没给米数。取 2.5：略小于跳跃落地 AOE，
+## 但明显大于普通扇形普攻，符合「砍一圈」的手感。
+## 融合列的「范围扩大」会通过 `basic_attack_expand_radius` 覆盖它。
+const BA_AOE_RADIUS := 2.5
+
+
+## 当前是否处于「普攻变范围」状态
+##
+## 条件是**该词条自己的阈值**（`basic_attack_aoe_threshold`，规格
+## 「生命低于50%时」）——不能复用 `_low_hp_active`：
+## 那是 `Trigger.LOW_HP` 词条的开关，而这条走的是 `SKILL_MOD` 通道。
+## 两者同源于血量但**各自判定**，混用会让「没装低血词条就永不触发」。
+func _basic_attack_is_aoe() -> bool:
+	var m := _basic_attack_mods()
+	if m.is_empty() or GameManager.attributes == null:
+		return false
+	var max_hp: float = float(GameManager.attributes.max_hp)
+	if max_hp <= 0.0:
+		return false
+	var th := float(m.get("basic_attack_aoe_threshold", 0.5))
+	return float(GameManager.attributes.hp) / max_hp < th
+
+
+## 普攻范围化的**绝对**半径（米）
+##
+## 融合列「范围扩大」给的是绝对半径（规格原文只有三个字，没给数值，
+## 生成器按 3.5 米落地），**不是**在基础射程上加。故这里整体覆盖，
+## 而不是 `reach + 增量`——那会随不同武器的基础射程漂移。
+##
+## 没有融合词条时取「基础射程与 BA_AOE_RADIUS 的较大者」：
+## 范围攻击不该比同武器的扇形普攻还短。
+func _basic_attack_aoe_radius(base_reach: float) -> float:
+	var m := _basic_attack_mods()
+	if m.has("basic_attack_expand_radius"):
+		return float(m["basic_attack_expand_radius"])
+	return maxf(base_reach, BA_AOE_RADIUS)
+
+
+## 普攻范围化的伤害倍率（规格「造成150%伤害」→ 1.5）
+func _basic_attack_aoe_mult() -> float:
+	var m := _basic_attack_mods()
+	return float(m.get("basic_attack_aoe_mult", 1.0))
+
+
+## 取「改普攻形态」的装备修饰量
+##
+## ## 为什么不能走 `_skill_mods_for`
+##
+## 那个函数是按「**哪个技能**来自这件装备」匹配的（`own.id == my_id`）——
+## 而普攻**不属于任何装备技能**，没有 id 可比。故这里单独扫一遍
+## 已装备的词条里 `trigger_params` 带 `basic_attack_` 前缀的项。
+##
+## 多件装备同时声明时**后写覆盖前写**（取最后遇到的）——这类词条
+## 目前只有狂战士之怒一件，冲突时也不需要叠乘。
+func _basic_attack_mods() -> Dictionary:
+	var out: Dictionary = {}
+	var em = GameManager.equipment_manager
+	if em == null or not em.has_method("get_equipped"):
+		return out
+	for slot in em.get_equipped().values():
+		var inst = slot
+		if inst == null:
+			continue
+		var tpl = inst.get_template()
+		if tpl == null:
+			continue
+		for arr in [tpl.own_affixes, inst.extra_affixes]:
+			for a in arr:
+				if a == null or a.operation != AffixData.Operation.SKILL_MOD:
+					continue
+				for k in a.trigger_params:
+					if str(k).begins_with("basic_attack_"):
+						out[str(k)] = a.trigger_params[k]
+	return out
+
+
+## 圆形内的敌人命中（低血普攻范围化用）
+##
+## 与 `_hit_enemies_in_cone` 的差别只在判据（圆 vs 扇形），
+## 两条路径共用 `_apply_hit` / `_apply_hit_crowd`，伤害口径一致。
+func _hit_enemies_in_circle(multiplier: float, radius: float, knockback: float) -> bool:
+	var hit_any := false
+	for enemy in get_tree().get_nodes_in_group("enemies"):
+		if not _is_valid_enemy(enemy):
+			continue
+		var dist: float = (enemy as Node3D).global_position.distance_to(global_position)
+		if dist > radius:
+			continue
+		_apply_hit(enemy as Node3D, multiplier, knockback)
+		hit_any = true
+	# 群体单位（CrowdSim）不在场景树里，走查询而不是遍历组
+	var mgr = _crowd_manager()
+	if mgr != null and int(mgr.get("active")) > 0 \
+			and mgr.has_method("query_circle"):
+		var ids = mgr.call("query_circle", global_position.x, global_position.z, radius)
+		for id in ids:
+			_apply_hit_crowd(mgr, int(id), multiplier, knockback)
+			hit_any = true
+	return hit_any
 
 
 ## 装备词条·射程乘区（`rng`）

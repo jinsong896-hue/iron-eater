@@ -1170,9 +1170,9 @@
 双重打击	own	攻击有25%概率追加一次50%伤害的攻击	[118, 0.2500, true]
 双重打击	devour	攻击力+5%	[Stat.ATK, 0.0500, true]
 双重打击	fusion	追加攻击概率提升至40%	[118, 0.2500, true]
-狂战士之怒	own	生命低于50%时，普通攻击变为范围攻击，造成150%伤害	[4, 11, 136, 0.5000, 0, 0.5000]
+狂战士之怒	own	生命低于50%时，普通攻击变为范围攻击，造成150%伤害	[8, {"basic_attack_aoe": true, "basic_attack_aoe_mult": 1.5000, "basic_attack_aoe_threshold": 0.5000}]
 狂战士之怒	devour	生命偷取+5%	[100, 0.0500, true]
-狂战士之怒	fusion	范围扩大	__MISS__
+狂战士之怒	fusion	范围扩大	[8, {"basic_attack_expand_radius": 3.5000}]
 幸运之刃	own	攻击有15%概率造成双倍伤害	[118, 0.1500, true]
 幸运之刃	devour	暴击率+3%	[Stat.CRT, 0.0300, true]
 幸运之刃	fusion	概率提升至25%	[117, 0.2000, true]

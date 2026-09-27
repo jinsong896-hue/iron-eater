@@ -967,15 +967,35 @@ func _parse_main(s: String) -> String:
 	if m:
 		return "[%d, %d, %d, %s, 0]" % [
 			OP_STACK_GAIN, TRIG_ON_SKILL_CAST, SP["cd_refresh"], _f(m.get_string(2))]
+	# 范围扩大（狂战士之怒的融合列）
+	#
+	# 规格原文只有这三个字，**没有任何数值**，也没说扩大多少米。
+	# 它是「生命低于50%时，普攻变为范围攻击」的**强化**——故落地为
+	# 「把该普攻的范围半径提到 3.5 米」（自有列的默认 2.5 米）。
+	#
+	# 用 `SKILL_MOD` 而不是压成属性：它改的是**普攻的形态**，
+	# 压成 `aoe_dmg_pct` 会让狂暴期间只多 50% 伤害、半径纹丝不动。
+	# 走 `basic_attack_expand_radius` 前缀，**不需要技能名**——
+	# `_skill_mods_for` 是按「哪个技能的来源装备」匹配的，
+	# 而普攻不属于任何装备技能，故必须单独取。
+	if s == "范围扩大":
+		return "[%d, {\"basic_attack_expand_radius\": 3.5000}]" % OP_SKILL_MOD
+
 	# 生命低于 N% 时，普通攻击变为范围攻击，造成 M% 伤害
 	#
-	# 「变为范围攻击」本身需要普攻形态切换（不在裸属性可表达范围），
-	# 但**伤害倍率**可提取：M% 是相对基础的倍率，超出 100% 的部分
-	# 记进 `aoe_dmg`（范围伤害增伤）。这样至少伤害提升生效。
+	# ## 这里此前是错的（用户 2026-09-27 指出）
+	#
+	# 旧版把 M% 压成 `aoe_dmg_pct` 属性（`M/100 - 1`）——**语义完全不对**：
+	# 「造成 150% 伤害」指的是**这一击**造成攻击力 150%，而
+	# `aoe_dmg_pct` 是「所有范围技能伤害 +N%」的被动增伤。
+	# 更要紧的是「**变为范围攻击**」这个机制整个没落地。
+	#
+	# 现改为走 `SKILL_MOD` 的普攻通道，由玩家在低血时切换普攻判定形态。
 	m = _re(r"生命(?:值)?低于\s*(\d+)%\s*时[，,]?普通攻击变为范围攻击[，,]?造成\s*(\d+)%\s*伤害").search(s)
 	if m:
-		var bonus := maxf(float(m.get_string(2)) / 100.0 - 1.0, 0.0)
-		return "[%d, %.4f, true]" % [SP["aoe_dmg"], bonus]
+		return "[%d, {\"basic_attack_aoe\": true, \"basic_attack_aoe_mult\": %.4f, \"basic_attack_aoe_threshold\": %.4f}]" % [
+			OP_SKILL_MOD, float(m.get_string(2)) / 100.0,
+			float(m.get_string(1)) / 100.0]
 	# 点燃目标死亡时，火焰扩散至周围 N 米 → 目标死亡触发
 	if s.contains("点燃目标死亡时"):
 		return "[%d, \"burn\", 1.0, 4.0]" % OP_TRIGGER_BUFF

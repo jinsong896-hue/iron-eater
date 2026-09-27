@@ -52,6 +52,7 @@ func _ready() -> void:
 	await _test_b4_cheat_death()
 	await _test_skill_mod_channel()
 	await _test_b7_low_hp()
+	await _test_b7_berserker_rage()
 	_test_equipment_skills_exist()
 
 	if failed == 0:
@@ -1163,3 +1164,94 @@ func _test_equipment_skills_exist() -> void:
 	_check(missing.is_empty(),
 		"全部 GRANT_SKILL 都能在技能表里查到（%d 条无一悬空）" % checked,
 		missing.slice(0, 8))
+
+
+## 14. B7.4 狂战士之怒：低血普攻范围化
+##
+## ## 规格
+##
+## 「生命低于50%时，普通攻击变为范围攻击，造成150%伤害」
+## 「融合：范围扩大」
+##
+## ## 这里此前是**数据错**，不只是机制缺失
+##
+## 旧生成器把「造成150%伤害」压成 `aoe_dmg_pct = 0.5`——那是
+## 「所有范围技能伤害 +50%」的被动增伤，与「这一击造成攻击力 150%」
+## 完全不是一回事；而「变为范围攻击」这个机制整个没落地。
+## 现改走 `SKILL_MOD` 的普攻通道：
+##   `[8, {"basic_attack_aoe": true, "basic_attack_aoe_mult": 1.5}]`
+##   `[8, {"basic_attack_expand_radius": 3.5}]`（融合列）
+func _test_b7_berserker_rage() -> void:
+	print("\n--- B7.4 狂战士之怒：低血普攻范围化 ---")
+	var em = GameManager.equipment_manager
+	var attrs = GameManager.attributes
+	_reset()
+	await get_tree().process_frame
+
+	# —— 数据侧 ——
+	var tpl = _find_by_name("狂战士之怒")
+	if tpl == null:
+		_check(false, "找到「狂战士之怒」")
+		return
+	var own_ok := false
+	for a in tpl.own_affixes:
+		if a != null and a.operation == AffixData.Operation.SKILL_MOD \
+				and bool(a.trigger_params.get("basic_attack_aoe", false)):
+			own_ok = true
+			_check(absf(float(a.trigger_params.get("basic_attack_aoe_mult", 0.0)) - 1.5) < 0.01,
+				"自有列倍率 = 1.5（规格「造成150%伤害」）",
+				[str(a.trigger_params)])
+	_check(own_ok, "自有列走 SKILL_MOD 的普攻通道（不是 aoe_dmg_pct 属性）")
+	# **反向断言**：不该再产出 `aoe_dmg_pct` 词条
+	var bad := false
+	for a2 in tpl.own_affixes:
+		if a2 != null and a2.stat == EquipmentDB.special_enum_of("aoe_dmg"):
+			bad = true
+	_check(not bad, "自有列**没有**被压成 aoe_dmg_pct（旧的错映射）")
+
+	# —— 行为侧：低血才切范围判定 ——
+	var inst := _make_inst_by_name("狂战士之怒")
+	if inst == null:
+		_check(false, "构造实例")
+		return
+	em.equip(EquipmentDefs.Slot.WEAPON_1, inst)
+	await get_tree().process_frame
+	var player: Node3D = _player()
+	if player == null:
+		return
+
+	attrs.hp = float(attrs.max_hp)
+	player.call("_tick_low_hp", 0.016)
+	_check(not bool(player.call("_basic_attack_is_aoe")), "满血时普攻**不是**范围攻击")
+
+	attrs.hp = float(attrs.max_hp) * 0.30
+	player.call("_tick_low_hp", 0.016)
+	_check(bool(player.call("_basic_attack_is_aoe")), "低血时普攻变为范围攻击")
+	_check(absf(float(player.call("_basic_attack_aoe_mult")) - 1.5) < 0.01,
+		"低血时倍率 1.5 生效")
+	_check(absf(float(player.call("_basic_attack_aoe_radius", 2.0)) - 2.5) < 0.01,
+		"未融合时半径 = 2.5（默认）",
+		["实际=%.2f" % float(player.call("_basic_attack_aoe_radius", 2.0))])
+
+	# —— 融合「范围扩大」→ 半径提到 3.5 ——
+	#
+	# `范围扩大` 在**融合列**——按规格「作为副材融合时给主装备」，
+	# 穿戴原装备时不生效。必须：融合进主装备 → 进 extra_affixes → 再穿上。
+	_reset()
+	await get_tree().process_frame
+	GameManager.gold = 1000
+	var main_inst := _make_inst_by_name("被腐蚀的长剑")   # WEAPON
+	var mat_inst := _make_inst_by_name("狂战士之怒")       # WEAPON，融合列带半径
+	if main_inst == null or mat_inst == null:
+		_check(false, "构造融合实例")
+		return
+	var fr: Dictionary = em.fuse(main_inst, mat_inst)
+	_check(bool(fr.get("ok", false)), "融合出「范围扩大」", [str(fr.get("reason", ""))])
+	em.equip(EquipmentDefs.Slot.WEAPON_1, main_inst)
+	await get_tree().process_frame
+	attrs.hp = float(attrs.max_hp) * 0.30
+	player.call("_tick_low_hp", 0.016)
+	_check(absf(float(player.call("_basic_attack_aoe_radius", 2.0)) - 3.5) < 0.01,
+		"融合「范围扩大」后半径 = 3.5",
+		["实际=%.2f" % float(player.call("_basic_attack_aoe_radius", 2.0))])
+	_reset()
