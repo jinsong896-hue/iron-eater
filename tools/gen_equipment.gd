@@ -535,6 +535,14 @@ func _parse_one(s: String) -> String:
 		# 不能一律报未映射：实测那样会让 56 条旧规则本已处理的词条
 		# 变成「未映射」（如「5层时…」「标记目标死亡时…」这类，
 		# 我的从句映射表没穷举到，但旧规则认得）。
+		#
+		# **哨兵值要先判**：`__SKILL__` / `__UNMAPPED__` 不是「解不出来」，
+		# 而是规则给出的**明确分类**（技能修饰 / 占位符）。
+		# `_trigger_of_spec` 对它们返回 -1，若不先判就会被误报未映射——
+		# 实测「不朽壁垒触发后，10秒内减伤+30%且免疫控制」卡在这里
+		#（规则已正确匹配并返回 `__SKILL__`，却被这个分支吃掉）。
+		if spec == "__SKILL__" or spec == "__UNMAPPED__":
+			return spec
 		if _trigger_of_spec(spec) >= 0:
 			return spec
 		_unmapped.append(s)
@@ -628,6 +636,34 @@ func _replace_trigger(spec: String, trig: int) -> String:
 func _parse_main(s: String) -> String:
 	if s.is_empty():
 		return ""
+	# ---------- 0a. 免死后效果（**必须最前**）----------
+	#
+	# 「不朽壁垒触发后，10秒内减伤+30%且免疫控制」「触发免死后，获得5秒无敌」
+	# —— 这两条是**免死机制的后续保护窗口**，效果已由
+	# `Player._try_cheat_death` 自动挂（见那里的 `eq_cheat_death_guard`），
+	# 故这里**只需识别并跳过**，不产出词条。
+	#
+	# **必须在最前**：否则「减伤+30%」会被更早的低血/减伤规则截胡成
+	# `[106, 0.3, true]`（元素抗性）——语义完全不对（实测踩到）。
+	if (s.contains("壁垒触发后") or s.contains("触发免死后")) \
+			and (s.contains("减伤") or s.contains("无敌")):
+		_skill_notes += 1
+		return "__SKILL__"
+	# ---------- 0b. 状态期间免疫（**必须在 0a 之后、第 1 节之前**）----------
+	#
+	# 「守护期间免疫击退」「石肤期间免疫击退」等——「状态名 + 期间 + 免疫X」。
+	#
+	# 走 `ON_BLOCK_STANCE`（状态期间触发）**复用已有链路**——那是
+	# 「石肤/大地守护/钢铁之躯期间」的既有 Trigger，语义相符。
+	#
+	# **必须在最前**：否则「免疫击退」会被更早的规则看成裸属性或
+	# `ctrl_resist`（实测「守护期间免疫击退」被解成 `[112, 1.0, true]`）。
+	#
+	# 用局部变量 `im` 而不是 `m`——`m` 在 `_parse_main` 的后面才声明，
+	# 这里用它会报 `Identifier "m" not declared`。
+	var im := _re(r"^(.{2,8})期间免疫(击退|击飞|控制|减速|伤害)").search(s)
+	if im:
+		return "[%d, %d, Stat.DEF, 0.0, 0]" % [OP_STACK_GAIN, TRIG_ON_BLOCK_STANCE]
 	# ---------- 0. 装备技能的修饰（**不是词条**） ----------
 	if s.begins_with("主动技能"):
 		return "__SKILL__"
@@ -1271,12 +1307,7 @@ func _parse_main(s: String) -> String:
 			cd_cd = m.get_string(1)
 		return "[%d, \"cheat_death\", 1.0, 0.0, {\"heal_pct\": %s, \"boom_pct\": %s, \"cooldown\": %s}]" % [
 			OP_TRIGGER_BUFF, cd_heal, cd_boom, cd_cd]
-	# 「不朽壁垒触发后，10秒内减伤+30%且免疫控制」——免死后的护盾窗口，
-	# 由 `Player._try_cheat_death` 自动挂（见那里的 `eq_cheat_death_guard`），
-	# 故这里**只需识别并吞掉**，不单独产出词条。
-	if s.contains("壁垒触发后") and s.contains("减伤"):
-		_skill_notes += 1   # 计入「已处理但不产出词条」
-		return "__SKILL__"
+	# **免死后效果已在第 0a 节统一处理**（那里必须最前，否则会被减伤规则截胡）
 
 	# 「释放终极技能时消耗所有灵魂，每层额外造成20%伤害」——
 	# 这是**技能修饰**（改终极技能=形态4技能的行为），不是玩家属性。
