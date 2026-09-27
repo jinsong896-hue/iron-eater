@@ -103,6 +103,9 @@ const SP := {
 	# 错映射成 `elem_resist`（106，元素抗性），语义完全不同：
 	# 元素抗性只挡元素伤害，伤害减免该挡全部来源。
 	"dmg_reduction": 146,
+	# 冷却刷新按**触发源**分键（击杀走 113）；闪避/暴击各自独立，
+	# 否则三件装备的触发时机全错（详见 equipment_db 的 SPECIAL_STAT 注释）
+	"cd_refresh_dodge": 147, "cd_refresh_crit": 148,
 }
 
 ## Operation / Trigger 枚举值（与 AffixData 一致）
@@ -905,7 +908,9 @@ func _parse_main(s: String) -> String:
 		return "[%d, %s, true]" % [SP["block"], _f(m.get_string(1))]
 	m = _re(r"闪避时有\s*(\d+)%\s*概率立即刷新冲刺冷却").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["cd_refresh"], _f(m.get_string(1))]
+		# **按触发源分键**：这条是「闪避时」，不能落进 `cd_refresh`
+		#（那是击杀路径）——否则击杀时白触发、闪避时反而不触发。
+		return "[%d, %s, true]" % [SP["cd_refresh_dodge"], _f(m.get_string(1))]
 	m = _re(r"闪避率?\s*(?:增加|\+)?\s*(\d+)%").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["dodge"], _f(m.get_string(1))]
@@ -1884,7 +1889,7 @@ func _parse_main(s: String) -> String:
 		return "[%d, %s, true]" % [SP["execute_line"], _f("5")]
 	m = _re(r"暴击时\s*(\d+)%\s*概率立即刷新一个技能冷却").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["cd_refresh"], _f(m.get_string(1))]
+		return "[%d, %s, true]" % [SP["cd_refresh_crit"], _f(m.get_string(1))]
 
 	# ---------- 21. 召唤 / 分身 / 图腾 ----------
 	# **灵魂召唤必须先于下面的兜底**：下面的规则把任何
@@ -1995,7 +2000,7 @@ func _parse_main(s: String) -> String:
 		return "[%d, \"bleed\", 0.30, 3.0]" % OP_TRIGGER_BUFF
 	m = _re(r"闪避成功时立即刷新冲刺冷却").search(s)
 	if m:
-		return "[%d, 1.0, true]" % SP["cd_refresh"]
+		return "[%d, 1.0, true]" % SP["cd_refresh_dodge"]
 	if s.contains("机制强化") or s.contains("被动增益"):
 		return "[%d, %s, true]" % [SP["elem_dmg"], _f("10")]
 
@@ -2322,7 +2327,7 @@ func _parse_main(s: String) -> String:
 		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_CRIT, _f(m.get_string(1))]
 	m = _re(r"暴击时\s*(\d+)%\s*概率刷新一个技能冷却").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["cd_refresh"], _f(m.get_string(1))]
+		return "[%d, %s, true]" % [SP["cd_refresh_crit"], _f(m.get_string(1))]
 	m = _re(r"每次攻击回复造成伤害的\s*(\d+)%\s*生命").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]

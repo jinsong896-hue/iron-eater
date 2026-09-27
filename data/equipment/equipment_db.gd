@@ -138,7 +138,20 @@ const SPECIAL_STAT := {
 	# 元素抗性只挡元素伤害，而「伤害减免」该挡全部来源。实测
 	# 「守护肩甲：生命值低于50%时，获得20%伤害减免」在数据库里就是
 	# `[4, 11, 106, 0.2, 0]`，玩家低血时只多了 20% 元素抗性。
-	"dmg_reduction":  {"enum": 146, "out": "dmg_reduction_pct"},   # 受到伤害 -N%
+	"dmg_reduction":  {"enum": 146, "out": "dmg_reduction_pct"},
+	# —— 2026-09-27：冷却刷新按**触发源**分键 ——
+	#
+	# `cd_refresh` 是个**合并池**，但表里的触发源有三种（击杀 / 闪避 / 暴击），
+	# 而消费者只有「击杀」与「闪避」两处。混在一起的后果实测：
+	# 「踏虚战靴：闪避成功时刷新冲刺」被当成「击杀时刷新」、
+	# 「预言者头盔：暴击时5%概率刷新」同样落到击杀路径——
+	# 三件装备的冷却刷新**触发时机全错**。
+	#
+	# 概率类与必定类也得分：`闪避时有5%概率刷新`（概率 0.05）与
+	# `闪避成功时立即刷新`（概率 1.0）语义不同，消费者读同一个键时
+	# 两者会互相污染。
+	"cd_refresh_dodge": {"enum": 147, "out": "cd_refresh_dodge_pct"},  # 闪避时刷新
+	"cd_refresh_crit":  {"enum": 148, "out": "cd_refresh_crit_pct"},   # 暴击时刷新
 	# —— 2026-09-26：职业资源点（装备参考2 的「获得 N 点怒气/魔力/…」）——
 	# 资源已统一为怒气/魔力/气劲三种，这些词条按「获得 N 点职业资源」处理，
 	# 谁装备谁生效（不再绑死某个职业）。
@@ -812,7 +825,7 @@ const CURATED_TABLE := [
   ["G043", "虚弱诅咒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[2, "fatigue", 0.0500, 3.0]], [[102, 0.0030, true]], [[2, "burn", 0.30, 3.0]]],
   ["G044", "护盾发生器", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[106, 0.0500, true]], [[140, 0.0050, true]], [[4, 14, Stat.ATK, 0.5000, 0]]],
   ["G045", "格挡者之盾", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[110, 0.0300, true]], [[110, 0.0030, true]], [[4, 9, 117, 0.1000, 0]]],
-  ["G046", "闪避之靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[113, 0.0500, true]], [[111, 0.0030, true]], [[4, 4, Stat.SPD, 0.0500, 0, 0, {"seconds": 2.0000}]]],
+  ["G046", "闪避之靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[147, 0.0500, true]], [[111, 0.0030, true]], [[4, 4, Stat.SPD, 0.0500, 0, 0, {"seconds": 2.0000}]]],
   ["G047", "荆棘护盾", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 6.7, false]], [[4, 15, 104, 0.0500, 0]], [[140, 0.0050, true]], [[4, 14, Stat.ATK, 1.0000, 0]]],
   ["G048", "连击指环", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 6.7, false]], [[4, 7, Stat.ATK,  0.0100,  5,  0]], [[4, 7, Stat.ATK, 0.0030, 0]], [[4, 7, Stat.ATK, 0.50, 0]]],
   ["G049", "处决者之刃", "sword", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 56.0, false]], [[105, 0.1000, true]], [[105, 0.0020, true]], [[4, 1, Stat.HP, 0.0500, 0]]],
@@ -972,8 +985,8 @@ const CURATED_TABLE := [
   ["P003", "影舞匕首", "dagger", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 105.0, false]], [[105, 0.6000, true], [4, 6, Stat.ASPD, 0.0400, 5]], [[105, 0.0300, true]], [[4, 5, Stat.CRD, 0.30, 0]]],
   ["P004", "猎杀者长弓", "bow", ["远程", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 140.0, false]], [[2, "judgement", 1.0, 0.0, {"vuln": 0.0400, "max_stacks": 5, "seconds": 8.0000}], [Stat.CRT, 0.30, true]], [[135, 0.0300, true]], [[4, 1, 105, 0.0500, 0]]],
   ["P005", "不灭壁垒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[4, 2, 146, 0.0200, 10], [4, 5, 106, 0.2000, 0]], [[Stat.DEF, 0.0300, true]], [[4, 14, Stat.ATK, 0.0, 0]]],
-  ["P006", "预言者头盔", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[4, 6, Stat.CRD,  0.0300,  5,  0], [4, 5, Stat.CRD, 0.50, 0]], [[Stat.CRT, 0.0200, true]], [[113, 0.0500, true]]],
-  ["P007", "踏虚战靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[116, 0.10, true], [4, 4, 111, 0.0500, 3]], [[Stat.SPD, 0.0300, true]], [[113, 1.0, true]]],
+  ["P006", "预言者头盔", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[4, 6, Stat.CRD,  0.0300,  5,  0], [4, 5, Stat.CRD, 0.50, 0]], [[Stat.CRT, 0.0200, true]], [[148, 0.0500, true]]],
+  ["P007", "踏虚战靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[116, 0.10, true], [4, 4, 111, 0.0500, 3]], [[Stat.SPD, 0.0300, true]], [[147, 1.0, true]]],
   ["P008", "元素之心", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[106, 0.1000, true], [4, 2, 117, 0.1500, 3]], [[106, 0.0200, true]], [[3, "fire", 0.3000]]],
   ["P009", "灵魂容器", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[4, 1, Stat.ATK,  0.0200,  10,  0], [4, 5, 119, 0.50, 0, 0, {"seconds": 5.0000}]], [[119, 0.0300, true]], [[8, {"ultimate_soul_per_stack": 0.2000}]]],
   ["P010", "霜噬巨剑", "greatsword", ["近战", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 224.0, false]], [[2, "judgement", 1.0, 0.0, {"vuln": 0.0400, "max_stacks": 8, "seconds": 6.0000}], [4, 5, Stat.ATK, 2.0000, 8]], [[122, 0.0300, true]], [[2, "freeze", 1.0, 1.5]]],
@@ -1102,7 +1115,7 @@ const CURATED_TABLE := [
   ["O014", "不朽者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[2, "cheat_death", 1.0, 0.0, {"heal_pct": 0.5000, "boom_pct": 0.0, "cooldown": 120}]], [[Stat.HP, 0.0500, true]], [[111, 0.5000, true]]],
   ["O015", "荆棘之王", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[104, 0.5000, true], [104, 0.20, true]], [[Stat.DEF, 0.0500, true]], [[104, 0.2000, true]]],
   ["O016", "疾风之靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[Stat.CDR, 0.5000, true], [4, 4, Stat.SPD, 0.5000, 0, 0, {"seconds": 3.0000}]], [[Stat.SPD, 0.0500, true]], [[117, 1.0000, true]]],
-  ["O017", "暴君之眼", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[Stat.CRT, 0.2500, true], [4, 6, Stat.HP, 0.0300, 0]], [[Stat.CRT, 0.0300, true]], [[113, 0.0500, true]]],
+  ["O017", "暴君之眼", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[Stat.CRT, 0.2500, true], [4, 6, Stat.HP, 0.0300, 0]], [[Stat.CRT, 0.0300, true]], [[148, 0.0500, true]]],
   ["O018", "元素之心", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[117, 0.4000, true], [2, "burn", 0.15, 3.0]], [[117, 0.0500, true]], [[102, 1.0, true]]],
   ["O019", "灵魂容器", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[4, 1, Stat.HP, 0.1500, 0], [106, 0.3000, true]], [[119, 0.0500, true]], [[4, 1, Stat.HP, 0.2000, 0]]],
   ["O020", "裂地巨斧", "greataxe", ["近战", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 364.0, false]], [[7, "eq_裂地巨斧", "裂地斩"]], [[Stat.ATK, 0.0500, true]], [[8, {"multi_hit_at": 3, "multi_hit_bonus": 7.0000}]]],

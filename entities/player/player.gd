@@ -1171,10 +1171,12 @@ func on_dodge_started() -> void:
 	_out_of_combat_time = 0.0
 	if ClassDefs.special_flag(class_id, form_slot, "dodge_immune_next"):
 		_dodge_immune_ready = true
-	# 装备词条·闪避刷新冲刺冷却（规格「闪避之靴：闪避时有5%概率立即刷新冲刺冷却」）。
-	# 同一个 `cd_refresh_pct` 通道，两种触发源（击杀 / 闪避）——
-	# 按规格文本归类时，凡「闪避时…刷新」的走这里，其余走击杀。
-	var cd_pct: float = float(_equip_special_mods().get("cd_refresh_pct", 0.0))
+	# 装备词条·闪避刷新冲刺冷却（规格「闪避之靴：闪避时有5%概率立即刷新冲刺冷却」
+	# 「踏虚战靴：闪避成功时立即刷新冲刺冷却」）。
+	#
+	# **读专用键** `cd_refresh_dodge_pct`，不是击杀用的 `cd_refresh_pct`：
+	# 两者混用会让「闪避时刷新」在**击杀时**白触发，而闪避时反而不触发。
+	var cd_pct: float = float(_equip_special_mods().get("cd_refresh_dodge_pct", 0.0))
 	if cd_pct > 0.0 and GameManager.rng.randf() < cd_pct:
 		_dodge_cooldown_timer = 0.0
 		EventBus.message.emit("闪避刷新冲刺冷却！")
@@ -1934,6 +1936,14 @@ func _apply_trigger_affixes(enemy: Node3D, damage: float) -> void:
 		# `on_hit` 是所有命中都触发，而这条只在**暴击**命中时叠加。
 		if _last_hit_was_crit:
 			equip_fx.on_crit_stack()
+			# 装备词条·暴击刷新冷却（「预言者头盔/暴君之眼：暴击时5%概率
+			# 立即刷新一个技能冷却」）。**专用键**——混进击杀通道会让
+			# 「暴击时刷新」变成「击杀时刷新」。
+			var crit_cd := float(_equip_special_mods().get("cd_refresh_crit_pct", 0.0))
+			if crit_cd > 0.0 and GameManager.rng.randf() < crit_cd:
+				if skills != null:
+					skills.reset_skill_cooldowns()
+				EventBus.message.emit("暴击刷新技能冷却！")
 	var em = GameManager.equipment_manager
 	if em == null or not em.has_method("equipped_trigger_affixes"):
 		return
