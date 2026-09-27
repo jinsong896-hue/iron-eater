@@ -354,6 +354,8 @@ func reset_skill_cooldowns() -> void:
 
 ## 冲刺类技能的位移执行（转发；SkillSystem 经 has_method 回调它）
 func apply_skill_dash(dir: Vector3, dist: float) -> void:
+	# 残影结算必须在位移**之前**（引爆用的是旧位置）
+	_on_dash_for_afterimage()
 	skills.apply_skill_dash(dir, dist)
 
 
@@ -560,6 +562,8 @@ func _physics_process(delta: float) -> void:
 	_tick_cheat_death(delta)
 	# B7 低血条件通道（`Trigger.LOW_HP` 词条按各自阈值挂/卸）
 	_tick_low_hp(delta)
+	# B7 残影存活时间
+	_tick_afterimages(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
 	if not _typing_input():
 		_poll_skill_input()
@@ -2604,6 +2608,155 @@ func _apply_low_hp_set(active: Array, form_bonus := 0.0, form_dr := 0.0) -> void
 	_low_hp_active = not active.is_empty() or form_bonus > 0.0 or form_dr > 0.0
 
 
+## ============================================================
+## B7 残影（装备参考2：踏虚神靴「位移·残影歼灭流」）
+## ============================================================
+#
+# 规格原文两行：
+#   · 自有：「冲刺留下残影（继承50%攻击，持续5秒，最多4个）；
+#     残影存在时再次冲刺可引爆所有残影，每个造成150%攻击力伤害；
+#     引爆后冲刺冷却立即刷新（每3秒最多触发1次）」
+#   · 融合：「引爆残影时，每个残影回复3%最大生命」
+#
+# ## 为什么用「时间戳数组」而不是节点
+#
+# 残影的伤害只取决于**它自己**（每个 150% 攻击力），不依赖额外状态，
+# 故不必造 `Node3D` 子类——存 `{pos, remain}` 就够。
+# 好处是可以脱离场景树单测（测试环境没有真实渲染）。
+#
+# ## 「继承50%攻击」为什么可以不落
+#
+# 那是**残影自己攻击**的设定（紫色版「冲刺后留下残影，残影爆炸造成
+# 50%攻击力伤害」）。橙色版的残影**只在引爆时**造成伤害，
+# 用的是 150% 攻击力——故 50% 这个数值在该装备上没有消费点。
+
+## 已存在的残影：`[{pos: Vector3, remain: float}, ...]`
+var _afterimages: Array = []
+## 残影规则（装备变更时装配）：空 = 无残影机制
+##   {life, max_count, explode_mult, refresh_cd, heal_pct}
+var _afterimage_rule: Dictionary = {}
+## 引爆刷新冲刺的冷却（规格「每3秒最多触发1次」）
+var _afterimage_refresh_cd := 0.0
+
+
+## 装配残影规则（由 `PlayerEquipmentEffects.reload_passives` 调用）
+func set_afterimage_rule(rule: Dictionary) -> void:
+	_afterimage_rule = rule
+	# 换装备时场上残影立刻失效——否则卸下装备后旧残影还能被引爆
+	if rule.is_empty():
+		_clear_afterimages()
+
+
+## 冲刺时调用：留下一个残影（残留期间再次冲刺则引爆，见 `_on_dash_for_afterimage`）
+func _spawn_afterimage() -> void:
+	if _afterimage_rule.is_empty():
+		return
+	var max_n := int(_afterimage_rule.get("max_count", 4))
+	# 超出上限时丢最老的（规格「最多4个」）
+	while _afterimages.size() >= max_n:
+		_afterimages.pop_front()
+	_afterimages.append({
+		"pos": global_position,
+		"remain": float(_afterimage_rule.get("life", 5.0)),
+	})
+	if fx != null:
+		fx.spawn_afterimage(global_position, Color(0.5, 0.6, 1.0, 0.45),
+			float(_afterimage_rule.get("life", 5.0)))
+
+
+## 冲刺时调用（**在留残影之前**）：若场上已有残影则引爆全部
+##
+## 返回是否引爆了（引爆与留影互斥——同一次冲刺只做一件事，
+## 否则「引爆→立即留一个」会让残影永远清不掉）。
+func _try_explode_afterimages() -> bool:
+	if _afterimages.is_empty():
+		return false
+	var mult := float(_afterimage_rule.get("explode_mult", 1.5))
+	var atk: float = float(GameManager.stat_value("atk"))
+	var healed_pct := float(_afterimage_rule.get("heal_pct", 0.0))
+	var healed_total := 0.0
+	for img in _afterimages:
+		var pos: Vector3 = img["pos"]
+		# 引爆点周围 1.5 米内的敌人吃伤害（残影是"原地炸开"，
+		# 不是全场——规格只说「每个残影造成150%攻击力伤害」，没给范围，
+		# 取 1.5 米与其它小范围效果同口径）
+		for n in get_tree().get_nodes_in_group("enemies"):
+			var e := n as Node3D
+			if e == null or not is_instance_valid(e):
+				continue
+			if e.global_position.distance_to(pos) > AFTERIMAGE_BLAST_RADIUS:
+				continue
+			if not e.has_method("take_damage"):
+				continue
+			var dmg := atk * mult
+			e.call("take_damage", dmg, false, Vector3.ZERO, self)
+			EventBus.damage_popup.emit(e.global_position, dmg, "aoe")
+		if healed_pct > 0.0:
+			healed_total += float(GameManager.attributes.max_hp) * healed_pct
+	_afterimages.clear()
+	if fx != null:
+		fx.kill_afterimages()
+	if healed_total > 0.0 and GameManager.attributes != null \
+			and not GameManager.attributes.is_dead():
+		var healed: float = GameManager.attributes.heal(healed_total)
+		if healed > 0.0:
+			EventBus.damage_popup.emit(global_position, healed, "heal")
+	# 引爆后刷新冲刺冷却（规格「每3秒最多触发1次」）
+	if _afterimage_refresh_cd <= 0.0:
+		_afterimage_refresh_cd = float(_afterimage_rule.get("refresh_cd", 3.0))
+		reset_cooldowns()
+		if skills != null:
+			skills.reset_skill_cooldowns()
+		EventBus.message.emit("引爆残影！冲刺已刷新")
+	else:
+		EventBus.message.emit("引爆残影！")
+	return true
+
+
+## 残影引爆半径（规格未给，取小范围与其它溅射同口径）
+const AFTERIMAGE_BLAST_RADIUS := 1.5
+
+
+## 每帧推进残影存活时间
+func _tick_afterimages(delta: float) -> void:
+	if _afterimage_refresh_cd > 0.0:
+		_afterimage_refresh_cd = maxf(_afterimage_refresh_cd - delta, 0.0)
+	if _afterimages.is_empty():
+		return
+	for i in range(_afterimages.size() - 1, -1, -1):
+		var img: Dictionary = _afterimages[i]
+		img["remain"] = float(img["remain"]) - delta
+		if float(img["remain"]) <= 0.0:
+			_afterimages.remove_at(i)
+
+
+## 冲刺发生时的残影结算 —— 冲刺类动作的**统一入口**
+##
+## ## 为什么必须在位移**之前**调用
+##
+## 引爆用的是残影的**旧位置**。若先位移再引爆，玩家已经离开了那片区域，
+## 视觉上「在原地炸开」与代码实际结算的位置就对不上了。
+##
+## ## 有残余 → 引爆；没有 → 留一个
+##
+## 规格「残影存在时再次冲刺可引爆所有残影」——两者**互斥**：
+## 同一次冲刺只做一件事。若引爆后立刻又留一个，残影永远清不干净，
+## 玩家也就永远触发不了引爆（每 5 秒才过期一次）。
+func _on_dash_for_afterimage() -> void:
+	if _afterimage_rule.is_empty():
+		return
+	if not _try_explode_afterimages():
+		_spawn_afterimage()
+
+
+## 清空场上全部残影（卸装备 / 死亡重生）
+func _clear_afterimages() -> void:
+	_afterimages.clear()
+	_afterimage_refresh_cd = 0.0
+	if fx != null:
+		fx.kill_afterimages()
+
+
 ## 伤害反弹：把本次受到伤害的 N% 打回攻击者。
 ## 用 take_damage 回流，故对方的护甲/减伤照常参与结算——反弹是「以对方的
 ## 规则打对方」，不是真实伤害。
@@ -2950,6 +3103,9 @@ func clear_passive_rules() -> void:
 	if not _low_hp_sig.is_empty():
 		_low_hp_sig = ""
 		_apply_low_hp_set([])
+	# B7 残影：卸下装备后场上残影立刻失效
+	_afterimage_rule = {}
+	_clear_afterimages()
 
 
 ## ⑥ 写入能量储存规则（「伤害储存护符」）

@@ -28,6 +28,9 @@ var player: Node3D = null
 ## 能量储存参数的**跨条累积器**（见 `_merge_energy_store`）
 var _energy_store_pending: Dictionary = {}
 var _energy_store_dirty := false
+## 残影参数的跨条累积器（自有列 + 融合列各自只带一部分）
+var _afterimage_pending: Dictionary = {}
+var _afterimage_dirty := false
 
 ## **规则型 sentinel**（常驻规则，不看 `trigger`）
 ##
@@ -41,6 +44,8 @@ const _SENTINEL_RULES := [
 	"elem_finale_refresh", "elem_rotate", "elem_next_skill",
 	# B4 免死（2026-09-27）
 	"cheat_death",
+	# B7 残影（2026-09-27）
+	"afterimage",
 ]
 
 
@@ -94,6 +99,8 @@ func reload_passives() -> void:
 		player.call("clear_passive_rules")
 	# 跨条累积器也要清（否则上一件装备的能量储存参数会残留）
 	_energy_store_pending.clear()
+	_afterimage_pending.clear()
+	_afterimage_dirty = false
 	_energy_store_dirty = false
 	# 再按当前装备重建
 	#
@@ -105,6 +112,7 @@ func reload_passives() -> void:
 	_fire_all_sentinels()
 	# 重建完成后提交累积结果（能量储存需要三条合并后才完整）
 	_flush_energy_store()
+	_flush_afterimage()
 
 
 ## 扫描**全部**已装备词条里的规则型 sentinel（忽略 `trigger`）
@@ -349,6 +357,10 @@ func _apply_trigger(a: AffixData, inst) -> void:
 				if player.has_method("add_elem_rule"):
 					player.call("add_elem_rule", a.trigger_buff,
 						a.trigger_params.duplicate(true))
+				return
+			# —— B7 残影（2026-09-27）——
+			"afterimage":
+				_merge_afterimage(a)
 				return
 			# —— B4 免死机制（2026-09-27）——
 			"cheat_death":
@@ -655,3 +667,29 @@ func _em():
 	if gm == null:
 		return null
 	return gm.get("equipment_manager")
+
+
+## ⑦ 残影（装备参考2：踏虚神靴「位移·残影歼灭流」）
+##
+## ## 跨列机制，与能量储存同构
+##
+## 自有列给「留影 + 引爆」的参数，融合列给「引爆回血」。两列**各自只带
+## 一部分参数**，故必须累积合并再交给 Player——逐条覆盖会让后一条
+## 冲掉前一条，表现为「能引爆但不回血」或反之。
+##
+## 复用 `_energy_store_pending` 那套累积器模式：在 `reload_passives`
+## 开头清空、末尾 flush。
+func _merge_afterimage(a: AffixData) -> void:
+	_afterimage_pending["afterimage"] = true
+	for k in a.trigger_params:
+		_afterimage_pending[k] = a.trigger_params[k]
+	_afterimage_dirty = true
+
+
+## 把累积的残影参数提交给 Player
+func _flush_afterimage() -> void:
+	if not _afterimage_dirty or player == null:
+		return
+	if player.has_method("set_afterimage_rule"):
+		player.call("set_afterimage_rule", _afterimage_pending.duplicate(true))
+	_afterimage_dirty = false

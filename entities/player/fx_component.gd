@@ -202,3 +202,81 @@ static func _get_slash_mesh(reach: float, half_angle: float) -> ArrayMesh:
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	_slash_mesh_cache[key] = mesh
 	return mesh
+
+
+# ============================================================
+# 残影（装备参考2：踏虚神靴「冲刺留下残影」）
+# ============================================================
+
+## 残影材质缓存（按颜色；alpha 由渐隐 tween 控制，故键里不含 a）
+static var _afterimage_mat_cache := {}
+
+## 残影池（复用，避免每次冲刺都 new/free MeshInstance3D）
+var _afterimage_pool: Array[MeshInstance3D] = []
+
+
+## 生成一个残影（**纯视觉**——计时与引爆逻辑在 Player 侧）
+##
+## ## 为什么只做视觉
+##
+## 残影的**生命周期**（持续 5 秒、最多 4 个、可被引爆）是机制状态，
+## 必须能脱离渲染独立判定（测试环境没有渲染器）。故 Player 持有
+## `_afterimages` 数组，本函数只负责「在给定位置留一个半透明剪影」。
+##
+## ## 为什么 clone 玩家 mesh 而不是用固定形状
+##
+## 玩家模型是运行时按形态重建的（`rebuild_mesh`），用固定胶囊体
+## 会在某些形态下明显不一致。clone 现有 mesh 的几何数据即可，
+## 无需材质（整体换成半透明单色，符合"残影"的视觉语义）。
+func spawn_afterimage(pos: Vector3, color: Color, life: float) -> void:
+	if _model == null or _model.mesh == null:
+		return
+	var node := _acquire_afterimage_node()
+	node.mesh = _model.mesh
+	node.material_override = _get_afterimage_material(color)
+	node.global_position = pos
+	node.visible = true
+	# 时长到点渐隐（0.3 秒淡出，避免"啪"地消失）
+	var tween := player.create_tween()
+	tween.tween_interval(maxf(life - 0.3, 0.0))
+	tween.tween_property(node, "transparency", 1.0, 0.3)
+	tween.tween_callback(func(): _release_afterimage_node(node))
+
+
+## 立即销毁一个残影（引爆时用——不等渐隐）
+func kill_afterimages() -> void:
+	for n in _afterimage_pool:
+		if is_instance_valid(n) and n.visible:
+			_release_afterimage_node(n)
+
+
+func _acquire_afterimage_node() -> MeshInstance3D:
+	for n in _afterimage_pool:
+		if is_instance_valid(n) and not n.visible:
+			n.transparency = 0.0
+			return n
+	var node := MeshInstance3D.new()
+	node.name = "Afterimage"
+	node.transparency = 0.0
+	_afterimage_pool.append(node)
+	player.get_parent().add_child(node)
+	return node
+
+
+func _release_afterimage_node(node: MeshInstance3D) -> void:
+	if not is_instance_valid(node):
+		return
+	node.visible = false
+
+
+static func _get_afterimage_material(color: Color) -> StandardMaterial3D:
+	var key := "%.3f_%.3f_%.3f" % [color.r, color.g, color.b]
+	if _afterimage_mat_cache.has(key):
+		return _afterimage_mat_cache[key]
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_afterimage_mat_cache[key] = mat
+	return mat

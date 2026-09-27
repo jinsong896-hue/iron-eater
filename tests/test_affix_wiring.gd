@@ -53,6 +53,7 @@ func _ready() -> void:
 	await _test_skill_mod_channel()
 	await _test_b7_low_hp()
 	await _test_b7_berserker_rage()
+	await _test_b7_afterimage()
 	_test_equipment_skills_exist()
 
 	if failed == 0:
@@ -1254,4 +1255,101 @@ func _test_b7_berserker_rage() -> void:
 	_check(absf(float(player.call("_basic_attack_aoe_radius", 2.0)) - 3.5) < 0.01,
 		"融合「范围扩大」后半径 = 3.5",
 		["实际=%.2f" % float(player.call("_basic_attack_aoe_radius", 2.0))])
+	_reset()
+
+
+## 15. B7.5 踏虚神靴：残影机制
+##
+## ## 规格（自有 + 融合，跨列）
+##
+## 自有：「冲刺留下残影（继承50%攻击，持续5秒，最多4个）；
+##        残影存在时再次冲刺可引爆所有残影，每个造成150%攻击力伤害；
+##        引爆后冲刺冷却立即刷新（每3秒最多触发1次）」
+## 融合：「引爆残影时，每个残影回复3%最大生命」
+##
+## ## 残影实体此前完全不存在
+##
+## 不只是一条词条未映射——整套「留影 → 引爆 → 刷新冲刺」循环都不存在。
+## 现由 Player 持有 `_afterimages` 时间戳数组（纯逻辑，可脱离渲染单测），
+## 视觉走 `fx.spawn_afterimage`（半透明克隆 mesh）。
+func _test_b7_afterimage() -> void:
+	print("\n--- B7.5 踏虚神靴：残影 ---")
+	var em = GameManager.equipment_manager
+	var attrs = GameManager.attributes
+	_reset()
+	await get_tree().process_frame
+
+	# —— 数据侧：三条自有 + 一条融合都进了 trigger_params ——
+	var tpl = _find_by_name("踏虚神靴")
+	if tpl == null:
+		_check(false, "找到「踏虚神靴」")
+		return
+	var ai_count := 0
+	for a in tpl.own_affixes:
+		if a != null and a.trigger_buff == "afterimage":
+			ai_count += 1
+	_check(ai_count >= 2, "自有列有多条 afterimage 词条（%d 条）" % ai_count)
+	var fusion_heal := false
+	for a2 in tpl.fusion_affixes:
+		if a2 != null and a2.trigger_buff == "afterimage" \
+				and absf(float(a2.trigger_params.get("heal_pct", 0.0)) - 0.03) < 0.001:
+			fusion_heal = true
+	_check(fusion_heal, "融合列「引爆回复3%最大生命」已解析")
+
+	# —— 行为侧：穿戴 → 装配规则 ——
+	var inst := _make_inst_by_name("踏虚神靴")
+	if inst == null:
+		_check(false, "构造实例")
+		return
+	em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst)
+	await get_tree().process_frame
+	var player: Node3D = _player()
+	if player == null:
+		return
+	var rule: Dictionary = player.get("_afterimage_rule")
+	_check(not rule.is_empty(), "穿上后装配了残影规则", [str(rule)])
+	_check(absf(float(rule.get("life", 0.0)) - 5.0) < 0.01, "持续 5 秒（规格原值）")
+	_check(int(rule.get("max_count", 0)) == 4, "最多 4 个（规格原值）")
+	_check(absf(float(rule.get("explode_mult", 0.0)) - 1.5) < 0.01,
+		"引爆倍率 1.5（规格「每个造成150%攻击力伤害」）")
+
+	# —— 第一次冲刺：留影 ——
+	player.call("_on_dash_for_afterimage")
+	var imgs: Array = player.get("_afterimages")
+	_check(imgs.size() == 1, "第一次冲刺留下 1 个残影", ["实际=%d" % imgs.size()])
+
+	# —— 第二次冲刺：引爆（不留影） ——
+	# 放一个敌人在残影位置，验证真的吃到伤害
+	var dummy = _spawn_dummy(player)
+	if dummy != null:
+		dummy.global_position = (imgs[0]["pos"] as Vector3) + Vector3(0.5, 0, 0)
+	await get_tree().process_frame
+	var hp_before := float(dummy.get("_hp"))
+	player.call("_on_dash_for_afterimage")
+	imgs = player.get("_afterimages")
+	_check(imgs.is_empty(), "第二次冲刺引爆了全部残影（场上清零）",
+		["实际=%d" % imgs.size()])
+	if dummy != null and is_instance_valid(dummy):
+		_check(float(dummy.get("_hp")) < hp_before, "残影引爆对范围内敌人造成伤害",
+			["before=%.1f after=%.1f" % [hp_before, float(dummy.get("_hp"))]])
+	# 引爆触发了冲刺刷新（进冷却，规格「每3秒最多触发1次」）
+	_check(float(player.get("_afterimage_refresh_cd")) > 0.0,
+		"引爆后进入刷新冷却（每3秒最多一次）")
+
+	# —— 上限 4 个 ——
+	player.call("_clear_afterimages")
+	for i in 6:
+		player.call("_spawn_afterimage")
+	imgs = player.get("_afterimages")
+	_check(imgs.size() <= 4, "残影数量不超过 4（规格上限）",
+		["实际=%d" % imgs.size()])
+
+	# —— 卸下装备：规则清空、场上残影失效 ——
+	em.unequip(EquipmentDefs.Slot.ACCESSORY_1)
+	player.equip_fx.reload_passives()
+	await get_tree().process_frame
+	_check((player.get("_afterimage_rule") as Dictionary).is_empty(),
+		"卸下装备后残影规则清空")
+	_check((player.get("_afterimages") as Array).is_empty(),
+		"卸下装备后场上残影立刻失效")
 	_reset()
