@@ -1250,6 +1250,36 @@ func _parse_main(s: String) -> String:
 		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"proj_bounce_chance\": %.4f}]" % [
 			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0]
 
+	# ---------- 区域减速（装备参考2：毒雾/领域类，2026-09-28） ----------
+	#
+	# ## 统一产出中性 sentinel，由**装备侧**决定落到哪里
+	#
+	# 生成器逐行解析，拿不到「这件装备还有没有别的词条」——
+	# 而两类来源（装备自带光环 vs 技能开区域）的落地方式不同：
+	#   ① 有 `aura_damage` 的装备（荆棘领域）→ 挂到**同一个光环规则**上
+	#   ② 靠技能开区域的装备（毒雾弹 / 暗影领域）→ 挂到**那个区域**上
+	# 故这里只产出 `zone_slow` + 量级，路由交给
+	# `PlayerEquipmentEffects._merge_zone_slow`（它拿得到 inst）。
+	#
+	# 形态：「<领域>内敌人移速 -N%」
+	#
+	# **不锚定行首、也不要前缀分组**：实测文本就是「领域内敌人移速-20%」
+	#（没有「荆棘」之类的领域名前缀），锚 `^` 会一律匹配失败。
+	# 「内敌人移速」这个特征本身已足够特异，不会误伤。
+	m = _re(r"(?:领域|毒雾)内敌人移速\s*[-−]\s*(\d+)%").search(s)
+	if m:
+		return "[%d, \"zone_slow\", 1.0, 0.0, {\"slow_pct\": %s}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1))]
+	# 形态：「护盾存在时，周围敌人移速 -N%」（冰霜之心）
+	#
+	# 「护盾存在时」是**真的条件**（不是常驻），故标记 `require_shield`，
+	# 由 `Player._tick_aura` 判 `shield > 0` 后才施加——
+	# 否则这条会退化成「无条件光环减速」。
+	m = _re(r"护盾存在时[，,]?周围敌人移速\s*[-−]\s*(\d+)%").search(s)
+	if m:
+		return "[%d, \"zone_slow\", 1.0, 0.0, {\"slow_pct\": %s, \"require_shield\": true}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1))]
+
 	# ---------- 残影（踏虚神靴「位移·残影歼灭流」） ----------
 	#
 	# 规格三行，跨自有/融合两列：
@@ -1493,10 +1523,20 @@ func _parse_main(s: String) -> String:
 		return "[%d, \"spread_mark\", 1.0, 0.0, {\"count\": %s}]" % [OP_TRIGGER_BUFF, cnt]
 
 	# ③ 召唤物死亡爆炸（「护卫死亡时爆炸，造成50%法强伤害」）
+	#
+	# ## 两处此前不对
+	#
+	# ① 正则要求「造成」二字，而「守卫死亡时爆炸（80%法强）」是**括号写法**
+	#    ——匹配不到就一律回落成 0.5，实测 6 条里 2 条倍率错。
+	# ② **没区分法强/攻击力**：规格里两者都有
+	#    （守卫「80%法强」vs 分身「60%攻击力」），旧版全按法强算。
+	#    用户 2026-09-28 决策「按原文区分」，故把 `by` 一并存下来。
 	if s.contains("死亡时爆炸"):
-		m = _re(r"造成\s*(\d+(?:\.\d+)?)%\s*(?:法强|攻击力)").search(s)
+		m = _re(r"(\d+(?:\.\d+)?)%\s*(法强|法术强度|攻击力)").search(s)
 		var mult: String = _f(m.get_string(1)) if m else "0.5"
-		return "[%d, \"summon_death_boom\", 1.0, 0.0, {\"mult\": %s}]" % [OP_TRIGGER_BUFF, mult]
+		var by: String = "atk" if (m and m.get_string(2) == "攻击力") else "ap"
+		return "[%d, \"summon_death_boom\", 1.0, 0.0, {\"mult\": %s, \"by\": \"%s\"}]" % [
+			OP_TRIGGER_BUFF, mult, by]
 
 	# ④ 周期伤害光环（「周围3米敌人每秒受到15%攻击力伤害」）
 	#

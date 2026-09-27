@@ -3406,12 +3406,36 @@ func spread_mark_from(enemy: Node, count: int) -> void:
 
 
 ## ④ 写入伤害光环规则（「周围3米敌人每秒受到15%攻击力伤害」）
-func set_aura_rule(radius: float, mult: float, interval: float) -> void:
-	_aura_rule = {
-		"radius": maxf(radius, 0.5),
-		"mult": maxf(mult, 0.0),
-		"interval": maxf(interval, 0.2),
-	}
+## 装配光环规则（装备参考2：「周围N米敌人每秒受到伤害」/「领域内敌人移速-N%」）
+##
+## ## 为什么是**合并**而不是整体覆盖
+##
+## 「光环伤害」与「光环减速」常出现在**同一件装备的两条不同 affix** 上
+##（荆棘领域自有列是光环伤害、融合列是光环减速）。
+## 若后调用者整体覆盖，先装配的那条就被冲掉了——实测表现为
+## 「只有减速没有伤害」或反之。
+##
+## 故这里把非默认值**并入**现有规则：同名键后写覆盖、其余保留。
+## `clear_passive_rules` 会在换装备时清空 `_aura_rule`，故不会跨装备残留。
+##
+## `require_shield` 用于「**护盾存在时**，周围敌人移速-20%」（冰霜之心）：
+## 那是真条件，不是常驻——不加这个判定会退化成无条件光环减速。
+func set_aura_rule(radius: float, mult: float, interval: float,
+		slow_pct: float = 0.0, require_shield: bool = false) -> void:
+	if mult > 0.0:
+		_aura_rule["mult"] = maxf(mult, 0.0)
+		_aura_rule["radius"] = maxf(radius, 0.5)
+		_aura_rule["interval"] = maxf(interval, 0.2)
+	if slow_pct > 0.0:
+		_aura_rule["slow_pct"] = maxf(slow_pct, 0.0)
+		_aura_rule["require_shield"] = require_shield
+		# 纯减速光环（没有伤害）也要有半径与节奏
+		if not _aura_rule.has("radius"):
+			_aura_rule["radius"] = maxf(radius, 0.5)
+			_aura_rule["interval"] = maxf(interval, 0.2)
+	_aura_rule["mult"] = float(_aura_rule.get("mult", 0.0))
+	_aura_rule["radius"] = float(_aura_rule.get("radius", maxf(radius, 0.5)))
+	_aura_rule["interval"] = float(_aura_rule.get("interval", maxf(interval, 0.2)))
 	_aura_accum = 0.0
 
 
@@ -3423,11 +3447,30 @@ func _tick_aura(delta: float) -> void:
 	if _aura_accum < float(_aura_rule.get("interval", 1.0)):
 		return
 	_aura_accum = 0.0
+	var radius := float(_aura_rule.get("radius", 3.0))
+	# 光环内减速（装备参考2：荆棘领域「领域内敌人移速-20%」、
+	# 冰霜之心「护盾存在时，周围敌人移速-20%」）。
+	#
+	# 与「光环伤害」共用一个规则槽——两者常同时出现在同一件装备上
+	#（荆棘领域自有列是光环伤害、融合列是光环减速）。
+	# 每跳重挂（1.5 秒时长），离开光环后自然消退。
+	var slow_pct := float(_aura_rule.get("slow_pct", 0.0))
+	# 「护盾存在时」——真条件，无护盾时不施加（冰霜之心）
+	if bool(_aura_rule.get("require_shield", false)) and temp_shield <= 0.0:
+		slow_pct = 0.0
+	if slow_pct > 0.0:
+		for e in get_tree().get_nodes_in_group("enemies"):
+			if not _is_valid_enemy(e):
+				continue
+			if global_position.distance_to((e as Node3D).global_position) > radius:
+				continue
+			var eb = (e as Node3D).get("buffs")
+			if eb != null:
+				eb.call("apply", "slow", "equip_aura", 1, 1.5, {"slow": slow_pct})
 	var atk := GameManager.stat_value("atk")
 	var dmg := atk * float(_aura_rule.get("mult", 0.0))
 	if dmg <= 0.0:
 		return
-	var radius := float(_aura_rule.get("radius", 3.0))
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if not _is_valid_enemy(e):
 			continue

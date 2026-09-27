@@ -58,6 +58,7 @@ func _ready() -> void:
 	await _test_e_attack_bonus()
 	await _test_e_reflect_buff()
 	await _test_e_kill_gold()
+	_test_f_param_plumbing()
 	_test_equipment_skills_exist()
 
 	if failed == 0:
@@ -1750,3 +1751,88 @@ func _test_e_kill_gold() -> void:
 		_check(gained >= 10 and gained <= 50, "精英击杀掉 10~50 金币",
 			["实际=%d" % gained])
 	_reset()
+
+
+## 20. F1~F3：参数传递类（概率状态数值 / 区域减速 / 爆炸倍率）
+##
+## ## 这一族的共同点
+##
+## 机制都在、通道也对，**只是数值在解析中途丢了**——比「未映射」隐蔽，
+## 因为图鉴会显示、数据看起来正常、报告只是多一行。
+func _test_f_param_plumbing() -> void:
+	print("\n--- F1~F3：参数传递 ---")
+
+	# —— F1：概率状态的数值与时长 ——
+	var t1 = _find_by_name("冻结之息")
+	if t1 != null:
+		for a in t1.own_affixes:
+			if a != null and a.trigger_buff == "slow" and a.trigger_chance > 0.0:
+				_check(absf(float(a.trigger_params.get("slow", 0.0)) - 0.10) < 0.001,
+					"F1「冻结之息」减速量 10%（此前后整条丢）",
+					[str(a.trigger_params)])
+				_check(absf(a.trigger_duration - 2.0) < 0.001,
+					"F1「冻结之息」时长 2 秒（此前写死 3.0）",
+					["实际=%.1f" % a.trigger_duration])
+	var t2 = _find_by_name("剧毒之牙")
+	if t2 != null:
+		for a2 in t2.own_affixes:
+			if a2 != null and a2.trigger_buff == "poison_rot" and a2.trigger_chance >= 1.0:
+				_check(absf(float(a2.trigger_params.get("dot_atk", 0.0)) - 0.20) < 0.001,
+					"F1「剧毒之牙」每秒 20% 攻击力（此前只带层数、伤害为 0）",
+					[str(a2.trigger_params)])
+				# **参数覆盖是整体替换**：毒蚀的 vuln 必须同时带上
+				_check(a2.trigger_params.has("vuln"),
+					"F1 覆盖参数时带上 `vuln`（否则毒蚀的全局易伤被抹掉）")
+	var t3 = _find_by_name("荆棘长鞭")
+	if t3 != null:
+		for a3 in t3.own_affixes:
+			if a3 != null and a3.trigger_chance >= 1.0 and a3.trigger_buff == "bleed":
+				_check(true, "F1「荆棘长鞭」流血走 `bleed`（此前错挂 poison_rot）")
+	_check(_has_bleed(t3), "F1 流血通道已修正（bleed）")
+
+	# —— F2：区域减速 ——
+	var t4 = _find_by_name("毒雾短刃")
+	var zone_pct := 0.0
+	if t4 != null:
+		for a4 in t4.fusion_affixes:
+			if a4 != null and a4.trigger_buff == "zone_slow":
+				zone_pct = float(a4.trigger_params.get("slow_pct", 0.0))
+	_check(absf(zone_pct - 0.30) < 0.001, "F2「毒雾短刃」区域减速 30%（此前丢）",
+		["实际=%.3f" % zone_pct])
+	var t5 = _find_by_name("冰霜之心")
+	var cond := false
+	if t5 != null:
+		for a5 in t5.own_affixes:
+			if a5 != null and a5.trigger_buff == "zone_slow" \
+					and bool(a5.trigger_params.get("require_shield", false)):
+				cond = true
+	_check(cond, "F2「冰霜之心」带 require_shield（「护盾存在时」是真条件）")
+
+	# —— F3：召唤物爆炸倍率 + 口径 ——
+	var t6 = _find_by_name("召唤守卫")
+	if t6 != null:
+		for a6 in t6.fusion_affixes:
+			if a6 != null and a6.trigger_buff == "summon_death_boom":
+				_check(absf(float(a6.trigger_params.get("mult", 0.0)) - 0.8) < 0.001,
+					"F3「召唤守卫」爆炸 80%（此前写死 0.5）",
+					[str(a6.trigger_params)])
+				_check(str(a6.trigger_params.get("by", "")) == "ap",
+					"F3「召唤守卫」是法强口径")
+	var t7 = _find_by_name("暗影分身")
+	if t7 != null:
+		for a7 in t7.fusion_affixes:
+			if a7 != null and a7.trigger_buff == "summon_death_boom":
+				_check(str(a7.trigger_params.get("by", "")) == "atk",
+					"F3「暗影分身」是**攻击力**口径（与守卫不同）",
+					[str(a7.trigger_params)])
+
+
+## 该装备是否产出了 bleed 词条
+func _has_bleed(tpl) -> bool:
+	if tpl == null:
+		return false
+	for arr in [tpl.own_affixes, tpl.fusion_affixes]:
+		for a in arr:
+			if a != null and a.trigger_buff == "bleed":
+				return true
+	return false

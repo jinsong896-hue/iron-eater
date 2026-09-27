@@ -96,9 +96,15 @@ func _on_summon_died(pos: Vector3) -> void:
 	var gm = get_node_or_null("/root/GameManager")
 	if gm == null or player == null or not is_instance_valid(player):
 		return
-	# 伤害基准取**法强**（规格：「造成50%法强伤害」）
-	var ap: float = float(gm.call("stat_value", "ap")) if gm.has_method("stat_value") else 0.0
-	var dmg := ap * _death_boom_mult
+	# 伤害基准按规格原文二选一（装备参考2：召唤守卫「80%法强」vs
+	# 暗影分身「60%攻击力」）——用户 2026-09-28 决策「按原文区分」。
+	# 旧版**全按法强**算，攻击型召唤物的爆炸因此偏弱。
+	var base: float = 0.0
+	if _death_boom_by == "atk":
+		base = float(gm.call("stat_value", "atk")) if gm.has_method("stat_value") else 0.0
+	else:
+		base = float(gm.call("stat_value", "ap")) if gm.has_method("stat_value") else 0.0
+	var dmg := base * _death_boom_mult
 	if dmg <= 0.0:
 		return
 	var parent := _spawn_parent()
@@ -121,8 +127,13 @@ func _on_summon_died(pos: Vector3) -> void:
 
 
 ## 设置「召唤物死亡爆炸」的倍率（由 `PlayerEquipmentEffects` 在装备变更时调用）
-func set_death_boom(mult: float) -> void:
+func set_death_boom(mult: float, by: String = "ap") -> void:
 	_death_boom_mult = maxf(mult, 0.0)
+	_death_boom_by = by
+
+
+## 爆炸伤害的基准属性（"ap" 法强 / "atk" 攻击力），由规格原文决定
+var _death_boom_by := "ap"
 
 
 ## 回收全部召唤物（换房/玩家死亡时调用）

@@ -22,6 +22,11 @@ var heal_per_tick := 0.0       ## 区域内友方每跳回血（>0 时生效）
 var target_group := TARGET_PLAYER
 var friendly_group := ""       ## 回血作用的对象组（留空则不回血）
 var slow_buff := ""            ## 区域内目标持续挂的减速词条 id（陷阱型）
+## 减速**量级**（0.30 = 移速 -30%），作为 `override_params` 传给 `slow_buff`。
+##
+## **为什么需要**：`BuffDefs` 的 `slow` 只有表定 25%，而规格里
+## 「毒雾内敌人移速-30%」「领域内-20%」各不相同——不给量级就全落成 25%。
+var slow_pct := 0.0
 var follow: Node3D = null      ## 跟随目标（光环型）；为空则固定原地
 ## 是否绑定了跟随目标。**不能用 `follow != null` 判断**——Godot 4 中
 ## 已释放的对象引用与 null 比较**相等**，那样写会让「施法者已死」的分支
@@ -53,6 +58,7 @@ static func spawn(data: Dictionary, parent: Node3D) -> DamageZone:
 	z.target_group = str(data.get("target_group", TARGET_PLAYER))
 	z.friendly_group = str(data.get("friendly_group", ""))
 	z.slow_buff = str(data.get("slow_buff", ""))
+	z.slow_pct = float(data.get("slow_pct", 0.0))
 	z.follow = data.get("follow", null)
 	z._follows = z.follow != null
 	z.color = data.get("color", z.color)
@@ -168,6 +174,16 @@ func _apply_tick() -> void:
 			if tb == null:
 				continue
 			if global_position.distance_to((n as Node3D).global_position) <= radius:
-				tb.apply(slow_buff, my_source)
-			else:
+				if slow_pct > 0.0:
+					# **装备词条的减速**：带 1.5 秒时长并每跳刷新。
+					#
+					# 用户 2026-09-28 决策「持续刷新，离开后短暂残留」——
+					# 故**不做出区移除**，靠时长自然消退。比 source 配对移除
+					# 更稳（不必担心「被别的来源重新施加后撤不掉」）。
+					tb.apply(slow_buff, my_source, 1, 1.5, {"slow": slow_pct})
+				else:
+					# 既有陷阱（骸骨猎犬 / 坍方区）：进区施加、出区移除。
+					# 那条路径用的是 duration=0 的永久词条，故必须成对处理。
+					tb.apply(slow_buff, my_source)
+			elif slow_pct <= 0.0:
 				tb.remove_from_source(slow_buff, my_source)

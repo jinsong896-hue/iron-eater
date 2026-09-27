@@ -61,6 +61,8 @@ const _SENTINEL_RULES := [
 	"attack_bonus",
 	# E 组击杀掉金（2026-09-28）
 	"kill_gold",
+	# F2 区域减速（2026-09-28）
+	"zone_slow",
 ]
 
 
@@ -118,10 +120,13 @@ func reload_passives() -> void:
 	_prophecy_pending.clear()
 	_attack_bonus_pending.clear()
 	_kill_gold_pending.clear()
+	_zone_slow_aura.clear()
+	_zone_slow_skill = 0.0
 	_afterimage_dirty = false
 	_prophecy_dirty = false
 	_attack_bonus_dirty = false
 	_kill_gold_dirty = false
+	_zone_slow_dirty = false
 	_energy_store_dirty = false
 	# 再按当前装备重建
 	#
@@ -137,6 +142,7 @@ func reload_passives() -> void:
 	_flush_prophecy()
 	_flush_attack_bonus()
 	_flush_kill_gold()
+	_flush_zone_slow()
 
 
 ## 扫描**全部**已装备词条里的规则型 sentinel（忽略 `trigger`）
@@ -383,6 +389,11 @@ func _apply_trigger(a: AffixData, inst) -> void:
 						a.trigger_params.duplicate(true))
 				return
 			# —— B7 残影（2026-09-27）——
+			"zone_slow":
+				# `_apply_trigger` 只拿到词条、拿不到它属于哪个实例，
+				# 而路由需要知道「这件装备还有没有 aura_damage」。
+				_merge_zone_slow(a, _inst_of(a))
+				return
 			"kill_gold":
 				_merge_kill_gold(a)
 				return
@@ -627,7 +638,8 @@ func _register_summon_death_boom(a: AffixData) -> void:
 	var mgr = player.get("summons") if player != null else null
 	if mgr == null or not mgr.has_method("set_death_boom"):
 		return
-	mgr.call("set_death_boom", float(a.trigger_params.get("mult", 0.5)))
+	mgr.call("set_death_boom", float(a.trigger_params.get("mult", 0.5)),
+		str(a.trigger_params.get("by", "ap")))
 
 
 ## ④ 周期伤害光环（「周围3米敌人每秒受到15%攻击力伤害」）
@@ -637,10 +649,14 @@ func _activate_aura(a: AffixData) -> void:
 	if player == null or not player.has_method("set_aura_rule"):
 		return
 	var p: Dictionary = a.trigger_params
+	var slow := float(p.get("slow_pct", 0.0))
+	# 只有伤害、没有减速的纯伤害光环（绝大多数 aura_damage 词条）
 	player.call("set_aura_rule",
 		float(p.get("aura_radius", 3.0)),
 		float(p.get("aura_mult", 0.15)),
-		float(p.get("aura_interval", 1.0)))
+		float(p.get("aura_interval", 1.0)),
+		slow,
+		bool(p.get("require_shield", false)))
 
 
 ## ⑤ 资源满时下次攻击释放冲击波（「资源满时，下次攻击释放资源冲击波」）
@@ -785,6 +801,7 @@ func _flush_afterimage() -> void:
 	_prophecy_dirty = false
 	_attack_bonus_dirty = false
 	_kill_gold_dirty = false
+	_zone_slow_dirty = false
 
 
 ## 预言满层触发（预言者王冠）
@@ -995,3 +1012,91 @@ func _flush_kill_gold() -> void:
 	if player.has_method("set_kill_gold_rules"):
 		player.call("set_kill_gold_rules", _kill_gold_pending.duplicate(true))
 	_kill_gold_dirty = false
+	_zone_slow_dirty = false
+
+
+## 区域减速（装备参考2：毒雾/领域类）
+##
+## ## 为什么路由放在这里（而不是生成器）
+##
+## 生成器逐行解析、拿不到「这件装备还有没有别的词条」，而落地方式取决于：
+##   · 装备自带**持续光环**（有 `aura_damage` 词条，如荆棘领域）
+##     → 减速挂到那个光环规则上（`_aura_rule.slow_pct`），每跳重挂
+##   · 装备靠**技能开区域**（毒雾弹 / 暗影领域，技能带 `tick_interval`）
+##     → 减速挂到那个区域上（`DamageZone.slow_buff / slow_pct`，
+##       由 `SkillSystem._spawn_zone` 从装备词条读）
+##
+## 这里能拿到 `inst`，故按「该实例是否已产出 aura_damage」分流。
+func _merge_zone_slow(a: AffixData, inst) -> void:
+	var pct := float(a.trigger_params.get("slow_pct", 0.0))
+	if pct <= 0.0:
+		return
+	if bool(a.trigger_params.get("require_shield", false)):
+		# 「护盾存在时」——条件光环，由 `_tick_aura` 判 `shield > 0`
+		_zone_slow_aura["slow_pct"] = pct
+		_zone_slow_aura["require_shield"] = true
+		_zone_slow_dirty = true
+		return
+	# 有持续光环 → 并入光环；否则标记给技能区域用
+	if _inst_has_aura(inst):
+		_zone_slow_aura["slow_pct"] = pct
+		_zone_slow_dirty = true
+	else:
+		_zone_slow_skill = pct
+
+
+## 该装备实例是否已产出持续光环（`aura_damage` sentinel）
+func _inst_has_aura(inst) -> bool:
+	if inst == null:
+		return false
+	var tpl = inst.get_template()
+	if tpl == null:
+		return false
+	for arr in [tpl.own_affixes, inst.extra_affixes]:
+		for a in arr:
+			if a != null and a.trigger_buff == "aura_damage":
+				return true
+	return false
+
+
+## 把累积的区域减速光环参数合并进能量样式规则并提交
+##
+## 与 `_activate_aura` 共用**同一个规则槽**（`_aura_rule`）——
+## 荆棘领域的自有列是光环伤害、融合列是光环减速，两者本就该同时生效。
+func _flush_zone_slow() -> void:
+	if _zone_slow_dirty and player != null and player.has_method("set_aura_rule"):
+		# 传 0 给 mult/radius/interval 表示「不改这三项」——`set_aura_rule`
+		# 现在是**合并**语义，故这里只推减速那部分，伤害部分由
+		# `_activate_aura` 推（两条 affix 各自调用，互不覆盖）。
+		player.call("set_aura_rule", 0.0, 0.0, 0.0,
+			float(_zone_slow_aura.get("slow_pct", 0.0)),
+			bool(_zone_slow_aura.get("require_shield", false)))
+	if _zone_slow_skill > 0.0 and player != null:
+		# 技能区域的减速由技能侧读（一条独立于 `_skill_mods_for` 的通道，
+		# 因为「毒雾弹」不是本装备**提供的技能**，而是它的融合词条）。
+		player.set_meta("equip_zone_slow", _zone_slow_skill)
+
+
+## 区域减速参数（光环路 / 技能路各一份）
+var _zone_slow_aura: Dictionary = {}
+var _zone_slow_skill := 0.0
+var _zone_slow_dirty := false
+
+
+## 找某条词条所属的装备实例（自有列或融合列里含它的那件）
+##
+## `_apply_trigger(a, inst)` 的调用点里有些拿不到 `inst`（如 sentinel 分派），
+## 而 `zone_slow` 的路由需要它（判断该装备有没有 `aura_damage`）。
+func _inst_of(a: AffixData) -> Variant:
+	var em = _em()
+	if em == null or a == null:
+		return null
+	for inst in em.get_equipped().values():
+		if inst == null:
+			continue
+		var tpl = inst.get_template()
+		if tpl == null:
+			continue
+		if tpl.own_affixes.has(a) or inst.extra_affixes.has(a):
+			return inst
+	return null

@@ -676,6 +676,14 @@ func _spawn_zone(caster: Node3D, sd: Dictionary, center: Vector3, radius: float)
 		"radius": radius,
 		"duration": dur,
 		"tick_interval": maxf(float(sd.get("tick_interval", 1.0)), 0.2),
+		# 装备·区域减速（装备参考2：「毒雾内敌人移速-30%」）。
+		#
+		# 走玩家的 meta `equip_zone_slow`——由
+		# `PlayerEquipmentEffects._flush_zone_slow` 在装备变更时写入。
+		# **不属于本技能的参数**，故不能走 `_skill_mods_for`
+		#（那个按「技能是否来自这件装备」匹配）。
+		"slow_buff": "slow" if float(caster.get_meta("equip_zone_slow", 0.0)) > 0.0 else "",
+		"slow_pct": float(caster.get_meta("equip_zone_slow", 0.0)),
 		"damage": 0.0,          # 伤害由 on_tick 接管
 		"target_group": DamageZone.TARGET_ENEMY,
 		"position": center,
