@@ -1104,6 +1104,46 @@ func _parse_main(s: String) -> String:
 		return "[%d, \"bleed\", %.4f, %s.0, {\"trigger\": %d}]" % [OP_TRIGGER_BUFF,
 			float(m.get_string(1)) / 100.0, m.get_string(2), TRIG_ON_REFLECT]
 
+	# —— 击杀概率掉金（经济肩甲 / 贪婪之眼）——
+	#
+	# ## 与「金币获取量 +N%」是**两条不同的词条**
+	#
+	# 后者是乘区（走 `LootSystem._gold_mult`），每次都多一点；
+	# 本条是**独立的额外掉落**，偶尔多一笔。期望值恰好接近，
+	# 但分布完全不同——规格把它们分开写，故实现也分开。
+	#
+	# 旧版把概率当成了 `gold_gain_pct` 的数值（「5%」→ 金币获取 +0.05），
+	# 概率与「额外掉落」都丢了。
+	#
+	# **必须先于「金币获取量」规则**，否则会被它吃掉。
+	# 数值可能写成 `（10~50）`（**全角括号**，与前半句的逗号写法不同）——
+	# 实测贪婪之眼就是这一种，不放宽会漏。
+	m = _re(r"击杀(精英/Boss)?敌人有\s*(\d+)%\s*概率(?:额外)?掉落\s*(?:[（(]\s*)?(\d+)(?:\s*~\s*(\d+))?\s*(?:[）)])?\s*金币").search(s)
+	if m:
+		var elite := "true" if not m.get_string(1).is_empty() else "false"
+		var lo := m.get_string(3)
+		var hi := m.get_string(4)
+		var amt := ("\"amount_min\": %s, \"amount_max\": %s" % [lo, hi]) \
+			if not hi.is_empty() else ("\"amount\": %s" % lo)
+		return "[%d, \"kill_gold\", 1.0, 0.0, {\"kill_gold\": {\"chance\": %.4f, \"elite_only\": %s, %s}}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(2)) / 100.0, elite, amt]
+	# 语序变体：「击杀敌人有 N% 概率**掉落额外金币**（M~K）」
+	#
+	# 与上面的区别是「额外」在「掉落」**之后**、数字在「金币」**之后**
+	#（「掉落额外金币（10~50）」）。实测贪婪之眼是这一种，
+	# 用上面那条（要求「额外掉落」紧邻）匹配不到。
+	m = _re(r"击杀敌人有\s*(\d+)%\s*概率掉落额外金币\s*[（(]\s*(\d+)\s*~\s*(\d+)\s*[）)]").search(s)
+	if m:
+		return "[%d, \"kill_gold\", 1.0, 0.0, {\"kill_gold\": {\"chance\": %.4f, \"elite_only\": false, \"amount_min\": %s, \"amount_max\": %s}}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0,
+			m.get_string(2), m.get_string(3)]
+
+	# 「击杀精英/Boss额外掉落 M~K 金币」——**没有概率**（必定掉落）
+	m = _re(r"击杀精英/Boss额外掉落\s*(\d+)~(\d+)\s*金币").search(s)
+	if m:
+		return "[%d, \"kill_gold\", 1.0, 0.0, {\"kill_gold\": {\"chance\": 1.0, \"elite_only\": true, \"amount_min\": %s, \"amount_max\": %s}}]" % [
+			OP_TRIGGER_BUFF, m.get_string(1), m.get_string(2)]
+
 	# ---------- E 组：概率攻击效果（2026-09-28） ----------
 	#
 	# 这批词条此前被压成**静态属性**（`[117, 0.2]` = 元素伤害 +20%），

@@ -522,6 +522,65 @@ func _on_enemy_killed(_enemy: Node, _pos: Vector3, _loot: Array) -> void:
 		var bus := get_node_or_null("/root/EventBus")
 		if bus and healed > 0.0:
 			bus.damage_popup.emit(global_position, healed, "heal")
+	# 装备·击杀概率掉金（装备参考2：经济肩甲 / 贪婪之眼）
+	_roll_kill_gold(_enemy)
+
+
+## 击杀时的概率掉金（装备参考2：经济肩甲 / 贪婪之眼）
+##
+## ## 四类规则
+##
+## | 原文 | 规则 |
+## |---|---|
+## | 「击杀敌人有 N% 概率额外掉落 M 金币」 | `chance` / `amount` |
+## | 「击杀敌人有 N% 概率掉落 M~K 金币」 | `chance` / `amount_min`~`amount_max` |
+## | 「击杀精英/Boss 额外掉落 M~K 金币」 | `elite_only` + 区间 |
+##
+## ## 为什么与 `gold_gain_pct` 是两回事
+##
+## 那个是**乘区**（所有金币收益 +N%，走 `LootSystem._gold_mult`），
+## 这个是**独立的额外掉落**——期望值恰好接近但分布完全不同：
+## 前者每次都多一点，后者偶尔多一笔。规格把它们当两条词条，故要分开。
+##
+## 精英/Boss 判定读 `is_elite` / `is_boss`（`EnemyBase` 的字段，
+## 与 `LootSystem._is_boss` 同一套来源）。
+func _roll_kill_gold(enemy: Node) -> void:
+	var rules: Array = _kill_gold_rules
+	if rules.is_empty():
+		return
+	var is_elite := false
+	if enemy != null and is_instance_valid(enemy):
+		if enemy.get("is_elite") != null:
+			is_elite = bool(enemy.get("is_elite"))
+		if not is_elite and enemy.get("is_boss") != null:
+			is_elite = bool(enemy.get("is_boss"))
+	var bonus := 0
+	for r in rules:
+		if bool(r.get("elite_only", false)) and not is_elite:
+			continue
+		var chance := float(r.get("chance", 1.0))
+		if chance <= 0.0 or GameManager.rng.randf() >= chance:
+			continue
+		if r.has("amount_min"):
+			bonus += GameManager.rng.randi_range(
+				int(r["amount_min"]), int(r["amount_max"]))
+		else:
+			bonus += int(r.get("amount", 1))
+	if bonus <= 0:
+		return
+	GameManager.gold += bonus
+	EventBus.gold_changed.emit(GameManager.gold)
+	EventBus.damage_popup.emit(global_position, float(bonus), "gold")
+	EventBus.message.emit("额外掉落 %d 金币！" % bonus)
+
+
+## 击杀掉金规则（装备变更时装配）
+var _kill_gold_rules: Array = []
+
+
+## 装配击杀掉金规则（由 `PlayerEquipmentEffects` 调用）
+func set_kill_gold_rules(rules: Array) -> void:
+	_kill_gold_rules = rules
 
 
 

@@ -57,6 +57,7 @@ func _ready() -> void:
 	await _test_b7_prophecy()
 	await _test_e_attack_bonus()
 	await _test_e_reflect_buff()
+	await _test_e_kill_gold()
 	_test_equipment_skills_exist()
 
 	if failed == 0:
@@ -1668,4 +1669,84 @@ func _test_e_reflect_buff() -> void:
 		"反弹时攻击者被眩晕（挂到**攻击者**而不是自己）",
 		["attacker_buffs=%s" % str(ab.call("active_ids") if ab != null else [])])
 	_check(not player.buffs.has("stun"), "玩家自己**没有**被挂眩晕（宿主正确）")
+	_reset()
+
+
+## 19. E7：击杀概率掉金
+##
+## ## 与「金币获取量 +N%」是两条不同的词条
+##
+## 后者是乘区（`LootSystem._gold_mult`），每次都多一点；
+## 前者是**独立额外掉落**，偶尔多一笔。期望值恰好接近，分布完全不同。
+## 旧版把概率当成了 `gold_gain_pct` 的数值（「5%」→ +0.05），两者都丢。
+func _test_e_kill_gold() -> void:
+	print("\n--- E7：击杀概率掉金 ---")
+	var em = GameManager.equipment_manager
+	_reset()
+	await get_tree().process_frame
+
+	# —— 数据侧 ——
+	var tpl = _find_by_name("经济肩甲")
+	if tpl == null:
+		_check(false, "找到「经济肩甲」")
+		return
+	var n_rules := 0
+	for a in tpl.own_affixes:
+		if a != null and a.trigger_buff == "kill_gold":
+			n_rules += 1
+			var r: Dictionary = a.trigger_params.get("kill_gold", {})
+			_check(absf(float(r.get("chance", 0.0)) - 0.05) < 0.001,
+				"击杀 5% 概率（是概率，不是金币加成）", [str(r)])
+			_check(int(r.get("amount", 0)) == 1, "掉落 1 金币（规格原值）")
+	for a2 in tpl.fusion_affixes:
+		if a2 != null and a2.trigger_buff == "kill_gold":
+			n_rules += 1
+			var r2: Dictionary = a2.trigger_params.get("kill_gold", {})
+			_check(bool(r2.get("elite_only", false)), "融合是「精英/Boss 专属」")
+			_check(int(r2.get("amount_min", 0)) == 10
+				and int(r2.get("amount_max", 0)) == 50,
+				"区间 10~50（规格原值）", [str(r2)])
+	_check(n_rules >= 2, "自有 + 融合共 2 条规则（%d 条）" % n_rules)
+
+	# —— 行为侧 ——
+	var inst := _make_inst_by_name("经济肩甲")
+	if inst == null:
+		_check(false, "构造实例")
+		return
+	em.equip(EquipmentDefs.Slot.CHEST, inst)
+	await get_tree().process_frame
+	var player: Node3D = _player()
+	if player == null:
+		return
+	_check((player.get("_kill_gold_rules") as Array).size() >= 1,
+		"穿上后装配了击杀掉金规则",
+		[str(player.get("_kill_gold_rules"))])
+
+	# 概率设 100% → 必然掉落
+	var rules: Array = (player.get("_kill_gold_rules") as Array).duplicate(true)
+	rules[0]["chance"] = 1.0
+	player.call("set_kill_gold_rules", rules)
+	var g0: int = int(GameManager.gold)
+	player.call("_roll_kill_gold", null)
+	_check(int(GameManager.gold) == g0 + 1,
+		"击杀触发 → 金币 +1",
+		["before=%d after=%d" % [g0, GameManager.gold]])
+
+	# 非精英不该吃「精英专属」那条
+	var rules2: Array = [{"chance": 1.0, "elite_only": true,
+		"amount_min": 10, "amount_max": 50}]
+	player.call("set_kill_gold_rules", rules2)
+	var g1: int = int(GameManager.gold)
+	player.call("_roll_kill_gold", null)   # null = 非精英
+	_check(int(GameManager.gold) == g1, "非精英击杀**不**吃精英专属规则")
+	# 精英假人 → 掉 10~50
+	var elite = _spawn_dummy(player)
+	if elite != null:
+		elite.set("is_elite", true)
+		await get_tree().process_frame
+		var g2: int = int(GameManager.gold)
+		player.call("_roll_kill_gold", elite)
+		var gained := int(GameManager.gold) - g2
+		_check(gained >= 10 and gained <= 50, "精英击杀掉 10~50 金币",
+			["实际=%d" % gained])
 	_reset()

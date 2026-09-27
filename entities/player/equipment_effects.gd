@@ -37,6 +37,9 @@ var _prophecy_dirty := false
 ## E 组概率攻击规则的累积器
 var _attack_bonus_pending: Dictionary = {}
 var _attack_bonus_dirty := false
+## 击杀掉金规则的累积器（多条各自独立判定，不合并）
+var _kill_gold_pending: Array = []
+var _kill_gold_dirty := false
 
 ## **规则型 sentinel**（常驻规则，不看 `trigger`）
 ##
@@ -56,6 +59,8 @@ const _SENTINEL_RULES := [
 	"prophecy_self",
 	# E 组概率攻击（2026-09-28）
 	"attack_bonus",
+	# E 组击杀掉金（2026-09-28）
+	"kill_gold",
 ]
 
 
@@ -112,9 +117,11 @@ func reload_passives() -> void:
 	_afterimage_pending.clear()
 	_prophecy_pending.clear()
 	_attack_bonus_pending.clear()
+	_kill_gold_pending.clear()
 	_afterimage_dirty = false
 	_prophecy_dirty = false
 	_attack_bonus_dirty = false
+	_kill_gold_dirty = false
 	_energy_store_dirty = false
 	# 再按当前装备重建
 	#
@@ -129,6 +136,7 @@ func reload_passives() -> void:
 	_flush_afterimage()
 	_flush_prophecy()
 	_flush_attack_bonus()
+	_flush_kill_gold()
 
 
 ## 扫描**全部**已装备词条里的规则型 sentinel（忽略 `trigger`）
@@ -375,6 +383,9 @@ func _apply_trigger(a: AffixData, inst) -> void:
 						a.trigger_params.duplicate(true))
 				return
 			# —— B7 残影（2026-09-27）——
+			"kill_gold":
+				_merge_kill_gold(a)
+				return
 			"attack_bonus":
 				_merge_attack_bonus(a)
 				return
@@ -773,6 +784,7 @@ func _flush_afterimage() -> void:
 	_afterimage_dirty = false
 	_prophecy_dirty = false
 	_attack_bonus_dirty = false
+	_kill_gold_dirty = false
 
 
 ## 预言满层触发（预言者王冠）
@@ -885,7 +897,6 @@ func _flush_prophecy() -> void:
 	if player.has_method("set_prophecy_self_rule"):
 		player.call("set_prophecy_self_rule", _prophecy_pending.duplicate(true))
 	_prophecy_dirty = false
-	_attack_bonus_dirty = false
 
 
 ## E 组：概率攻击规则（额外攻击 / 双倍伤害 / 影袭 / 迅捷）
@@ -964,3 +975,23 @@ func on_reflect(attacker: Node3D) -> void:
 		if dur_bonus > 0.0 and player != null and player.has_method("extend_buff_duration"):
 			player.call("extend_buff_duration", tb, bid, dur_bonus)
 		EventBus.message.emit("反弹【%s】" % str(BuffDefs.get_buff(bid)[1]))
+
+
+## 击杀概率掉金规则（装备参考2：经济肩甲 / 贪婪之眼）
+##
+## 走累积器：同一件装备可能同时有「击杀 5% 掉 1 金币」与
+## 「击杀精英/Boss 掉 10~50」两条，要**各自独立判定**（不是合并成一条）。
+func _merge_kill_gold(a: AffixData) -> void:
+	var r: Dictionary = a.trigger_params.get("kill_gold", {})
+	if not r.is_empty():
+		_kill_gold_pending.append(r.duplicate())
+		_kill_gold_dirty = true
+
+
+## 把累积的击杀掉金规则提交给 Player
+func _flush_kill_gold() -> void:
+	if not _kill_gold_dirty or player == null:
+		return
+	if player.has_method("set_kill_gold_rules"):
+		player.call("set_kill_gold_rules", _kill_gold_pending.duplicate(true))
+	_kill_gold_dirty = false
