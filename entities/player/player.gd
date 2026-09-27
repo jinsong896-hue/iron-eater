@@ -144,6 +144,12 @@ var _aura_accum := 0.0
 ## ⑤ 资源满时的待发冲击波倍率；>0 表示「下次攻击释放」
 var _res_shockwave_mult := 0.0
 
+# —— B2 能量储存（2026-09-27）——
+## 规则：{store_pct, cap_pct, release, splash_pct}；由装备变更时装配
+var _energy_rule: Dictionary = {}
+## 当前储存的能量（点数）
+var _energy_stored := 0.0
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -990,6 +996,8 @@ func _on_player_hurt(amount: float) -> void:
 	# 装备触发条件（装备参考2：「每受到一次伤害，防御力增加1%…」类）
 	if equip_fx != null:
 		equip_fx.on_hurt()
+	# B2 能量储存：受击时把伤害的一部分攒起来（「伤害储存护符」）
+	_store_energy_from_damage(amount)
 	# 脱战计时被打断（策划 6.2：脱战 3 秒后才给移速加成）
 	_out_of_combat_time = 0.0
 	# 受伤反击（策划 7.2 铁身）：置位一次待发反击；
@@ -1626,6 +1634,8 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	# 资源满时攒下的冲击波（「资源满时，下次攻击释放资源冲击波」）——
 	# 在**命中的这一刻**消费，故放在这里而不是命中前。
 	_consume_res_shockwave(enemy)
+	# B2 能量储存：把攒下的能量在**这一击**全部释放（「下次攻击释放全部储存能量」）
+	_release_stored_energy(enemy)
 	# 装备触发条件·命中时的**目标状态**判定（装备参考2）
 	#   「对眩晕/麻痹/冰冻目标…时」→ ON_TARGET_CONTROLLED
 	#   「距离目标超过 N 米时」      → DISTANCE_FAR
@@ -2612,8 +2622,58 @@ func clear_passive_rules() -> void:
 	_stationary_time = 0.0
 	_aura_rule = {}
 	_aura_accum = 0.0
+	_energy_rule = {}
+	_energy_stored = 0.0
 	if _stationary_active:
 		_clear_stationary_buff()
+
+
+## ⑥ 写入能量储存规则（「伤害储存护符」）
+##
+## 参数来自**三条词条合并**（自有 2 行 + 融合 1 行），由
+## `PlayerEquipmentEffects._flush_energy_store` 累积后一次提交。
+func set_energy_store_rule(rule: Dictionary) -> void:
+	_energy_rule = rule
+
+
+## ⑥ 受击时储存能量（「受到伤害的20%储存为能量，最多100%最大生命」）
+##
+## 由 `_on_player_hurt` 调用（那里拿到的是护盾吸收后的实际伤害）。
+func _store_energy_from_damage(damage: float) -> void:
+	if _energy_rule.is_empty() or damage <= 0.0:
+		return
+	var pct := float(_energy_rule.get("store_pct", 0.0))
+	if pct <= 0.0:
+		return
+	var cap: float = float(GameManager.attributes.max_hp) * float(_energy_rule.get("cap_pct", 1.0))
+	_energy_stored = minf(_energy_stored + damage * pct, cap)
+
+
+## ⑥ 下次攻击释放全部储存能量（「下次攻击释放全部储存能量」）
+##
+## 返回释放的伤害值（0 = 无能量可放）。
+## 由普攻命中调用；若装备还带 `splash_pct`（融合列），额外对周围造成范围伤害。
+func _release_stored_energy(enemy: Node3D) -> float:
+	if _energy_rule.is_empty() or not bool(_energy_rule.get("release", false)):
+		return 0.0
+	if _energy_stored <= 0.0:
+		return 0.0
+	var dmg := _energy_stored
+	_energy_stored = 0.0
+	enemy.call("take_damage", dmg, false, Vector3.ZERO, self)
+	EventBus.damage_popup.emit(enemy.global_position, dmg, "crit")
+	# 融合列：「释放储存能量时，对周围造成50%范围伤害」
+	var splash := float(_energy_rule.get("splash_pct", 0.0))
+	if splash > 0.0:
+		for e in get_tree().get_nodes_in_group("enemies"):
+			if e == enemy or not _is_valid_enemy(e):
+				continue
+			if enemy.global_position.distance_to((e as Node3D).global_position) > 3.0:
+				continue
+			var sd := dmg * splash
+			(e as Node3D).call("take_damage", sd, false, Vector3.ZERO, self)
+			EventBus.damage_popup.emit((e as Node3D).global_position, sd, "normal")
+	return dmg
 
 
 ## ⑤ 消费待发冲击波（由普攻命中调用），返回是否释放了

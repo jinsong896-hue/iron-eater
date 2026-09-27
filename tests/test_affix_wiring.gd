@@ -47,6 +47,7 @@ func _ready() -> void:
 	_test_new_triggers_have_callers()
 	await _test_resource_channels()
 	await _test_b1_passives()
+	await _test_b2_energy_store()
 	await _test_skill_mod_channel()
 
 	if failed == 0:
@@ -703,6 +704,66 @@ func _reset() -> void:
 			EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Slot.ACCESSORY_2]:
 		em.unequip(slot)
 	em.from_dict({})
+
+
+## 12. B2 能量储存（「伤害储存护符」）
+##
+## ## 规格张力（已记录，非 bug）
+##
+## 这件装备的两列是**两个不同位置的配置**：
+##   自有列：「受到伤害的20%储存为能量；下次攻击释放全部」→ **穿上它**才生效
+##   融合列：「释放储存能量时，对周围造成50%范围伤害」→ **融合进别的主装备**后生效
+##
+## 融合会**消耗材料**，故自有列的 `store_pct`/`release` 不会跟着走——
+## 融合产物只有 `splash_pct`，而它**单独没有意义**（没有攒能量，何来释放）。
+##
+## 故测试走**装备本身**的主路径（store + release），`splash_pct` 只验证
+## 「融合后确实进了 extra_affixes」（见 SKILL_MOD 那节的同类断言）。
+func _test_b2_energy_store() -> void:
+	print("\n--- B2 能量储存 ---")
+	var player := _player()
+	if player == null:
+		_check(false, "找到玩家节点")
+		return
+	if not player.has_method("set_energy_store_rule"):
+		_check(false, "Player 暴露 set_energy_store_rule")
+		return
+
+	# 直接穿上「伤害储存护符」——自有列的两条（store + release）在这条路径生效
+	_reset()
+	await get_tree().process_frame
+	if not _equip_by_name("伤害储存护符", EquipmentDefs.Slot.ACCESSORY_1):
+		_check(false, "装上「伤害储存护符」")
+		return
+	player.equip_fx.reload_passives()
+	await get_tree().process_frame
+
+	var rule: Dictionary = player.get("_energy_rule")
+	_check(not rule.is_empty(), "能量储存规则已装配", ["实际=%s" % str(rule)])
+	if rule.is_empty():
+		_reset()
+		return
+	# **两条自有列参数必须都在**——它们被从句切分成不同 trigger
+	#（「受到伤害的…」→ ON_HURT；「下次攻击释放…」→ ALWAYS），
+	# 故 sentinel 扫描**不能依赖 trigger**（见 `_SENTINEL_RULES` 的说明）。
+	_check(rule.has("store_pct"), "合并后含 store_pct（来自自有列）")
+	_check(rule.has("release"), "合并后含 release（来自自有列第2行）")
+
+	# **行为断言**：受击攒能量
+	player.set("_energy_stored", 0.0)
+	player.call("_store_energy_from_damage", 100.0)
+	var stored: float = float(player.get("_energy_stored"))
+	_check(stored > 0.0, "受击后储存了能量（0 → %.1f）" % stored)
+	_check(absf(stored - 20.0) < 0.01, "储存比例 = 20%（规格原值）",
+		["实际=%.2f（期望 20.0）" % stored])
+
+	# 上限：不超过「100% 最大生命」
+	var max_hp: float = float(GameManager.attributes.max_hp)
+	player.call("_store_energy_from_damage", max_hp * 10.0)
+	var capped: float = float(player.get("_energy_stored"))
+	_check(capped <= max_hp + 0.01, "储存上限 = 100% 最大生命",
+		["实际=%.1f 上限=%.1f" % [capped, max_hp]])
+	_reset()
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:

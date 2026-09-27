@@ -25,6 +25,18 @@ extends Node
 
 ## 玩家节点（构造时注入）
 var player: Node3D = null
+## 能量储存参数的**跨条累积器**（见 `_merge_energy_store`）
+var _energy_store_pending: Dictionary = {}
+var _energy_store_dirty := false
+
+## **规则型 sentinel**（常驻规则，不看 `trigger`）
+##
+## 这些是「装备穿着即生效的规则」，由 `reload_passives` 装配给 Player。
+## 它们的 `trigger` 字段是从句切分推导出来的、**对规则无意义**——
+## 故不能走 `_fire(trig)`，必须走 `_fire_all_sentinels`。
+const _SENTINEL_RULES := [
+	"stationary_buff", "aura_damage", "energy_store", "summon_death_boom",
+]
 
 
 ## 装配：注入玩家节点
@@ -75,8 +87,58 @@ func reload_passives() -> void:
 	# 先清空（卸下装备时规则要消失）
 	if player.has_method("clear_passive_rules"):
 		player.call("clear_passive_rules")
+	# 跨条累积器也要清（否则上一件装备的能量储存参数会残留）
+	_energy_store_pending.clear()
+	_energy_store_dirty = false
 	# 再按当前装备重建
-	_fire(AffixData.Trigger.ALWAYS)
+	#
+	# **必须扫描全部词条，不能只扫 `ALWAYS`**：这些是**规则型 sentinel**
+	#（站立/光环/能量储存/召唤物爆炸），它们的 `trigger` 字段是**从句
+	# 切分推导出来的、对规则无意义**。实测「受到伤害的20%储存为能量」
+	# 被推成 `ON_HURT`，而「释放储存能量时对周围造成50%」无从句 → `ALWAYS`。
+	# 只扫 `ALWAYS` 会让前者**整个丢失**（表现为「只放不攒」）。
+	_fire_all_sentinels()
+	# 重建完成后提交累积结果（能量储存需要三条合并后才完整）
+	_flush_energy_store()
+
+
+## 扫描**全部**已装备词条里的规则型 sentinel（忽略 `trigger`）
+##
+## 与 `_fire(trig)` 的分工：
+##   `_fire`           —— **事件驱动**的词条（击杀/受击/…），按 trigger 取
+##   `_fire_all_sentinels` —— **常驻规则**（站立/光环/能量储存），不看 trigger
+##
+## 判据是 `trigger_buff` 是否属于规则型 sentinel 集合——**不是** trigger 值。
+func _fire_all_sentinels() -> void:
+	if player == null:
+		return
+	for e in _all_affixes():
+		var a: AffixData = e["affix"]
+		if a == null or not a.is_trigger():
+			continue
+		if _SENTINEL_RULES.has(a.trigger_buff):
+			_apply_trigger(a, e["inst"])
+
+
+## 当前装备的**全部**词条（自有 + 融合），不分触发条件
+func _all_affixes() -> Array:
+	var out: Array = []
+	var em = _em()
+	if em == null:
+		return out
+	for inst in em.get_equipped().values():
+		if inst == null:
+			continue
+		var tpl = inst.get_template()
+		if tpl == null:
+			continue
+		for a in tpl.own_affixes:
+			if a != null:
+				out.append({"affix": a, "inst": inst})
+		for a in inst.extra_affixes:
+			if a != null:
+				out.append({"affix": a, "inst": inst})
+	return out
 
 
 ## 装备变化时由 Player 调用（订阅 `equipment_changed`）
@@ -272,6 +334,9 @@ func _apply_trigger(a: AffixData, inst) -> void:
 				return
 			"res_shockwave":
 				_arm_res_shockwave(a)
+				return
+			"energy_store":
+				_merge_energy_store(a)
 				return
 	# **触发型词条**（`OP_TRIGGER_BUFF`）：给自己挂一条具名词条。
 	#
@@ -483,6 +548,29 @@ func _arm_res_shockwave(a: AffixData) -> void:
 	if player == null or not player.has_method("arm_res_shockwave"):
 		return
 	player.call("arm_res_shockwave", float(a.trigger_params.get("mult", 1.0)))
+
+
+## ⑥ 能量储存（「伤害储存护符」的**跨列单一机制**）
+##
+## 三行词条（自有 2 行 + 融合 1 行）各自只带**一部分参数**：
+##   `{store_pct, cap_pct}` / `{release}` / `{splash_pct}`
+## 故必须**累积合并**再交给 Player——逐条覆盖会让后一条冲掉前一条，
+## 表现为「只攒不放」或「放但没有范围伤害」。
+##
+## 累积器在 `reload_passives` 开始时清空（跨装备变更不残留）。
+func _merge_energy_store(a: AffixData) -> void:
+	for k in a.trigger_params:
+		_energy_store_pending[k] = a.trigger_params[k]
+	_energy_store_dirty = true
+
+
+## 把累积的能量储存参数提交给 Player
+func _flush_energy_store() -> void:
+	if not _energy_store_dirty or player == null:
+		return
+	if player.has_method("set_energy_store_rule"):
+		player.call("set_energy_store_rule", _energy_store_pending.duplicate(true))
+	_energy_store_dirty = false
 
 
 ## 满层爆发：以玩家为中心的范围伤害，倍率 = `a.value × 面板攻击力`

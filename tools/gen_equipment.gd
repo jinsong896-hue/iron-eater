@@ -1106,6 +1106,39 @@ func _parse_main(s: String) -> String:
 		var sw: String = _f(m.get_string(1)) if m else "1.0"
 		return "[%d, \"res_shockwave\", 1.0, 0.0, {\"mult\": %s}]" % [OP_TRIGGER_BUFF, sw]
 
+	# ---------- 8h. 能量储存（2026-09-27，3 条 / 1 件装备）----------
+	#
+	# 「伤害储存护符」的**跨列单一机制**：
+	#   自有列：受到伤害的20%储存为"能量"（最多储存100%最大生命）；下次攻击释放全部
+	#   融合列：释放储存能量时，对周围造成50%范围伤害
+	#
+	# 三行各自是**同一机制的一个参数**，故三个分支都产出**同一条** sentinel，
+	# 由 `PlayerEquipmentEffects` 用 `merge` 语义合并（后者覆盖前者，
+	# 但都来自同一件装备，不会互相覆盖参数）。
+	#
+	# ## 为什么走 sentinel 而不是 SKILL_MOD
+	#
+	# 它是**玩家侧状态**（受击攒能量、下次攻击释放），不是「改某个技能」。
+	# 走 SKILL_MOD 需要「本装备提供技能」才生效，而伤害储存护符没有技能。
+	if s.contains("储存为") and s.contains("能量"):
+		m = _re(r"受到伤害的\s*(\d+(?:\.\d+)?)%\s*储存").search(s)
+		var store_pct: String = _f(m.get_string(1)) if m else "0.20"
+		# 上限：「最多储存100%最大生命」
+		var cap: String = "1.0"
+		m = _re(r"最多储存\s*(\d+(?:\.\d+)?)%").search(s)
+		if m:
+			cap = _f(m.get_string(1))
+		return "[%d, \"energy_store\", 1.0, 0.0, {\"store_pct\": %s, \"cap_pct\": %s}]" % [
+			OP_TRIGGER_BUFF, store_pct, cap]
+	if s.contains("下次攻击释放全部储存能量"):
+		# 参数由上面那条提供，这里只标记「释放」行为存在
+		return "[%d, \"energy_store\", 1.0, 0.0, {\"release\": true}]" % OP_TRIGGER_BUFF
+	if s.contains("释放储存能量") and s.contains("范围伤害"):
+		m = _re(r"对周围造成\s*(\d+(?:\.\d+)?)%\s*范围伤害").search(s)
+		var splash: String = _f(m.get_string(1)) if m else "0.50"
+		return "[%d, \"energy_store\", 1.0, 0.0, {\"splash_pct\": %s}]" % [
+			OP_TRIGGER_BUFF, splash]
+
 	# ---------- 9. 数值型（统一查找：面板属性优先，再扩展通道） ----------
 	#
 	# 覆盖三种写法（规格的吞噬/融合列大量使用后两种）：
