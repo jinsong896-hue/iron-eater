@@ -598,12 +598,44 @@ func _parse_one(s: String) -> String:
 
 ## 结果是否是**叠层型**（`[4, trigger, ...]`）
 func _is_stack_spec(spec: String) -> bool:
+	# 多属性形态 `[[4, 1, …], [4, 1, …]]` 也算（展开后的叠层）
+	if _re(r"^\s*\[\[\s*4,\s*\d+,").search(spec) != null:
+		return true
 	return _re(r"^\[4,\s*\d+,").search(spec) != null
 
 
 ## 结果是否是**裸属性**（`[Stat.X, v, bool]` / `[NNN, v, true]`）
 func _is_plain_spec(spec: String) -> bool:
 	return _re(r"^\[(?:[A-Za-z_.]+|\d+),\s*-?[\d.]+,\s*(?:true|false)\]$").search(spec) != null
+
+
+## 结果是否是**多属性形态**（`[[…], […]]`，由 `_all_stats_spec` 展开）
+func _is_multi_spec(spec: String) -> bool:
+	return _re(r"^\s*\[\s*\[").search(spec) != null
+
+
+## 遍历多属性形态里的每一条子规格（非多属性时返回单元素数组）
+##
+## **按括号配平切**，不能用 `split("], [")`——那样会把分隔符里的
+## 括号一并吃掉，子规格变成残缺的 `Stat.HP, 0.1, true`。
+func _sub_specs(spec: String) -> Array:
+	if not _is_multi_spec(spec):
+		return [spec]
+	var out: Array = []
+	var depth := 0
+	var start := -1
+	for i in spec.length():
+		var ch := spec[i]
+		if ch == "[":
+			depth += 1
+			if depth == 2:
+				start = i
+		elif ch == "]":
+			if depth == 2 and start >= 0:
+				out.append(spec.substr(start, i - start + 1))
+				start = -1
+			depth -= 1
+	return out
 
 ## 从解析结果里取 trigger 槽位；**不带触发语义时返回 -1**
 ##
@@ -1412,9 +1444,9 @@ func _parse_main(s: String) -> String:
 		# ② 扩展通道
 		if EXT_BY_NAME.has(nm):
 			return "[%d, %.4f, true]" % [SP[EXT_BY_NAME[nm]], v]
-		# ③ 全属性（规格只说"全属性"，不擅自拆多条）
+		# ③ 全属性（**展开成各主属性**，见 `_all_stats_spec`）
 		if nm.contains("全属性") or nm.contains("所有基础属性"):
-			return "[Stat.ATK, %.4f, true]" % v
+			return _all_stats_spec(v)
 		# ④ 职业资源 / 资源回复
 		if nm.contains("职业资源") or nm.contains("资源回复"):
 			return "[%d, %.4f, true]" % [SP["exp_gain"], v]
@@ -1621,13 +1653,13 @@ func _parse_main(s: String) -> String:
 		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
 	m = _re(r"每点记忆残渣\s*\+?(\d+(?:\.\d+)?)%\s*全属性").search(s)
 	if m:
-		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+		return _all_stats_spec(float(m.get_string(1)) / 100.0)
 	m = _re(r"每持有?一片钥匙碎片.*?全属性提高\s*(\d+)%").search(s)
 	if m:
-		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+		return _all_stats_spec(float(m.get_string(1)) / 100.0)
 	m = _re(r"每持有?一片钥匙碎片，\s*\+?(\d+)%\s*全属性").search(s)
 	if m:
-		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+		return _all_stats_spec(float(m.get_string(1)) / 100.0)
 	m = _re(r"每(?:持有)?\s*100\s*金币.*?攻击力提高\s*(\d+(?:\.\d+)?)%").search(s)
 	if m:
 		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
@@ -1636,7 +1668,7 @@ func _parse_main(s: String) -> String:
 		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
 	m = _re(r"每装备一件(?:传奇|红色)装备.*?全属性提高\s*(\d+)%").search(s)
 	if m:
-		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+		return _all_stats_spec(float(m.get_string(1)) / 100.0)
 	m = _re(r"每装备一件红色装备额外\s*\+?(\d+)%\s*暴击伤害").search(s)
 	if m:
 		return "[Stat.CRD, %s, true]" % _f(m.get_string(1))
@@ -2518,18 +2550,25 @@ func _parse_main(s: String) -> String:
 	if m:
 		return "[%d, %d, Stat.ATK, 0.15, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
 	if s.contains("传奇共鸣触发时") or s.contains("每件传奇装备全属性提高"):
-		return "[Stat.ATK, 0.10, true]"
+		return _all_stats_spec(0.10)
 	m = _re(r"每片钥匙碎片全属性提高\s*(\d+)%").search(s)
 	if m:
-		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+		return _all_stats_spec(float(m.get_string(1)) / 100.0)
 	m = _re(r"每件传奇装备全属性提高\s*(\d+)%").search(s)
 	if m:
-		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+		return _all_stats_spec(float(m.get_string(1)) / 100.0)
 	m = _re(r"每击杀一个敌人，金币掉落增加\s*(\d+)%").search(s)
 	if m:
 		return "[%d, %d, %d, %s, 5]" % [OP_STACK_GAIN, TRIG_ON_KILL, SP["gold_gain"], _f(m.get_string(1))]
-	if s.contains("每击杀一个敌人，该武器所有数值增加1%"):
-		return "[%d, %d, Stat.ATK, 0.01, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
+	# 「每击杀一个敌人，该武器**所有数值**增加1%（本局内永久叠加）」——
+	# 「所有数值」与「全属性」同义，同样要展开成各主属性。
+	# 展开后是**多条叠层**（每条各自记层数），走嵌套数组形态。
+	if s.contains("每击杀一个敌人，该武器所有数值增加1%") \
+			or s.contains("每击杀一个敌人，全属性增加"):
+		var parts: Array = []
+		for st in ALL_STATS:
+			parts.append("[%d, %d, %s, 0.01, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, st])
+		return "[" + ", ".join(parts) + "]"
 
 	# ---------- 43. 技能附加（补充） ----------
 	m = _re(r"释放技能后在地面留下火焰.*?每秒\s*(\d+)%\s*法强").search(s)
@@ -3118,6 +3157,15 @@ func _wrap_with_trigger(spec: String, trig: int, param: float,
 		return "[%d, %d, %s]" % [OP_STACK_GAIN, trig, rest]
 
 	# 面板属性 / 扩展通道 → 包成叠层型
+	#
+	# **多属性形态**（`[[Stat.HP, v, true], …]`，`_all_stats_spec` 展开的）
+	# 要**逐条**包，不是整体包——它是多条独立词条。
+	if _is_multi_spec(spec):
+		var wrapped: Array = []
+		for sub in _sub_specs(spec):
+			wrapped.append(_wrap_with_trigger(sub, trig, param, duration, stack_max))
+		return "[" + ", ".join(wrapped) + "]"
+
 	m = _re(r"^\[([A-Za-z_.]+|\d+),\s*([-\d.]+),\s*(true|false)\]$").search(spec)
 	if m:
 		var stat := m.get_string(1)
@@ -3139,7 +3187,31 @@ func _wrap_with_trigger(spec: String, trig: int, param: float,
 	return spec
 
 
-## 从原文抽「叠加 N 层」的**上限**（无则 0）
+## 「全属性」展开成的主属性集合
+##
+## **不含 RNG / CDR / MP**：这三者的 base 是 0 或极小（`DEFAULT_BASE` 里
+## RNG=1.5、CDR=0、MP=100），百分比加成在 `get_value = base + flat + base×pct`
+## 下几乎无效果——写进去等于没写。其余 8 项是玩家实际在追的属性。
+const ALL_STATS := ["Stat.HP", "Stat.ATK", "Stat.DEF", "Stat.SPD",
+	"Stat.ASPD", "Stat.AP", "Stat.CRT", "Stat.CRD"]
+
+
+## 产出「全属性 +N%」的**多属性规格**
+##
+## ## 为什么要展开
+##
+## 规格写「全属性+3%」，旧生成器只产出 `[Stat.ATK, 0.03, true]`——
+## 玩家拿到的是「攻击力 +3%」，其余 7 项一点没有。实测 12 条如此。
+##
+## `_make_affix_list` **已支持嵌套数组**（`spec[0] is Array` 时逐条构建），
+## 故这里直接产出 `[[A, v, true], [B, v, true], …]`，无需改数据层。
+func _all_stats_spec(v: float, is_percent: bool = true) -> String:
+	var t := "true" if is_percent else "false"
+	var vs := "%.4f" % v
+	var parts: Array = []
+	for s in ALL_STATS:
+		parts.append("[%s, %s, %s]" % [s, vs, t])
+	return "[" + ", ".join(parts) + "]"
 ##
 ## 必须优先取「最多/可叠」：「受到伤害叠加1层"不朽"（最多15层）」里
 ## 两个数字**都是层数**但含义相反——`1` 是每次叠几层，`15` 才是上限。
@@ -3197,6 +3269,13 @@ func _time_bound_wrap(spec: String, text: String) -> String:
 	var want_stack := _stack_max_from_text(text)
 	if dur <= 0.0 and want_stack <= 0:
 		return spec
+	# **多属性形态**：逐条独立包装（每条都是独立词条）
+	if _is_multi_spec(spec):
+		var wrapped: Array = []
+		for sub in _sub_specs(spec):
+			wrapped.append(_wrap_with_trigger(sub, _infer_trigger_from_text(text),
+				0.0, dur, want_stack))
+		return "[" + ", ".join(wrapped) + "]"
 	# 叠层型：**已有触发条件、只缺时长/层数** → 补第 5 槽与第 7 槽
 	if _is_stack_spec(spec):
 		# 已带参数字典时**只补层数**（时长/其它参数已有，重建会破坏）

@@ -144,10 +144,14 @@ func _check_one(r: Dictionary) -> void:
 			% [tag, want_stack, stack])
 
 	# —— 3. 「所有/全属性」不能塌缩成单一属性 ——
+	#
+	# 多属性规格的形态是**嵌套数组**：`[[Stat.HP, v, t], [Stat.ATK, v, t], …]`
+	# （`_make_affix_list` 逐条构建）。旧判据找的是 `;`（一个从未使用过的
+	# 分隔符），于是任何展开后的结果都被当成「单属性」——**检查器假警报**。
 	if text.contains("所有数值") or text.contains("全属性") \
 			or text.contains("所有基础属性") or text.contains("所有属性"):
-		if spec.contains("Stat.ATK") and not spec.contains(";"):
-			_issues.append("属性范围错 | %s\n      「所有/全属性」被塌缩成 Stat.ATK 单属性"
+		if _re(r"^\s*\[\[\s*[A-Za-z_.0-9]+,").search(spec) == null:
+			_issues.append("属性范围错 | %s\n      「所有/全属性」被塌缩成单属性（应为多属性规格）"
 				% tag)
 
 	# —— 4. 数值是否被提取 ——
@@ -346,7 +350,14 @@ func _has_number(nums: Array, pct: String) -> bool:
 
 
 ## 从规格字面量里取 trigger（`[4, trigger, stat, value, stack_max]`）
+##
+## **多属性规格**（`[[4, 1, ...], [4, 1, ...]]`）取第一条即可——
+## 展开出来的各条 trigger 必然相同。
 func _trigger_of(spec: String) -> int:
+	var s := spec
+	var mm := _re(r"^\s*\[\[\s*4,\s*(\d+),").search(s)
+	if mm:
+		return int(mm.get_string(1))
 	var m := _re(r"^\[4,\s*(\d+),").search(spec)
 	if m:
 		return int(m.get_string(1))
