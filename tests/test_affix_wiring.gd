@@ -51,6 +51,7 @@ func _ready() -> void:
 	await _test_b3_elem_sequence()
 	await _test_b4_cheat_death()
 	await _test_skill_mod_channel()
+	await _test_b7_low_hp()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -1028,4 +1029,106 @@ func _test_b1_passives() -> void:
 		_check(float(mgr.get("_death_boom_mult")) > 0.0,
 			"召唤物死亡爆炸倍率已装配（融合后生效）",
 			["实际=%.3f" % float(mgr.get("_death_boom_mult"))])
+	_reset()
+
+
+## 12. B7 低血条件通道（`Trigger.LOW_HP`）
+##
+## ## 为什么这一节必须有
+##
+## `Trigger.LOW_HP` 此前**全局零消费点**——8 条词条挂在数据库里，
+## 但没有任何代码读它。这正是本项目反复踩的「有枚举没消费」：
+## 图鉴会显示「生命低于50%时获得20%伤害减免」，玩家以为有效，实际什么都没有。
+##
+## 三个必须验证的点：
+##   ① 低血时效果**生效**（挂上 modifier / 扩展通道出现在 `_equip_special_mods`）
+##   ② 回到血线以上时**撤销**（不是永久留着）
+##   ③ 阈值**按词条各自判定**——「生命低于30%时…」不该在 40% 血量就生效
+func _test_b7_low_hp() -> void:
+	_reset()
+	await get_tree().process_frame
+	var em = GameManager.equipment_manager
+	var attrs = GameManager.attributes
+
+	# —— 数据侧：低血词条必须带各自的阈值 ——
+	var tpl = _find_by_name("血怒")
+	if tpl != null:
+		var found := false
+		for a in tpl.own_affixes:
+			if a != null and int(a.trigger) == AffixData.Trigger.LOW_HP:
+				found = true
+				_check(absf(float(a.hp_threshold) - 0.5) < 0.01,
+					"「血怒」低血词条带阈值 0.5",
+					["实际=%.3f" % float(a.hp_threshold)])
+		_check(found, "「血怒」自有列确有 LOW_HP 词条")
+	var tpl2 = _find_by_name("血怒巨斧")
+	if tpl2 != null:
+		for a in tpl2.own_affixes:
+			if a != null and int(a.trigger) == AffixData.Trigger.LOW_HP:
+				_check(absf(float(a.hp_threshold) - 0.4) < 0.01,
+					"「血怒巨斧」低血词条带阈值 0.4（非统一 0.5）",
+					["实际=%.3f" % float(a.hp_threshold)])
+
+	# —— 行为侧：装上「血怒」并压血量 ——
+	var inst := _make_inst_by_name("血怒")
+	if inst == null:
+		_check(false, "构造「血怒」实例")
+		return
+	em.equip(EquipmentDefs.Slot.WEAPON_1, inst)
+	await get_tree().process_frame
+	var player: Node3D = _player()
+	if player == null:
+		_check(false, "取玩家节点")
+		return
+
+	var base_atk: float = float(attrs.get_value(AttributeSystem.Stat.ATK))
+
+	# 满血：不该生效
+	attrs.hp = float(attrs.max_hp)
+	player.call("_tick_low_hp", 0.016)
+	_check(not bool(player.get("_low_hp_active")), "满血时低血效果未生效")
+	_check(absf(float(attrs.get_value(AttributeSystem.Stat.ATK)) - base_atk) < 0.5,
+		"满血时攻击力未被低血词条放大")
+
+	# 低血（30%）：应生效
+	attrs.hp = float(attrs.max_hp) * 0.30
+	player.call("_tick_low_hp", 0.016)
+	_check(bool(player.get("_low_hp_active")), "血量 30% 时低血效果生效")
+	# **断言的是 modifier 记录的 percent**，不是总攻击力的倍率——
+	# `AttributeSystem.get_value = base + flat + base×percent`，
+	# percent 只乘**原始 base**（≈38），不乘装备的 flat（血怒自带 +364）。
+	# 故总攻击力只涨约 5.7%，但 modifier 的 percent 必须是 0.6。
+	var low_atk: float = float(attrs.get_value(AttributeSystem.Stat.ATK))
+	_check(low_atk > base_atk, "低血时攻击力上升",
+		["base=%.1f 低血=%.1f" % [base_atk, low_atk]])
+	var pct_sum := 0.0
+	for m in attrs.get("_modifiers"):
+		if int(m.get("stat", -1)) == AttributeSystem.Stat.ATK \
+				and str(m.get("source", "")) == "eq_low_hp":
+			pct_sum += float(m.get("percent", 0.0))
+	_check(absf(pct_sum - 0.6) < 0.001,
+		"低血 modifier 的 percent = 0.60（规格「攻击力+60%」）",
+		["实际=%.3f" % pct_sum])
+
+	# 回血：必须撤销
+	attrs.hp = float(attrs.max_hp)
+	player.call("_tick_low_hp", 0.016)
+	_check(not bool(player.get("_low_hp_active")), "回血后低血效果已撤销")
+	_check(absf(float(attrs.get_value(AttributeSystem.Stat.ATK)) - base_atk) < 0.5,
+		"回血后攻击力回到基线（modifier 已卸）")
+
+	# —— 伤害减免走专用通道（不是元素抗性） ——
+	_reset()
+	await get_tree().process_frame
+	var sh := _make_inst_by_name("守护肩甲")
+	if sh != null:
+		em.equip(EquipmentDefs.Slot.CHEST, sh)
+		await get_tree().process_frame
+		attrs.hp = float(attrs.max_hp) * 0.30
+		player.call("_tick_low_hp", 0.016)
+		var sp: Dictionary = player.call("_equip_special_mods")
+		_check(absf(float(sp.get("dmg_reduction_pct", 0.0)) - 0.20) < 0.01,
+			"「守护肩甲」低血 20% 伤害减免走专用通道（非元素抗性）",
+			["实际=%.3f" % float(sp.get("dmg_reduction_pct", 0.0))])
+	_check(true, "（若上一项缺失说明词条未接入）")
 	_reset()

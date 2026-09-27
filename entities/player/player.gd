@@ -558,6 +558,8 @@ func _physics_process(delta: float) -> void:
 	_tick_aura(delta)
 	# B4 免死冷却
 	_tick_cheat_death(delta)
+	# B7 低血条件通道（`Trigger.LOW_HP` 词条按各自阈值挂/卸）
+	_tick_low_hp(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
 	if not _typing_input():
 		_poll_skill_input()
@@ -1705,11 +1707,22 @@ func _target_elem_resist(enemy: Node3D) -> float:
 
 ## 取已装备的特殊修饰量汇总（生命偷取/击退加成/负效时长/元素穿透/
 ## 反弹/处决线）。装备管理器不可用时返回全 0，调用方无需判空。
+## 当前生效的**装备条件通道**（低血等）——
+##
+## `special_modifiers()` 返回的是**无条件常驻**的通道聚合，而
+## `Trigger.LOW_HP` 这类条件型词条（`[4, 11, 106, 0.2, 0]` = 「生命低于50%
+## 时元素抗性+20%」）不属于它。故在 `_tick_low_hp` 里把满足条件的部分
+## **并进来**，消费点读 `_equip_special_mods()` 时自动带上。
+var _cond_specials: Dictionary = {}
+
 func _equip_special_mods() -> Dictionary:
 	var em = GameManager.equipment_manager
 	if em == null or not em.has_method("special_modifiers"):
-		return {}
-	return em.special_modifiers()
+		return _cond_specials
+	var out: Dictionary = em.special_modifiers()
+	for k in _cond_specials:
+		out[k] = float(out.get(k, 0.0)) + float(_cond_specials[k])
+	return out
 
 
 ## 当前生效的**技能增益**词条提供的修饰量（装备参考2 的 buff 类技能）。
@@ -2299,6 +2312,14 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	var skill_dr: float = float(_skill_buff_mods()["dr"])
 	if skill_dr > 0.0:
 		amount *= 1.0 - skill_dr
+	# 装备·全局伤害减免（`dmg_reduction_pct` 通道）。
+	#
+	# 来源两处：常驻（`special_modifiers`）+ 条件型（低血等，见 `_tick_low_hp`
+	# 写的 `_cond_specials`）——后者由 `_equip_special_mods()` 合并进来。
+	# 与上面的 `skill_dr`（限时 buff）是两条独立来源，可叠加。
+	var equip_dr: float = float(_equip_special_mods().get("dmg_reduction_pct", 0.0))
+	if equip_dr > 0.0:
+		amount *= 1.0 - clampf(equip_dr, 0.0, 0.9)
 	GameManager.attributes.take_damage(amount)
 	EventBus.player_hit.emit(amount, global_position)
 	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")
@@ -2369,6 +2390,100 @@ func _try_cheat_death() -> bool:
 func _tick_cheat_death(delta: float) -> void:
 	if _cheat_death_cd > 0.0:
 		_cheat_death_cd = maxf(_cheat_death_cd - delta, 0.0)
+
+
+## ============================================================
+## B7 低血条件通道（`Trigger.LOW_HP` / 枚举 11）
+## ============================================================
+#
+# 「生命低于 50% 时，获得 20% 伤害减免」这类词条是**条件常驻**：
+# 血量跨过阈值就生效、回上去就失效，没有「事件」可言。
+#
+# `PlayerEquipmentEffects` 是事件驱动的（击杀/受击/命中…），低血**没有事件**，
+# 故它接不住这批词条。此前 `Trigger.LOW_HP` 全局**零消费点**——
+# 8 条低血词条（吸血脉甲/坚韧腿甲/守护肩甲/护盾头盔/血怒巨斧/处决者/
+# 血怒/狂战士之怒）全部挂着永不生效。故在这里按帧轮询血量比例。
+#
+# **两种词条分两条路径落地**：
+#   · `stat < 100`（面板属性）→ 挂/卸命名的 modifier（`_low_hp_mod_src`）
+#   · `stat >= 100`（扩展通道）→ 写进 `_cond_specials`，由
+#     `_equip_special_mods()` 合并（消费点零改动）
+#
+# 形态 `low_hp_bonus`/`low_hp_dr`（策划 7.2 狂战士等）也在这里一起算，
+# 两者的生效时机本来就是同一个（血量跨阈值）。
+
+## 低血面板属性的 modifier 来源名（回血线以上时按它撤销）
+var _low_hp_mod_src := "eq_low_hp"
+## 上一帧生效的低血词条**集合指纹**——只有集合变化时才重挂 modifier，
+## 避免每帧 `remove_modifiers` + `add_modifier`（那会反复触发 `_recalc_hp`）
+var _low_hp_sig := ""
+## 当前是否处于低血生效状态（供 HUD / 其它系统查询）
+var _low_hp_active := false
+
+
+## 每帧轮询低血条件：跨过各词条各自的阈值时挂上效果，回到阈值以上时撤销。
+##
+## **按词条各自判定**——「生命低于30%时…」与「生命低于50%时…」是两条
+## 独立的词条，不能统一按某一个阈值。`a.hp_threshold` 缺省 0.5。
+func _tick_low_hp(_delta: float) -> void:
+	var em = GameManager.equipment_manager
+	if em == null or not em.has_method("affixes_of_trigger"):
+		return
+	if GameManager.attributes == null:
+		return
+	var max_hp: float = float(GameManager.attributes.max_hp)
+	if max_hp <= 0.0:
+		return
+	var entries: Array = em.call("affixes_of_trigger", AffixData.Trigger.LOW_HP)
+	# 形态低血增益（策划 7.2）：与装备低血词条同口径，一起算
+	var form_bonus := ClassDefs.special_num(class_id, form_slot, "low_hp_bonus", 0.0)
+	var form_dr := ClassDefs.special_num(class_id, form_slot, "low_hp_dr", 0.0)
+	if entries.is_empty() and form_bonus <= 0.0 and form_dr <= 0.0:
+		if not _low_hp_sig.is_empty():
+			_apply_low_hp_set([])
+		return
+	var ratio: float = float(GameManager.attributes.hp) / max_hp
+	var active: Array = []
+	for e in entries:
+		var a: AffixData = e["affix"]
+		if a == null:
+			continue
+		# 阈值缺省 0.5：生成器第 2798 行的正则保证「生命低于N%」带出 N，
+		# 只有极少数老数据没有阈值。
+		var th := a.hp_threshold if a.hp_threshold > 0.0 else 0.5
+		if ratio < th:
+			active.append(e)
+	# 指纹只由「哪些词条生效」决定，故血量在同一档内波动不会重挂
+	var sig := "%d|%.3f|%.3f" % [active.size(), form_bonus, form_dr]
+	if sig == _low_hp_sig:
+		return
+	_low_hp_sig = sig
+	_apply_low_hp_set(active, form_bonus, form_dr)
+
+
+## 把当前生效的低血词条集合落到 modifier / 扩展通道上
+func _apply_low_hp_set(active: Array, form_bonus := 0.0, form_dr := 0.0) -> void:
+	remove_modifiers(_low_hp_mod_src)
+	_cond_specials.clear()
+	for e in active:
+		var a: AffixData = e["affix"]
+		if a == null:
+			continue
+		if a.stat < 100:
+			# 面板属性：词条值 0.2 的语义是「+20%」，而
+			# `AttributeSystem.get_value = base + flat + base×percent`
+			# ——故必须走 **percent 槽**（flat 槽会变成「攻击力+0.2 点」）。
+			add_modifier(_low_hp_mod_src, int(a.stat), 0.0, a.value)
+		else:
+			var key: String = EquipmentDB.special_out_key(int(a.stat))
+			if not key.is_empty():
+				_cond_specials[key] = float(_cond_specials.get(key, 0.0)) + a.value
+	if form_bonus > 0.0:
+		add_modifier(_low_hp_mod_src, AttributeSystem.Stat.ATK, 0.0, form_bonus)
+	if form_dr > 0.0:
+		_cond_specials["dmg_taken_down"] = \
+			float(_cond_specials.get("dmg_taken_down", 0.0)) + form_dr
+	_low_hp_active = not active.is_empty() or form_bonus > 0.0 or form_dr > 0.0
 
 
 ## 伤害反弹：把本次受到伤害的 N% 打回攻击者。
@@ -2713,6 +2828,10 @@ func clear_passive_rules() -> void:
 	_cheat_death_rule = {}
 	if _stationary_active:
 		_clear_stationary_buff()
+	# B7 低血：卸下装备后必须清掉条件 modifier，否则低血加成会永久留着
+	if not _low_hp_sig.is_empty():
+		_low_hp_sig = ""
+		_apply_low_hp_set([])
 
 
 ## ⑥ 写入能量储存规则（「伤害储存护符」）

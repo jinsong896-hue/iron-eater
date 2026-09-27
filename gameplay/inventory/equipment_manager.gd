@@ -611,6 +611,8 @@ func special_modifiers() -> Dictionary:
 		"ranged_dmg_pct": 0.0, "aoe_dmg_pct": 0.0, "trap_dmg_pct": 0.0,
 		"projectile_dmg_pct": 0.0, "debuff_resist_pct": 0.0,
 		"shield_power_pct": 0.0, "frozen_dmg_pct": 0.0,
+		# 2026-09-27：全局伤害减免（「获得 N% 伤害减免」的专用通道）
+		"dmg_reduction_pct": 0.0,
 		# 2026-09-26：职业资源（装备参考2 的「获得 N 点怒气/魔力/…」）
 		"resource_gain_flat": 0.0, "resource_gain_pct": 0.0,
 		"resource_max_pct": 0.0, "resource_regen_flat": 0.0,
@@ -656,6 +658,59 @@ func special_modifiers() -> Dictionary:
 		var k: String = EquipmentDB.special_out_key(int(stat_enum))
 		if not k.is_empty():
 			out[k] = float(out[k]) + float(_devour_specials[stat_enum])
+	return out
+
+
+## 取当前装备的、指定**触发条件**的词条（自有列 + 融合进主装备的）
+##
+## ## 为什么需要它
+##
+## `special_modifiers()` 只收 `is_stat()` 的词条（FLAT/PERCENT）——
+## 那是**无条件常驻**的通道聚合。而 `STACK_GAIN` / `TRIGGER_BUFF` 这类
+## **条件型**词条（`[4, 11, Stat.ATK, 0.2, 0]` = 「生命低于50%时攻击+20%」）
+## 根本不进那条路径，必须由消费方按触发条件取出来自行判定。
+##
+## 这正是本项目反复踩的坑：**枚举有定义、数据有词条、但没有消费者**。
+## `Trigger.LOW_HP` 此前就是这样——8 条低血词条从未生效。
+##
+## 返回 `[{affix, inst}, ...]`，与 `PlayerEquipmentEffects._all_affixes` 同构。
+func affixes_of_trigger(trig: int) -> Array:
+	var out: Array = []
+	for slot in _equipped:
+		var inst = _equipped[slot]
+		if inst == null:
+			continue
+		var tpl: EquipmentTemplate = inst.get_template()
+		if tpl == null:
+			continue
+		# 自有列全部（不止第一条）
+		for a in tpl.own_affixes:
+			if a != null and int(a.trigger) == trig:
+				out.append({"affix": a, "inst": inst})
+		# 融合进来的（`fuse()` 把材料的 fusion_affixes 并进 extra_affixes）
+		for a in inst.extra_affixes:
+			if a != null and int(a.trigger) == trig:
+				out.append({"affix": a, "inst": inst})
+	return out
+
+
+## 取全部**条件型**扩展通道修饰量（`stat >= 100` 且挂在指定触发条件上）
+##
+## 与 `special_modifiers()` 的分工：那个返回**常驻**通道值，这个返回
+## **某一触发条件下的**值。用于「生命低于50%时免疫控制」（`[4,11,112,0.5,0]`）
+## 这类——低血时 `ctrl_resist_pct` 应当是 0.5，回血后应当回落到 0。
+##
+## 未装备对应词条时返回空字典（调用方按「无加成」处理）。
+func conditional_specials(trig: int) -> Dictionary:
+	var out: Dictionary = {}
+	for e in affixes_of_trigger(trig):
+		var a: AffixData = e["affix"]
+		if a == null or a.stat == 0:
+			continue
+		var key: String = EquipmentDB.special_out_key(int(a.stat))
+		if key.is_empty():
+			continue
+		out[key] = float(out.get(key, 0.0)) + float(a.value)
 	return out
 
 

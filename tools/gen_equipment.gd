@@ -99,6 +99,10 @@ const SP := {
 	"debuff_resist": 139, "shield_power": 140, "frozen_dmg": 141,
 	# 2026-09-26：职业资源（装备参考2 的「获得 N 点怒气/魔力/…」）
 	"res_gain": 142, "res_gain_pct": 143, "res_max": 144, "res_regen": 145,
+	# 2026-09-27：全局伤害减免。**必须单独开一条**——旧版把「获得 N% 伤害减免」
+	# 错映射成 `elem_resist`（106，元素抗性），语义完全不同：
+	# 元素抗性只挡元素伤害，伤害减免该挡全部来源。
+	"dmg_reduction": 146,
 }
 
 ## Operation / Trigger 枚举值（与 AffixData 一致）
@@ -824,9 +828,15 @@ func _parse_main(s: String) -> String:
 		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HURT, _f(m.get_string(1))]
 
 	# ---------- 5. 低血 / 处决（规格 #13） ----------
+	#
+	# **「伤害减免」必须走专用通道 `dmg_reduction`（146）**，不能塞元素抗性：
+	# 元素抗性只挡元素伤害，而「获得 N% 伤害减免」该挡全部来源。
+	# 旧版这里返回 `SP["elem_resist"]`——实测「守护肩甲：生命值低于50%时，
+	# 获得20%伤害减免」在数据库里就是 `[4, 11, 106, 0.2, 0]`，
+	# 玩家低血时只多了 20% 元素抗性。
 	m = _re(r"生命低于\s*\d+%\s*时.*?(\d+)%\s*伤害减免").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+		return "[%d, %s, true]" % [SP["dmg_reduction"], _f(m.get_string(1))]
 	m = _re(r"对生命值?低于\s*\d+%\s*的敌人.*?额外\s*(\d+)%\s*伤害").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
@@ -1267,7 +1277,7 @@ func _parse_main(s: String) -> String:
 			return "[Stat.CDR, %.4f, true]" % v
 		# ⑥ 减伤 / 增伤
 		if nm.contains("减伤"):
-			return "[%d, %.4f, true]" % [SP["elem_resist"], v]
+			return "[%d, %.4f, true]" % [SP["dmg_reduction"], v]
 		if nm.contains("增伤") or nm.contains("伤害"):
 			return "[%d, %.4f, true]" % [SP["elem_dmg"], v]
 		# ⑦ 「XX效果」这类（强化效果/标记效果…）→ 归到攻击力（最通用的增伤口径）
@@ -1531,7 +1541,8 @@ func _parse_main(s: String) -> String:
 		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]
 	m = _re(r"生命值低于\s*\d+%\s*时，额外获得\s*(\d+)%\s*减伤").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+		# 「减伤」= 全局减伤（不是元素抗性），同第 5 节的口径
+		return "[%d, %s, true]" % [SP["dmg_reduction"], _f(m.get_string(1))]
 	m = _re(r"生命低于\s*\d+%\s*时，攻击力\s*\+?(\d+)%").search(s)
 	if m:
 		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
@@ -1588,7 +1599,7 @@ func _parse_main(s: String) -> String:
 		return "[Stat.CDR, 0.20, true]"
 	m = _re(r"护盾值\s*\+?\s*(\d+)%").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+		return "[%d, %s, true]" % [SP["shield_power"], _f(m.get_string(1))]
 	m = _re(r"吸血提高至\s*(\d+)%").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]
@@ -1816,10 +1827,10 @@ func _parse_main(s: String) -> String:
 		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
 	m = _re(r"冲锋后获得\s*\d*\s*秒?\s*(\d+)%\s*减伤").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+		return "[%d, %s, true]" % [SP["dmg_reduction"], _f(m.get_string(1))]
 	m = _re(r"驱散成功后获得\s*\d+\s*秒\s*(\d+)%\s*减伤").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+		return "[%d, %s, true]" % [SP["dmg_reduction"], _f(m.get_string(1))]
 	if s.contains("净化后获得3秒霸体"):
 		return "[%d, %s, true]" % [SP["ctrl_resist"], _f("50")]
 	m = _re(r"沉默箭命中后目标移速\s*-\s*(\d+)%").search(s)
@@ -2125,10 +2136,10 @@ func _parse_main(s: String) -> String:
 	# ---------- 39. 免疫 / 减伤 / 处决（补充） ----------
 	m = _re(r"生命值?低于\s*\d+%\s*时，?获得\s*(\d+)%\s*伤害减免").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+		return "[%d, %s, true]" % [SP["dmg_reduction"], _f(m.get_string(1))]
 	m = _re(r"生命值?低于\s*\d+%\s*时，额外获得\s*(\d+)%\s*减伤").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+		return "[%d, %s, true]" % [SP["dmg_reduction"], _f(m.get_string(1))]
 	m = _re(r"生命值?低于\s*\d+%\s*时，免疫控制").search(s)
 	if m:
 		return "[%d, 0.50, true]" % SP["ctrl_resist"]
@@ -2928,6 +2939,12 @@ func _wrap_with_trigger(spec: String, trig: int, param: float) -> String:
 	if m:
 		var stat := m.get_string(1)
 		var v := m.get_string(2)
+		# **低血阈值必须带上**（第 6 槽）：`hp_threshold` 是**按词条**的——
+		# 「生命低于30%时…」与「生命低于50%时…」是两条独立词条，
+		# 若都退化成 0.5，低血 30% 那条会在 30%~50% 区间**提前生效**。
+		if trig == TRIG_LOW_HP and param > 0.0:
+			return "[%d, %d, %s, %s, 0, %.4f]" % [OP_STACK_GAIN, trig, stat, v,
+				param]
 		return "[%d, %d, %s, %s, 0]" % [OP_STACK_GAIN, trig, stat, v]
 
 	# 其他形态（周期型等）：原样保留，不强行包装
