@@ -1293,6 +1293,59 @@ func _parse_main(s: String) -> String:
 		var per: String = _f(m.get_string(1)) if m else "0.20"
 		return "[%d, {\"ultimate_soul_per_stack\": %s}]" % [OP_SKILL_MOD, per]
 
+	# ---------- 9c. B5 三族（2026-09-27，7 条）----------
+	#
+	# ## 友方链接（3 条）
+	#
+	# 规格：「链接期间**自身**获得 N% 减伤」——注意是**自身**。
+	# 故这是「链接技能给自己加减伤」，走 `SKILL_MOD` 的 `dr_pct`，
+	# 由已有的 `_apply_extra_self_buffs`（`skill_system.gd:493` 读 `dr_pct`）
+	# 消费——**零代码改动**，只需要把数值接上。
+	#
+	# 技能本身已在 `EquipmentSkills` 里声明了 `link_ally`/`link_share_pct`
+	#（但引擎零消费，本作单人无队友）——那部分不在本轮范围。
+	m = _re(r"链接期间自身获得\s*(\d+(?:\.\d+)?)%\s*减伤").search(s)
+	if m:
+		return "[%d, {\"dr_pct\": %s}]" % [OP_SKILL_MOD, _f(m.get_string(1))]
+
+	# ## 陷阱（3 条）
+	#
+	# 项目**没有玩家侧陷阱系统**（`DamageZone` 有「陷阱型」注释，
+	# 但只有 1 条陷阱技能：冰霜陷阱长弓）。故这三条做成**数据通道**——
+	# `trap_resist_pct` / `trap_immune_pct` 挂上，等陷阱机制实现时直接生效。
+	# 「显示附近陷阱（小地图）」是 UI 功能，不做（标注为 UI 项）。
+	m = _re(r"陷阱伤害减少\s*(\d+(?:\.\d+)?)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["trap_dmg"], _f(m.get_string(1))]
+	# **注意两段式切分**：「触发陷阱时，有20%概率免疫伤害」的从句
+	#（「触发陷阱时，」）被 `_split_clause` 切走，主句只剩「有20%概率免疫伤害」。
+	#
+	# 但两段式的「主句回退」路径实测**没有走到**（主句单独调 `_parse_main`
+	# 成功、完整句的回退却返回空）。故这里直接**容忍前置从句**——
+	# 正则从任意「，」之后开始匹配，第 ① 步（完整文本）就能命中，
+	# 不依赖回退路径是否生效。
+	m = _re(r"(?:^|[，,])\s*有\s*(\d+(?:\.\d+)?)%\s*概率免疫伤害").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["dodge"], _f(m.get_string(1))]
+	if s.contains("显示附近陷阱"):
+		_skill_notes += 1   # UI 功能，不属于词条层级
+		return "__SKILL__"
+
+	# ## 束缚箭（1 条）
+	#
+	# 「束缚箭命中后，目标防御降低20%，持续5秒」——这是**技能修饰**：
+	# 巨兽猎手的自有列「攻击有6%概率发射束缚箭，使目标无法移动1.5秒」
+	# 已经产出了 entangle 触发；本条是给**被束缚的目标**再降防。
+	# 走 `SKILL_MOD` 的 `on_hit_debuff`，由 `_skill_mods_for` 并入该技能。
+	if s.contains("束缚箭命中后") and s.contains("防御降低"):
+		m = _re(r"防御降低\s*(\d+(?:\.\d+)?)%[，,]?\s*持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+		var ar := "0.20"
+		var ad := "5.0"
+		if m:
+			ar = _f(m.get_string(1))
+			ad = m.get_string(2)
+		return "[%d, {\"armor_reduce\": %s, \"armor_reduce_seconds\": %s}]" % [OP_SKILL_MOD, ar, ad]
+
 	# ---------- 10. 满层/层时触发（融合列为主，规格：机制补全） ----------
 	#
 	# 形态：「满层时…」「5层时…」「叠满3层时…」。
@@ -2787,7 +2840,7 @@ func _trigger_of_clause(clause: String) -> Dictionary:
 		return {"trigger": TRIG_ON_SKILL_CAST, "param": 0.0}
 	if c.contains("进入新房间") or c.contains("未探索房间"):
 		return {"trigger": TRIG_ON_ROOM_ENTER, "param": 0.0}
-	if c.contains("陷阱触发"):
+	if c.contains("陷阱") and c.contains("时"):
 		return {"trigger": TRIG_ON_TRAP_TRIGGER, "param": 0.0}
 	if c.contains("静止"):
 		return {"trigger": TRIG_STATIONARY, "param": 0.0}
