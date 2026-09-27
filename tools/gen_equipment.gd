@@ -664,6 +664,19 @@ func _parse_main(s: String) -> String:
 	var im := _re(r"^(.{2,8})期间免疫(击退|击飞|控制|减速|伤害)").search(s)
 	if im:
 		return "[%d, %d, Stat.DEF, 0.0, 0]" % [OP_STACK_GAIN, TRIG_ON_BLOCK_STANCE]
+	# 「攻击力提高至60%」——**语义有歧义，按上下文推断**
+	#
+	# 字面是「把攻击力**设为** 60%」（不合理）。它是「护盾强化」的**融合列**，
+	# 而该装备自有列是「护盾存在时，攻击力提高40%」——
+	# 融合词条的语义应是**强化自有**：把 40% 提到 60%。
+	#
+	# 故按「护盾存在时攻击力 +60%」落地（`SHIELD_UP` 触发）。
+	# **这是推断，已在清单标注**——若策划原意不同需回头改。
+	im = _re(r"^攻击力提高至\s*(\d+(?:\.\d+)?)%").search(s)
+	if im:
+		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_SHIELD_UP,
+			_f(im.get_string(1))]
+
 	# ---------- 0. 装备技能的修饰（**不是词条**） ----------
 	if s.begins_with("主动技能"):
 		return "__SKILL__"

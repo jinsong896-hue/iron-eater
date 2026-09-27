@@ -1137,6 +1137,6 @@ const CURATED_TABLE := [
   ["O066", "钥匙守护者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[Stat.ATK, 0.0500, true]], [[109, 0.0300, true]], [[Stat.ATK, 0.0800, true]]],
   ["O067", "记忆转化", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[Stat.ATK, 0.0200, true]], [[119, 0.0500, true]], [[Stat.ATK, 0.0300, true]]],
   ["O068", "金币替身", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[4, 2, 107, 0.10, 0]], [[107, 0.0500, true]], [[107, 0.2000, true]]],
-  ["O069", "护盾强化", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[4, 15, Stat.ATK, 0.4000, 0]], [[140, 0.0500, true]], []],
+  ["O069", "护盾强化", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[4, 15, Stat.ATK, 0.4000, 0]], [[140, 0.0500, true]], [[4, 15, Stat.ATK, 0.6000, 0]]],
 
 ]
