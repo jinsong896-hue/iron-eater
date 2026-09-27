@@ -98,21 +98,43 @@ func _check_one(r: Dictionary) -> void:
 	var nums := _numbers_of(spec)
 
 	# —— 1. 触发条件 ——
-	# 「击杀」→ 必须是 ON_KILL。实测「每击杀一个敌人回复5%最大生命值」
-	# 被解析成 ON_HIT（命中）——语义完全不同（命中即回血 vs 击杀才回血）。
-	if text.contains("击杀") and not text.contains("击杀时若"):
-		if trig != TRIG_ON_KILL and trig != TRIG_AT_FULL:
-			_issues.append("触发条件错 | %s\n      解析成 trigger=%d（应为 ON_KILL=1）"
-				% [tag, trig])
-	# 「受到伤害」→ ON_HURT
-	if text.contains("受到伤害") or text.contains("受击"):
-		if trig != TRIG_ON_HURT and trig != TRIG_ALWAYS:
-			_issues.append("触发条件错 | %s\n      解析成 trigger=%d（应为 ON_HURT=2）"
-				% [tag, trig])
-	# 「暴击」→ ON_CRIT
-	if text.contains("暴击时") and trig != TRIG_ON_CRIT:
-		_issues.append("触发条件错 | %s\n      解析成 trigger=%d（应为 ON_CRIT=6）"
-			% [tag, trig])
+	#
+	# ## 只报「条件**整个丢了**」的情况
+	#
+	# 判据是 `trig == TRIG_ALWAYS`（解析成无条件常驻），而不是
+	# 「不等于某个特定 trigger」。后者会大量误报：
+	#   · 「护盾存在时，受到伤害减少10%」→ trigger=15(SHIELD_UP) **是对的**
+	#     （条件就是「护盾存在」，不是「受到伤害」）
+	#   · 「嘲讽期间…」→ 20(ON_TAUNT)、「反击姿态期间…」→ 24(ON_FRENZY) 同理
+	#   · sentinel 类（`[2, "afterimage", ...]`）的 trigger 字段本就是
+	#     从句切分推导的、对规则无意义
+	# 那些都不该报。真错是「有条件却解析成常驻」——条件被静默丢弃。
+	if trig == TRIG_ALWAYS and not spec.begins_with("[2,") \
+			and not spec.begins_with("[4,") and not spec.begins_with("[8,"):
+		var cond := ""
+		if text.contains("击杀"):
+			cond = "击杀"
+		elif text.contains("受到伤害") or text.contains("受击"):
+			cond = "受到伤害"
+		elif text.contains("暴击时"):
+			cond = "暴击"
+		elif _re(r"(?:生命|血量|生命值)低于\s*\d+%").search(text) != null:
+			cond = "低血"
+		elif _re(r"^\S{2,10}(?:时|后)[，,]").search(text) != null:
+			cond = "从句条件"
+		# **条件内建通道要放过**：有些通道的语义**本身就是那个条件**，
+		# 常驻形态是正确的，不是丢条件。判据是「原文条件 ↔ 通道语义」精确匹配：
+		#   「对生命值低于N%的**敌人**」→ `execute_line`(105) 就是「对低血目标增伤」
+		#   「被**冻结**敌人」           → `frozen_dmg`(141) 就是「对被冻结目标增伤」
+		#   「**反弹**」                 → `reflect`(104) 就是「受伤时反伤」
+		# 三者都只有在**条件与通道语义一致**时才放过——
+		# 例如「每层目标受到伤害+5%」虽然也是 105，但它是**易伤**不是处决线，
+		# 条件不同，仍要报。
+		if not cond.is_empty() and _cond_is_intrinsic(text, cond, spec):
+			cond = ""
+		if not cond.is_empty():
+			_issues.append("条件丢失 | %s\n      原文有「%s」条件，却解析成**无条件常驻** %s"
+				% [tag, cond, spec])
 
 	# —— 2. 叠层上限 ——
 	# 「叠加N层」/「最多N层」→ stack_max 必须 = N
@@ -129,24 +151,141 @@ func _check_one(r: Dictionary) -> void:
 				% tag)
 
 	# —— 4. 数值是否被提取 ——
-	# 原文有 N% 时，解析结果里应出现 N/100（容忍两位小数）
-	var pcts := _pcts_from_text(text)
+	#
+	# ## 只检查「效果量」数值，跳过「条件/结构」数值
+	#
+	# 原文里的 `N%` 不都是效果量：
+	#   `有 N% 概率…`   —— 触发概率（不是效果，另有第 6 节专门查）
+	#   `低于 N% 时`    —— 阈值
+	#   `持续 N 秒`     —— 时长
+	#   `最多 N 层`     —— 层数上限
+	# 这些**本就不该出现在效果值里**，旧实现一刀切要求全部出现，
+	# 于是 122 条里绝大多数是这类噪声，把真问题淹没了。
+	var pcts := _effect_pcts_from_text(text)
 	for p in pcts:
 		if not _has_number(nums, p):
-			_issues.append("数值丢失 | %s\n      原文的 %s%% 未出现在解析结果里"
+			_issues.append("数值丢失 | %s\n      原文的效果值 %s%% 未出现在解析结果里"
 				% [tag, p])
 
 	# —— 5. 「持续N秒」不能丢 ——
-	if text.contains("持续") and _re(r"持续\s*\d+\s*秒").search(text) != null:
-		# 触发型结果里应带时长（第 4 项），或 STACK_GAIN 的第 5 项 stack_max
-		if not spec.contains(".") and not spec.contains(","):
-			_issues.append("时长丢失 | %s\n      原文有「持续N秒」但解析结果无时长"
+	#
+	# 判据：原文写了时长，结果里就该有时长的痕迹。合法载体三种：
+	#   `[2+..., chance, duration, ...]`      —— 第 4 槽是时长
+	#   `[4, t, stat, v, stack_max, ...]`     —— 叠层类靠 `stack_max` 表达
+	#   参数字典里带 `_seconds` / `duration`   —— sentinel 类
+	#
+	# **旧判据是坏的**：`not spec.contains(".") and not spec.contains(",")`
+	# 对任何数组字面量都恒假（spec 必然含逗号），于是这条**从未触发**——
+	# 22 条真丢时长的词条（「冲刺后获得5%移速，持续2秒」→ 常驻 `Stat.SPD`）
+	# 一条都没被报出来。
+	if _re(r"持续\s*\d+\s*秒").search(text) != null:
+		if not _has_duration(spec):
+			_issues.append("时长丢失 | %s\n      原文有「持续N秒」但结果无时长（变成永久常驻）"
 				% tag)
 
+	# —— 6. **概率条件被当成效果量** ——
+	#
+	# 「格挡时有 3% 概率**完全免疫该次伤害**」——`3%` 是**触发概率**，
+	# 「完全免疫该次伤害」才是效果。实测解析结果是 `[110, 0.03, true]`
+	# = 「格挡率 +3%」：概率被当成了效果量，真正的效果整个丢失。
+	# 这类比「未映射」隐蔽得多——数据看起来正常，报告也全绿。
+	var pm := _re(r"有\s*(\d+(?:\.\d+)?)%\s*概率").search(text)
+	if pm != null:
+		var prob := pm.get_string(1)
+		if _spec_is_unconditional(spec) and _has_number(nums, prob):
+			_issues.append("概率当效果 | %s\n      原文的 %s%% 是**触发概率**，却成了效果值（真正的效果丢失）"
+				% [tag, prob])
 
-## 从原文抽「叠加/最多 N 层」
+	# —— 7. **低血阈值丢失** ——
+	#
+	# 「生命低于30%时，吸血效果提升20%」——30% 与 20% **不是同一个数**。
+	# 阈值在 `STACK_GAIN` 的第 6 槽；缺了它消费方只能按统一 0.5 判，
+	# 于是 30% 那条会在 30%~50% 区间**提前生效**。
+	var tm := _re(r"(?:生命|血量|生命值)低于\s*(\d+(?:\.\d+)?)%").search(text)
+	if tm != null and trig == 11 and _threshold_of(spec) <= 0.0:
+		_issues.append("阈值丢失 | %s\n      原文「低于 %s%%」未进第 6 槽（会退化成统一 0.5）"
+			% [tag, tm.get_string(1)])
+
+
+## 原文的条件是否**内建在通道语义里**（那就不算丢条件）
+##
+## 三条精确对应关系，都要求**条件与通道语义一致**：
+##   「对生命值低于 N% 的**敌人**」→ `execute_line`(105) 是「对低血目标增伤」
+##   「被**冻结**敌人」             → `frozen_dmg`(141) 是「对被冻结目标增伤」
+##   「**反弹** N% 伤害」           → `reflect`(104) 是「受伤时反伤」
+##
+## **不能只按通道号放过**：同样是 105，「每层目标受到伤害+5%」是**易伤**
+## 而不是处决线，条件不同，仍应报出来。
+func _cond_is_intrinsic(text: String, cond: String, spec: String) -> bool:
+	# 处决线：只有「对低于N%的敌人」才算内建
+	if spec.contains("[105,"):
+		return _re(r"对生命值?低于\s*\d+%\s*的敌人").search(text) != null
+	# 冻结增伤：只有「被冻结敌人」才算内建
+	if spec.contains("[141,"):
+		return text.contains("冻结") and text.contains("敌人")
+	# 反伤：只有「反弹」才算内建
+	if spec.contains("[104,"):
+		return text.contains("反弹")
+	# 低血词条走 `[4, 11, ...]`——那已被 `_spec_is_unconditional` 排除，
+	# 不在这里处理
+	return false
+
+
+## 结果是否是**无条件效果形态**（没有任何触发语义）
+##
+## 判据：不是触发型 `[2,...]`、不是叠层型 `[4,...]`、也不是技能修饰 `[8,...]`。
+## 这些形态的效果值就写在字面量里，可以直接与原文的数字比对。
+func _spec_is_unconditional(spec: String) -> bool:
+	if spec.begins_with("[2,") or spec.begins_with("[4,") or spec.begins_with("[8,"):
+		return false
+	return _is_plain_spec(spec)
+
+
+## 是否裸属性形态（`[Stat.X, v, bool]` / `[NNN, v, true]`）
+func _is_plain_spec(spec: String) -> bool:
+	return _re(r"^\[(?:[A-Za-z_.]+|\d+),\s*-?[\d.]+,\s*(?:true|false)\]$").search(spec) != null
+
+
+## STACK_GAIN 形态的第 6 槽（条件阈值；无则 0）
+func _threshold_of(spec: String) -> float:
+	var m := _re(r"^\[4,\s*\d+,\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*([\d.]+)").search(spec)
+	if m:
+		return float(m.get_string(1))
+	return 0.0
+
+
+## 解析结果里是否带时长痕迹
+func _has_duration(spec: String) -> bool:
+	# 参数字典里的 seconds / duration 键
+	if spec.contains("_seconds") or spec.contains("duration"):
+		return true
+	# 触发型 `[2, "id", chance, dur]`——第 4 槽 > 0 即有时长
+	var m := _re(r"^\[2,\s*\"[^\"]*\",\s*[\d.]+,\s*([\d.]+)").search(spec)
+	if m != null:
+		return float(m.get_string(1)) > 0.0
+	# 叠层型 `[4, t, stat, v, stack_max]`——stack_max > 0 即有时长语义
+	m = _re(r"^\[4,\s*\d+,\s*[^,]+,\s*[^,]+,\s*(\d+)").search(spec)
+	if m != null:
+		return int(m.get_string(1)) > 0
+	return false
+
+
+## 从原文抽「叠加 N 层」的**上限**
+##
+## ## 必须优先取「最多/可叠」
+##
+## 「受到伤害叠加1层"不朽"（最多15层）」里**两个数字都是层数**，
+## 含义却相反：`1` 是**每次叠几层**，`15` 才是**上限**。
+## 旧实现按出现顺序取第一个 → 拿到 1，于是 20 条词条被误报
+## 「原文声明 1 层，解析成 stack_max=15」——**检查器本身的假警报**。
+## 上限（`最多/可叠`）才是 `stack_max` 的语义。
 func _stack_from_text(t: String) -> int:
-	var m := _re(r"(?:叠加|最多|可叠)\s*(\d+)\s*层").search(t)
+	# 优先级 1：「最多/可叠 N 层」= 上限
+	var m := _re(r"(?:最多|可叠|最多可叠)\s*(\d+)\s*层").search(t)
+	if m:
+		return int(m.get_string(1))
+	# 优先级 2：「叠加 N 层」——没有「最多」时才当上限用
+	m = _re(r"叠加\s*(\d+)\s*层").search(t)
 	if m:
 		return int(m.get_string(1))
 	return 0
@@ -158,6 +297,26 @@ func _pcts_from_text(t: String) -> Array:
 	for m in _re(r"(\d+(?:\.\d+)?)\s*%").search_all(t):
 		out.append(m.get_string(1))
 	return out
+
+
+## 从原文抽**效果量**百分比——剔除条件/结构类数值
+##
+## 「有 30% 概率使目标移速 -50%」里的 `30%` 是**概率**、`50%` 才是效果。
+## 先把非效果片段从文本里抹掉，剩下的百分比才要求出现在解析结果里。
+func _effect_pcts_from_text(t: String) -> Array:
+	var s := t
+	for pat in [
+		r"有\s*\d+(?:\.\d+)?%\s*概率",            # 触发概率
+		r"(?:生命|血量|生命值)低?于?\s*\d+(?:\.\d+)?%",   # 低血阈值
+		r"持续\s*\d+(?:\.\d+)?\s*秒",             # 时长
+		r"(?:最多|可叠|叠加)\s*\d+\s*层",           # 层数
+		r"\d+\s*层时",                            # 「N层时」
+		r"\d+(?:\.\d+)?\s*~\s*\d+(?:\.\d+)?",     # 区间（10~50）
+		r"\d+(?:\.\d+)?\s*米",                    # 距离
+		r"冷却\s*\d+(?:\.\d+)?\s*秒",             # 冷却
+	]:
+		s = _re(pat).sub(s, " ", true)
+	return _pcts_from_text(s)
 
 
 ## 解析结果里的所有数字（含小数归一）
