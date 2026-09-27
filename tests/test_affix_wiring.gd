@@ -54,6 +54,7 @@ func _ready() -> void:
 	await _test_b7_low_hp()
 	await _test_b7_berserker_rage()
 	await _test_b7_afterimage()
+	await _test_b7_prophecy()
 	_test_equipment_skills_exist()
 
 	if failed == 0:
@@ -1352,4 +1353,140 @@ func _test_b7_afterimage() -> void:
 		"卸下装备后残影规则清空")
 	_check((player.get("_afterimages") as Array).is_empty(),
 		"卸下装备后场上残影立刻失效")
+	_reset()
+
+
+## 16. B7.6 预言者王冠：暴击叠层 + 满层必暴 + 传播
+##
+## ## 规格
+##
+## 自有：「暴击叠加1层"预言"（最多6层），每层+6%暴击伤害；
+##        6层时下一次攻击必定暴击并造成300%伤害，
+##        同时将预言传播至周围2名敌人（各3层）」
+## 融合：「预言传播时，自身获得3秒+20%暴击率」
+##
+## ## 数据侧此前的问题
+##
+## 旧解析把两条都压成 `Stat.CRD` 数值（叠层 + 满层爆发），
+## 「必暴 / 300% / 传播 / 自身增益」**全部丢失**——玩家只能看到
+## 暴伤数字变大，看不到任何机制。
+##
+## 现由满层爆发词条的第 7 槽参数字典承载这些语义
+##（`{burst: "prophecy", ...}`），`_burst` 按 `burst` 分流。
+func _test_b7_prophecy() -> void:
+	print("\n--- B7.6 预言者王冠：预言 ---")
+	var em = GameManager.equipment_manager
+	var attrs = GameManager.attributes
+	_reset()
+	await get_tree().process_frame
+
+	# —— 数据侧 ——
+	var tpl = _find_by_name("预言者王冠")
+	if tpl == null:
+		_check(false, "找到「预言者王冠」")
+		return
+	var stack_a: AffixData = null
+	var full_a: AffixData = null
+	for a in tpl.own_affixes:
+		if a == null:
+			continue
+		if int(a.trigger) == AffixData.Trigger.ON_CRIT and a.stack_max == 6:
+			stack_a = a
+		if int(a.trigger) == AffixData.Trigger.AT_FULL:
+			full_a = a
+	_check(stack_a != null, "有「暴击叠6层」词条（trigger=ON_CRIT, max=6）")
+	_check(full_a != null, "有「满层爆发」词条（trigger=AT_FULL）")
+	if stack_a == null or full_a == null:
+		return
+	_check(stack_a.stat == full_a.stat,
+		"两条**共用同一个 stat**（`_fire_stack_full` 靠它配对）",
+		["stack=%d full=%d" % [stack_a.stat, full_a.stat]])
+	_check(absf(stack_a.value - 0.06) < 0.001,
+		"每层 +6% 暴击伤害（规格原值）", ["实际=%.3f" % stack_a.value])
+	var tp: Dictionary = full_a.trigger_params
+	_check(str(tp.get("burst", "")) == "prophecy", "满层词条带 prophecy 参数",
+		[str(tp)])
+	_check(absf(float(tp.get("crit_mult", 0.0)) - 3.0) < 0.01,
+		"必暴倍率 300%（规格「造成300%伤害」）")
+	_check(int(tp.get("spread_count", 0)) == 2, "传播 2 名敌人（规格原值）")
+	_check(int(tp.get("spread_layers", 0)) == 3, "各 3 层（规格原值）")
+
+	# —— 行为侧：暴击叠层 ——
+	var inst := _make_inst_by_name("预言者王冠")
+	if inst == null:
+		_check(false, "构造实例")
+		return
+	em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst)
+	await get_tree().process_frame
+	var player: Node3D = _player()
+	if player == null:
+		return
+
+	# 暴击 3 次 → 3 层
+	for i in 3:
+		player.equip_fx.on_crit_stack()
+	var bid := "eqtrig_%d_%d" % [AffixData.Trigger.ON_CRIT, stack_a.stat]
+	_check(player.buffs.stacks_of(bid) == 3, "暴击 3 次叠 3 层预言",
+		["实际=%d" % player.buffs.stacks_of(bid)])
+
+	# 叠到 6 层 → 满层爆发：必暴 + 倍率
+	for i in 3:
+		player.equip_fx.on_crit_stack()
+	_check(bool(player.get("_prophecy_pending")), "满 6 层触发必暴（待消费）")
+	_check(bool(player.get("_force_crit")), "强制暴击已置位")
+	_check(absf(float(player.call("get_damage_multiplier")) - 3.0) < 0.01,
+		"伤害倍率 ×3（规格「造成300%伤害」）",
+		["实际=%.2f" % float(player.call("get_damage_multiplier"))])
+
+	# 消费后必须清账（否则变成永久必暴）
+	player.call("_consume_prophecy")
+	_check(not bool(player.get("_force_crit")), "攻击后必暴已清（不是永久）")
+	_check(absf(float(player.call("get_damage_multiplier")) - 1.0) < 0.01,
+		"攻击后倍率复位 1.0")
+
+	# —— 传播：周围敌人各 3 层 ——
+	_reset()
+	await get_tree().process_frame
+	em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst)
+	await get_tree().process_frame
+	var e1 = _spawn_dummy(player)
+	if e1 != null:
+		e1.global_position = player.global_position + Vector3(1.5, 0, 0)
+	await get_tree().process_frame
+	for i in 6:
+		player.equip_fx.on_crit_stack()
+	await get_tree().process_frame
+	if e1 != null and is_instance_valid(e1) and e1.get("buffs") != null:
+		var eb = e1.get("buffs")
+		var n: int = int(eb.call("stacks_of", "prophecy_spread"))
+		_check(n == 3, "满层时预言传播至周围敌人（3 层）", ["实际=%d" % n])
+	# 传播时给自己暴击率（融合列）——未融合时不该有
+	_check(not player.buffs.has("prophecy_self_crt"),
+		"未融合「预言传播」时不给自身暴击率")
+
+	# —— 融合：传播时给自身 +20% 暴击率 ——
+	#
+	# 这条在**融合列**——按规格「作为副材融合时给主装备」，
+	# 穿戴原装备时不生效。必须：融合进主装备 → 进 extra_affixes → 再穿上。
+	# 而且它与自有列的满层爆发**分属两条 affix**，靠累积器合并
+	#（`_merge_prophecy_self` → `_flush_prophecy` → `set_prophecy_self_rule`）。
+	_reset()
+	await get_tree().process_frame
+	GameManager.gold = 1000
+	var main2 := _make_inst_by_name("吸血脉甲")
+	var mat2 := _make_inst_by_name("预言者王冠")
+	if main2 == null or mat2 == null:
+		_check(false, "构造预言融合实例")
+		return
+	var fr2: Dictionary = em.fuse(main2, mat2)
+	_check(bool(fr2.get("ok", false)), "融合出「预言传播」", [str(fr2.get("reason", ""))])
+	em.equip(EquipmentDefs.Slot.CHEST, main2)
+	await get_tree().process_frame
+	_check(not (player.get("_prophecy_self_rule") as Dictionary).is_empty(),
+		"融合后自我增益规则已装配（累积器合并）",
+		[str(player.get("_prophecy_self_rule"))])
+	# 但**自有列的叠层**没跟着融合过来（融合只搬材料的融合词条），
+	# 故满层爆发不会触发 —— 这正是规格的「穿戴 vs 融合」分工。
+	_check(not player.buffs.has("prophecy_self_crt"),
+		"没有满层爆发时，传播不发生 → 自我增益也不给")
 	_reset()

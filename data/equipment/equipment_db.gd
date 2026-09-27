@@ -659,6 +659,11 @@ static func _make_one_affix(spec: Array) -> AffixData:
 				# ——「生命低于30%时…」与「生命低于50%时…」是**两条不同的
 				# 词条**，必须各自带阈值，否则会退化成「统一按 50% 判」。
 				a.hp_threshold = float(spec[5]) if spec.size() > 5 else 0.0
+				# 第 7 项（可选）：参数字典。用于「满层爆发要做什么」这类
+				# **规格复杂到桩函数兜不住**的效果（预言者王冠的
+				# 「必暴 + 300% 伤害 + 传播2人各3层」）。
+				if spec.size() > 6 and spec[6] is Dictionary:
+					a.trigger_params = (spec[6] as Dictionary).duplicate()
 			AffixData.Operation.TRIGGER_BUFF:
 				a.trigger_buff = str(spec[1])
 				a.trigger_chance = float(spec[2]) if spec.size() > 2 else 0.0
@@ -1086,7 +1091,7 @@ const CURATED_TABLE := [
   ["O003", "影狱双刃", "dagger", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 170.6, false]], [[116, 0.10, true], [Stat.CRD, 0.30, true], [Stat.CRD, 0.30, true]], [[105, 0.0500, true]], [[4, 17, 117, 0.3000, 0]]],
   ["O004", "猎神长弓", "bow", ["远程", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 227.5, false]], [[105, 0.0500, true], [Stat.CDR, 0.10, true], [7, "eq_猎神长弓", "猎神歼灭"]], [[135, 0.0500, true]], [[Stat.CRT, 0.30, true]]],
   ["O005", "不朽壁垒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[117, 0.0300, true], [2, "cheat_death", 1.0, 0.0, {"heal_pct": 0.3000, "boom_pct": 0.8000, "cooldown": 90}]], [[Stat.DEF, 0.0500, true]], []],
-  ["O006", "预言者王冠", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[4, 6, Stat.CRD, 0.0600, 6], [4, 5, Stat.CRD, 0.50, 0]], [[Stat.CRT, 0.0300, true]], []],
+  ["O006", "预言者王冠", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[4, 6, Stat.CRD, 0.0600, 6], [4, 5, Stat.CRD, 1.0, 0, 0, {"burst": "prophecy", "crit_mult": 3.0000, "spread_count": 2, "spread_layers": 3, "spread_radius": 5.0, "spread_stat": 10, "spread_value": 0.06, "spread_duration": 8.0, "spread_max": 6}]], [[Stat.CRT, 0.0300, true]], [[2, "prophecy_self", 1.0, 0.0, {"self_crt": 0.2000, "self_crt_seconds": 3}]]],
   ["O007", "踏虚神靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[2, "afterimage", 1.0, 0.0, {"life": 5, "max_count": 4, "explode_mult": 1.5000, "refresh_cd": 3.0, "heal_pct": 0.0}], [2, "afterimage", 1.0, 0.0, {"explode_mult": 1.5000}], [2, "afterimage", 1.0, 0.0]], [[Stat.SPD, 0.0500, true]], [[2, "afterimage", 1.0, 0.0, {"heal_pct": 0.0300}]]],
   ["O008", "元素之心·终焉", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[106, 0.2000, true], [117, 0.2500, true], [4, 5, 117, 4.0000, 0]], [[106, 0.0400, true]], [[2, "elem_finale_refresh", 1.0, 0.0, {"refresh": true}]]],
   ["O009", "灵魂王座", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[4, 1, Stat.ATK, 0.0300, 20], [8, {"ultimate_soul_per_stack": 0.3000}], [4, 1, Stat.HP, 0.10, 0]], [[119, 0.0400, true]], [[2, "soul_refund", 1.0, 0.0]]],

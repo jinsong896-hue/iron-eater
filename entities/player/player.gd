@@ -1748,6 +1748,11 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	var crit: bool = calc["crit"]
 	var kb: float = calc["knockback"]
 	var sp: Dictionary = _equip_special_mods()
+	# 记录本次是否暴击——`_apply_trigger_affixes` 里的「暴击叠层」
+	# （预言者王冠）在更深处调用，拿不到这个局部变量。
+	_last_hit_was_crit = crit
+	# 预言满层的「必暴 + 倍率」到此已消费完，清账（否则变成永久加成）
+	_consume_prophecy()
 
 	# 击退向量（EnemyBase 硬直期间消费）
 	var push: Vector3 = Vector3.ZERO
@@ -1926,6 +1931,10 @@ func _apply_trigger_affixes(enemy: Node3D, damage: float) -> void:
 	# 装备触发条件（装备参考2：「命中时…」类自有词条）
 	if equip_fx != null:
 		equip_fx.on_hit()
+		# 暴击叠层（预言者王冠「暴击叠加1层预言」）独立一条路径——
+		# `on_hit` 是所有命中都触发，而这条只在**暴击**命中时叠加。
+		if _last_hit_was_crit:
+			equip_fx.on_crit_stack()
 	var em = GameManager.equipment_manager
 	if em == null or not em.has_method("equipped_trigger_affixes"):
 		return
@@ -1953,12 +1962,12 @@ func _apply_trigger_affixes(enemy: Node3D, damage: float) -> void:
 		tgt_buffs.apply(bid, "equip")
 		# 施加后按加成延长（BuffHolder 记录的是表定 remaining，这里补差）
 		if dur_bonus > 0.0:
-			_extend_buff_duration(tgt_buffs, bid, dur_bonus)
+			extend_buff_duration(tgt_buffs, bid, dur_bonus)
 		EventBus.message.emit("触发【%s】" % _buff_name(bid))
 
 
 ## 延长目标身上某词条的剩余时长（负效时长 +N%）。
-func _extend_buff_duration(tgt_buffs, buff_id: String, bonus: float) -> void:
+func extend_buff_duration(tgt_buffs, buff_id: String, bonus: float) -> void:
 	if tgt_buffs == null or not tgt_buffs.has(buff_id):
 		return
 	var e = tgt_buffs.get("_buffs")
@@ -2170,6 +2179,46 @@ func set_force_crit(on: bool) -> void:
 	_force_crit = on
 
 
+## 装配「下一次攻击必暴 + 伤害倍率」（装备参考2：预言者王冠满层）
+##
+## ## 为什么必须走这两个现成变量
+##
+## `_force_crit` / `_damage_multiplier` 是 `_compute_basic_damage` 真正读的
+## 两个槽位，满层的「必暴 + 300%」正好一一对应。
+##
+## ## 为什么必须显式消费
+##
+## 两个变量此前**都不会自动复位**（`_force_crit` 只有调试入口、
+## `_damage_multiplier` 是外部设置的常驻乘区）。若不在攻击后清掉，
+## 「下一次攻击」会变成「从此永久必暴 + 永久 3 倍伤害」。
+## 故这里置 `_prophecy_pending`，由 `_consume_prophecy` 在攻击结算后清账。
+func arm_prophecy(mult: float) -> void:
+	_force_crit = true
+	_damage_multiplier *= maxf(mult, 0.0)
+	_prophecy_pending = true
+
+
+## 攻击结算后清掉预言加成（返回是否真的清过）
+func _consume_prophecy() -> void:
+	if not _prophecy_pending:
+		return
+	_prophecy_pending = false
+	_force_crit = false
+	_damage_multiplier = 1.0
+
+
+## 预言传播时给自己的暴击率增益（装备参考2 融合列「+20%暴击率 3秒」）
+##
+## 参数来自**融合列的独立 affix**，由 `_flush_prophecy` 合并后交来——
+## 与满层爆发词条分属两条 affix，故走累积器（同能量储存 / 残影）。
+var _prophecy_self_rule: Dictionary = {}
+
+
+## 装配预言自我增益规则（由 `PlayerEquipmentEffects` 调用）
+func set_prophecy_self_rule(rule: Dictionary) -> void:
+	_prophecy_self_rule = rule
+
+
 ## 重置全部战斗冷却（调试用，立刻可再出手）
 func reset_cooldowns() -> void:
 	_attack_timer = 0.0
@@ -2192,6 +2241,10 @@ var _pre_hitstop_scale := 1.0    ## hitstop 前的时间缩放（保存/还原�
 var _god_mode := false           ## 无敌：跳过扣血，但保留受击反馈
 var _damage_multiplier := 1.0    ## 出手伤害倍率
 var _force_crit := false         ## 强制暴击（故意绕过 can_crit，便于观察法术暴击顿帧）
+## 上一次普攻是否暴击——供「暴击叠层」类装备词条判定
+var _last_hit_was_crit := false
+## 预言满层的加成待消费（攻击结算后清账，见 `arm_prophecy`）
+var _prophecy_pending := false
 ## 本次结算的目标是否处于冻结状态（`frozen_dmg_pct` 通道用）
 ##
 ## **为什么用字段而不是参数**：`_compute_basic_damage` 已有 9 个参数，

@@ -31,6 +31,9 @@ var _energy_store_dirty := false
 ## 残影参数的跨条累积器（自有列 + 融合列各自只带一部分）
 var _afterimage_pending: Dictionary = {}
 var _afterimage_dirty := false
+## 预言自我增益参数的跨条累积器（融合列单独一条 affix）
+var _prophecy_pending: Dictionary = {}
+var _prophecy_dirty := false
 
 ## **规则型 sentinel**（常驻规则，不看 `trigger`）
 ##
@@ -46,6 +49,8 @@ const _SENTINEL_RULES := [
 	"cheat_death",
 	# B7 残影（2026-09-27）
 	"afterimage",
+	# B7 预言自我增益（2026-09-27）
+	"prophecy_self",
 ]
 
 
@@ -100,7 +105,9 @@ func reload_passives() -> void:
 	# 跨条累积器也要清（否则上一件装备的能量储存参数会残留）
 	_energy_store_pending.clear()
 	_afterimage_pending.clear()
+	_prophecy_pending.clear()
 	_afterimage_dirty = false
+	_prophecy_dirty = false
 	_energy_store_dirty = false
 	# 再按当前装备重建
 	#
@@ -113,6 +120,7 @@ func reload_passives() -> void:
 	# 重建完成后提交累积结果（能量储存需要三条合并后才完整）
 	_flush_energy_store()
 	_flush_afterimage()
+	_flush_prophecy()
 
 
 ## 扫描**全部**已装备词条里的规则型 sentinel（忽略 `trigger`）
@@ -359,6 +367,9 @@ func _apply_trigger(a: AffixData, inst) -> void:
 						a.trigger_params.duplicate(true))
 				return
 			# —— B7 残影（2026-09-27）——
+			"prophecy_self":
+				_merge_prophecy_self(a)
+				return
 			"afterimage":
 				_merge_afterimage(a)
 				return
@@ -410,6 +421,14 @@ func _apply_self_trigger_buff(a: AffixData) -> void:
 ##
 ## **用装备 id + 词条值做 buff id**：不同装备的同类触发要各自记账，
 ## 否则两件「受击叠层」装备会共享同一份层数。
+##
+## ## 触发时机由调用方决定
+##
+## 旧实现在这里无条件 `buffs.apply` —— 那对「击杀时叠层」是对的
+## （`_fire(ON_KILL)` 只在击杀那一刻调一次）。但**暴击叠层**（预言者王冠
+## 「暴击叠加1层预言」）不一样：暴击可能在同一帧内发生多次，
+## 需要的是「每次暴击 +1 层」而不是「每次事件重挂」。
+## 故引入 `_on_crit_stack` 单独入口（见下）。
 func _apply_stacked(a: AffixData) -> void:
 	var bid := _stack_buff_id(a)
 	if bid.is_empty():
@@ -429,6 +448,38 @@ func _apply_stacked(a: AffixData) -> void:
 			# 下一击又满层，变成每击都爆发）。但「层数不清空」与
 			# 「返还50%层数」两条强化词条会改变这个行为。
 			_consume_stacks(bid, a.stack_max)
+
+
+## 暴击时叠层（装备参考2：预言者王冠「暴击叠加1层"预言"（最多6层）」）
+##
+## ## 与 `_apply_stacked` 的分工
+##
+## `_apply_stacked` 走 `_fire(trig)`：每次事件遍历一次全部词条、
+## **重挂**一条 buff（层数 +1）并检查满层。
+## 这条路径对「击杀时叠层」够用，但暴击时**同一帧可能连续暴击多次**
+## （多段攻击 / 群体命中），每次都要真的 +1 层。
+##
+## 故这里直接按 `ON_CRIT` 取词条、逐条 `apply` 一层，
+## **不重挂已有的那层**——`BuffHolder.apply` 的语义是「叠一层并刷新时长」，
+## 正好符合「暴击叠加1层」。
+##
+## 满层时触发 `AT_FULL` 配对的爆发（这里是「必暴 + 300% 伤害 + 传播」，
+## 由 `_fire_stack_full` → `_burst` 落地），并按默认规则清空层数。
+func on_crit_stack() -> void:
+	if player == null or player.buffs == null:
+		return
+	for e in _affixes_with(AffixData.Trigger.ON_CRIT):
+		var a: AffixData = e["affix"]
+		if a == null or a.stack_max <= 0:
+			continue
+		var bid := _stack_buff_id(a)
+		if bid.is_empty():
+			continue
+		BuffDefs.register_equipment_stack(bid, a.stat, a.value, a.duration, a.stack_max)
+		player.buffs.apply(bid, "equip_trigger")
+		if player.buffs.stacks_of(bid) >= a.stack_max:
+			if _fire_stack_full(a.stat):
+				_consume_stacks(bid, a.stack_max)
 
 
 ## 满层爆发后的层数处理
@@ -612,6 +663,16 @@ func _flush_energy_store() -> void:
 func _burst(a: AffixData) -> void:
 	if player == null or not is_instance_valid(player):
 		return
+	# —— 预言者王冠的满层效果（`burst = prophecy`）——
+	#
+	# 规格：「6层时下一次攻击必定暴击并造成300%伤害，
+	#        同时将预言传播至周围2名敌人（各3层）」
+	#
+	# 这条路**不是**范围爆发，故必须在通用 AOE 之前分流——
+	# 否则「必暴 + 300%」会被 `a.value`（0.0）吃成一个 0 伤害的空爆。
+	if str(a.trigger_params.get("burst", "")) == "prophecy":
+		_trigger_prophecy(a)
+		return
 	var atk: float = float(GameManager.stat_value("atk"))
 	if atk <= 0.0:
 		return
@@ -693,3 +754,116 @@ func _flush_afterimage() -> void:
 	if player.has_method("set_afterimage_rule"):
 		player.call("set_afterimage_rule", _afterimage_pending.duplicate(true))
 	_afterimage_dirty = false
+	_prophecy_dirty = false
+
+
+## 预言满层触发（预言者王冠）
+##
+## ## 规格
+##
+## 「6层时下一次攻击必定暴击并造成300%伤害，同时将预言传播至
+## 周围2名敌人（各3层）」
+## 「融合：预言传播时，自身获得3秒+20%暴击率」
+##
+## ## 三件事分别怎么落地
+##
+## ① **必暴 + 300%** —— 挂两条短时词条，由 `Player._compute_basic_damage`
+##    消费（`set_force_crit` + `_damage_multiplier`）。**不在这里直接结算伤害**：
+##    满层是「下一次攻击」触发的，这一击的伤害必须走普攻的完整管线
+##    （元素/护甲/暴击倍率），另算一笔会变成「多打了一下」而不是「这一下变强」。
+##
+## ② **传播** —— 给周围最近的 N 个敌人各挂 M 层预言。
+##    直接 `buffs.apply` 叠层词条（复用同一套 `register_equipment_stack`）。
+##
+## ③ **融合的自我增益** —— 传播发生时给自己挂暴击率词条。
+##    它**必须挂在「真的传播了」之后**（规格写「传播时」）——
+##    附近没有敵人时不传播、也就不该给暴击率。
+func _trigger_prophecy(a: AffixData) -> void:
+	var p := a.trigger_params
+	var mult := float(p.get("crit_mult", 3.0))
+	var count := int(p.get("spread_count", 2))
+	var layers := int(p.get("spread_layers", 3))
+	var radius := float(p.get("spread_radius", 5.0))
+	# ① 必暴 + 倍率（下一次攻击消费）
+	player.call("arm_prophecy", mult)
+	EventBus.message.emit("预言应验！")
+	# ② 传播：给最近的 N 个敌人各叠 M 层
+	#
+	# 叠层用的 buff id 必须与玩家自己的预言**同源**（同一套
+	# `register_equipment_stack` 的 id 规则），这样敌人身上的层数
+	# 在数值上等价——但敌人没有 AT_FULL 词条，故不会自己触发满层爆发。
+	# 这是设计意图（规格只说"传播"，没说被传播者也会引爆）。
+	var stack_stat := int(p.get("spread_stat", 0))
+	var stack_value := float(p.get("spread_value", 0.0))
+	var stack_dur := float(p.get("spread_duration", 0.0))
+	var stack_max := int(p.get("spread_max", 6))
+	var targets: Array = []
+	for n in player.get_tree().get_nodes_in_group("enemies"):
+		var e := n as Node3D
+		if e == null or not is_instance_valid(e):
+			continue
+		if player.global_position.distance_to(e.global_position) > radius:
+			continue
+		if e.get("buffs") == null:
+			continue
+		targets.append(e)
+	# 按距离排序取最近的 N 个（`get_nodes_in_group` 顺序不保证）
+	targets.sort_custom(func(x, y):
+		return player.global_position.distance_to(x.global_position) \
+			< player.global_position.distance_to(y.global_position))
+	var spread_happened := false
+	var bid := "prophecy_spread"
+	BuffDefs.register_equipment_stack(bid, stack_stat, stack_value, stack_dur, stack_max)
+	# 负效时长 +N%（`debuff_dur_pct` 通道）也作用于本次传播——
+	# 传播的是**负面状态**，与命中时施加的其它 debuff 同口径。
+	var dur_bonus := float(player.call("_equip_special_mods").get("debuff_dur_pct", 0.0))
+	for i in mini(count, targets.size()):
+		var tb = (targets[i] as Node3D).get("buffs")
+		if tb == null:
+			continue
+		for j in layers:
+			tb.call("apply", bid, "equip_prophecy")
+		if dur_bonus > 0.0:
+			player.call("extend_buff_duration", tb, bid, dur_bonus)
+		spread_happened = true
+	# ③ 传播时给自己暴击率（融合列）
+	#
+	# 参数来自**另一条 affix**（融合列的 `prophecy_self`），
+	# 由 `_flush_prophecy` 累积后交给 Player 的 `_prophecy_self_rule`。
+	if spread_happened:
+		var self_rule: Dictionary = player.get("_prophecy_self_rule")
+		var crt_bonus := float(self_rule.get("self_crt", 0.0))
+		var crt_dur := float(self_rule.get("self_crt_seconds", 0.0))
+		if crt_bonus > 0.0 and crt_dur > 0.0:
+			BuffDefs.register_equipment_stack("prophecy_self_crt",
+				AttributeSystem.Stat.CRT, crt_bonus, crt_dur, 0)
+			player.buffs.apply("prophecy_self_crt", "equip_prophecy")
+
+
+## 预言自我增益（预言者王冠的融合列）
+##
+## 规格：「预言传播时，自身获得3秒+20%暴击率」
+##
+## ## 为什么走累积器而不是直接给 Player
+##
+## 它必须**并进满层爆发规则**（`_trigger_prophecy`）——因为只在
+## 「真的传播了」之后才生效。融合列与自有列是两条独立的 affix，
+## 故只能累积合并（与能量储存 / 残影同一套模式）。
+##
+## `_merge_prophecy_self` 把参数塞进 `_prophecy_pending`；满层爆发词条
+## 在自有列、其 `trigger_params` 里带 `burst: "prophecy"`。
+## `_flush_prophecy` 把两者**合并**后交给 Player 的
+## `set_prophecy_self_rule`。
+func _merge_prophecy_self(a: AffixData) -> void:
+	for k in a.trigger_params:
+		_prophecy_pending[k] = a.trigger_params[k]
+	_prophecy_dirty = true
+
+
+## 把累积的预言自我增益提交给 Player
+func _flush_prophecy() -> void:
+	if not _prophecy_dirty or player == null:
+		return
+	if player.has_method("set_prophecy_self_rule"):
+		player.call("set_prophecy_self_rule", _prophecy_pending.duplicate(true))
+	_prophecy_dirty = false

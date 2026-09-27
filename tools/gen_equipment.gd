@@ -981,6 +981,52 @@ func _parse_main(s: String) -> String:
 	if s == "范围扩大":
 		return "[%d, {\"basic_attack_expand_radius\": 3.5000}]" % OP_SKILL_MOD
 
+	# ---------- 预言（预言者王冠「暴击·预言连锁流」） ----------
+	#
+	# 规格三行：
+	#   自有：「暴击叠加1层"预言"（最多6层），每层+6%暴击伤害；
+	#          6层时下一次攻击必定暴击并造成300%伤害，
+	#          同时将预言传播至周围2名敌人（各3层）」
+	#   融合：「预言传播时，自身获得3秒+20%暴击率」
+	#
+	# 落在**两条** `STACK_GAIN` 上，靠**共用的 `stat`** 配对
+	#（与「击杀叠层 + 满层爆发」同一套机制，见 `_fire_stack_full`）：
+	#   ① 叠层：`[4, 6, Stat.CRD, 0.06, 6]`（暴击时 +1 层，每层 +6% 暴伤）
+	#      触发用 `ON_CRIT`（6）——玩家侧由 `_apply_trigger_affixes` 挂钩
+	#   ② 满层：`[4, 5, Stat.CRD, 1.0, 0, 0, {burst: "prophecy", ...}]`
+	#      `Stat.CRD` 两处相同 → `_fire_stack_full` 能配上
+	#
+	# 第 7 槽的参数字典承载「必暴倍率 / 传播人数与层数 / 传播时的自身增益」——
+	# 这些规格复杂到单个 `a.value` 表达不了。
+	#
+	# **两行必须分别解析**：`_parse_one` 只接受**一个** spec，
+	# 故不能让第一行的规则一次吐两条。
+	if s.contains("暴击叠加1层") and s.contains("预言"):
+		m = _re(r"暴击叠加\s*(\d+)\s*层[“\"]?预言[”\"]?[（(]最多\s*(\d+)\s*层[）)][，,]?每层\s*\+?(\d+)%\s*暴击伤害").search(s)
+		if m:
+			return "[%d, %d, Stat.CRD, %s, %s]" % [
+				OP_STACK_GAIN, TRIG_ON_CRIT, _f(m.get_string(3)), m.get_string(2)]
+	# 满层：「6层时下一次攻击必定暴击并造成300%伤害，同时将预言传播至周围2名敌人（各3层）」
+	if s.contains("必定暴击") and s.contains("传播"):
+		m = _re(r"造成\s*(\d+)%\s*伤害.*?传播至周围\s*(\d+)\s*名敌人[（(]各\s*(\d+)\s*层").search(s)
+		if m:
+			var extra := "{\"burst\": \"prophecy\", \"crit_mult\": %.4f, \"spread_count\": %s, \"spread_layers\": %s, \"spread_radius\": 5.0, \"spread_stat\": %d, \"spread_value\": 0.06, \"spread_duration\": 8.0, \"spread_max\": 6}" % [
+				float(m.get_string(1)) / 100.0, m.get_string(2), m.get_string(3),
+				AttributeSystem.Stat.CRD]
+			return "[%d, %d, Stat.CRD, 1.0, 0, 0, %s]" % [
+				OP_STACK_GAIN, TRIG_AT_FULL, extra]
+	# 融合：「预言传播时，自身获得 N 秒 +M% 暴击率」
+	#
+	# 它是**满层爆发的一部分**（只在「真的传播了」之后生效），不是独立词条。
+	# 但它在**融合列**、与自有列的核心规则分属两条 affix，故走
+	# **跨条累积器**（与能量储存 / 残影同一套模式）：产出 sentinel
+	# `prophecy_self`，由 `_merge_prophecy_self` 合并进规则后再交给 Player。
+	if s.contains("预言传播时") and s.contains("暴击率"):
+		m = _re(r"自身获得\s*(\d+)\s*秒\s*\+?(\d+)%\s*暴击率").search(s)
+		if m:
+			return "[%d, \"prophecy_self\", 1.0, 0.0, {\"self_crt\": %.4f, \"self_crt_seconds\": %s}]" % [
+				OP_TRIGGER_BUFF, float(m.get_string(2)) / 100.0, m.get_string(1)]
+
 	# ---------- 残影（踏虚神靴「位移·残影歼灭流」） ----------
 	#
 	# 规格三行，跨自有/融合两列：
