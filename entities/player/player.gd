@@ -167,6 +167,12 @@ var _elem_next_skill_bonus := 0.0
 ## 本件装备是否已触发过终焉（防止重复，直到状态被清空）
 var _elem_finale_fired := false
 
+# —— B4 免死机制（2026-09-27）——
+## 免死规则：{heal_pct, boom_pct, cooldown}；空 = 无免死装备
+var _cheat_death_rule: Dictionary = {}
+## 免死冷却剩余（秒）——规格明写 90/120 秒，无冷却会变成无限复活
+var _cheat_death_cd := 0.0
+
 
 func _ready() -> void:
 	add_to_group("player")
@@ -550,6 +556,8 @@ func _physics_process(delta: float) -> void:
 	# B1 四族（2026-09-27）：站立静止 / 伤害光环
 	_tick_stationary(delta)
 	_tick_aura(delta)
+	# B4 免死冷却
+	_tick_cheat_death(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
 	if not _typing_input():
 		_poll_skill_input()
@@ -2305,7 +2313,62 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 		_reflect_damage(from, amount)
 
 	if GameManager.attributes.is_dead():
+		# **免死机制**（装备参考2：「不朽壁垒」「触发免死后获得5秒无敌」）——
+		# 项目此前**完全没有**它：血量归零直接 `die()`。
+		#
+		# 判定必须在 `die()` **之前**：`_try_cheat_death` 若成功会回血并
+		# 返回 true，此时不该死。
+		if _try_cheat_death():
+			return
 		die()
+
+
+## 触发免死（若装备提供）。返回是否成功免死。
+##
+## 装备参考2 的两条：
+##   · 「受到致命伤害时免疫该次伤害并回复50%最大生命（冷却120秒）」
+##   · 「满层时受到致命伤害触发"不朽壁垒"——免疫该次伤害、消耗所有层数、
+##      对周围造成（层数×80%）攻击力伤害，并回复30%最大生命（冷却90秒）」
+##
+## **冷却**：规格明写 90/120 秒。没有冷却的话免死会变成「无限复活」。
+func _try_cheat_death() -> bool:
+	if _cheat_death_cd > 0.0:
+		return false
+	var rule: Dictionary = _cheat_death_rule
+	if rule.is_empty():
+		return false
+	var heal_pct := float(rule.get("heal_pct", 0.5))
+	var boom_pct := float(rule.get("boom_pct", 0.0))
+	var cd := float(rule.get("cooldown", 120.0))
+	# 回血
+	var max_hp: float = float(GameManager.attributes.max_hp)
+	var healed: float = GameManager.attributes.heal(max_hp * heal_pct)
+	if healed > 0.0:
+		EventBus.damage_popup.emit(global_position, healed, "heal")
+	# 范围反击（不朽壁垒：层数×80% 攻击力）
+	if boom_pct > 0.0:
+		var dmg := GameManager.stat_value("atk") * boom_pct
+		for e in get_tree().get_nodes_in_group("enemies"):
+			if not _is_valid_enemy(e):
+				continue
+			if global_position.distance_to((e as Node3D).global_position) > 4.0:
+				continue
+			(e as Node3D).call("take_damage", dmg, false, Vector3.ZERO, self)
+			EventBus.damage_popup.emit((e as Node3D).global_position, dmg, "crit")
+	_cheat_death_cd = cd
+	# 「不朽壁垒触发后，10秒内减伤+30%且免疫控制」——挂一条限时 buff
+	if buffs != null:
+		BuffDefs.register_equipment_stack("eq_cheat_death_guard",
+			AttributeSystem.Stat.DEF, 0.30, 10.0, 0)
+		buffs.apply("eq_cheat_death_guard", "equip_trigger")
+	EventBus.message.emit("免死触发！")
+	return true
+
+
+## 每帧推进免死冷却
+func _tick_cheat_death(delta: float) -> void:
+	if _cheat_death_cd > 0.0:
+		_cheat_death_cd = maxf(_cheat_death_cd - delta, 0.0)
 
 
 ## 伤害反弹：把本次受到伤害的 N% 打回攻击者。
@@ -2647,6 +2710,7 @@ func clear_passive_rules() -> void:
 	_energy_rule = {}
 	_energy_stored = 0.0
 	clear_elem_rules()
+	_cheat_death_rule = {}
 	if _stationary_active:
 		_clear_stationary_buff()
 
@@ -2814,6 +2878,14 @@ func clear_elem_rules() -> void:
 	_elem_same_target_count = 0
 	_elem_finale_fired = false
 	_elem_next_skill_bonus = 0.0
+
+
+## B4 写入免死规则（由 `PlayerEquipmentEffects` 在装备变更时调用）
+##
+## 参数：`{heal_pct, boom_pct, cooldown}`。冷却**不随装备变更重置**——
+## 否则玩家可以靠反复穿脱装备无限免死。
+func set_cheat_death_rule(rule: Dictionary) -> void:
+	_cheat_death_rule = rule
 
 
 ## ⑤ 消费待发冲击波（由普攻命中调用），返回是否释放了

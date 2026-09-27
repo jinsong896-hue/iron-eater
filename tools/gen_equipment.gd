@@ -1242,6 +1242,57 @@ func _parse_main(s: String) -> String:
 	if m:
 		return "[%d, \"slow\", 1.0, 3.0]" % OP_TRIGGER_BUFF
 
+	# ---------- 9b. 免死机制（2026-09-27，2 条）----------
+	#
+	# **必须在第 10 节（满层触发）之前**：否则「满层时受到致命伤害触发
+	# 不朽壁垒…并回复30%最大生命」会被第 10 节的 `满层时.*?\d+%最大生命`
+	# 抢先匹配成 `[4, AT_FULL, Stat.HP, 0.30]`——那是「叠满时回血」，
+	# 与「免死」完全两回事，且「层数×80%攻击力范围伤害」整个丢失。
+	#
+	# 判据必须含「致命伤害」——只说「满层时回复」的不是免死。
+	if s.contains("致命伤害"):
+		# 回血比例
+		var cd_heal := "0.5"
+		m = _re(r"回复\s*(\d+(?:\.\d+)?)%\s*最大生命").search(s)
+		if m:
+			cd_heal = _f(m.get_string(1))
+		# 范围反击：不朽壁垒的「（层数×80%）攻击力」
+		#
+		# 原文用**中文全角括号**包裹：「对周围造成（层数×80%）攻击力伤害」。
+		# 正则要容忍括号与百分号的各种位置，故用宽松的 `.*?` 连接。
+		var cd_boom := "0.0"
+		m = _re(r"层数\s*[×xX*]\s*(\d+(?:\.\d+)?)\s*%").search(s)
+		if m:
+			cd_boom = _f(m.get_string(1))
+		# 冷却
+		var cd_cd := "120.0"
+		m = _re(r"冷却\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+		if m:
+			cd_cd = m.get_string(1)
+		return "[%d, \"cheat_death\", 1.0, 0.0, {\"heal_pct\": %s, \"boom_pct\": %s, \"cooldown\": %s}]" % [
+			OP_TRIGGER_BUFF, cd_heal, cd_boom, cd_cd]
+	# 「不朽壁垒触发后，10秒内减伤+30%且免疫控制」——免死后的护盾窗口，
+	# 由 `Player._try_cheat_death` 自动挂（见那里的 `eq_cheat_death_guard`），
+	# 故这里**只需识别并吞掉**，不单独产出词条。
+	if s.contains("壁垒触发后") and s.contains("减伤"):
+		_skill_notes += 1   # 计入「已处理但不产出词条」
+		return "__SKILL__"
+
+	# 「释放终极技能时消耗所有灵魂，每层额外造成20%伤害」——
+	# 这是**技能修饰**（改终极技能=形态4技能的行为），不是玩家属性。
+	# 走 `SKILL_MOD`，参数由 `SkillSystem._skill_mods_for` 并入 `sd`。
+	#
+	# **必须排除「返还层数」**：「终极技能消耗灵魂后，返还50%层数」也含
+	# 「终极技能」+「灵魂」，但它修饰的是**层数处理**（已有 `soul_refund`
+	# sentinel 承载），不是伤害倍率。不加这条排除会把它抢走——
+	# 实测导致 `soul_refund` 从数据里消失（既有测试立刻抓到）。
+	if s.contains("终极技能") and s.contains("灵魂") and s.contains("每层"):
+		m = _re(r"每层额外造成\s*(\d+(?:\.\d+)?)%\s*伤害").search(s)
+		if m == null:
+			m = _re(r"每层\s*\+?\s*(\d+(?:\.\d+)?)%\s*伤害").search(s)
+		var per: String = _f(m.get_string(1)) if m else "0.20"
+		return "[%d, {\"ultimate_soul_per_stack\": %s}]" % [OP_SKILL_MOD, per]
+
 	# ---------- 10. 满层/层时触发（融合列为主，规格：机制补全） ----------
 	#
 	# 形态：「满层时…」「5层时…」「叠满3层时…」。
@@ -2035,12 +2086,16 @@ func _parse_main(s: String) -> String:
 		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
 
 	# ---------- 40. 无敌 / 保命 ----------
-	if s.contains("击杀敌人后获得") and s.contains("秒无敌") or s.contains("触发后获得") and s.contains("秒无敌") \
-			or s.contains("守护满层时") and s.contains("无敌") or s.contains("触发免死后"):
+	#
+	# **`触发免死后` 已从本条移除**：免死由第 9b 节专门处理（那里产出
+	# `cheat_death` sentinel）。留在这里会被误映射成 `dodge +50%`——
+	# 「免死后获得无敌」与「闪避率 +50%」是两回事。
+	#
+	# 剩下的是「获得 N 秒无敌」类——那种确实该给高闪避（无敌的近似）。
+	if s.contains("击杀敌人后获得") and s.contains("秒无敌") \
+			or s.contains("触发后获得") and s.contains("秒无敌") \
+			or s.contains("守护满层时") and s.contains("无敌"):
 		return "[%d, %s, true]" % [SP["dodge"], _f("50")]
-	m = _re(r"受到致命伤害时免疫该次伤害并回复\s*(\d+)%\s*最大生命").search(s)
-	if m:
-		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HURT, _f(m.get_string(1))]
 
 	# ---------- 41. 投射物 / 弹射 / 穿透 ----------
 	m = _re(r"攻击会弹射到最近的另一个敌人，造成\s*(\d+)%\s*伤害").search(s)

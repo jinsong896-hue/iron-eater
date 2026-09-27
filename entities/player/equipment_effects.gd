@@ -39,6 +39,8 @@ const _SENTINEL_RULES := [
 	# B3 元素序列（2026-09-27）
 	"elem_seq_distinct", "elem_seq_same_target", "elem_finale",
 	"elem_finale_refresh", "elem_rotate", "elem_next_skill",
+	# B4 免死（2026-09-27）
+	"cheat_death",
 ]
 
 
@@ -346,6 +348,12 @@ func _apply_trigger(a: AffixData, inst) -> void:
 			"elem_finale_refresh", "elem_rotate", "elem_next_skill":
 				if player.has_method("add_elem_rule"):
 					player.call("add_elem_rule", a.trigger_buff,
+						a.trigger_params.duplicate(true))
+				return
+			# —— B4 免死机制（2026-09-27）——
+			"cheat_death":
+				if player.has_method("set_cheat_death_rule"):
+					player.call("set_cheat_death_rule",
 						a.trigger_params.duplicate(true))
 				return
 	# **触发型词条**（`OP_TRIGGER_BUFF`）：给自己挂一条具名词条。

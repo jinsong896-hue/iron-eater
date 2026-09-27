@@ -49,6 +49,7 @@ func _ready() -> void:
 	await _test_b1_passives()
 	await _test_b2_energy_store()
 	await _test_b3_elem_sequence()
+	await _test_b4_cheat_death()
 	await _test_skill_mod_channel()
 
 	if failed == 0:
@@ -865,6 +866,71 @@ func _spawn_dummy(player: Node3D):
 	e.set("defense", 0.0)
 	e.set("dodge_pct", 0.0)
 	return e
+
+
+## 14. B4 免死机制
+##
+## ## 这是**全新机制**
+##
+## 项目此前**完全没有免死**：`take_damage` 末尾 `is_dead()` → `die()`，
+## 血量归零直接死。装备参考2 的「受到致命伤害时免疫该次伤害并回复50%」
+## 「满层时受到致命伤害触发不朽壁垒」都依赖它。
+##
+## 实现：在 `die()` **之前**插 `_try_cheat_death()`——成功则回血并返回，
+## 不进入 `die()`。**必须有冷却**（规格明写 90/120 秒），
+## 否则免死变成无限复活。
+func _test_b4_cheat_death() -> void:
+	print("\n--- B4 免死机制 ---")
+	var player := _player()
+	if player == null:
+		_check(false, "找到玩家节点")
+		return
+	if not player.has_method("set_cheat_death_rule"):
+		_check(false, "Player 暴露 set_cheat_death_rule")
+		return
+
+	# ① **数据侧的误映射修复**：`不朽壁垒` 的免死条目曾被抓成
+	# `[4, 5, Stat.HP, 0.30, 0]`（AT_FULL 叠层回血），语义完全不对。
+	# 现应是 `cheat_death` sentinel，且含 boom_pct（层数×80% 攻击力）。
+	var has_cheat := false
+	var has_boom := false
+	for t in EquipmentDB.all_templates():
+		for arr in [t.own_affixes, t.fusion_affixes]:
+			for a in arr:
+				if a != null and a.trigger_buff == "cheat_death":
+					has_cheat = true
+					if float(a.trigger_params.get("boom_pct", 0.0)) > 0.0:
+						has_boom = true
+	_check(has_cheat, "数据里有 cheat_death 规则")
+	_check(has_boom, "「不朽壁垒」的范围反击倍率未丢失（层数×80%）")
+
+	# ② **行为断言**：濒死时免死生效（不回 death）
+	_reset()
+	await get_tree().process_frame
+	player.call("set_cheat_death_rule", {"heal_pct": 0.5, "boom_pct": 0.0, "cooldown": 60.0})
+	player.set("_cheat_death_cd", 0.0)
+	var attrs = GameManager.attributes
+	attrs.hp = float(attrs.max_hp) * 0.01   # 压到 1%
+	var max_hp: float = float(attrs.max_hp)
+	# 打一发致死伤害
+	player.call("take_damage", max_hp * 2.0)
+	await get_tree().process_frame
+	_check(float(attrs.hp) > 0.0,
+		"免死生效：血量未归零（%.1f）" % float(attrs.hp),
+		["hp=%.1f" % float(attrs.hp)])
+	_check(float(player.get("_cheat_death_cd")) > 0.0,
+		"免死进入了冷却（%.0fs）" % float(player.get("_cheat_death_cd")))
+
+	# ③ **冷却期内不再免死**（否则是无限复活）
+	attrs.hp = max_hp * 0.01
+	player.call("take_damage", max_hp * 2.0)
+	await get_tree().process_frame
+	_check(float(attrs.hp) <= 0.0, "冷却期内不再免死（本次真的死了）",
+		["hp=%.1f" % float(attrs.hp)])
+
+	# 恢复：重开一局，避免污染后续测试
+	_reset()
+	await _start("warrior", 0)
 
 
 func _check(c: bool, name: String, detail: Array = []) -> void:
