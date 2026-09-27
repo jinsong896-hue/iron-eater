@@ -59,6 +59,7 @@ func _ready() -> void:
 	await _test_e_reflect_buff()
 	await _test_e_kill_gold()
 	_test_f_param_plumbing()
+	_test_multi_affix_not_silently_empty()
 	_test_equipment_skills_exist()
 
 	if failed == 0:
@@ -1836,3 +1837,56 @@ func _has_bleed(tpl) -> bool:
 			if a != null and a.trigger_buff == "bleed":
 				return true
 	return false
+
+
+## 21. 多属性词条不能静默变 0 条
+##
+## ## 这里踩了一个很深的坑
+##
+## `_make_affix_list` 原判据是「首元素是数组 → 逐条 `_make_one_affix`」，
+## **只认一层嵌套**。而生成器一度产出**三层**（`[[[…],[…]]]`）——
+## 那时 `_make_one_affix` 拿到的是数组而非规格，返回 null，
+## **整条词条消失且不报任何错**。
+##
+## 更糟的是忠实度检查器看不出来：它查的是 `parse_trace.txt` 里的**文本**，
+## 而文本格式完全正确。实测「被腐蚀的长剑 / 传奇共鸣」的多属性词条
+## 在修复前一直是 0 条。
+##
+## 故这里**按运行时的真实词条数**断言，而不是查文本。
+func _test_multi_affix_not_silently_empty() -> void:
+	print("\n--- 多属性词条不能静默变 0 条 ---")
+
+	# ① 「全属性+N%」展开成 8 项——逐条断言真的在运行时列表里
+	var all_stats_ok := 0
+	for t in EquipmentDB.all_templates():
+		for a in t.devour_affixes:
+			if a != null and a.operation == AffixData.Operation.PERCENT:
+				all_stats_ok += 1
+	_check(all_stats_ok > 50,
+		"「全属性」展开出的词条真的进了运行时列表（%d 条）" % all_stats_ok)
+
+	# ② 指定装备的**精确条数**（多属性展开后应是多条）
+	var cases := {
+		"血怒": 3,           # 攻击力+攻速+吸血 三条
+		"传奇共鸣": 8,       # 全属性 8 项
+		"被腐蚀的长剑": 8,   # 该武器所有数值 8 项
+	}
+	for nm in cases:
+		var t2 = _find_by_name(nm)
+		if t2 == null:
+			_check(false, "找到「%s」" % nm)
+			continue
+		var n: int = t2.own_affixes.size()
+		_check(n == int(cases[nm]),
+			"「%s」自有列有 %d 条（多属性已展开）" % [nm, int(cases[nm])],
+			["实际=%d" % n])
+
+	# ③ **SKILL_MOD 不能因嵌套改动而丢**——`[8, {...}]` 本身是 size=2 的数组，
+	#    曾经的递归写法会把递归进去、因 `size >= 3` 不成立而整条丢弃。
+	var sm := 0
+	for t3 in EquipmentDB.all_templates():
+		for arr in [t3.own_affixes, t3.fusion_affixes]:
+			for a3 in arr:
+				if a3 != null and a3.operation == AffixData.Operation.SKILL_MOD:
+					sm += 1
+	_check(sm >= 30, "SKILL_MOD 词条未被嵌套解析改动误删（%d 条）" % sm)

@@ -627,12 +627,35 @@ static func _make_affix_list(spec) -> Array[AffixData]:
 	var out: Array[AffixData] = []
 	if spec == null:
 		return out
-	if spec is Array and spec.size() > 0 and spec[0] is Array:
+	if not (spec is Array) or spec.is_empty():
+		return out
+	# **嵌套数组**（多属性规格，如「全属性+3%」展开成的 8 条）
+	#
+	# ## 这里此前只认**一层**嵌套，更深的一律静默变 0 条
+	#
+	# 判据原本是 `spec[0] is Array`，然后对每个元素调 `_make_one_affix`——
+	# 若元素本身还是数组（三层形态 `[[[…],[…]]]`），`_make_one_affix`
+	# 拿到的不是规格而是数组，返回 null，**整条词条消失且不报错**。
+	# 实测「被腐蚀的长剑 / 传奇共鸣」的多属性词条在 HEAD 里就是三层，
+	# 一直解析成 0 条——忠实度检查器看不出来（它查的是 trace 里的文本，
+	# 而文本格式是对的）。
+	#
+	# 现改为**递归展平到叶子**：只要当前是数组且首元素还是数组，
+	# 就继续往下；找到「首元素不是数组」的那一层才当规格处理。
+	if spec[0] is Array:
 		for one in spec:
-			var a := _make_one_affix(one)
-			if a != null:
-				out.append(a)
-	elif spec is Array and spec.size() >= 3:
+			# **只有「下一层还是数组」才继续递归**——
+			# 否则 `one` 本身就是一条规格（如 `[8, {...}]`，size=2），
+			# 递归进去会因 `size >= 3` 判据不成立而**整条丢失**。
+			# 实测这么写会让全部 SKILL_MOD 词条变 0 条。
+			if one is Array and not one.is_empty() and one[0] is Array:
+				out.append_array(_make_affix_list(one))
+			else:
+				var a := _make_one_affix(one)
+				if a != null:
+					out.append(a)
+		return out
+	if spec.size() >= 3:
 		var a2 := _make_one_affix(spec)
 		if a2 != null:
 			out.append(a2)
@@ -1105,7 +1128,7 @@ const CURATED_TABLE := [
   ["P117", "星辰护盾", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[7, "eq_星辰护盾", "星辰护盾"]], [[111, 0.0200, true]], [[104, 0.5000, true]]],
   ["P118", "混沌之门", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 16.8, false]], [[7, "eq_混沌之门", "混沌之门"]], [[[Stat.HP, 0.0200, true], [Stat.ATK, 0.0200, true], [Stat.DEF, 0.0200, true], [Stat.SPD, 0.0200, true], [Stat.ASPD, 0.0200, true], [Stat.AP, 0.0200, true], [Stat.CRT, 0.0200, true], [Stat.CRD, 0.0200, true]]], [[8, {"chaos_times": 2, "chaos_scale": 0.5000}]]],
   ["O000", "终末裁决", "sword", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 227.5, false]], [[4, 6, Stat.CRD,  0.0500,  8,  0], [4, 5, Stat.CRD, 0.50, 0]], [[Stat.CRD, 0.0500, true]], [[2, "soul_persist", 1.0, 0.0]]],
-  ["O001", "血海狂潮", "greataxe", ["近战", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 364.0, false]], [[118, 3.0000, true], [Stat.ATK, 0.40, true]], [[100, 0.0500, true]], [[4, 21, Stat.DEF, 0.0, 0]]],
+  ["O001", "血海狂潮", "greataxe", ["近战", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 364.0, false]], [[118, 3.0000, true], [[4, 11, Stat.ATK, 0.4000, 0, 0.5000], [4, 11, Stat.ASPD, 0.3000, 0, 0.5000], [4, 11, 100, 0.2500, 0, 0.5000]]], [[100, 0.0500, true]], [[4, 21, Stat.DEF, 0.0, 0]]],
   ["O002", "元素终焉", "staff", ["魔法", "双手", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.AP, 295.8, false]], [[2, "elem_rotate", 1.0, 0.0, {"rotate": true}], [117, 0.1500, true], [2, "elem_finale", 1.0, 0.0, {"mult": 6.0000, "clear": true}]], [[117, 0.0500, true]], [[2, "elem_finale_refresh", 1.0, 0.0, {"refresh": true}]]],
   ["O003", "影狱双刃", "dagger", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 170.6, false]], [[116, 0.10, true], [Stat.CRD, 0.30, true], [Stat.CRD, 0.30, true]], [[105, 0.0500, true]], [[4, 17, 117, 0.3000, 0]]],
   ["O004", "猎神长弓", "bow", ["远程", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 227.5, false]], [[2, "target_vuln", 1.0, 0.0, {"pct": 0.0500, "per_stack": true, "max_stacks": 8}], [Stat.CDR, 0.10, true], [7, "eq_猎神长弓", "猎神歼灭"]], [[135, 0.0500, true]], [[Stat.CRT, 0.30, true]]],
@@ -1115,7 +1138,7 @@ const CURATED_TABLE := [
   ["O008", "元素之心·终焉", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[106, 0.2000, true], [4, 36, 117, 0.2500, 5], [4, 5, 117, 4.0000, 0]], [[106, 0.0400, true]], [[2, "elem_finale_refresh", 1.0, 0.0, {"refresh": true}]]],
   ["O009", "灵魂王座", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[4, 1, Stat.ATK,  0.0300,  20,  0], [8, {"ultimate_soul_per_stack": 0.3000}], [4, 1, Stat.HP, 0.10, 0]], [[119, 0.0400, true]], [[2, "soul_refund", 1.0, 0.0]]],
   ["O010", "处决者", "sword", ["近战", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 227.5, false]], [[4, 11, 105, 0.3000, 0, 0.3000], [4, 1, Stat.HP, 0.2000, 0]], [[Stat.ATK, 0.0500, true]], [[105, 0.4000, true]]],
-  ["O011", "血怒", "greataxe", ["近战", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 364.0, false]], [[4, 11, Stat.ATK, 0.6000, 0, 0.5000]], [[100, 0.0500, true]], [[4, 11, 146, 0.3000, 0, 0.3000]]],
+  ["O011", "血怒", "greataxe", ["近战", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 364.0, false]], [[[4, 11, Stat.ATK, 0.6000, 0, 0.5000], [4, 11, Stat.ASPD, 0.4000, 0, 0.5000], [4, 11, 100, 0.3000, 0, 0.5000]]], [[100, 0.0500, true]], [[4, 11, 146, 0.3000, 0, 0.3000]]],
   ["O012", "元素洪流", "staff", ["魔法", "双手", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.AP, 295.8, false]], [[4, 18, 117, 0.8000, 0]], [[Stat.AP, 0.0500, true]], [[2, "atk_up_self", 1.0, 0.0]]],
   ["O013", "猎杀者", "bow", ["远程", "双手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 227.5, false]], [[105, 0.3000, true], [4, 1, Stat.ATK, 1.5000, 0]], [[135, 0.0500, true]], [[113, 1.0, true]]],
   ["O014", "不朽者", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[2, "cheat_death", 1.0, 0.0, {"heal_pct": 0.5000, "boom_pct": 0.0, "cooldown": 120}]], [[Stat.HP, 0.0500, true]], [[111, 0.5000, true]]],

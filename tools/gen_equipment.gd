@@ -731,7 +731,38 @@ func _parse_main(s: String) -> String:
 	if _RE_SKILL_NOTE.search(s) != null:
 		return "__SKILL__"
 
-	# ---------- 1. 攻击附带元素伤害（规格 #4） ----------
+	# 生命低于 N% 时进入「血海狂暴」——攻击+40%、攻速+30%、吸血+25%
+	#
+	# 与上面「生命低于50%时，攻击力+60%…」是**同一机制的不同写法**
+	#（「攻击+」而非「攻击力+」，且带一个状态名）。旧版把这条整条压成
+	# `[Stat.ATK, 0.40]`——**触发条件、攻速、吸血全丢**，
+	# 而且 0.40 其实是**攻速**的数值（攻击是 40%，恰好也是 40 才没露馅）。
+	var bs := _re(r"生命(?:值)?低于\s*(\d+)%\s*时进入.*?攻击\s*\+?\s*(\d+)%\s*[、，,]\s*攻速\s*\+?\s*(\d+)%\s*[、，,]\s*吸血\s*\+?\s*(\d+)%").search(s)
+	if bs:
+		var bth := _f(bs.get_string(1))
+		var b1 := "[%d, %d, Stat.ATK, %s, 0, %s]" % [OP_STACK_GAIN, TRIG_LOW_HP, _f(bs.get_string(2)), bth]
+		var b2 := "[%d, %d, Stat.ASPD, %s, 0, %s]" % [OP_STACK_GAIN, TRIG_LOW_HP, _f(bs.get_string(3)), bth]
+		var b3 := "[%d, %d, %d, %s, 0, %s]" % [OP_STACK_GAIN, TRIG_LOW_HP, SP["lifesteal"], _f(bs.get_string(4)), bth]
+		return "[%s, %s, %s]" % [b1, b2, b3]
+
+	# 低血多属性（血怒 / 血海狂潮另一写法）
+	#
+	# 「生命低于50%时，攻击力+60%、**攻速+40%、吸血+30%**」——
+	# 旧规则只认出第一项（且血海狂潮连触发条件都丢了，
+	# 把「攻速+40%」的 40% 当成了攻击力）。
+	# 现展开成多条：面板属性走 `STACK_GAIN`+`LOW_HP`，
+	# 吸血走 `lifesteal` 通道（那是扩展通道，不是面板属性）。
+	#
+	# **必须放在单属性的「生命低于N%时，攻击力+X%」之前**。
+	var lhm := _re(r"生命(?:值)?低于\s*(\d+)%\s*时[，,]?攻击力\s*\+?\s*(\d+)%\s*[、，,]\s*攻速\s*\+?\s*(\d+)%\s*[、，,]\s*吸血\s*\+?\s*(\d+)%").search(s)
+	if lhm:
+		var th := _f(lhm.get_string(1))
+		var ap_ := "[%d, %d, Stat.ATK, %s, 0, %s]" % [OP_STACK_GAIN, TRIG_LOW_HP, _f(lhm.get_string(2)), th]
+		var as_ := "[%d, %d, Stat.ASPD, %s, 0, %s]" % [OP_STACK_GAIN, TRIG_LOW_HP, _f(lhm.get_string(3)), th]
+		var ls_ := "[%d, %d, %d, %s, 0, %s]" % [OP_STACK_GAIN, TRIG_LOW_HP, SP["lifesteal"], _f(lhm.get_string(4)), th]
+		return "[%s, %s, %s]" % [ap_, as_, ls_]
+
+	# 攻击附带元素伤害（规格 #4） ----------
 	var m := _re(r"攻击附带\s*(\d+)%\s*(火焰|冰霜|雷电|毒素|大地|疾风)伤害").search(s)
 	if m:
 		var ek: String = str(ELEM_KEY.get(m.get_string(2), "fire"))
@@ -2433,6 +2464,9 @@ func _parse_main(s: String) -> String:
 		return "[Stat.ASPD, %s, true]" % _f(m.get_string(1))
 	if s.contains("影舞满层时") or s.contains("影分身攻击视为背刺") or s.contains("背刺击杀敌人时刷新"):
 		return "[Stat.CRD, 0.30, true]"
+	# 「生命低于50%时进入"血海狂暴"——攻击+40%、攻速+30%、吸血+25%…」
+	# 已在 `_parse_main` 开头的**低血多属性**规则里展开成 3 条，
+	# 走到这里说明写法不同——保留旧行为避免整条丢失。
 	if s.contains("生命低于50%时进入“血海狂暴”"):
 		return "[Stat.ATK, 0.40, true]"
 	m = _re(r"血海狂暴期间.*?每秒自动消耗\s*\d+%\s*生命转化为\s*(\d+)%\s*攻击力").search(s)
@@ -3455,13 +3489,10 @@ func _wrap_with_trigger(spec: String, trig: int, param: float,
 
 	# 面板属性 / 扩展通道 → 包成叠层型
 	#
-	# **多属性形态**（`[[Stat.HP, v, true], …]`，`_all_stats_spec` 展开的）
-	# 要**逐条**包，不是整体包——它是多条独立词条。
-	if _is_multi_spec(spec):
-		var wrapped: Array = []
-		for sub in _sub_specs(spec):
-			wrapped.append(_wrap_with_trigger(sub, trig, param, duration, stack_max, text))
-		return "[" + ", ".join(wrapped) + "]"
+	# **多属性形态**由**调用方**（`_time_bound_wrap`）展开——
+	# 那里能拿到 duration/want_stack 两个额外参数。
+	# 这里**不能再展开一次**，否则套两层括号（三层嵌套），
+	# `_make_affix_list` 拿到的是数组而非规格，整条静默变 0 条。
 
 	m = _re(r"^\[([A-Za-z_.]+|\d+),\s*([-\d.]+),\s*(true|false)\]$").search(spec)
 	if m:
@@ -3576,6 +3607,11 @@ func _time_bound_wrap(spec: String, text: String) -> String:
 	if dur <= 0.0 and want_stack <= 0:
 		return spec
 	# **多属性形态**：逐条独立包装（每条都是独立词条）
+	#
+	# 注意**只包一层**：`_sub_specs` 已经拆到叶子规格，
+	# 每条再包一次即可。若在这里整体再包一层就会变成三层嵌套
+	#（`[[[…],[…]]]`）——`_make_affix_list` 此前只认一层，
+	# 整条词条会静默变成 0 条。
 	if _is_multi_spec(spec):
 		var wrapped: Array = []
 		for sub in _sub_specs(spec):

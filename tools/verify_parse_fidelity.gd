@@ -280,7 +280,14 @@ func _is_plain_spec(spec: String) -> bool:
 
 ## STACK_GAIN 形态的第 6 槽（条件阈值；无则 0）
 func _threshold_of(spec: String) -> float:
-	var m := _re(r"^\[4,\s*\d+,\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*([\d.]+)").search(spec)
+	# **多属性形态**（`[[4,11,Stat.ATK,0.6,0,0.5],[4,11,Stat.ASPD,…]]`）
+	# 取第一条即可——展开出来的各条阈值必然相同。
+	# 旧正则锚 `^\[4,` 对嵌套数组一律匹配失败，于是「血怒」这类
+	# 已正确带阈值的条目被误报成「阈值丢失」。
+	var m := _re(r"^\s*\[\[\s*4,\s*\d+,\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*([\d.]+)").search(spec)
+	if m:
+		return float(m.get_string(1))
+	m = _re(r"^\[4,\s*\d+,\s*[^,]+,\s*[^,]+,\s*[^,]+,\s*([\d.]+)").search(spec)
 	if m:
 		return float(m.get_string(1))
 	return 0.0
