@@ -739,6 +739,12 @@ func _parse_main(s: String) -> String:
 	m = _re(r"攻击附带\s*(\d+)%\s*吸血").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]
+	# 「攻击附带 N% 减速效果，持续 D 秒」——**N% 是减速量，此前整个丢掉**，
+	# 落成 `[2,"slow",1.0,2.0]`（表定 25% + 写死 2 秒）。
+	m = _re(r"攻击附带\s*(\d+(?:\.\d+)?)%\s*减速效果?\s*[，,]?\s*持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		return "[%d, \"slow\", 1.0, %s, {\"slow\": %s}]" % [
+			OP_TRIGGER_BUFF, m.get_string(2), _f(m.get_string(1))]
 	m = _re(r"攻击附带\s*(\d+)%\s*减速").search(s)
 	if m:
 		return "[%d, \"slow\", 1.0, 2.0]" % OP_TRIGGER_BUFF
@@ -748,18 +754,46 @@ func _parse_main(s: String) -> String:
 
 	# ---------- 2. 攻击概率触发（规格 #2） ----------
 	# 「攻击必定施加中毒（每秒20%攻击力毒素伤害，持续5秒，最多5层）」
+	#
+	# **「流血」必须走 `bleed` 而不是 `poison_rot`**：两者的 DOT 口径不同
+	#（流血吃**攻击力** `dot_atk`、毒蚀吃**法强** `dot_pct`）。
+	# 实测荆棘长鞭的「攻击必定施加流血」被挂成了毒蚀。
 	m = _re(r"攻击必定施加(中毒|流血|燃烧)").search(s)
 	if m:
 		var dur := 0.0
 		var md0 := _re(r"持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
 		if md0:
 			dur = float(md0.get_string(1))
-		# 「（…最多5层）」的层数上限必须带上：`poison_rot` 表定 30 层，
+		var eff1 := m.get_string(1)
+		var bid1 := "bleed" if eff1 == "流血" \
+			else str(BUFF_OF.get(eff1, "poison_rot"))
+		# 参数合并：**不能只传 max_stacks**（`params_of_active` 是整体替换，
+		# 只传层数会把 DOT 参数一起抹掉 → 中毒变成 0 伤害）。
+		# 先把原文的「每秒 N% 攻击力/法强伤害」并进来，再带上层数上限。
+		var prms := PackedStringArray()
+		var mdmg := _re(r"每秒\s*(\d+(?:\.\d+)?)%\s*(攻击力|法强|法术强度)").search(s)
+		if mdmg:
+			var key1 := "dot_atk" if mdmg.get_string(2) == "攻击力" else "dot_pct"
+			prms.append("\"%s\": %s" % [key1, _f(mdmg.get_string(1))])
+		# 毒蚀的全局易伤是该词条的核心，覆盖时必须带上
+		if bid1 == "poison_rot":
+			prms.append("\"vuln\": 0.0100")
+		# 「（…最多N层）」的层数上限：`poison_rot` 表定 30 层，
 		# 而这条装备说的是 5 层——不带就被表定值盖掉。
 		var ms := _stack_max_from_text(s)
-		var extra := "" if ms <= 0 else ", {\"max_stacks\": %d}" % ms
-		return "[%d, \"%s\", 1.0, %.1f%s]" % [
-			OP_TRIGGER_BUFF, str(BUFF_OF.get(m.get_string(1), "poison_rot")), dur, extra]
+		if ms > 0:
+			prms.append("\"max_stacks\": %d" % ms)
+		var extra := "" if prms.is_empty() else ", {%s}" % ", ".join(prms)
+		return "[%d, \"%s\", 1.0, %.1f%s]" % [OP_TRIGGER_BUFF, bid1, dur, extra]
+	# 形态：「攻击有P%概率点燃目标（每秒N%攻击力火焰伤害，持续D秒）」
+	#
+	# 与「概率使目标燃烧」是同义写法，但用「点燃」+「火焰伤害」+**全角括号**。
+	# **必须放在下面那条泛化的状态规则之前**——那条只认效果名紧跟数值，
+	# 匹配到「点燃目标（每秒30%…」时会给出错误的时长/缺失的量级。
+	m = _re(r"攻击有\s*(\d+)%\s*概率点燃目标\s*[（(]\s*每秒\s*(\d+(?:\.\d+)?)%\s*攻击力\s*火焰伤害\s*[，,]?\s*持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		return "[%d, \"burn\", %s, %s, {\"dot_atk\": %s}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1)), m.get_string(3), _f(m.get_string(2))]
 	m = _re(r"攻击有\s*(\d+)%\s*概率\s*(冰冻|麻痹|眩晕|缠绕|减速|中毒|燃烧|点燃|标记|沉默|缴械|恐惧|嘲讽)").search(s)
 	if m:
 		var dur := 0.0
@@ -2435,11 +2469,47 @@ func _parse_main(s: String) -> String:
 			return "[%d, %.4f, true]" % [SP["elem_resist"], rv]
 
 	# ---------- 37. 攻击施加状态（补充写法） ----------
+	#
+	# ## 这里此前丢了**三个**东西（用户 2026-09-28 决策后修）
+	#
+	# 原文「攻击有8%概率使目标中毒，每秒造成5%攻击力伤害，持续3秒」，
+	# 旧规则产出 `[2, "poison_rot", 0.08, 3.0]`：
+	#   · 时长写死 3.0（「持续2秒」的冻结之息也落成 3.0）
+	#   · **伤害量 5% 整个丢失**（DOT 退化成 `poison_rot` 表定的法强×0.03）
+	#   · **倍率口径丢失**（规格说「攻击力」，表定是「法强」）
+	#
+	# ## 为什么要合并基础参数
+	#
+	# `BuffHolder.params_of_active` 的覆盖是**整体替换**，不是逐键合并。
+	# 故给 `poison_rot` 只传 `{dot_atk: …}` 会把它的 `vuln: 0.01` 一起抹掉
+	#（毒蚀的全局易伤是该词条的核心之一）。故这里**显式带上**基础键。
+	#
+	# 形态：「攻击有P%概率使目标<效果>，每秒造成N%<攻击力|法强>伤害，持续D秒」
+	m = _re(r"攻击有\s*(\d+)%\s*概率使目标(中毒|减速|燃烧)\s*[，,]?\s*每秒造成\s*(\d+(?:\.\d+)?)%\s*(攻击力|法强)伤害\s*[，,]?\s*持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		var eff := m.get_string(2)
+		var bid := "poison_rot" if eff == "中毒" else ("slow" if eff == "减速" else "burn")
+		var amt := _f(m.get_string(3))
+		var byt := m.get_string(4)
+		var dur := m.get_string(5)
+		var dmg_key := "dot_atk" if byt == "攻击力" else "dot_pct"
+		# 毒蚀的全局易伤要显式带上（见上面的说明）
+		var base := ", \"vuln\": 0.0100" if bid == "poison_rot" else ""
+		return "[%d, \"%s\", %s, %s, {\"%s\": %s%s}]" % [
+			OP_TRIGGER_BUFF, bid, _f(m.get_string(1)), dur, dmg_key, amt, base]
+	# 形态：「攻击有P%概率使目标减速N%，持续D秒」（只有量、没有 DOT）
+	m = _re(r"攻击有\s*(\d+)%\s*概率使目标减速\s*(\d+(?:\.\d+)?)%\s*[，,]?\s*持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+	if m:
+		return "[%d, \"slow\", %s, %s, {\"slow\": %s}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1)), m.get_string(3), _f(m.get_string(2))]
+	# 兜底（原文没给量级/时长时保持旧行为，避免把没写全的条目弄丢）
 	m = _re(r"攻击有\s*(\d+)%\s*概率使目标(中毒|减速|燃烧|攻击力降低)").search(s)
 	if m:
 		var eff2 := m.get_string(2)
 		var bid2 := "poison_rot" if eff2 == "中毒" else ("slow" if eff2 == "减速" else ("burn" if eff2 == "燃烧" else "fatigue"))
-		return "[%d, \"%s\", %s, 3.0]" % [OP_TRIGGER_BUFF, bid2, _f(m.get_string(1))]
+		var md0 := _re(r"持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
+		var d0 := "3.0" if md0 == null else md0.get_string(1)
+		return "[%d, \"%s\", %s, %s]" % [OP_TRIGGER_BUFF, bid2, _f(m.get_string(1)), d0]
 	m = _re(r"攻击有\s*(\d+)%\s*概率触发荆棘缠绕").search(s)
 	if m:
 		return "[%d, \"entangle\", %s, 1.0]" % [OP_TRIGGER_BUFF, _f(m.get_string(1))]
