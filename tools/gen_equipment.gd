@@ -1157,6 +1157,25 @@ func _parse_main(s: String) -> String:
 			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0,
 			float(m.get_string(2)) / 100.0, m.get_string(3)]
 
+	# 「投射物有 N% 概率穿透 M 个额外目标」（穿透弹头）
+	m = _re(r"投射物有\s*(\d+)%\s*概率穿透\s*(\d+)\s*个额外目标").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"proj_pierce_chance\": %.4f, \"proj_pierce_count\": %s}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0, m.get_string(2)]
+	# 吞噬「投射物穿透概率增加 N%」——叠加到同一条规则的**概率**上
+	m = _re(r"投射物穿透概率增加\s*([\d.]+)%").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"proj_pierce_chance\": %.4f, \"proj_pierce_count\": 1}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0]
+	# 「投射物命中时有 N% 概率弹射至最近敌人」（分裂箭袋融合）
+	#
+	# **概率交给投射物自己掷**（飞行中命中那一刻），故只传概率，
+	# 不预先决定「这根子弹会不会弹」。
+	m = _re(r"投射物命中时有\s*(\d+)%\s*概率弹射至最近敌人").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"proj_bounce_chance\": %.4f}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0]
+
 	# ---------- 残影（踏虚神靴「位移·残影歼灭流」） ----------
 	#
 	# 规格三行，跨自有/融合两列：
@@ -2303,7 +2322,15 @@ func _parse_main(s: String) -> String:
 		return "[%d, %s, true]" % [SP["summon_dmg"], _f(m.get_string(1))]
 	m = _re(r"召唤物攻击有\s*(\d+)%\s*概率触发额外攻击").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["summon_dmg"], _f(m.get_string(1))]
+		# **`N%` 是概率，不是召唤物增伤**——旧版产出 `summon_dmg +0.10`，
+		# 等于把「10% 概率多打一下」变成了「召唤物伤害永久 +10%」，
+		# 语义完全不对（前者爆发、后者稳定）。
+		#
+		# 走玩家身上的**同一份概率攻击规则**（`attack_bonus`）——
+		# 召唤物攻击时从 `owner_player._attack_bonus_rule` 读，
+		# 这样「作用于玩家全部召唤物」天然成立（用户 2026-09-27 决策）。
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"summon_extra_chance\": %.4f}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0]
 	m = _re(r"陷阱触发范围\s*\+?\s*(\d+)%").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]

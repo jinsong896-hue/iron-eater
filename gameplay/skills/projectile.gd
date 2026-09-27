@@ -32,6 +32,12 @@ var pierce_count := 0          ## 可穿透的额外目标数（0 = 命中即消
 # —— 弹射（bounce_shot：硫磺元素火球弹射 2 次）——
 var bounces := 0               ## 剩余弹射次数
 var _bounced := 0
+## 概率弹射（装备参考2：分裂箭袋「投射物命中时有10%概率弹射至最近敌人」）
+##
+## 与 `bounces` 的分工：那个是**静态**次数（技能表写死「弹射 2 次」），
+## 这个是**概率**——必须在命中的那一刻掷骰，不能在发射时决定。
+var bounce_rule_chance := 0.0
+var _bounce_rolled := false
 var _hit_targets: Array = []   ## 已命中目标，避免弹回时重复打同一个
 ## 命中回调：`func(target: Node3D, damage: float) -> void`。
 ##
@@ -138,6 +144,7 @@ static func spawn(data: Dictionary, parent: Node3D, target_group: String = TARGE
 	p.elem_enum = ElementDamage.elem_from_key(p.element)
 	p.pierce_count = int(data.get("pierce_count", 0))
 	p.bounces = int(data.get("bounces", 0))
+	p.bounce_rule_chance = float(data.get("bounce_rule_chance", 0.0))
 	p.arc = bool(data.get("arc", false))
 	p.fuse = float(data.get("fuse", 0.0))
 	p.explode_radius = float(data.get("explode_radius", 0.0))
@@ -359,7 +366,19 @@ func _on_body_entered(body: Node3D) -> void:
 		split_on_hit = 0
 
 	# 弹射：命中后改变方向继续飞（弹向下一个目标或反弹）
-	if _bounced < bounces:
+	#
+	# **分两种来源**：
+	#   · `bounces` 是**静态**剩余次数（技能表声明「弹射 2 次」）
+	#   · `bounce_rule` 是**概率**弹射（装备参考2：「投射物命中时有10%
+	#     概率弹射至最近敌人」）——概率必须在**命中的那一刻**判定，
+	#     不能在发射时决定（那样就成了「这根必定弹射」）。
+	#
+	# 两者取「谁还有次数」：静态优先，用完再看概率规则。
+	var can_bounce := _bounced < bounces
+	if not can_bounce and bounce_rule_chance > 0.0 and not _bounce_rolled:
+		_bounce_rolled = true
+		can_bounce = randf() < bounce_rule_chance
+	if can_bounce:
 		_bounced += 1
 		_do_bounce()
 		return

@@ -204,7 +204,27 @@ func _check_one(r: Dictionary) -> void:
 	var pm := _re(r"有\s*(\d+(?:\.\d+)?)%\s*概率").search(text)
 	if pm != null:
 		var prob := pm.get_string(1)
-		if _spec_is_unconditional(spec) and _has_number(nums, prob):
+		# **例外：概率本身就是效果的词条**。
+		#
+		# 有一类词条的「效果」就是「按概率完全免伤」——那些**通道本身**
+		# （`dodge_pct` 111 / `block_pct` 110 / `cd_refresh_dodge_pct` 147）
+		# 的语义就是概率，故 `[111, 0.05, true]` 是**正确映射**而非误映射：
+		#   ·「受到伤害时有5%概率免疫此次伤害」→ `dodge_pct = 0.05`
+		#     （`Player._roll_avoidance` 就是 `randf() < chance`）
+		#   ·「格挡时有3%概率完全免疫该次伤害」→ `block_pct = 0.03`
+		#   ·「闪避时有5%概率立即刷新冲刺冷却」→ `cd_refresh_dodge_pct = 0.05`
+		#
+		# 判据：概率值**落在这些通道的数值槽**里。
+		# 必须**按浮点比**：原文写「5%」而规格存 `0.0500`，
+		# 字符串比对必然对不上（早期版本就是这么漏的）。
+		var is_prob_channel := false
+		for ch in [110, 111, 147]:
+			var cm := _re("\\[%d,\\s*([\\d.]+)" % ch).search(spec)
+			if cm != null and absf(float(cm.get_string(1))
+					- float(prob) / 100.0) < 0.0005:
+				is_prob_channel = true
+		if _spec_is_unconditional(spec) and _has_number(nums, prob) \
+				and not is_prob_channel:
 			_issues.append("概率当效果 | %s\n      原文的 %s%% 是**触发概率**，却成了效果值（真正的效果丢失）"
 				% [tag, prob])
 

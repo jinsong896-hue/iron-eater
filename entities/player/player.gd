@@ -996,7 +996,10 @@ func _perform_ranged_attack(multiplier: float, speed: float,
 		# 弹速不变、时长变长 → 飞得更远，且飞行时间同步变长（观感一致）。
 		"lifetime": GameBalance.RANGED_PROJECTILE_LIFETIME * _rng_mult(),
 		"element": ElementDamage.key_from_elem(attack_element) if attack_element >= 0 else "",
-		"pierce_count": pierce,
+		"pierce_count": pierce + _proj_extra_pierce(),
+		# 装备·投射物概率弹射（分裂箭袋融合「命中时10%概率弹射至最近敌人」）。
+		# **概率交给投射物自己掷**——命中前无法知道会不会触发。
+		"bounce_rule_chance": float(_attack_bonus_rule.get("proj_bounce_chance", 0.0)),
 		"position": global_position + dir * 0.6,
 		"on_hit": cb,
 		# **强制节点路径**：模拟核不带目标引用、Callable 也跨不过 C++ 边界，
@@ -2423,6 +2426,22 @@ func _roll_double_damage() -> bool:
 
 ## 本次攻击是否触发了双倍伤害（供 UI / 测试读）
 var _double_damage_this_hit := false
+
+
+## 装备·投射物额外穿透目标数（装备参考2：穿透弹头）
+##
+## 「投射物有 N% 概率穿透 1 个额外目标」——概率在**发射时**掷即可
+##（与弹射不同：穿透是这根子弹的固有属性，飞行中不会变）。
+## 掷中则本次这枚投射物 +1 穿透。
+##
+## 融合列「穿透后的投射物伤害增加10%」走 `projectile_dmg_pct` 通道
+##（已有消费点），故这里只处理穿透数。
+func _proj_extra_pierce() -> int:
+	var chance := float(_attack_bonus_rule.get("proj_pierce_chance", 0.0))
+	var extra := int(_attack_bonus_rule.get("proj_pierce_count", 1))
+	if chance <= 0.0 or extra <= 0:
+		return 0
+	return extra if GameManager.rng.randf() < chance else 0
 
 
 ## 每帧推进影袭冷却

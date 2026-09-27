@@ -74,6 +74,35 @@ func _perform_attack() -> void:
 	if _player.has_method("take_damage"):
 		_player.call("take_damage", result.damage)
 	EventBus.damage_popup.emit(_player.global_position, result.damage, "normal")
+	# 装备·召唤物额外攻击（装备参考2：召唤戒指「召唤物攻击有10%概率
+	# 触发额外攻击」）。
+	#
+	# ## 为什么读**主人的**规则
+	#
+	# 用户 2026-09-27 决策：只要玩家装了对应装备，**他身上所有召唤物**
+	# 都吃到（不限召唤来源）。故规则存在主人身上、由召唤物读——
+	# 这样「作用于全部召唤物」天然成立，也不必给召唤物打来源标记。
+	#
+	# ## 额外攻击**完整重算**（同一决策）
+	#
+	# 与玩家的「独立结算」不同：召唤物的额外攻击走**同一套管线**
+	#（`DamagePipeline` + 同 `attack_element`），即「再打一下一模一样的」。
+	if owner_player != null and is_instance_valid(owner_player):
+		var rule = owner_player.get("_attack_bonus_rule")
+		if rule is Dictionary:
+			var chance := float((rule as Dictionary).get("summon_extra_chance", 0.0))
+			if chance > 0.0 and _rng().randf() < chance:
+				_perform_attack_once(target_def, attack_element)
+				EventBus.damage_popup.emit(_player.global_position, result.damage, "extra")
+
+
+## 单次攻击结算（抽出来供「额外攻击」复用，保证口径一致）
+func _perform_attack_once(target_def: float, elem: int) -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	var r := DamagePipeline.elemental_attack(atk, 1.0, 0.0, target_def, elem)
+	if _player.has_method("take_damage"):
+		_player.call("take_damage", r.damage)
 
 
 ## 覆写：召唤物死亡**不计击杀、不掉落**。

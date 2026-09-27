@@ -909,7 +909,9 @@ func _merge_attack_bonus(a: AffixData) -> void:
 		_attack_bonus_pending["double_chance"] = maxf(
 			float(_attack_bonus_pending.get("double_chance", 0.0)),
 			float(p["double_chance"]))
-	for k in ["shadow_chance", "shadow_mult", "shadow_cd", "quick_chance"]:
+	for k in ["shadow_chance", "shadow_mult", "shadow_cd", "quick_chance",
+			"summon_extra_chance", "proj_pierce_chance", "proj_pierce_count",
+			"proj_bounce_chance"]:
 		if p.has(k):
 			_attack_bonus_pending[k] = p[k]
 	_attack_bonus_dirty = true
