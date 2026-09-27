@@ -1083,6 +1083,59 @@ func _parse_main(s: String) -> String:
 			return "[%d, \"prophecy_self\", 1.0, 0.0, {\"self_crt\": %.4f, \"self_crt_seconds\": %s}]" % [
 				OP_TRIGGER_BUFF, float(m.get_string(2)) / 100.0, m.get_string(1)]
 
+	# ---------- E 组：概率攻击效果（2026-09-28） ----------
+	#
+	# 这批词条此前被压成**静态属性**（`[117, 0.2]` = 元素伤害 +20%），
+	# 概率与真实效果整个丢失。现统一产出 sentinel `attack_bonus`，
+	# 参数字典携带规则，由 `PlayerEquipmentEffects` 累积后交给 Player。
+	#
+	# **必须放在「攻击有 N% 概率…」的通用规则之前**，否则会被吃掉。
+
+	# 「攻击有 N% 概率追加 M 次 K% 伤害的攻击」（双重打击）
+	m = _re(r"攻击有\s*(\d+)%\s*概率追加一次\s*(\d+)%\s*伤害的攻击").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"extra_hits\": {\"chance\": %.4f, \"hits\": 1, \"mult\": %.4f}}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0,
+			float(m.get_string(2)) / 100.0]
+	# 融合「追加攻击概率提升至40%」——**覆盖**同一条规则的概率
+	m = _re(r"追加攻击概率提升至\s*(\d+)%").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"extra_hits\": {\"chance\": %.4f, \"hits\": 1, \"mult\": 0.5000}}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0]
+	# 「攻击有 N% 概率分裂为 M 枚额外弩箭（各 K% 伤害）」（分裂弩）
+	m = _re(r"攻击有\s*(\d+)%\s*概率分裂为\s*(\d+)\s*枚额外弩箭[（(]各\s*(\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"extra_hits\": {\"chance\": %.4f, \"hits\": %s, \"mult\": %.4f}}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0, m.get_string(2),
+			float(m.get_string(3)) / 100.0]
+	# 「远程/投射物攻击有 N% 概率额外发射 M 枚投射物（K% 伤害）」
+	#（分裂箭袋 / 多重射击徽章）
+	m = _re(r"(?:远程|投射物)攻击有\s*(\d+)%\s*概率额外发射\s*(\d+)\s*枚投射物[（(](\d+)%\s*伤害").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"extra_hits\": {\"chance\": %.4f, \"hits\": %s, \"mult\": %.4f}}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0, m.get_string(2),
+			float(m.get_string(3)) / 100.0]
+	# 「攻击有 N% 概率造成双倍伤害」（幸运之刃）+ 融合「概率提升至 M%」
+	m = _re(r"攻击有\s*(\d+)%\s*概率造成双倍伤害").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"double_chance\": %.4f}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0]
+	m = _re(r"概率提升至\s*(\d+)%").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"double_chance\": %.4f}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0]
+	# 「每次攻击命中，有 N% 概率使下次攻击速度翻倍」（迅捷护手）
+	m = _re(r"每次攻击命中[，,]?有\s*(\d+)%\s*概率使下次攻击速度翻倍").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"quick_chance\": %.4f}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0]
+	# 「攻击有 N% 概率触发"影袭"——…造成 K% 攻击力伤害，冷却 S 秒」（暗影短刃）
+	m = _re(r"攻击有\s*(\d+)%\s*概率触发[“\"]?影袭[”\"]?.*?造成\s*(\d+)%\s*攻击力伤害.*?冷却\s*(\d+)\s*秒").search(s)
+	if m:
+		return "[%d, \"attack_bonus\", 1.0, 0.0, {\"shadow_chance\": %.4f, \"shadow_mult\": %.4f, \"shadow_cd\": %s}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0,
+			float(m.get_string(2)) / 100.0, m.get_string(3)]
+
 	# ---------- 残影（踏虚神靴「位移·残影歼灭流」） ----------
 	#
 	# 规格三行，跨自有/融合两列：

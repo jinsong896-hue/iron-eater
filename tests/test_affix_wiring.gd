@@ -55,6 +55,7 @@ func _ready() -> void:
 	await _test_b7_berserker_rage()
 	await _test_b7_afterimage()
 	await _test_b7_prophecy()
+	await _test_e_attack_bonus()
 	_test_equipment_skills_exist()
 
 	if failed == 0:
@@ -1489,4 +1490,103 @@ func _test_b7_prophecy() -> void:
 	# 故满层爆发不会触发 —— 这正是规格的「穿戴 vs 融合」分工。
 	_check(not player.buffs.has("prophecy_self_crt"),
 		"没有满层爆发时，传播不发生 → 自我增益也不给")
+	_reset()
+
+
+## 17. E 组：概率攻击效果（额外攻击 / 双倍伤害 / 影袭 / 迅捷）
+##
+## ## 这批此前被压成静态属性
+##
+## 「攻击有25%概率追加一次50%伤害」→ `[118, 0.25, true]`（真实伤害 +25%），
+## 概率与「追加攻击」整个丢失。现统一走 sentinel `attack_bonus`。
+##
+## ## 关键：独立结算
+##
+## 用户 2026-09-27 决策：附加攻击**不吃暴击/元素/装备效果**，
+## 走 `_deal_bonus_damage`。好处是稳定可预测且天然不会递归。
+func _test_e_attack_bonus() -> void:
+	print("\n--- E 组：概率攻击效果 ---")
+	var em = GameManager.equipment_manager
+	_reset()
+	await get_tree().process_frame
+
+	# —— 数据侧 ——
+	var tpl = _find_by_name("双重打击")
+	if tpl == null:
+		_check(false, "找到「双重打击」")
+		return
+	var found := false
+	for a in tpl.own_affixes:
+		if a != null and a.trigger_buff == "attack_bonus":
+			found = true
+			var eh: Dictionary = a.trigger_params.get("extra_hits", {})
+			_check(absf(float(eh.get("chance", 0.0)) - 0.25) < 0.001,
+				"「双重打击」概率 25%（规格原值）", [str(eh)])
+			_check(absf(float(eh.get("mult", 0.0)) - 0.5) < 0.001,
+				"追加伤害 50%（规格原值）", [str(eh)])
+	_check(found, "「双重打击」产出 attack_bonus（不再是静态属性）")
+	# 反向断言：不该再是裸属性
+	var bad := false
+	for a2 in tpl.own_affixes:
+		if a2 != null and a2.stat == EquipmentDB.special_enum_of("true_dmg"):
+			bad = true
+	_check(not bad, "不再是 `true_dmg` 静态属性（旧的错映射）")
+
+	# —— 行为侧：装上 → 规则装配 ——
+	var inst := _make_inst_by_name("双重打击")
+	if inst == null:
+		_check(false, "构造实例")
+		return
+	em.equip(EquipmentDefs.Slot.WEAPON_1, inst)
+	await get_tree().process_frame
+	var player: Node3D = _player()
+	if player == null:
+		return
+	var rule: Dictionary = player.get("_attack_bonus_rule")
+	_check(not (rule.get("extra_hits", []) as Array).is_empty(),
+		"穿上后装配了额外攻击规则", [str(rule)])
+
+	# 打一个假人：把概率设为 100% 后必然追加
+	rule["extra_hits"] = [{"chance": 1.0, "hits": 1, "mult": 0.5}]
+	player.call("set_attack_bonus_rule", rule)
+	var dummy = _spawn_dummy(player)
+	if dummy == null:
+		_check(false, "生成假人")
+		return
+	await get_tree().process_frame
+	var hp0 := float(dummy.get("_hp"))
+	player.call("_on_attack_bonus_triggered", dummy, 1.0)
+	var hp1 := float(dummy.get("_hp"))
+	_check(hp1 < hp0, "追加攻击真的造成了伤害",
+		["before=%.1f after=%.1f" % [hp0, hp1]])
+	# 伤害量应约等于 ATK × 1.0 × 0.5（独立结算，物理管线）
+	var atk: float = float(GameManager.stat_value("atk"))
+	var expect := atk * 0.5
+	var dealt := hp0 - hp1
+	_check(dealt > expect * 0.5 and dealt < expect * 1.5,
+		"追加伤害 ≈ 攻击力 × 50%（独立结算口径）",
+		["期望≈%.1f 实际=%.1f" % [expect, dealt]])
+
+	# —— 双倍伤害：与暴击乘算 ——
+	_reset()
+	await get_tree().process_frame
+	var inst2 := _make_inst_by_name("幸运之刃")
+	if inst2 != null:
+		em.equip(EquipmentDefs.Slot.WEAPON_1, inst2)
+		await get_tree().process_frame
+		player.call("set_attack_bonus_rule", {"double_chance": 1.0})
+		_check(bool(player.call("_roll_double_damage")),
+			"双倍伤害概率 100% 时必然触发")
+		player.call("set_attack_bonus_rule", {"double_chance": 0.0})
+		_check(not bool(player.call("_roll_double_damage")),
+			"概率 0 时不触发")
+
+	# —— 迅捷：置位与消费 ——
+	player.call("set_attack_bonus_rule", {"quick_chance": 1.0})
+	player.call("_try_quick_attack")
+	_check(bool(player.get("_quick_attack_ready")), "命中触发「下次攻速翻倍」置位")
+	_check(absf(float(player.call("_consume_quick_attack")) - 2.0) < 0.001,
+		"消费返回攻速倍率 2.0")
+	_check(absf(float(player.call("_consume_quick_attack")) - 1.0) < 0.001,
+		"已消费后再取返回 1.0（一次性，不是永久）")
 	_reset()

@@ -34,6 +34,9 @@ var _afterimage_dirty := false
 ## 预言自我增益参数的跨条累积器（融合列单独一条 affix）
 var _prophecy_pending: Dictionary = {}
 var _prophecy_dirty := false
+## E 组概率攻击规则的累积器
+var _attack_bonus_pending: Dictionary = {}
+var _attack_bonus_dirty := false
 
 ## **规则型 sentinel**（常驻规则，不看 `trigger`）
 ##
@@ -51,6 +54,8 @@ const _SENTINEL_RULES := [
 	"afterimage",
 	# B7 预言自我增益（2026-09-27）
 	"prophecy_self",
+	# E 组概率攻击（2026-09-28）
+	"attack_bonus",
 ]
 
 
@@ -106,8 +111,10 @@ func reload_passives() -> void:
 	_energy_store_pending.clear()
 	_afterimage_pending.clear()
 	_prophecy_pending.clear()
+	_attack_bonus_pending.clear()
 	_afterimage_dirty = false
 	_prophecy_dirty = false
+	_attack_bonus_dirty = false
 	_energy_store_dirty = false
 	# 再按当前装备重建
 	#
@@ -121,6 +128,7 @@ func reload_passives() -> void:
 	_flush_energy_store()
 	_flush_afterimage()
 	_flush_prophecy()
+	_flush_attack_bonus()
 
 
 ## 扫描**全部**已装备词条里的规则型 sentinel（忽略 `trigger`）
@@ -367,6 +375,9 @@ func _apply_trigger(a: AffixData, inst) -> void:
 						a.trigger_params.duplicate(true))
 				return
 			# —— B7 残影（2026-09-27）——
+			"attack_bonus":
+				_merge_attack_bonus(a)
+				return
 			"prophecy_self":
 				_merge_prophecy_self(a)
 				return
@@ -761,6 +772,7 @@ func _flush_afterimage() -> void:
 		player.call("set_afterimage_rule", _afterimage_pending.duplicate(true))
 	_afterimage_dirty = false
 	_prophecy_dirty = false
+	_attack_bonus_dirty = false
 
 
 ## 预言满层触发（预言者王冠）
@@ -873,3 +885,40 @@ func _flush_prophecy() -> void:
 	if player.has_method("set_prophecy_self_rule"):
 		player.call("set_prophecy_self_rule", _prophecy_pending.duplicate(true))
 	_prophecy_dirty = false
+	_attack_bonus_dirty = false
+
+
+## E 组：概率攻击规则（额外攻击 / 双倍伤害 / 影袭 / 迅捷）
+##
+## ## 为什么用累积器
+##
+## 这批词条的触发条件被从句切分推成 `ON_HIT`（「攻击有25%概率…」），
+## 但真实语义是**攻击命中后的额外动作**，与 `ON_HIT` 的既有消费
+##（给目标挂状态）不同。若走 `_fire` 会变成「命中时挂一个数据词条」。
+##
+## 而且同一件装备的多条规则要**合并**（触发条件/概率/倍率/次数），
+## 与能量储存 / 残影 / 预言自我增益同一套模式。
+func _merge_attack_bonus(a: AffixData) -> void:
+	var p := a.trigger_params
+	if p.has("extra_hits"):
+		var list: Array = _attack_bonus_pending.get("extra_hits", [])
+		list.append(p["extra_hits"])
+		_attack_bonus_pending["extra_hits"] = list
+	if p.has("double_chance"):
+		# 「概率提升至25%」是**覆盖**而非叠加（同一条规则的两档数值）
+		_attack_bonus_pending["double_chance"] = maxf(
+			float(_attack_bonus_pending.get("double_chance", 0.0)),
+			float(p["double_chance"]))
+	for k in ["shadow_chance", "shadow_mult", "shadow_cd", "quick_chance"]:
+		if p.has(k):
+			_attack_bonus_pending[k] = p[k]
+	_attack_bonus_dirty = true
+
+
+## 把累积的概率攻击规则提交给 Player
+func _flush_attack_bonus() -> void:
+	if not _attack_bonus_dirty or player == null:
+		return
+	if player.has_method("set_attack_bonus_rule"):
+		player.call("set_attack_bonus_rule", _attack_bonus_pending.duplicate(true))
+	_attack_bonus_dirty = false

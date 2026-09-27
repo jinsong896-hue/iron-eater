@@ -562,6 +562,8 @@ func _physics_process(delta: float) -> void:
 	_tick_cheat_death(delta)
 	# B7 低血条件通道（`Trigger.LOW_HP` 词条按各自阈值挂/卸）
 	_tick_low_hp(delta)
+	# E 组：影袭冷却
+	_tick_attack_bonus(delta)
 	# B7 残影存活时间
 	_tick_afterimages(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
@@ -654,8 +656,7 @@ func _start_normal_attack() -> void:
 	var params: Array = (_combo_ranged_get().stage_params(stage) if ranged
 		else _combo.stage_params(stage))
 	_combo.begin_attack()
-	var aspd := GameManager.stat_value("aspd")
-	_attack_timer = params[0] / maxf(aspd, 0.1)
+	_attack_timer = params[0] / maxf(_attack_aspd(), 0.1)
 	_current_attack_cooldown = _attack_timer
 	_current_combo_stage = stage
 	# 终结技（第 4 段）霸体
@@ -764,8 +765,7 @@ func _start_sprint_attack() -> void:
 		return
 	var params: Array = GameBalance.SPRINT_ATTACK
 	_combo.begin_attack()
-	var aspd := GameManager.stat_value("aspd")
-	_attack_timer = params[0] / maxf(aspd, 0.1)
+	_attack_timer = params[0] / maxf(_attack_aspd(), 0.1)
 
 	# 冲撞：朝面向方向冲刺
 	_sprint_attack_dir = _facing
@@ -784,8 +784,7 @@ func _start_jump_attack() -> void:
 		return
 	var params: Array = GameBalance.JUMP_ATTACK
 	_combo.begin_attack()
-	var aspd := GameManager.stat_value("aspd")
-	_attack_timer = params[0] / maxf(aspd, 0.1)
+	_attack_timer = params[0] / maxf(_attack_aspd(), 0.1)
 
 	_jump_attack_dir = _facing
 	_jump_phase = JumpPhase.BACKHOP
@@ -1554,6 +1553,18 @@ func _compute_basic_damage(multiplier: float, knockback: float,
 	var crit := _force_crit or (can_crit and GameManager.rng.randf() < crt)
 	var total := DamagePipeline.with_crit(result.damage, crit, crd)
 	total *= _damage_multiplier
+	# 「攻击有 N% 概率造成双倍伤害」（幸运之刃 / 融合提升概率）
+	#
+	# **与暴击乘算叠加**（用户 2026-09-27 决策）：两个判定各自独立，
+	# 同时命中就是 4 倍（暴击×2 再翻倍）——符合「运气好到爆」的设计意图。
+	#
+	# 放在暴击**之后**、`_damage_multiplier` 之后：它翻的是**本次总伤**，
+	# 不是基础伤害。
+	if _roll_double_damage():
+		total *= 2.0
+		_double_damage_this_hit = true
+	else:
+		_double_damage_this_hit = false
 
 	# 处决线：对生命低于阈值的敌人伤害 +30%（分册「处决线」）。
 	#
@@ -1770,6 +1781,8 @@ func _apply_hit(enemy: Node3D, multiplier: float, knockback: float) -> void:
 	_apply_form_mark_to(enemy.get("buffs"))
 	# 形态·普攻附加效果（命中后结算）
 	_on_basic_attack_landed(enemy, total)
+	# 装备概率攻击效果（额外攻击 / 影袭 / 迅捷）——近战与远程共同漏斗
+	_on_attack_bonus_triggered(enemy, multiplier)
 	# 职业资源：**普攻命中也要积攒**。
 	#
 	# 此前 on_hit() 只在 SkillSystem._deal_damage 里调过——普攻命中从不积攒。
@@ -2256,6 +2269,168 @@ func _consume_prophecy() -> void:
 	_damage_multiplier = 1.0
 
 
+## ============================================================
+## E 组：概率触发的攻击类装备效果
+## ============================================================
+#
+# 规格里这批词条都是「攻击有 N% 概率 <做一件特别的事>」：
+#   追加一次 M% 伤害的攻击 / 造成双倍伤害 / 额外发射投射物 /
+#   穿透额外目标 / 瞬移背后打击 / 下次攻速翻倍
+#
+# 它们此前被压成**静态属性**（`[117, 0.2]` = 元素伤害 +20%），
+# 概率与真实效果整个丢失——玩家看到的只是面板多了一点增伤。
+
+## 上一次普攻是否暴击（暴击叠层、暴击刷新冷却等读它）
+var _last_hit_was_crit := false
+## 装备概率攻击规则（装备变更时装配）：
+##   {extra_hits: [{chance, hits, mult}]}
+## 递归保护——附加攻击**不再触发**附加攻击，否则会无限套娃。
+var _attack_bonus_rule: Dictionary = {}
+var _in_bonus_attack := false
+## 「下次攻击攻速翻倍」待发（迅捷护手）
+var _quick_attack_ready := false
+
+
+## 装配装备概率攻击规则（由 `PlayerEquipmentEffects` 调用）
+func set_attack_bonus_rule(rule: Dictionary) -> void:
+	_attack_bonus_rule = rule
+
+
+## 普通攻击命中后的装备概率效果（额外攻击 / 双倍 / 影袭 / 迅捷）
+##
+## ## 为什么放在 `_apply_hit` 而不是 `_on_basic_attack_landed`
+##
+## 那条是**近战节点路径**的专属钩子；远程普攻走 `on_hit` 闭包、
+## 群体单位走 `_apply_hit_crowd`——三处都要触发。而 `_apply_hit` 是
+## 近战与远程的**共同漏斗**（见 `_perform_ranged_attack` 的说明），
+## 故挂这里覆盖面最广。
+##
+## `multiplier` 是本次攻击的**段位倍率**——附加攻击按同一倍率算，
+## 这样「第三段重击」的追加也同样是重的。
+func _on_attack_bonus_triggered(enemy: Node3D, multiplier: float) -> void:
+	if enemy == null or not is_instance_valid(enemy):
+		return
+	# **递归保护**：附加攻击走独立结算，本就不会回到这里；
+	# 但 `_deal_bonus_damage` 万一将来被改成走完整管线，这一层能兜住。
+	if _in_bonus_attack:
+		return
+	_in_bonus_attack = true
+	_try_extra_attacks(enemy, multiplier)
+	_try_shadow_strike(enemy, multiplier)
+	_try_quick_attack()
+	_in_bonus_attack = false
+
+
+## 「攻击有 N% 概率追加 M 次 K% 伤害的攻击」
+##
+## ## 独立结算（用户 2026-09-27 决策）
+##
+## 附加攻击**不吃暴击、不吃元素、不触发装备效果**——
+## 走 `_deal_bonus_damage`（独立的 `DamagePipeline.physical`）。
+## 好处是稳定可预测，且天然不会递归（附加攻击不会再触发装备效果）。
+##
+## 倍率按**段位倍率 × 规格百分比**：规格的「50%伤害」是相对**这一击**的。
+func _try_extra_attacks(enemy: Node3D, multiplier: float) -> void:
+	var rules: Array = _attack_bonus_rule.get("extra_hits", [])
+	if rules.is_empty():
+		return
+	var atk: float = float(GameManager.stat_value("atk"))
+	if atk <= 0.0:
+		return
+	for r in rules:
+		var chance := float(r.get("chance", 0.0))
+		if chance <= 0.0 or GameManager.rng.randf() >= chance:
+			continue
+		var hits := maxi(int(r.get("hits", 1)), 1)
+		var mult := float(r.get("mult", 0.5))
+		for i in hits:
+			_deal_bonus_damage(enemy, atk * multiplier * mult, "extra")
+		EventBus.message.emit("追加攻击！")
+
+
+## 「攻击有 N% 概率触发影袭——对目标造成 K% 攻击力伤害」（暗影短刃）
+##
+## ## 与规格的差异（已与用户确认）
+##
+## 原文是「瞬移至目标背后并造成150%攻击力伤害」。**不做真瞬移**：
+## 那需要处理「背后」判定、碰撞体挤压、相机跟随三段，收益只是位移观感；
+## 而这条词条的核心数值是「追加 150% 且必定暴击」。
+## 故落成**对同一目标追加 150% 伤害、必定暴击**。
+##
+## 冷却由 `_attack_bonus_rule.shadow_cd` 控制，计时器在 `_physics_process` 递减。
+func _try_shadow_strike(enemy: Node3D, multiplier: float) -> void:
+	var chance := float(_attack_bonus_rule.get("shadow_chance", 0.0))
+	if chance <= 0.0 or _shadow_strike_cd > 0.0:
+		return
+	if GameManager.rng.randf() >= chance:
+		return
+	_shadow_strike_cd = float(_attack_bonus_rule.get("shadow_cd", 2.0))
+	var atk: float = float(GameManager.stat_value("atk"))
+	if atk <= 0.0:
+		return
+	var dmg := atk * multiplier * float(_attack_bonus_rule.get("shadow_mult", 1.5))
+	# 必定暴击：按面板暴伤放大（与普攻暴击同口径）
+	var crd: float = float(GameManager.stat_value("crd"))
+	_deal_bonus_damage(enemy, dmg * (1.0 + crd), "shadow")
+	EventBus.message.emit("影袭！")
+
+
+## 影袭冷却剩余
+var _shadow_strike_cd := 0.0
+
+
+## 「每次攻击命中，有 N% 概率使下次攻击速度翻倍」（迅捷护手）
+##
+## 仿 `_counter_charges` 的「置位—消费一次」模式：命中时按概率置位，
+## 下次出手时把攻击间隔减半并清位。规格写的是「**下次**攻击」，
+## 不是「接下来 N 秒」，故不能用限时 buff 表达。
+func _try_quick_attack() -> void:
+	var chance := float(_attack_bonus_rule.get("quick_chance", 0.0))
+	if chance > 0.0 and GameManager.rng.randf() < chance:
+		_quick_attack_ready = true
+		EventBus.message.emit("迅捷！下次攻击加速")
+
+
+## 消费「下次攻击加速」，返回攻速倍率（未置位返回 1.0）
+##
+## 在算攻击间隔**之前**调用——提前消费掉才能对本次生效。
+func _consume_quick_attack() -> float:
+	if not _quick_attack_ready:
+		return 1.0
+	_quick_attack_ready = false
+	return 2.0
+
+
+## 本次出手的有效攻速
+##
+## = 面板攻速 × 迅捷消费倍率（迅捷护手「下次攻击攻速翻倍」）。
+## **必须在这里消费**（算间隔之前）——消费得早才能对本次生效；
+## 放到命中之后消费就变成「再下一次」了，与规格的「下次攻击」不符。
+func _attack_aspd() -> float:
+	var aspd: float = float(GameManager.stat_value("aspd"))
+	return aspd * _consume_quick_attack()
+
+
+## 「攻击有 N% 概率造成双倍伤害」（幸运之刃）
+##
+## 觉醒用 `_attack_bonus_rule.double_chance`。**与暴击独立判定、乘算叠加**。
+func _roll_double_damage() -> bool:
+	var chance := float(_attack_bonus_rule.get("double_chance", 0.0))
+	if chance <= 0.0:
+		return false
+	return GameManager.rng.randf() < chance
+
+
+## 本次攻击是否触发了双倍伤害（供 UI / 测试读）
+var _double_damage_this_hit := false
+
+
+## 每帧推进影袭冷却
+func _tick_attack_bonus(delta: float) -> void:
+	if _shadow_strike_cd > 0.0:
+		_shadow_strike_cd = maxf(_shadow_strike_cd - delta, 0.0)
+
+
 ## 预言传播时给自己的暴击率增益（装备参考2 融合列「+20%暴击率 3秒」）
 ##
 ## 参数来自**融合列的独立 affix**，由 `_flush_prophecy` 合并后交来——
@@ -2290,8 +2465,7 @@ var _pre_hitstop_scale := 1.0    ## hitstop 前的时间缩放（保存/还原�
 var _god_mode := false           ## 无敌：跳过扣血，但保留受击反馈
 var _damage_multiplier := 1.0    ## 出手伤害倍率
 var _force_crit := false         ## 强制暴击（故意绕过 can_crit，便于观察法术暴击顿帧）
-## 上一次普攻是否暴击——供「暴击叠层」类装备词条判定
-var _last_hit_was_crit := false
+## 暴击时叠层（预言者王冠）等——见 `_apply_trigger_affixes`
 ## 预言满层的加成待消费（攻击结算后清账，见 `arm_prophecy`）
 var _prophecy_pending := false
 ## 本次结算的目标是否处于冻结状态（`frozen_dmg_pct` 通道用）
@@ -3205,6 +3379,10 @@ func clear_passive_rules() -> void:
 	if not _low_hp_sig.is_empty():
 		_low_hp_sig = ""
 		_apply_low_hp_set([])
+	# E 组：卸下装备后概率攻击规则失效
+	_attack_bonus_rule = {}
+	_quick_attack_ready = false
+	_shadow_strike_cd = 0.0
 	# B7 残影：卸下装备后场上残影立刻失效
 	_afterimage_rule = {}
 	_clear_afterimages()
