@@ -1513,8 +1513,14 @@ func _parse_main(s: String) -> String:
 		m = _re(r"站立不动\s*(\d+(?:\.\d+)?)\s*秒").search(s)
 		if m:
 			secs = m.get_string(1)
-		return "[%d, \"stationary_buff\", 1.0, 0.0, {\"stationary_seconds\": %s, \"dr_pct\": %s, \"reflect_pct\": %s}]" % [
-			OP_TRIGGER_BUFF, secs, dr, refl]
+		# 「获得一个吸收 N% 最大生命的**护盾**」——此前只取减伤/反伤两个槽，
+		# 护盾量整个丢失（不动堡垒「站立2秒得30%最大生命护盾」）
+		var sh := "0.0"
+		m = _re(r"吸收\s*(\d+(?:\.\d+)?)%\s*最大生命的?护盾").search(s)
+		if m:
+			sh = _f(m.get_string(1))
+		return "[%d, \"stationary_buff\", 1.0, 0.0, {\"stationary_seconds\": %s, \"dr_pct\": %s, \"reflect_pct\": %s, \"shield_pct\": %s}]" % [
+			OP_TRIGGER_BUFF, secs, dr, refl, sh]
 
 	# ② 印记扩散（「印记目标死亡时，印记扩散至周围2名敌人」）
 	if s.contains("印记目标死亡时") and s.contains("扩散"):
@@ -2154,11 +2160,36 @@ func _parse_main(s: String) -> String:
 		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
 
 	# ---------- 24. 低血 / 生命相关 ----------
-	if s.contains("自身生命低于50%时效果翻倍") or s.contains("生命满时，回复量转化为护盾"):
+	if s.contains("自身生命低于50%时效果翻倍"):
 		return "[%d, %s, true]" % [SP["lifesteal"], _f("10")]
+	# 「生命满时，回复(量)转化为护盾（最多 N% 最大生命）」——生命之树
+	#
+	# 旧版映射成 `elem_resist +10%`（元素抗性！）——**通道完全错**，
+	# 且「最多 N% 最大生命」这个上限也丢了。现走 `grant_shield`，
+	# `pct` 是护盾量、`cap` 是上限（`PlayerEquipmentEffects._grant_shield` 消费）。
+	if s.contains("生命满时") and s.contains("转化为护盾"):
+		var cap := "0.20"
+		m = _re(r"最多\s*(\d+)%\s*最大生命").search(s)
+		if m:
+			cap = _f(m.get_string(1))
+		# 「回复转化」的语义是「**这次治疗量**转成护盾」，
+		# 但 `HP_FULL` 触发时治已经结算完、拿不到那个量。
+		# 故按「满血时给一份等于上限的护盾」落地——与规格的观感一致
+		#（满血时每次治疗都补一层盾，上限封顶）。
+		return "[%d, \"grant_shield\", 1.0, 0.0, {\"pct\": %s, \"cap\": %s}]" % [
+			OP_TRIGGER_BUFF, cap, cap]
 	m = _re(r"治疗时额外获得治疗量\s*(\d+)%\s*的护盾").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
+		# 「治疗时给予治疗量 N% 的护盾（最多 M% 最大生命）」——圣光护符。
+		# 同样**旧版错挂成 `elem_resist`**。治疗量在 `on_heal` 时拿不到
+		#（回调只通知"治疗发生"，不带数值），故按上限给一份。
+		var cap2 := "0.15"
+		var mc := _re(r"最多\s*(\d+)%\s*最大生命").search(s)
+		if mc:
+			cap2 = _f(mc.get_string(1))
+		var ratio := _f(m.get_string(1))
+		return "[%d, \"grant_shield\", 1.0, 0.0, {\"pct\": %s, \"cap\": %s, \"of_heal_ratio\": %s}]" % [
+			OP_TRIGGER_BUFF, cap2, cap2, ratio]
 	m = _re(r"受到伤害的\s*(\d+)%\s*延迟").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["elem_resist"], _f(m.get_string(1))]
@@ -2338,8 +2369,6 @@ func _parse_main(s: String) -> String:
 		return "[%d, %s, true]" % [SP["elem_dmg"], _f("10")]
 	if s.contains("复仇满层时，背刺必定暴击") or s.contains("背刺消耗所有层数"):
 		return "[Stat.CRD, 0.30, true]"
-	if s.contains("生命满时，回复转化为护盾") or s.contains("生命满时，回复量转化为护盾"):
-		return "[%d, %s, true]" % [SP["elem_resist"], _f("10")]
 	m = _re(r"受到近战攻击时，对攻击者施加燃烧").search(s)
 	if m:
 		return "[%d, \"burn\", 1.0, 3.0]" % OP_TRIGGER_BUFF

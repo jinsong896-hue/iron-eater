@@ -3319,11 +3319,15 @@ func _spawn_fire_patch() -> void:
 # 字典比逐个字段清零更不容易漏。
 
 ## ① 写入站立静止规则（装备参考2：「站立不动1秒后获得大地守护」）
-func set_stationary_rule(seconds: float, dr_pct: float, reflect_pct: float) -> void:
+func set_stationary_rule(seconds: float, dr_pct: float, reflect_pct: float,
+		shield_pct: float = 0.0) -> void:
 	_stationary_rule = {
 		"seconds": maxf(seconds, 0.1),
 		"dr": dr_pct,
 		"reflect": reflect_pct,
+		# 「站立不动2秒后获得一个吸收30%最大生命的护盾」（不动堡垒）
+		# ——`dr`/`reflect` 两个槽装不下它，故单开一个。
+		"shield_pct": maxf(shield_pct, 0.0),
 	}
 	_stationary_time = 0.0
 
@@ -3359,7 +3363,15 @@ func _apply_stationary_buff() -> void:
 		return
 	var dr := float(_stationary_rule.get("dr", 0.0))
 	var refl := float(_stationary_rule.get("reflect", 0.0))
+	var sh := float(_stationary_rule.get("shield_pct", 0.0))
+	# 「站立不动2秒后获得一个吸收30%最大生命的护盾，移动后消失」
+	#（不动堡垒）——护盾在**达标的那一刻**一次性给，由 `_clear_stationary_buff`
+	# 在移动时连同 buff 一起撤掉（护盾本身不撤，符合「吸收」的语义）。
+	if sh > 0.0 and GameManager.attributes != null:
+		_add_shield(float(GameManager.attributes.max_hp) * sh, sh)
 	if dr <= 0.0 and refl <= 0.0:
+		if sh > 0.0:
+			_stationary_active = true
 		return
 	BuffDefs.register_equipment_stack("eq_stationary_guard",
 		AttributeSystem.Stat.DEF, dr, 0.0, 0)

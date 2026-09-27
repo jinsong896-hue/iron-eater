@@ -606,7 +606,8 @@ func _activate_stationary(a: AffixData) -> void:
 	player.call("set_stationary_rule",
 		float(p.get("stationary_seconds", 1.0)),
 		float(p.get("dr_pct", 0.0)),
-		float(p.get("reflect_pct", 0.0)))
+		float(p.get("reflect_pct", 0.0)),
+		float(p.get("shield_pct", 0.0)))
 
 
 ## ② 印记扩散（「印记目标死亡时，印记扩散至周围2名敌人」）
