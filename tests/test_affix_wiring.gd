@@ -65,6 +65,8 @@ func _ready() -> void:
 	_test_dot_uses_active_params()
 	await _test_weapon_swap_melee_ranged()
 	_test_drag_drop_no_crash()
+	await _test_soak_channels()
+	await _test_crit_reduce_cooldown()
 	_test_enemies_group_take_damage_arity()
 
 	if failed == 0:
@@ -2122,3 +2124,94 @@ func _re_for_test(pattern: String) -> RegEx:
 	var r := RegEx.new()
 	r.compile(pattern)
 	return r
+
+
+## 22. 受伤转化类通道（dmg_to_shield 151 / delay_dmg 152）
+##
+## ## 这两条此前都**错映射成元素抗性**
+##
+##   「受到伤害的50%转化为护盾」→ `[106, 0.30]`（玩家多了 30% 元素抗性）
+##   「受到伤害的30%延迟至5秒内逐渐结算」→ 同上
+##
+## 语义与元素抗性毫无关系，故新开两个通道。这里验证**真的生效**：
+## 转盾之后护盾真的涨了、延迟之后当帧扣血真的少了。
+func _test_soak_channels() -> void:
+	print("\n--- 受伤转化类通道 ---")
+	var em = GameManager.equipment_manager
+	var attrs = GameManager.attributes
+	var player := _player()
+	if player == null:
+		_check(false, "找到玩家节点")
+		return
+
+	# —— 数据侧：两个通道都在汇总里 ——
+	var sp0: Dictionary = em.special_modifiers()
+	for k in ["dmg_to_shield_pct", "delay_dmg_pct", "dmg_to_shield_cap_pct"]:
+		_check(sp0.has(k), "通道 %s 在汇总里" % k)
+
+	# —— 受伤转盾：装上后受击 → 护盾增加 ——
+	_reset()
+	await get_tree().process_frame
+	var inst := _make_inst_by_name("伤害转盾")
+	if inst == null:
+		_check(false, "构造「伤害转盾」实例")
+		return
+	em.equip(EquipmentDefs.Slot.CHEST, inst)
+	await get_tree().process_frame
+	player.set("temp_shield", 0.0)
+	attrs.hp = float(attrs.max_hp) * 0.9   # 留出余量，别被打死
+	var hp_before: float = float(attrs.hp)
+	player.call("take_damage", 100.0, null)
+	await get_tree().process_frame
+	_check(float(player.get("temp_shield")) > 0.0,
+		"「伤害转盾」受击后真的产生了护盾",
+		["护盾=%.1f" % float(player.get("temp_shield"))])
+	# 转走 50% → 直扣血量应少于 100
+	var lost := hp_before - float(attrs.hp)
+	_check(lost < 100.0, "转化为护盾的那部分不再扣血",
+		["扣了 %.1f（应为 ~50）" % lost])
+
+	# —— 延迟伤害：当帧扣血变少 ——
+	_reset()
+	await get_tree().process_frame
+	var inst2 := _make_inst_by_name("延迟伤害甲")
+	if inst2 != null:
+		em.equip(EquipmentDefs.Slot.CHEST, inst2)
+		await get_tree().process_frame
+		attrs.hp = float(attrs.max_hp) * 0.9
+		var hp1: float = float(attrs.hp)
+		player.call("take_damage", 100.0, null)
+		await get_tree().process_frame
+		var immediate := hp1 - float(attrs.hp)
+		_check(immediate < 100.0, "延迟伤害：当帧只扣一部分",
+			["扣了 %.1f（应为 ~70）" % immediate])
+		_check(float(player.get("_delayed_pool")) > 0.0,
+			"余下的伤害进了延迟池",
+			["池=%.1f" % float(player.get("_delayed_pool"))])
+	_reset()
+
+
+## 23. 暴击减冷却（冷却之眼「暴击时减少所有技能冷却1秒」）
+##
+## 旧版硬编码成 `[Stat.CDR, 0.20]`——那是「冷却缩减 +20%」的**被动**属性，
+## 与「暴击时立刻各减 1 秒」的触发时机与量纲都不同。
+func _test_crit_reduce_cooldown() -> void:
+	print("\n--- 暴击减冷却 ---")
+	var player := _player()
+	if player == null:
+		return
+	var sys = player.skills.get("_skills") if player.get("skills") != null else null
+	if sys == null:
+		_check(false, "拿到 SkillSystem")
+		return
+	# 造一个进行中的冷却，减 1 秒后应少 1 秒
+	sys.set("_cooldowns", {"fake_skill": 5.0})
+	sys.call("reduce_cooldowns", 1.0)
+	_check(absf(float(sys.call("get_cooldown_remaining", "fake_skill")) - 4.0) < 0.01,
+		"reduce_cooldowns(1.0) 把 5 秒减到 4 秒",
+		["实际=%.2f" % float(sys.call("get_cooldown_remaining", "fake_skill"))])
+	# 减到负数要归零并移除
+	sys.call("reduce_cooldowns", 99.0)
+	_check(absf(float(sys.call("get_cooldown_remaining", "fake_skill"))) < 0.01,
+		"减过头归零（不会出现负冷却）")
+	sys.set("_cooldowns", {})
