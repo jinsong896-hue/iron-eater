@@ -535,22 +535,25 @@ func _test_crowd_form_extras(p, mgr) -> void:
 		"[crowd-form] 词条层数已记录（%d）" % holder.call("stacks_of", "burn"))
 	# 死亡后宿主应被回收（否则节点泄漏）
 	#
-	# **必须轮询等待，不能硬等固定帧数**：死亡事件由 CrowdManager 在
-	# `_physics_process` 里 `step + drain_events` 处理，而那一步的时机
-	# 受帧率/负载影响（全量门禁下别的套件刚跑完，负载更高）。
-	# 原来写死「等 2 个物理帧」——单独跑必过、全量跑偶发红
-	#（实测：1 → 1 没回收）。轮询到上限仍未回收到才是真失败。
-	var host_count_before: int = _count_hosts(mgr)
+	# ## 判据用 `_hosts` 注册表，不用 `get_children()`
+	#
+	# `_free_host` 是 `queue_free()`——节点要到**帧末**才从场景树消失，
+	# 而 `get_children()` 在帧内仍能数到它。用子节点计数就会写成
+	# 「等 N 帧」的时序赌博（实测：单独跑必过、全量门禁下偶发红）。
+	#
+	# `_hosts` 字典则是**同步 erase** 的（`_free_host` 里紧跟 queue_free），
+	# 且它才是「宿主登记」的唯一真相——泄漏与否看这里最准。
+	var reg_before: Dictionary = mgr.get("_hosts")
+	_check(reg_before.has(tid), "死亡前该单位的宿主已登记")
 	mgr.call("apply_damage", PackedInt32Array([tid]), 999999.0)
-	var reclaimed := false
-	for _i in 30:
-		await get_tree().physics_frame
-		if _count_hosts(mgr) < host_count_before:
-			reclaimed = true
-			break
-	_check(reclaimed,
-		"[crowd-form] 单位死亡后宿主被回收（%d → %d）" % [
-			host_count_before, _count_hosts(mgr)])
+	await get_tree().physics_frame
+	_check(not (mgr.get("_hosts") as Dictionary).has(tid),
+		"[crowd-form] 单位死亡后宿主登记被清（防节点/登记泄漏）")
+	# 顺带确认场景节点也真的会消失（给它一帧走 queue_free）
+	await get_tree().process_frame
+	await get_tree().physics_frame
+	_check(_count_hosts(mgr) < 2, "[crowd-form] 宿主节点未堆积（%d 个）"
+		% _count_hosts(mgr))
 
 
 ## 数 CrowdManager 下还挂着多少个 buff 宿主
