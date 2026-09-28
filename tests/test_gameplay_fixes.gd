@@ -285,6 +285,9 @@ func _ready() -> void:
 		await _test_sprint_triggering(p)
 		await _test_attack_grace(p)
 
+	# --- UI 初始可见性（已出现两次的回归）---
+	_test_ui_initial_visibility()
+
 	if failed == 0:
 		print("ALL GAMEPLAY FIXES TESTS PASSED")
 	else:
@@ -392,3 +395,46 @@ func _sprint_reset(p) -> void:
 	probe.set_attack_timer(p, 0.0)
 	probe.set_current_attack_cooldown(p, 0.0)
 	p.velocity = Vector3.ZERO
+
+
+## UI 初始可见性 —— **已出现两次的回归**
+##
+## ## 背景
+##
+## `SettingsPanel` 是全屏 `Control`，初始 `visible` 必须是 `false`。
+## 一旦为 `true`，它会盖在最上层并**拦截所有鼠标输入**，
+## 表现为「所有 UI 点不动」，且没有任何报错。
+##
+## ## 为什么反复出现
+##
+## 它的 `visible = false` 写在 `main.tscn` 里**紧跟在节点后面**。
+## 往后面插入新节点时（如 ArtBrowser），那行会被挤到别的节点名下——
+## 于是 SettingsPanel 恢复默认可见、新节点反而被隐藏。
+## 历史上发生过两次：`ab940492` 修过一次，`3b354c9f` 又弄坏。
+##
+## ## 判据
+##
+## **不看文本**（上次只看 diff 没发现），而是问**实例化后的真实可见性**
+## ——全屏 Control 必须 `visible = false`，否则开局就被它挡住。
+func _test_ui_initial_visibility() -> void:
+	var ui := get_tree().current_scene.get_node_or_null("MainScene/UI")
+	if ui == null:
+		ui = get_tree().current_scene.get_node_or_null("UI")
+	if ui == null:
+		_c(false, "找到 UI 层（MainScene/UI）")
+		return
+	# 这些是全屏面板/封面，开局都不该可见
+	#
+	# **必须用 `get("visible")` 而不是强转 `as CanvasItem`**：
+	# `PauseMenu` / `SettlementPanel` 继承的是 **`CanvasLayer`**，
+	# 而 CanvasLayer **不是** CanvasItem（它 extends Node）——
+	# 强转会得到 null 并抛「Invalid access to property 'visible'」。
+	var must_hide := ["SettingsPanel", "ArtBrowser", "PauseMenu",
+		"SettlementPanel", "BackpackUI", "SpecialRoomUI"]
+	for nm in must_hide:
+		var n = ui.get_node_or_null(nm)
+		if n == null:
+			_c(false, "UI/%s 存在" % nm)
+			continue
+		_c(not bool(n.get("visible")),
+			"UI/%s 开局不可见（否则全屏盖住并拦截输入）" % nm)

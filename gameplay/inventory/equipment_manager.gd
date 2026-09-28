@@ -569,26 +569,36 @@ func trigger_affixes_of(triggers: Array) -> Array:
 		var tpl: EquipmentTemplate = inst.get_template()
 		if tpl == null:
 			continue
-		for affix in tpl.trigger_affixes:
-			if affix == null or not affix.is_trigger():
-				continue
-			if not (affix.trigger in triggers):
-				continue
-			var bid: String = affix.trigger_buff
-			if bid.is_empty():
-				continue
-			var params: Dictionary = affix.trigger_params
-			var key := bid if params.is_empty() else "%s|%s" % [bid, str(params)]
-			if not merged.has(key):
-				merged[key] = {
-					"buff": bid, "chance": 0.0,
-					"duration": affix.trigger_duration,
-					"params": params.duplicate(),
-				}
-			var e: Dictionary = merged[key]
-			e["chance"] = float(e["chance"]) + affix.trigger_chance
-			# 时长取更长的那个（多件叠加时不缩短）
-			e["duration"] = maxf(float(e["duration"]), affix.trigger_duration)
+		# **三个来源都要扫**（与 `PlayerEquipmentEffects._all_affixes` 同构）：
+		#   · `trigger_affixes` —— `_generate_trigger_affixes` 生成的随机词条
+		#   · `own_affixes`     —— **自有列**（装备参考2 的规格原文）
+		#   · `extra_affixes`   —— 融合进来的
+		#
+		# 旧实现**只扫 `trigger_affixes`**，于是自有列的触发型词条
+		#（实测 66 条：「攻击有8%概率使目标中毒，每秒5%攻击力」「受到伤害时
+		# 有10%概率减少50%伤害」…）**一条都不生效**，且没有任何报错——
+		# 典型的「有数据没消费」。
+		for arr in [tpl.trigger_affixes, tpl.own_affixes, inst.extra_affixes]:
+			for affix in arr:
+				if affix == null or not affix.is_trigger():
+					continue
+				if not (affix.trigger in triggers):
+					continue
+				var bid: String = affix.trigger_buff
+				if bid.is_empty():
+					continue
+				var params: Dictionary = affix.trigger_params
+				var key := bid if params.is_empty() else "%s|%s" % [bid, str(params)]
+				if not merged.has(key):
+					merged[key] = {
+						"buff": bid, "chance": 0.0,
+						"duration": affix.trigger_duration,
+						"params": params.duplicate(),
+					}
+				var e: Dictionary = merged[key]
+				e["chance"] = float(e["chance"]) + affix.trigger_chance
+				# 时长取更长的那个（多件叠加时不缩短）
+				e["duration"] = maxf(float(e["duration"]), affix.trigger_duration)
 	var out: Array = []
 	for key in merged:
 		out.append({

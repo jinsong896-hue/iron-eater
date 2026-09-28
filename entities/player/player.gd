@@ -2186,6 +2186,8 @@ func _apply_trigger_affixes_holder(tgt, damage: float) -> void:
 	var triggers: Array = em.equipped_trigger_affixes()
 	if triggers.is_empty():
 		return
+	# 负效时长加成与节点路径同口径（见 `_apply_trigger_affixes`）
+	var dur_bonus: float = float(_equip_special_mods().get("debuff_dur_pct", 0.0))
 	for t in triggers:
 		var d: Dictionary = t
 		var chance := float(d.get("chance", 0.0))
@@ -2194,8 +2196,16 @@ func _apply_trigger_affixes_holder(tgt, damage: float) -> void:
 		var bid := str(d.get("buff", ""))
 		if bid.is_empty():
 			continue
+		# **时长与数值覆盖必须一起传**——旧实现只传 id，于是：
+		#   · 「攻击有8%概率使目标中毒，每秒 5% 攻击力、持续 3 秒」
+		#     退化成 BuffDefs 的表定值（数值全错）
+		#   · 与节点路径**两套口径**（同样的装备，打群体单位与打普通敌人
+		#     效果不同）
+		var dur := float(d.get("duration", 0.0))
+		if dur > 0.0 and dur_bonus > 0.0:
+			dur *= 1.0 + dur_bonus
 		if tgt.has_method("apply"):
-			tgt.call("apply", bid, "equip")
+			tgt.call("apply", bid, "equip", 1, dur, d.get("params", {}))
 
 
 ## 元素亲和：已装备物品提供的「所有元素伤害 +X%」总和（分册 4.x 词条）

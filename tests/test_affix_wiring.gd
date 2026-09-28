@@ -61,6 +61,8 @@ func _ready() -> void:
 	_test_f_param_plumbing()
 	_test_multi_affix_not_silently_empty()
 	_test_equipment_skills_exist()
+	await _test_own_trigger_affixes_consumed()
+	_test_dot_uses_active_params()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -1890,3 +1892,84 @@ func _test_multi_affix_not_silently_empty() -> void:
 				if a3 != null and a3.operation == AffixData.Operation.SKILL_MOD:
 					sm += 1
 	_check(sm >= 30, "SKILL_MOD 词条未被嵌套解析改动误删（%d 条）" % sm)
+
+
+## 17. F1 自有列的**触发型**词条必须真的被消费
+##
+## ## 根因：`trigger_affixes_of` 只扫了 `tpl.trigger_affixes`
+##
+## 那是 `_generate_trigger_affixes` **生成的随机词条**表。而装备参考2 的
+## 规格原文写在**自有列**（`own_affixes`）——实测 **66 条**触发型词条
+##（「攻击有8%概率使目标中毒，每秒5%攻击力，持续3秒」
+##  「受到伤害时，有10%概率减少50%伤害」…）**一条都不生效**，
+## 且没有任何报错：数据在、图鉴会显示、玩家以为有效。
+##
+## ## 判据
+##
+## 不看「函数里有没有遍历 own_affixes」（那是实现细节），而是**问结果**：
+## 装上带这类词条的装备后，`equipped_trigger_affixes()` 必须把它吐出来，
+## 且**概率/时长/数值参数**都对——参数丢了同样等于没实现。
+func _test_own_trigger_affixes_consumed() -> void:
+	print("\n--- F1 自有列触发型词条接线 ---")
+	var em = GameManager.equipment_manager
+	_reset()
+	await get_tree().process_frame
+
+	# 「毒牙短刃」自有列：攻击有8%概率使目标中毒（每秒5%攻击力，持续3秒）
+	var inst := _make_inst_by_name("毒牙短刃")
+	if inst == null:
+		_check(false, "构造「毒牙短刃」实例")
+		return
+	em.equip(EquipmentDefs.Slot.WEAPON_1, inst)
+	await get_tree().process_frame
+
+	var found: Dictionary = {}
+	for t in em.equipped_trigger_affixes():
+		found[str(t.get("buff", ""))] = t
+	_check(found.has("poison_rot"),
+		"自有列「攻击有8%概率使目标中毒」进入触发列表",
+		[str(found.keys())])
+	if found.has("poison_rot"):
+		var t: Dictionary = found["poison_rot"]
+		_check(absf(float(t.get("chance", 0.0)) - 0.08) < 0.001,
+			"概率 8%（规格原值）", ["实际=%.3f" % float(t.get("chance", 0.0))])
+		_check(absf(float(t.get("duration", 0.0)) - 3.0) < 0.01,
+			"时长 3 秒（规格原值）", ["实际=%.1f" % float(t.get("duration", 0.0))])
+		# **数值覆盖必须带出来**：不传的话 DOT 会退化成 BuffDefs 的表定值
+		var p: Dictionary = t.get("params", {})
+		_check(absf(float(p.get("dot_atk", 0.0)) - 0.05) < 0.001,
+			"每秒伤害 5% 攻击力（数值覆盖，非表定值）", [str(p)])
+	_reset()
+
+	# —— 概率减伤类（「受到伤害时，有10%概率减少50%伤害」）——
+	_reset()
+	await get_tree().process_frame
+	var inst2 := _make_inst_by_name("守护护符")
+	if inst2 != null:
+		em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst2)
+		await get_tree().process_frame
+		var has_dr := false
+		for t2 in em.equipped_trigger_affixes():
+			var pp: Dictionary = t2.get("params", {})
+			if absf(float(pp.get("dmg_taken_down", 0.0)) - 0.5) < 0.001:
+				has_dr = true
+		_check(has_dr, "自有列「受击10%概率减伤50%」进入触发列表且带数值")
+	_reset()
+
+
+## 18. 带参数的 DOT 必须读**本次施加的覆盖值**
+##
+## `BuffHolder.tick` 的 DOT 结算此前读 `params_of_cached`——那是个**静态
+## 缓存**，只索引 BuffDefs 的**静态表**，且从不失效。于是
+## 「攻击有N%概率使目标中毒，每秒 M% 攻击力」里的 M 永远是表定值，
+## **装备给的数值丢失**。现改读 `params_of_active`。
+func _test_dot_uses_active_params() -> void:
+	print("\n--- 带参数的 DOT 读取生效值 ---")
+	var holder := BuffHolder.new(null)
+	# 用一条真实存在的 dot 词条，施加时覆盖参数
+	holder.apply("burn", "test", 1, 3.0, {"dot_atk": 9.99})
+	var p: Dictionary = holder.params_of_active("burn")
+	_check(absf(float(p.get("dot_atk", 0.0)) - 9.99) < 0.001,
+		"params_of_active 返回本次施加的覆盖值（9.99）",
+		["实际=%s" % str(p)])
+	holder.clear()

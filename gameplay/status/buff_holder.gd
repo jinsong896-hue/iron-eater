@@ -400,7 +400,18 @@ func tick(delta: float) -> Dictionary:
 		if row.is_empty():
 			expired.append(id)
 			continue
-		var p: Dictionary = params_of_cached(id)
+		# **必须走 `params_of_active`**（本次施加的覆盖值），不是 `params_of_cached`。
+		#
+		# 旧实现读的是那个静态缓存，而它只索引**静态表**（BuffDefs 的 BUFFS
+		# 常量），且**从不失效**。于是两类错误：
+		#
+		# ① 「攻击有N%概率使目标中毒，每秒造成 M% 攻击力伤害」这类词条，
+		#    M 是通过 `override_params` 传的（同一 buff id 承载不同数值），
+		#    而缓存永远返回表定值 → **装备给的数值丢失**（数值丢失报告里
+		#    那批「概率使目标 X」的根因）。
+		# ② 缓存是**跨实例共享的 static**，一旦某处 `register_equipment_stack`
+		#    动态注册了同 id，别的宿主会读到被污染的参数。
+		var p: Dictionary = params_of_active(id)
 		var n := int(e.get("stacks", 1))
 
 		# DOT 结算（impl="dot"）
@@ -498,7 +509,6 @@ func _target_max_hp() -> float:
 
 
 var _elem_decay_accum := {}
-static var _param_cache := {}
 
 ## 玩家侧元素兜底衰减速率（层/秒）。
 ##
@@ -519,12 +529,6 @@ func _is_player_target() -> bool:
 	if _target is Node and (_target as Node).is_in_group("player"):
 		return true
 	return false
-
-static func params_of_cached(id: String) -> Dictionary:
-	if _param_cache.is_empty():
-		for bid in BuffDefs.all_ids():
-			_param_cache[bid] = BuffDefs.params_of(bid)
-	return _param_cache.get(id, {})
 
 
 # ============================================================
