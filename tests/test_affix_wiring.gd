@@ -63,6 +63,8 @@ func _ready() -> void:
 	_test_equipment_skills_exist()
 	await _test_own_trigger_affixes_consumed()
 	_test_dot_uses_active_params()
+	await _test_weapon_swap_melee_ranged()
+	_test_drag_drop_no_crash()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -1973,3 +1975,96 @@ func _test_dot_uses_active_params() -> void:
 		"params_of_active 返回本次施加的覆盖值（9.99）",
 		["实际=%s" % str(p)])
 	holder.clear()
+
+
+## 19. 换武器：近战 ↔ 远程必须能互换
+##
+## ## 实机症状：「远程武器无法装备」
+##
+## 装备参考2 规格是「两把武器同时装备时类型不能冲突（近战/远程不共存）」。
+## 旧实现把它**当成拒绝装备**：玩家拿着剑时想换弓 → `equip()` 直接 return。
+## 而两个武器槽都会被同一条规则拦住 → **永远装不上任何远程武器**。
+## 更糟的是调用方 `_try_equip` 仍无条件报「已装备」——**谎报成功**。
+##
+## ## 判据
+##
+## 「不能共存」=「不能同时在身上」，故正确行为是**换下旧的**。
+## 这里断言三件事：弓真的装上了、剑退回背包（不丢失）、剑不在槽里。
+func _test_weapon_swap_melee_ranged() -> void:
+	print("\n--- 近战 ↔ 远程 换装 ---")
+	var em = GameManager.equipment_manager
+	var attrs = GameManager.attributes
+	_reset()
+	await get_tree().process_frame
+
+	var sword := _make_inst_by_name("被腐蚀的长剑")
+	var bow := _make_inst_by_name("荆棘长弓")
+	if sword == null or bow == null:
+		_check(false, "构造剑与弓的实例")
+		return
+	em.equip(EquipmentDefs.Slot.WEAPON_1, sword)
+	await get_tree().process_frame
+	_check(em.get_equipped().get(EquipmentDefs.Slot.WEAPON_1) == sword,
+		"先装上近战剑")
+
+	# 换成远程弓（同槽位——正是实机上玩家的操作）
+	em.equip(EquipmentDefs.Slot.WEAPON_1, bow)
+	await get_tree().process_frame
+	_check(em.get_equipped().get(EquipmentDefs.Slot.WEAPON_1) == bow,
+		"远程弓替换了近战剑（不再被互斥规则拦死）")
+	_check(em.get_equipped().get(EquipmentDefs.Slot.WEAPON_2) != sword,
+		"剑不在另一个武器槽里")
+	var inv: Array = em.get_inventory()
+	_check(inv.has(sword), "剑退回背包（换装不丢失装备）",
+		["背包 %d 件" % inv.size()])
+
+	# 反向：弓 → 剑
+	em.equip(EquipmentDefs.Slot.WEAPON_1, sword)
+	await get_tree().process_frame
+	_check(em.get_equipped().get(EquipmentDefs.Slot.WEAPON_1) == sword,
+		"反向换装同样可用（远程 → 近战）")
+	_check(em.get_inventory().has(bow), "弓退回背包")
+	_reset()
+
+
+## 20. `_drop_data` 拖到装备槽不得抛异常
+##
+## ## 实机症状：拖任何武器到装备槽 → **整个游戏崩溃**
+##
+## ```
+## BackpackItem._drop_data: Invalid call. Nonexistent 'int' constructor.
+## ```
+##
+## `data["from_item"]` 是 `EquipmentInstance` **对象**，旧实现写了
+## `int(data["from_item"])`——`int()` 对 Object 直接抛异常。
+## 而信号本来就声明 `(inst: EquipmentInstance, slot_id: int)`。
+func _test_drag_drop_no_crash() -> void:
+	print("\n--- 拖拽穿戴不崩 ---")
+	var bitem = load("res://ui/inventory/backpack_item.gd")
+	if bitem == null:
+		_check(false, "加载 backpack_item.gd")
+		return
+	var node = bitem.new()
+	_check(node != null, "构造 BackpackItem")
+	if node == null:
+		return
+	# 模拟一次拖到装备槽的放下动作
+	var inst: EquipmentInstance = _make_inst_by_name("荆棘长弓")
+	if inst == null:
+		node.free()
+		_check(false, "构造弓实例")
+		return
+	node.set("index", 1003)   # 装备槽区间（SLOT_INDEX_BASE_BACKPACK=1000 起）
+	var ok := true
+	var payload := {"from_index": 0, "from_item": inst}
+	# `_drop_data` 在 `from == index` 时会提前 return，故这里必须不同
+	var got: Array = []
+	node.connect("equip_drop_requested", func(i, s): got.append([i, s]))
+	node.call("_drop_data", Vector2.ZERO, payload)
+	_check(got.size() == 1, "放下动作发出了 equip_drop_requested（未抛异常）",
+		[str(got)])
+	if got.size() == 1:
+		_check(got[0][0] == inst,
+			"信号带的第 1 参**是装备实例**（不是被 int() 转过的东西）",
+			[str(got[0][0])])
+	node.free()

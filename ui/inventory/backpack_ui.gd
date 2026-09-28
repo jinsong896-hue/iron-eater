@@ -130,6 +130,8 @@ func _build_slot_grid() -> void:
 
 
 ## 拖到装备槽 → 直接穿到该槽位（暗黑式）
+##
+## 与 `_try_equip` 同口径：**按实际结果报**，不无条件说成功。
 func _on_equip_drop(inst: EquipmentInstance, slot_id: int) -> void:
 	if inst == null:
 		return
@@ -137,9 +139,13 @@ func _on_equip_drop(inst: EquipmentInstance, slot_id: int) -> void:
 	if em == null:
 		return
 	em.equip(slot_id, inst)
-	_notify({"ok": true}, "已装备到 %s：%s" % [
-		EquipmentDefs.slot_name(slot_id), inst.display_name()])
-	_selected = inst
+	var now = em.call("get_equipped").get(slot_id)
+	if now == inst:
+		_notify({"ok": true}, "已装备到 %s：%s" % [
+			EquipmentDefs.slot_name(slot_id), inst.display_name()])
+		_selected = inst
+	else:
+		_notify({"ok": false}, "装备失败：%s" % inst.display_name())
 	_refresh()
 
 
@@ -840,6 +846,11 @@ func _set_filter(f: int, btn: Button) -> void:
 
 # —— 穿戴/吞噬 ——
 
+## 穿戴（右键菜单「装备」）
+##
+## **成功与否必须按实际结果报**，不能无条件说「已装备」。
+## 旧实现不管 `equip()` 是否真的装上（背包满、职业限制…）都报成功，
+## 玩家看到提示、背包里装备还在，表现为「装备不生效」。
 func _try_equip(item: EquipmentInstance) -> void:
 	var template := item.get_template()
 	if template == null:
@@ -849,12 +860,19 @@ func _try_equip(item: EquipmentInstance) -> void:
 		return
 	var slot := template.slot
 	var defs := EquipmentDefs
+	# 主槽被占且副槽空时改放副槽（双武器）
 	if slot in [defs.Slot.ACCESSORY_1, defs.Slot.WEAPON_1]:
 		var equipped: Dictionary = em.get_equipped()
 		if equipped.has(slot) and not equipped.has(slot + 1):
 			slot = slot + 1
 	em.equip(slot, item)
-	_notify({"ok": true}, "已装备：%s" % item.display_name())
+	# **判据是「装备槽里是不是它」**，不是「调用过 equip」——
+	# `equip()` 是 void，且有多条拒绝路径（背包满导致的换装失败等）。
+	var now = em.call("get_equipped").get(slot)
+	if now == item:
+		_notify({"ok": true}, "已装备：%s" % item.display_name())
+	else:
+		_notify({"ok": false}, "装备失败：%s（背包可能已满）" % item.display_name())
 
 
 func _devour(item: EquipmentInstance) -> Dictionary:

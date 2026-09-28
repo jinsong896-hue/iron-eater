@@ -84,13 +84,31 @@ func equip(slot: int, inst: EquipmentInstance) -> void:
 		return
 	if not _can_wear(inst):
 		return
-	# 武器类型互斥（装备参考2）：冲突时拒绝装备并提示，不做静默忽略
+	# 武器类型互斥（装备参考2）：近战/远程不共存、单手/双手不共存。
+	#
+	# **冲突时把旧武器换下，而不是拒绝**。
+	#
+	# 「不能共存」的语义是「这两把不能同时在身上」——玩家要换弓，
+	# 就应该把剑换掉。旧实现直接 `return`（拒绝装备），于是：
+	#   · 玩家拿着剑时**永远装不上任何远程武器**（两个武器槽都被拦）
+	#   · 而且调用方 `_try_equip` 仍无条件报「已装备」——**谎报成功**，
+	#     玩家只看到一条一闪而过的提示，表现为「远程武器无法装备」
+	#
+	# 换下走 `unequip()`（退回背包，与手动卸下同路径），故不会丢失装备。
 	var conflict = weapon_slot_conflict(inst, slot)
 	if conflict != null:
-		var bus0 = _event_bus()
-		if bus0:
-			bus0.message.emit(str(conflict))
-		return
+		var other := EquipmentDefs.Slot.WEAPON_2 \
+			if slot == EquipmentDefs.Slot.WEAPON_1 else EquipmentDefs.Slot.WEAPON_1
+		# **背包满时不强换**：`unequip` 失败会返回 false，此时不能继续
+		#（否则旧武器会凭空消失）。如实告知玩家，让他先腾格子。
+		if not unequip(other):
+			var bus_full = _event_bus()
+			if bus_full:
+				bus_full.message.emit("背包已满，无法换下%s" % str(conflict))
+			return
+		var bus_swap = _event_bus()
+		if bus_swap:
+			bus_swap.message.emit("已换下冲突武器（%s）" % str(conflict))
 	# 若已穿戴在其他槽位，先卸下（unequip 会把它放回背包）
 	for s in _equipped.keys():
 		if _equipped[s] == inst:

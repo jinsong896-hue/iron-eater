@@ -147,6 +147,12 @@ func _drop_data(_at_position: Vector2, data: Variant) -> void:
 		return
 	if index >= SLOT_INDEX_BASE_BACKPACK:
 		# 目标是装备槽：把拖来的装备穿到该槽位
-		equip_drop_requested.emit(int(data["from_item"]), index - SLOT_INDEX_BASE_BACKPACK)
+		#
+		# **`from_item` 是 `EquipmentInstance` 对象，不能 `int()`**——
+		# `int()` 对 Object 会直接抛「Nonexistent 'int' constructor」
+		# 并**崩溃整个游戏**（实测拖任何武器到装备槽都崩）。
+		# 信号声明本来就是 `(inst: EquipmentInstance, slot_id: int)`。
+		equip_drop_requested.emit(data["from_item"] as EquipmentInstance,
+			index - SLOT_INDEX_BASE_BACKPACK)
 	else:
 		swap_requested.emit(from, index)
