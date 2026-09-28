@@ -146,6 +146,7 @@ const SPECIAL_STAT := {
 	#   「受到伤害的30%延迟至5秒内逐渐结算」→ 同上
 	"dmg_to_shield":  {"enum": 151, "out": "dmg_to_shield_pct"},  # 受伤的 N% 转成护盾
 	"delay_dmg":      {"enum": 152, "out": "delay_dmg_pct"},      # 受伤的 N% 延迟结算
+	"dmg_to_shield_cap": {"enum": 153, "out": "dmg_to_shield_cap_pct"},  # 转盾的吸收上限（占最大生命）
 	# —— 2026-09-27：冷却刷新按**触发源**分键 ——
 	#
 	# `cd_refresh` 是个**合并池**，但表里的触发源有三种（击杀 / 闪避 / 暴击），
@@ -1190,7 +1191,7 @@ const CURATED_TABLE := [
   ["O053", "反击之甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[4, 2, Stat.ATK, 1.5000, 0]], [[Stat.DEF, 0.0500, true]], [[117, 1.0000, true]]],
   ["O054", "荆棘反弹", "shield", ["防御"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.DEF, 227.5, false]], [[4, 9, 104, 2.0000, 0]], [[110, 0.0300, true]], [[104, 1.0000, true]]],
   ["O055", "濒死新星", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[117, 3.0000, true]], [[Stat.HP, 0.0500, true]], [[117, 1.0000, true]]],
-  ["O056", "伤害转盾", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[151, 0.3000, true]], [[Stat.DEF, 0.0500, true]], [[106, 0.7000, true]]],
+  ["O056", "伤害转盾", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[[151, 0.5000, true], [153, 0.3000, true]]], [[Stat.DEF, 0.0500, true]], [[[151, 0.7000, true], [153, 0.3000, true]]]],
   ["O057", "护盾爆裂", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[4, 14, Stat.ATK, 3.0000, 0]], [[140, 0.0500, true]], [[117, 0.2000, true]]],
   ["O058", "猎杀者勋章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[4, 1, Stat.ATK, 0.15, 0]], [[[Stat.HP, 0.0300, true], [Stat.ATK, 0.0300, true], [Stat.DEF, 0.0300, true], [Stat.SPD, 0.0300, true], [Stat.ASPD, 0.0300, true], [Stat.AP, 0.0300, true], [Stat.CRT, 0.0300, true], [Stat.CRD, 0.0300, true]]], [[119, 0.5000, true]]],
   ["O059", "召唤领主", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[4, 17, 106, 0.05, 0]], [[116, 0.0500, true]], [[120, 1, false]]],

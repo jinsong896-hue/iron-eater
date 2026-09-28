@@ -103,6 +103,7 @@ const SP := {
 	# 错映射成 `elem_resist`（106，元素抗性），语义完全不同：
 	# 元素抗性只挡元素伤害，伤害减免该挡全部来源。
 	"dmg_reduction": 146, "dmg_to_shield": 151, "delay_dmg": 152,
+	"dmg_to_shield_cap": 153,
 	# 冷却刷新按**触发源**分键（击杀走 113）；闪避/暴击各自独立，
 	# 否则三件装备的触发时机全错（详见 equipment_db 的 SPECIAL_STAT 注释）
 	"cd_refresh_dodge": 147, "cd_refresh_crit": 148,
@@ -2881,11 +2882,13 @@ func _parse_main(s: String) -> String:
 	if s.contains("溢出回复转化为护盾"):
 		return "[%d, %s, true]" % [SP["elem_resist"], _f("30")]
 	if s.contains("受到伤害的50%转化为护盾"):
-		# 旧版错映射成 `elem_resist`（元素抗性）——玩家多了 30% 元素抗性，
-		# 与「受伤转盾」毫无关系。现走专用通道 `dmg_to_shield_pct`。
-		return "[%d, %s, true]" % [SP["dmg_to_shield"], _f("30")]
+		# 规格有两个数：**转化比例 50%** + **吸收上限 30% 最大生命**。
+		# 拆成两条——旧版把上限当成转化比例、还错走 `elem_resist`。
+		return "[[%d, 0.5000, true], [%d, 0.3000, true]]" % [
+			SP["dmg_to_shield"], SP["dmg_to_shield_cap"]]
 	if s.contains("转化比例提升至"):
-		return "[%d, %s, true]" % [SP["elem_resist"], _f("70")]
+		return "[[%d, 0.7000, true], [%d, 0.3000, true]]" % [
+			SP["dmg_to_shield"], SP["dmg_to_shield_cap"]]
 	m = _re(r"每击杀\s*(\d+)\s*个敌人，获得一个随机增益").search(s)
 	if m:
 		return "[%d, %d, Stat.ATK, 0.15, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]

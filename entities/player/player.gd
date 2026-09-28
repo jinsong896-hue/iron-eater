@@ -2841,8 +2841,12 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	var to_shield: float = float(_equip_special_mods().get("dmg_to_shield_pct", 0.0))
 	if to_shield > 0.0 and amount > 0.0:
 		var converted := amount * clampf(to_shield, 0.0, 0.9)
-		# 上限给 0.60（与 `_add_shield` 其它调用点同口径，防无限叠）
-		_add_shield(converted, 0.60)
+		# 上限取词条给的「最多吸收 N% 最大生命」（规格第二个数），
+		# 缺省 0.60（与 `_add_shield` 其它调用点同口径，防无限叠）
+		var cap := float(_equip_special_mods().get("dmg_to_shield_cap_pct", 0.0))
+		if cap <= 0.0:
+			cap = 0.60
+		_add_shield(converted, cap)
 		amount -= converted
 	# 装备·**延迟伤害**（装备参考2：「受到伤害的30%延迟至5秒内逐渐结算」）
 	#
