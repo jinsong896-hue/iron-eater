@@ -258,6 +258,19 @@ func _cond_is_intrinsic(text: String, cond: String, spec: String) -> bool:
 	# 反伤：只有「反弹」才算内建
 	if spec.contains("[104,"):
 		return text.contains("反弹")
+	# **闪避/格挡 = 「按概率完全免伤」**：通道语义本身就是那个条件。
+	# 「受到伤害时有 N% 概率免疫此次伤害」→ `dodge_pct` 是**正确**落地，
+	# 它的消费点就在 `take_damage`（受击路径）里掷骰，不存在「条件丢失」。
+	if spec.contains("[111,") or spec.contains("[110,"):
+		return text.contains("免疫") or text.contains("闪避") or text.contains("格挡")
+	# **冷却刷新按触发源分键**，通道本身就绑定了事件：
+	#   `113` cd_refresh_pct        —— 击杀
+	#   `147` cd_refresh_dodge_pct  —— 闪避
+	#   `148` cd_refresh_crit_pct   —— 暴击
+	# 故「击杀敌人后刷新冷却」落成常驻 `[113, 1.0, true]` 是**正确**的：
+	# 条件由通道的消费点（`_on_enemy_killed` 等）保证。
+	if spec.contains("[113,") or spec.contains("[147,") or spec.contains("[148,"):
+		return true
 	# 低血词条走 `[4, 11, ...]`——那已被 `_spec_is_unconditional` 排除，
 	# 不在这里处理
 	return false

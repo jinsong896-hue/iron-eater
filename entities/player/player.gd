@@ -625,6 +625,8 @@ func _physics_process(delta: float) -> void:
 	_tick_attack_bonus(delta)
 	# B7 残影存活时间
 	_tick_afterimages(delta)
+	# 延迟伤害摊还
+	_tick_delayed_damage(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
 	if not _typing_input():
 		_poll_skill_input()
@@ -2806,6 +2808,30 @@ func take_damage(amount: float, from: Node3D = null) -> void:
 	var equip_dr: float = float(_equip_special_mods().get("dmg_reduction_pct", 0.0))
 	if equip_dr > 0.0:
 		amount *= 1.0 - clampf(equip_dr, 0.0, 0.9)
+	# 装备·**伤害转盾**（装备参考2：「受到伤害的50%转化为护盾，
+	# 最多吸收30%最大生命」）。
+	#
+	# ## 此前错映射成元素抗性
+	#
+	# 该词条在库里是 `[106, 0.3, true]`——玩家多了 30% 元素抗性，
+	# 与「受伤转盾」毫无关系。现走专用通道 `dmg_to_shield_pct`。
+	#
+	# 顺序：**在扣血之前**把一部分伤害转成护盾。转出来的护盾当帧即可用
+	# （`_add_shield` 直接加 `temp_shield`），故等价于「先减伤再补盾」。
+	var to_shield: float = float(_equip_special_mods().get("dmg_to_shield_pct", 0.0))
+	if to_shield > 0.0 and amount > 0.0:
+		var converted := amount * clampf(to_shield, 0.0, 0.9)
+		# 上限给 0.60（与 `_add_shield` 其它调用点同口径，防无限叠）
+		_add_shield(converted, 0.60)
+		amount -= converted
+	# 装备·**延迟伤害**（装备参考2：「受到伤害的30%延迟至5秒内逐渐结算」）
+	#
+	# 落成「把 N% 伤害推迟到 5 秒里分摊」：立即扣 70%，余下 30% 分 5 段。
+	# 用 `_delayed_damage` 累积，由 `_tick_delayed_damage` 每帧推进。
+	var delay_pct: float = float(_equip_special_mods().get("delay_dmg_pct", 0.0))
+	if delay_pct > 0.0 and amount > 0.0:
+		_delay_damage(amount * clampf(delay_pct, 0.0, 0.9))
+		amount *= 1.0 - clampf(delay_pct, 0.0, 0.9)
 	GameManager.attributes.take_damage(amount)
 	EventBus.player_hit.emit(amount, global_position)
 	EventBus.damage_popup.emit(global_position, amount, "player" if not armor else "armor")
@@ -3121,8 +3147,7 @@ func _clear_afterimages() -> void:
 		fx.kill_afterimages()
 
 
-## 伤害反弹：把本次受到伤害的 N% 打回攻击者。
-## 用 take_damage 回流，故对方的护甲/减伤照常参与结算——反弹是「以对方的
+## 伤害反弹：把本次受到伤害的 N% 打回攻击者。 用 take_damage 回流，故对方的护甲/减伤照常参与结算——反弹是「以对方的
 ## 规则打对方」，不是真实伤害。
 ##
 ## **两个来源相加**：
@@ -3783,3 +3808,61 @@ func _bonus_element_total(base: float, target_resist: float) -> float:
 			total += DamagePipeline.bonus_element_damage(
 				base, ratio, str(a.element_key), target_resist)
 	return total
+
+
+## ============================================================
+## 延迟伤害（装备参考2：延迟伤害甲「受到伤害的30%延迟至5秒内逐渐结算」）
+## ============================================================
+
+## 待结算的延迟伤害池
+var _delayed_pool := 0.0
+## 每秒摊还量（池子 ÷ 秒数）
+var _delayed_per_sec := 0.0
+## 剩余秒数
+var _delayed_remain := 0.0
+## 摊还窗口（规格写「5 秒内逐渐结算」）
+const DELAYED_WINDOW := 5.0
+
+
+## 把一笔伤害放进延迟池（由 `take_damage` 调用）
+##
+## **累加而不是覆盖**：短时间内多次受击时，每次的延迟部分都要记账，
+## 否则连挨两下只延一笔，等于白送减伤。
+## 池子被撑大时按剩余时间重算每秒摊还量（保持「在窗口内摊完」的语义）。
+func _delay_damage(amount: float) -> void:
+	if amount <= 0.0:
+		return
+	_delayed_pool += amount
+	if _delayed_remain <= 0.0:
+		_delayed_remain = DELAYED_WINDOW
+	_delayed_per_sec = _delayed_pool / maxf(_delayed_remain, 0.01)
+
+
+## 每帧推进延迟伤害；池子清空即停
+func _tick_delayed_damage(delta: float) -> void:
+	if _delayed_pool <= 0.0:
+		return
+	if GameManager.attributes == null or GameManager.attributes.is_dead():
+		_delayed_pool = 0.0
+		_delayed_per_sec = 0.0
+		_delayed_remain = 0.0
+		return
+	_delayed_remain = maxf(_delayed_remain - delta, 0.0)
+	# 本帧应结算 = min(每秒摊还 × dt, 池子剩余)
+	var pay := minf(_delayed_per_sec * delta, _delayed_pool)
+	_delayed_pool -= pay
+	if _delayed_pool <= 0.0001:
+		_delayed_pool = 0.0
+		_delayed_per_sec = 0.0
+		_delayed_remain = 0.0
+	# **走 AttributeSystem 直扣**，不再经过 `take_damage`——
+	# 否则会再次触发转盾/减伤/延迟，形成无限递归。
+	GameManager.attributes.take_damage(pay)
+	EventBus.player_hit.emit(pay, global_position)
+	EventBus.damage_popup.emit(global_position, pay, "delayed")
+	# **死亡判据走 AttributeSystem**：`is_dead()` 是它上面的方法，
+	# Player 自己没有（写 `self.is_dead()` 会导致**解析期**报
+	# `Function "is_dead()" not found in base self` → 整个 player.gd
+	# 加载失败 → 主场景实例化不出来 → **卡在加载界面**）。
+	if GameManager.attributes.is_dead():
+		die()

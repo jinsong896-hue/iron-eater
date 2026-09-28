@@ -656,6 +656,7 @@ func special_modifiers() -> Dictionary:
 		"shield_power_pct": 0.0, "frozen_dmg_pct": 0.0,
 		# 2026-09-27：全局伤害减免（「获得 N% 伤害减免」的专用通道）
 		"dmg_reduction_pct": 0.0,
+		"dmg_to_shield_pct": 0.0, "delay_dmg_pct": 0.0,
 		# 冷却刷新按触发源分键（击杀走 cd_refresh_pct）
 		"cd_refresh_dodge_pct": 0.0, "cd_refresh_crit_pct": 0.0,
 		# 2026-09-26：职业资源（装备参考2 的「获得 N 点怒气/魔力/…」）

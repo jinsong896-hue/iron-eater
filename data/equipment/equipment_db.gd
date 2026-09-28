@@ -139,6 +139,13 @@ const SPECIAL_STAT := {
 	# 「守护肩甲：生命值低于50%时，获得20%伤害减免」在数据库里就是
 	# `[4, 11, 106, 0.2, 0]`，玩家低血时只多了 20% 元素抗性。
 	"dmg_reduction":  {"enum": 146, "out": "dmg_reduction_pct"},
+	# —— 2026-09-28：受伤转化类 ——
+	#
+	# 这两条此前都**错映射成 `elem_resist`（元素抗性）**：
+	#   「受到伤害的50%转化为护盾」→ 玩家多了 30% 元素抗性（毫不相干）
+	#   「受到伤害的30%延迟至5秒内逐渐结算」→ 同上
+	"dmg_to_shield":  {"enum": 151, "out": "dmg_to_shield_pct"},  # 受伤的 N% 转成护盾
+	"delay_dmg":      {"enum": 152, "out": "delay_dmg_pct"},      # 受伤的 N% 延迟结算
 	# —— 2026-09-27：冷却刷新按**触发源**分键 ——
 	#
 	# `cd_refresh` 是个**合并池**，但表里的触发源有三种（击杀 / 闪避 / 暴击），
@@ -1066,7 +1073,7 @@ const CURATED_TABLE := [
   ["P055", "猎手标枪", "javelin", ["远程", "单手", "物理"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.ATK, 140.0, false]], [[116, 0.10, true], [117, 0.1500, true]], [[117, 0.0300, true]], [[4, 33, 117, 0.1500, 0]]],
   ["P056", "元素之泉法杖", "staff", ["魔法", "双手", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.AP, 182.0, false]], [[2, "elem_next_skill", 1.0, 0.0, {"bonus_pct": 0.2500}], [Stat.ATK, -0.1000, true]], [[117, 0.0300, true]], [[2, "burn", 0.15, 3.0]]],
   ["P057", "格挡者壁垒", "shield", ["防御"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.DEF, 140.0, false]], [[4, 9, 106,  0.0300,  5,  0], [2, "grant_shield", 1.0, 0.0, {"pct": 0.2000, "cap": 0.60}]], [[110, 0.0200, true]], [[4, 14, Stat.ATK, 0.8000, 0]]],
-  ["P058", "延迟伤害甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[106, 0.3000, true], [4, 1, Stat.ATK, 0.10, 0]], [[146, 0.0200, true]], [[4, 1, Stat.ATK, 0.10, 0]]],
+  ["P058", "延迟伤害甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[152, 0.3000, true], [4, 1, Stat.ATK, 0.10, 0]], [[146, 0.0200, true]], [[4, 1, Stat.ATK, 0.10, 0]]],
   ["P059", "图腾护肩", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[116, 0.10, true]], [[116, 0.0300, true]], [[2, "summon_death_boom", 1.0, 0.0, {"mult": 0.6000, "by": "ap"}]]],
   ["P060", "镜像腿甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[116, 0.10, true], [116, 0.3000, true]], [[Stat.SPD, 0.0300, true]], [[2, "summon_death_boom", 1.0, 0.0, {"mult": 0.5000, "by": "atk"}]]],
   ["P061", "吸血光环头盔", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 16.8, false]], [[100, 0.0500, true], [100, 0.1000, true]], [[100, 0.0200, true]], [[4, 1, Stat.HP, 0.0200, 0]]],
@@ -1183,7 +1190,7 @@ const CURATED_TABLE := [
   ["O053", "反击之甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[4, 2, Stat.ATK, 1.5000, 0]], [[Stat.DEF, 0.0500, true]], [[117, 1.0000, true]]],
   ["O054", "荆棘反弹", "shield", ["防御"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.DEF, 227.5, false]], [[4, 9, 104, 2.0000, 0]], [[110, 0.0300, true]], [[104, 1.0000, true]]],
   ["O055", "濒死新星", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[117, 3.0000, true]], [[Stat.HP, 0.0500, true]], [[117, 1.0000, true]]],
-  ["O056", "伤害转盾", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[106, 0.3000, true]], [[Stat.DEF, 0.0500, true]], [[106, 0.7000, true]]],
+  ["O056", "伤害转盾", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[151, 0.3000, true]], [[Stat.DEF, 0.0500, true]], [[106, 0.7000, true]]],
   ["O057", "护盾爆裂", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[4, 14, Stat.ATK, 3.0000, 0]], [[140, 0.0500, true]], [[117, 0.2000, true]]],
   ["O058", "猎杀者勋章", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[4, 1, Stat.ATK, 0.15, 0]], [[[Stat.HP, 0.0300, true], [Stat.ATK, 0.0300, true], [Stat.DEF, 0.0300, true], [Stat.SPD, 0.0300, true], [Stat.ASPD, 0.0300, true], [Stat.AP, 0.0300, true], [Stat.CRT, 0.0300, true], [Stat.CRD, 0.0300, true]]], [[119, 0.5000, true]]],
   ["O059", "召唤领主", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ACCESSORY, [[Stat.DEF, 27.3, false]], [[4, 17, 106, 0.05, 0]], [[116, 0.0500, true]], [[120, 1, false]]],
