@@ -210,13 +210,17 @@ func _apply_on_cast_extras(caster: Node3D, sd: Dictionary) -> void:
 	if not bid.is_empty():
 		var sec := float(sd.get("on_cast_seconds", 0.0))
 		var radius := float(sd.get("on_cast_radius", 4.0))
+		# 数值覆盖：同一 id 承载不同数值（「降低敌人30%攻击力」vs 表定 20%）
+		var params: Dictionary = {}
+		if sd.get("on_cast_params") is Dictionary:
+			params = (sd["on_cast_params"] as Dictionary).duplicate()
 		for e in _enemies():
 			if caster.global_position.distance_to(e.global_position) > radius:
 				continue
 			var tb = e.get("buffs")
 			if tb == null:
 				continue
-			tb.call("apply", bid, "skill", 1, sec)
+			tb.call("apply", bid, "skill", 1, sec, params)
 	# 火焰路径（「疾风步期间留下火焰路径」）——激活玩家的路径生成状态
 	# 由 `Player._tick_fire_path` 每帧留痕。
 	var fp_sec := float(sd.get("fire_path_seconds", 0.0))

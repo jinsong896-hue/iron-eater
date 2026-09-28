@@ -1495,9 +1495,20 @@ func _parse_main(s: String) -> String:
 	if s.contains("治愈术同时清除一个负面状态"):
 		return "[%d, {\"on_cast_dispel\": 1}]" % OP_SKILL_MOD
 	if s.contains("战吼同时降低敌人") :
+		# 「战吼同时降低敌人 N% 攻击力，持续 M 秒」——数值与时长都要带上。
+		#
+		# **旧版有两个错**：
+		#   ① id 写成 `atk_down`，而它**不是词条 id**（表里的降攻词条是
+		#      `fatigue`）→ `BuffDefs.get_buff` 返回空 → `apply` 静默失败，
+		#      **整条词条无效**
+		#   ② 只取时长、没取数值 → 用表定的 20%，与规格的 30% 不符
+		m = _re(r"战吼同时降低敌人\s*(\d+)%\s*攻击力[，,]?\s*持续\s*(\d+)\s*秒").search(s)
+		if m:
+			return "[%d, {\"on_cast_buff\": \"fatigue\", \"on_cast_seconds\": %s, \"on_cast_params\": {\"atk_down\": %.4f}}]" % [
+				OP_SKILL_MOD, m.get_string(2), float(m.get_string(1)) / 100.0]
 		m = _re(r"攻击力[，,]?持续\s*(\d+(?:\.\d+)?)\s*秒").search(s)
 		if m:
-			return "[%d, {\"on_cast_buff\": \"atk_down\", \"on_cast_seconds\": %s}]" % [OP_SKILL_MOD, m.get_string(1)]
+			return "[%d, {\"on_cast_buff\": \"fatigue\", \"on_cast_seconds\": %s}]" % [OP_SKILL_MOD, m.get_string(1)]
 
 	# ---------- 8f. 火焰路径 / 燃烧地面（2026-09-26）----------
 	#
@@ -3189,6 +3200,13 @@ func _parse_main(s: String) -> String:
 	# 由 `Player._apply_trigger_affixes` 识别后调用 `BuffHolder` 的移除。
 	# **不能**当成 buff 施加——那会变成「给敌人挂一个叫净化的状态」。
 	if s.contains("净化同时") or s.contains("治疗之泉同时") or s.contains("治疗同时"):
+		# **先判「回复最大生命」**：「净化同时**回复5%最大生命**」与
+		# 「净化同时**清除一个负面状态**」是两种不同效果。
+		# 顺序反了会让回复那条被清负面的规则吃掉（实测：净化法环
+		# 只清了负面、5% 回血整个丢失）。
+		var mh := _re(r"[，,]?\s*回复\s*(\d+)%\s*最大生命").search(s)
+		if mh:
+			return "[%d, %s, true]" % [SP["lifesteal"], _f(mh.get_string(1))]
 		if s.contains("清除所有负面状态"):
 			return "[%d, \"__cleanse_all__\", 1.0, 0.0]" % OP_TRIGGER_BUFF
 		return "[%d, \"__cleanse_one__\", 1.0, 0.0]" % OP_TRIGGER_BUFF
