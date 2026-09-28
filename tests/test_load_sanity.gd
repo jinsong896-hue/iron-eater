@@ -47,6 +47,8 @@ func _ready() -> void:
 		for field in ["buffs", "skills", "equip_fx"]:
 			_c(p.get(field) != null, "Player.%s 已初始化（脚本真的跑起来了）" % field)
 
+	await _test_ui_scenes_loadable()
+
 	# 装备数据库是全局依赖，也一并确认
 	_test_summon_instantiable()
 	_c(not EquipmentDB.all_templates().is_empty(),
@@ -86,3 +88,54 @@ func _test_summon_instantiable() -> void:
 		_c(s.has_method("_perform_attack"),
 			"召唤物有攻击方法（额外攻击／暴击都在这里）")
 		s.free()
+
+
+## UI 面板全量加载检查
+##
+## ## 为什么需要（2026-09-29 加）
+##
+## 图鉴曾在 `_first_designed(all)` 那里因 `var first := <Variant>` 报
+## **解析错误**（`Cannot infer the type ... doesn't have a set type`）——
+## 脚本编译不过 → 打开图鉴时游戏直接崩。
+##
+## 而当时的门禁**全绿**：没有任何套件加载过 `codex_panel.tscn`。
+## 「主场景能起来」不等于「每个界面都能打开」——本检查补上这一环。
+##
+## 判据是**实例化后 `_ready` 真的跑过**（`is_node_ready()`），
+## 而不仅是 `load()` 不返回 null——解析错误会让 load 静默返回 null，
+## 用 `load()` 判会漏（正是本项目反复踩的「假绿灯」）。
+const UI_SCENES := [
+	"res://ui/codex/codex_panel.tscn",
+	"res://ui/inventory/backpack_ui.tscn",
+	"res://ui/inventory/backpack_item.tscn",
+	"res://ui/inventory/backpack_menu.tscn",
+	"res://scenes/ui/hud.tscn",
+	"res://scenes/ui/main_menu.tscn",
+	"res://scenes/ui/pause_menu.tscn",
+	"res://scenes/ui/settings_panel.tscn",
+	"res://scenes/ui/settlement_panel.tscn",
+]
+
+
+func _test_ui_scenes_loadable() -> void:
+	print("\n--- UI 面板加载检查 ---")
+	for p in UI_SCENES:
+		var ps := load(p)
+		_c(ps != null, "%s 可加载（解析错误会让它变 null）" % p.get_file(), "load() 返回 null")
+		if ps == null:
+			continue
+		var inst = ps.instantiate()
+		_c(inst != null, "%s 可实例化" % p.get_file())
+		if inst != null:
+			add_child(inst)
+			await get_tree().process_frame
+			# **关键判据：脚本真的挂上了**。
+			#
+			# 只查「场景能加载 / 能实例化 / _ready 跑了」**抓不到解析错误**——
+			# 实测把 `var first := <Variant>` 那个错加回去，三条断言**全过**：
+			# 脚本解析失败时 Godot 让节点**不带脚本**，空 Control 照样
+			# 能加载、能实例化、`is_node_ready()` 也为 true。
+			# 与 Player 那条同一个教训（那里用的是 `get_script() != null`）。
+			var scr = inst.get_script()
+			_c(scr != null, "%s 挂着脚本（解析失败时脚本会丢失）" % p.get_file())
+			inst.queue_free()

@@ -226,7 +226,7 @@ func _build_equipment_list() -> void:
 	#（`_generate_rarity` 从 `FULL_*_TABLE` 按系数克隆，`own_affixes` 为空）。
 	# 打开图鉴第一屏看到 36 件「自有词条 —」，会被误判成
 	# 「所有装备都还是纯数值模板」——实测就是这样被误判了三次。
-	var first := _first_designed(all)
+	var first = _first_designed(all)
 	if first != null:
 		_show_equipment(first)
 
