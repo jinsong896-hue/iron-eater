@@ -627,6 +627,8 @@ func _physics_process(delta: float) -> void:
 	_tick_afterimages(delta)
 	# 延迟伤害摊还
 	_tick_delayed_damage(delta)
+	# F7 按状态缩放（血量/金币档位）
+	_tick_state_scaled(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
 	if not _typing_input():
 		_poll_skill_input()
@@ -3581,6 +3583,8 @@ func clear_passive_rules() -> void:
 	_shadow_strike_cd = 0.0
 	# B7 残影：卸下装备后场上残影立刻失效
 	_afterimage_rule = {}
+	_state_scaled_rule = {}
+	_state_scaled_sig = "eq_never"
 	_clear_afterimages()
 
 
@@ -3890,3 +3894,72 @@ func _tick_delayed_damage(delta: float) -> void:
 	# 加载失败 → 主场景实例化不出来 → **卡在加载界面**）。
 	if GameManager.attributes.is_dead():
 		die()
+
+
+## ============================================================
+## F7 按状态缩放（装备参考2：血怒之刃 / 贪婪之心）
+## ============================================================
+#
+# 规格：「每损失 10% 生命，攻击力提高 8%」
+#       「每持有 100 金币，+1% 攻击力（最多 +20%）」
+#
+# ## 此前是**真错**
+#
+# 都解析成 `[Stat.ATK, v, true]` ——**永久加成**，满血也拿。
+# 「每损失 10%」的**分档**整个丢失。
+#
+# ## 为什么必须每帧算
+#
+# 血量与金币一直在变，档位随时切换。故与低血通道同属
+# 「条件常驻」，走每帧轮询而不是装配一次。
+
+## 规则：{per_hp_loss_pct, per_hp_atk, hp_max_pct,
+##        per_gold, gold_atk, gold_max_pct}
+var _state_scaled_rule: Dictionary = {}
+## 上帧的生效档位指纹（只在档位变化时重挂 modifier，避免每帧 _recalc_hp）
+var _state_scaled_sig := ""
+
+
+## 装配按状态缩放规则（由 `PlayerEquipmentEffects._flush_state_scaled` 调用）
+func set_state_scaled_rule(rule: Dictionary) -> void:
+	_state_scaled_rule = rule
+	_state_scaled_sig = ""   # 强制下一帧重算
+
+
+## 每帧按当前血量/金币重算档位加成
+func _tick_state_scaled(_delta: float) -> void:
+	if _state_scaled_rule.is_empty():
+		if not _state_scaled_sig.is_empty():
+			_state_scaled_sig = ""
+			remove_modifiers("eq_state_scaled")
+		return
+	if GameManager.attributes == null:
+		return
+	var r := _state_scaled_rule
+	# ① 每损失 X% 生命 → 攻击力 +N%（**不设上限**：规格没写）
+	var atk_pct := 0.0
+	var hp_step := float(r.get("per_hp_loss_pct", 0.0))
+	if hp_step > 0.0:
+		var max_hp: float = float(GameManager.attributes.max_hp)
+		if max_hp > 0.0:
+			var lost_ratio: float = clampf(
+				1.0 - float(GameManager.attributes.hp) / max_hp, 0.0, 1.0)
+			var steps := int(floor(lost_ratio / (hp_step / 100.0)))
+			atk_pct += float(steps) * float(r.get("per_hp_atk", 0.0))
+	# ② 每持有 N 金币 → 攻击力 +M%（**有上限**：规格明写「最多 +X%」）
+	var gold_step := float(r.get("per_gold", 0.0))
+	if gold_step > 0.0:
+		var gm := get_node_or_null("/root/GameManager")
+		var gold := float(gm.gold) if gm != null else 0.0
+		var gsteps := int(floor(gold / gold_step))
+		var g_pct := float(gsteps) * float(r.get("gold_atk", 0.0))
+		g_pct = minf(g_pct, float(r.get("gold_max_pct", 1.0)))
+		atk_pct += g_pct
+	# 档位没变就不动 modifier（改它每次都会触发 `_recalc_hp`）
+	var sig := "%.4f" % atk_pct
+	if sig == _state_scaled_sig:
+		return
+	_state_scaled_sig = sig
+	remove_modifiers("eq_state_scaled")
+	if atk_pct > 0.0:
+		add_modifier("eq_state_scaled", AttributeSystem.Stat.ATK, 0.0, atk_pct)

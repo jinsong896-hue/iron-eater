@@ -1926,7 +1926,11 @@ func _parse_main(s: String) -> String:
 		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
 	m = _re(r"每持有\s*100\s*金币，\s*\+?(\d+)%\s*攻击力").search(s)
 	if m:
-		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+		# 「每持有 100 金币，+N% 攻击力（最多 +M%）」——按档位缩放，
+		# 旧版产出永久 \`[Stat.ATK, v]\`，满血/无金币也拿全额。
+		var cap2 := _cap_from_text(s)
+		return "[%d, \"state_scaled\", 1.0, 0.0, {\"per_gold\": 100.0, \"gold_atk\": %.4f, \"gold_max_pct\": %.4f}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0, cap2]
 	m = _re(r"每装备一件(?:传奇|红色)装备.*?全属性提高\s*(\d+)%").search(s)
 	if m:
 		return _all_stats_spec(float(m.get_string(1)) / 100.0)
@@ -2038,9 +2042,14 @@ func _parse_main(s: String) -> String:
 	m = _re(r"攻击附加当前生命值\s*(\d+)%\s*的额外伤害").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["true_dmg"], _f(m.get_string(1))]
-	m = _re(r"每损失\s*10%\s*生命，?攻击力提高\s*(\d+)%").search(s)
+	m = _re(r"每损失\s*([1-9]\d*)%\s*生命，?攻击力提高\s*(\d+)%").search(s)
 	if m:
-		return "[Stat.ATK, %s, true]" % _f(m.get_string(1))
+		# 「每损失 X% 生命，攻击力提高 N%」——**每 X% 加一档**。
+		# 「每…，…」在中文里就是「for every …」，且这件装备的
+		# 体系方向是「生命消耗·吸血循环流」：越受伤越强才有意义。
+		# 旧版产出永久 `[Stat.ATK, v]`——满血也拿全额，分档整个丢失。
+		return "[%d, \"state_scaled\", 1.0, 0.0, {\"per_hp_loss_pct\": %s, \"per_hp_atk\": %.4f}]" % [
+			OP_TRIGGER_BUFF, m.get_string(1), float(m.get_string(2)) / 100.0]
 	m = _re(r"攻击有\s*(\d+)%\s*概率造成双倍伤害").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["true_dmg"], _f(m.get_string(1))]
@@ -3885,3 +3894,14 @@ func _build_placeholder_re() -> RegEx:
 	var r := RegEx.new()
 	r.compile(r"触发概率低，效果小|装备直接生效，通常是一个主动技能|吞噬后永久加到角色本局面板|作为副材融合时给主装备的新词条|基础效果低，比如每击杀回复|完整核心机制，通常包含触发条件|比蓝色更完整的核心机制|带叠层/循环/触发体系")
 	return r
+
+
+## 从原文抽「最多 +N%」的上限（无则 1.0 = 无上限）
+##
+## 「每持有 100 金币，+1% 攻击力（**最多 +20%**）」——上限必须带上，
+## 不带的话金币越多加成越离谱（无上限）。
+func _cap_from_text(t: String) -> float:
+	var m := _re(r"最多\s*\+?\s*(\d+)%").search(t)
+	if m:
+		return float(m.get_string(1)) / 100.0
+	return 1.0

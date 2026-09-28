@@ -34,6 +34,9 @@ var _afterimage_dirty := false
 ## 预言自我增益参数的跨条累积器（融合列单独一条 affix）
 var _prophecy_pending: Dictionary = {}
 var _prophecy_dirty := false
+## 按状态缩放规则（F7：每损失X%生命/每持有N金币 → 属性）
+var _state_scaled_rule: Dictionary = {}
+var _state_scaled_dirty := false
 ## E 组概率攻击规则的累积器
 var _attack_bonus_pending: Dictionary = {}
 var _attack_bonus_dirty := false
@@ -57,6 +60,8 @@ const _SENTINEL_RULES := [
 	"afterimage",
 	# B7 预言自我增益（2026-09-27）
 	"prophecy_self",
+	# F7 按状态缩放（2026-09-28）
+	"state_scaled",
 	# E 组概率攻击（2026-09-28）
 	"attack_bonus",
 	# E 组击杀掉金（2026-09-28）
@@ -118,12 +123,14 @@ func reload_passives() -> void:
 	_energy_store_pending.clear()
 	_afterimage_pending.clear()
 	_prophecy_pending.clear()
+	_state_scaled_rule = {}
 	_attack_bonus_pending.clear()
 	_kill_gold_pending.clear()
 	_zone_slow_aura.clear()
 	_zone_slow_skill = 0.0
 	_afterimage_dirty = false
 	_prophecy_dirty = false
+	_state_scaled_dirty = false
 	_attack_bonus_dirty = false
 	_kill_gold_dirty = false
 	_zone_slow_dirty = false
@@ -140,6 +147,7 @@ func reload_passives() -> void:
 	_flush_energy_store()
 	_flush_afterimage()
 	_flush_prophecy()
+	_flush_state_scaled()
 	_flush_attack_bonus()
 	_flush_kill_gold()
 	_flush_zone_slow()
@@ -387,6 +395,10 @@ func _apply_trigger(a: AffixData, inst) -> void:
 				if player.has_method("add_elem_rule"):
 					player.call("add_elem_rule", a.trigger_buff,
 						a.trigger_params.duplicate(true))
+				return
+			# —— F7 按状态缩放（2026-09-28）——
+			"state_scaled":
+				_merge_state_scaled(a)
 				return
 			# —— B7 残影（2026-09-27）——
 			"zone_slow":
@@ -800,6 +812,7 @@ func _flush_afterimage() -> void:
 		player.call("set_afterimage_rule", _afterimage_pending.duplicate(true))
 	_afterimage_dirty = false
 	_prophecy_dirty = false
+	_state_scaled_dirty = false
 	_attack_bonus_dirty = false
 	_kill_gold_dirty = false
 	_zone_slow_dirty = false
@@ -915,6 +928,7 @@ func _flush_prophecy() -> void:
 	if player.has_method("set_prophecy_self_rule"):
 		player.call("set_prophecy_self_rule", _prophecy_pending.duplicate(true))
 	_prophecy_dirty = false
+	_state_scaled_dirty = false
 
 
 ## E 组：概率攻击规则（额外攻击 / 双倍伤害 / 影袭 / 迅捷）
@@ -1101,3 +1115,34 @@ func _inst_of(a: AffixData) -> Variant:
 		if tpl.own_affixes.has(a) or inst.extra_affixes.has(a):
 			return inst
 	return null
+
+
+## ⑦ 按状态缩放（装备参考2：血怒之刃 / 贪婪之心）
+##
+## 规格形态：「每损失 10% 生命，攻击力提高 8%」
+##           「每持有 100 金币，+1% 攻击力（最多 +20%）」
+##
+## ## 此前是**真错**，不是「没实现」
+##
+## 两条都解析成 `[Stat.ATK, 0.08, true]` ——**永久 +8%**。
+## 玩家满血也拿这 8%，而且「每损失 10%」的**分档**整个丢失。
+##
+## ## 怎么算
+##
+## 「每 X 损失/持有 N」= **按档位线性叠加**：
+##   损失比例 ÷ X → 向下取整得档数 → × N
+## 故必须**每帧重算**（血量/金币一直在变），不能只装配一次。
+## 走 `_tick_state_scaled`（与低血通道同属「条件常驻」类）。
+func _merge_state_scaled(a: AffixData) -> void:
+	# 同一条词条只维护一份规则；多条时后者覆盖（这类词条目前每件装备一条）
+	_state_scaled_rule = a.trigger_params.duplicate(true)
+	_state_scaled_dirty = true
+
+
+## 把累积结果提交给 Player（由 `reload_passives` 调用）
+func _flush_state_scaled() -> void:
+	if not _state_scaled_dirty or player == null:
+		return
+	if player.has_method("set_state_scaled_rule"):
+		player.call("set_state_scaled_rule", _state_scaled_rule.duplicate(true))
+	_state_scaled_dirty = false
