@@ -473,7 +473,36 @@ func _refresh_detail() -> void:
 		for a in _selected.extra_affixes:
 			if a != null:
 				lines.append("  " + a.description())
+	# **随机词条**（装备参考2：掉落时生成 1~4 条，无法升级/转移）
+	#
+	# 此前**没有任何 UI 渲染它**——生成与生效都正常（`create_drop` 会
+	# `RandomAffix.roll_for`，`_apply_equipment_modifiers` 也会挂
+	# modifier），但玩家**完全看不到**，表现为「随机词条不见了」。
+	# 档位色与装备稀有度是**两套**（`AffixData.tier_color`），故单独着色。
+	if not _selected.random_affixes.is_empty():
+		lines.append("")
+		lines.append("[随机词条·掉落时生成，无法升级/转移]")
+		for a in _selected.random_affixes:
+			if a == null:
+				continue
+			var col: String = _tier_color_hex(a.tier_color)
+			var desc := a.source_text.strip_edges()
+			if desc.is_empty():
+				desc = a.description()
+			if col.is_empty():
+				lines.append("  " + desc)
+			else:
+				lines.append("  [color=#%s]%s[/color]" % [col, desc])
 	_detail_affix.text = "\n".join(lines)
+
+
+## 档位色名（"白"/"绿"/…）→ 十六进制（取不到返回空串 = 不着色）
+func _tier_color_hex(tier: String) -> String:
+	var m := {
+		"白": "c8c8c8", "绿": "5fd35f", "蓝": "5fa8ff",
+		"紫": "b26aff", "橙": "ff9a3c", "红": "ff4d4d",
+	}
+	return str(m.get(tier.strip_edges(), ""))
 
 
 func _refresh_role_stats() -> void:
