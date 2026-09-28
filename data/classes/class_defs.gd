@@ -61,7 +61,7 @@ const CLASSES := {
 				"gain": "远程伤害 -50%；近战伤害 -20%",
 				"mods": [],
 				"special": {"ranged_dmg_pct": -0.50, "melee_dmg_pct": -0.20},
-				"start_gear": ["A06", "W05", "W01"],
+				"start_gear": ["A05", "W01"],
 				"skills": [
 					{
 						"id": "shield_charge", "name": "撞击", "kind": "dash",
@@ -117,7 +117,7 @@ const CLASSES := {
 					{"stat": "rng", "flat": 3.0, "percent": 0.0},
 				],
 				"special": {"armor_pierce": 0.50},
-				"start_gear": ["A12", "W08"],
+				"start_gear": ["A11", "W06"],
 				"skills": [
 					{
 						"id": "chain_pull", "name": "拉拽", "kind": "pull",
@@ -185,7 +185,7 @@ const CLASSES := {
 				"gain": "每次施法后回蓝速度 +20%（可叠 3 层，最高 +60%）；施法命中返还 15% 消耗",
 				"mods": [],
 				"special": {"mana_regen_stack": 0.20, "cast_refund_pct": 0.15},
-				"start_gear": ["A04", "W02"],
+				"start_gear": ["A05", "W01"],
 				"skills": [
 					{
 						"id": "arcane_siphon", "name": "奥术汲取", "kind": "projectile",
@@ -235,7 +235,7 @@ const CLASSES := {
 				"gain": "法术范围 +30%；20% 概率触发法术共鸣（对周围 4 米敌人造成 50% 伤害副本）",
 				"mods": [],
 				"special": {"skill_range_pct": 0.30, "resonance_chance": 0.20},
-				"start_gear": ["A07", "W11"],
+				"start_gear": ["A08", "W11"],
 				"skills": [
 					{
 						"id": "resonance_burst", "name": "共鸣引爆", "kind": "aoe",
@@ -293,7 +293,7 @@ const CLASSES := {
 				"gain": "远近切换无冷却；切换后移速 +10%（持续 2 秒）",
 				"mods": [],
 				"special": {"free_weapon_swap": true},
-				"start_gear": ["W09", "W02"],
+				"start_gear": ["W09", "W01"],
 				"skills": [],
 			},
 			# ---------- 进阶1：斥候 ----------
@@ -302,7 +302,7 @@ const CLASSES := {
 				"gain": "移动射击移速惩罚取消；脱战 3 秒后移速 +30%；翻滚后免疫下一次攻击",
 				"mods": [{"stat": "spd", "flat": 0.0, "percent": 0.30}],
 				"special": {"out_of_combat_spd": 0.30, "dodge_immune_next": true},
-				"start_gear": ["A01", "W09"],
+				"start_gear": ["A03", "W09"],
 				"skills": [
 					{
 						"id": "scout_dash", "name": "疾步", "kind": "dash",
@@ -327,7 +327,7 @@ const CLASSES := {
 				"gain": "所有攻速 +30%；背刺伤害 ×2.0；暴击额外 +2 魔力",
 				"mods": [{"stat": "aspd", "flat": 0.0, "percent": 0.30}],
 				"special": {"backstab_mult": 2.0},
-				"start_gear": ["A05", "W02"],
+				"start_gear": ["A05", "W01"],
 				"skills": [
 					{
 						"id": "shadow_assault_h", "name": "暗影突袭", "kind": "teleport",
@@ -350,7 +350,7 @@ const CLASSES := {
 				"gain": "所有武器射程 +60%；所有攻击附带范围穿透（身后 2 米直线 40% 伤害）",
 				"mods": [{"stat": "rng", "flat": 0.0, "percent": 0.60}],
 				"special": {"pierce_line": 0.40},
-				"start_gear": ["A02", "W09"],
+				"start_gear": ["A03", "W09"],
 				"skills": [
 					{
 						"id": "heartseeker", "name": "穿心箭", "kind": "projectile",
@@ -416,7 +416,7 @@ const CLASSES := {
 				"gain": "攻击距离 +2 米；攻击挂审判印记（每层 +10% 法伤）；印记连锁传导 30% 法术伤害",
 				"mods": [{"stat": "rng", "flat": 2.0, "percent": 0.0}],
 				"special": {"mark_per_hit": true, "chain_30pct": true},
-				"start_gear": ["A04", "W12"],
+				"start_gear": ["A05", "W06"],
 				"skills": [
 					{
 						"id": "verdict_chain", "name": "裁决锁链", "kind": "spread",
@@ -440,7 +440,7 @@ const CLASSES := {
 				"gain": "攻速 +40%；每 4 次攻击触发影子攻击（法强×0.5，无视护甲）；影子攻击叠影痕",
 				"mods": [{"stat": "aspd", "flat": 0.0, "percent": 0.40}],
 				"special": {"shadow_every_4": true},
-				"start_gear": ["A05", "W02"],
+				"start_gear": ["A05", "W01"],
 				"skills": [
 					{
 						"id": "shadow_step", "name": "影步", "kind": "teleport",
@@ -463,7 +463,7 @@ const CLASSES := {
 				"gain": "背刺伤害 ×2.5；击杀生成影子分身（30% 攻击，6 秒）；分身期间暴击率 +20%",
 				"mods": [],
 				"special": {"backstab_mult": 2.5},
-				"start_gear": ["A15", "W02"],
+				"start_gear": ["A14", "W01"],
 				"skills": [
 					{
 						"id": "shadow_assault", "name": "暗影突袭", "kind": "teleport",
