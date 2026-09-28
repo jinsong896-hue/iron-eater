@@ -534,11 +534,21 @@ func _test_crowd_form_extras(p, mgr) -> void:
 	_check(int(holder.call("stacks_of", "burn")) > 0,
 		"[crowd-form] 词条层数已记录（%d）" % holder.call("stacks_of", "burn"))
 	# 死亡后宿主应被回收（否则节点泄漏）
+	#
+	# **必须轮询等待，不能硬等固定帧数**：死亡事件由 CrowdManager 在
+	# `_physics_process` 里 `step + drain_events` 处理，而那一步的时机
+	# 受帧率/负载影响（全量门禁下别的套件刚跑完，负载更高）。
+	# 原来写死「等 2 个物理帧」——单独跑必过、全量跑偶发红
+	#（实测：1 → 1 没回收）。轮询到上限仍未回收到才是真失败。
 	var host_count_before: int = _count_hosts(mgr)
 	mgr.call("apply_damage", PackedInt32Array([tid]), 999999.0)
-	await get_tree().physics_frame
-	await get_tree().physics_frame
-	_check(_count_hosts(mgr) < host_count_before,
+	var reclaimed := false
+	for _i in 30:
+		await get_tree().physics_frame
+		if _count_hosts(mgr) < host_count_before:
+			reclaimed = true
+			break
+	_check(reclaimed,
 		"[crowd-form] 单位死亡后宿主被回收（%d → %d）" % [
 			host_count_before, _count_hosts(mgr)])
 

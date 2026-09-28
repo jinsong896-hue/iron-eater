@@ -84,6 +84,15 @@ func equip(slot: int, inst: EquipmentInstance) -> void:
 		return
 	if not _can_wear(inst):
 		return
+	# **部位限制**（头盔不能穿在靴子槽…）。收口在这里而不是只放
+	# `can_equip_in_slot`：穿戴路径有右键菜单/拖拽/初始发放三条，
+	# 逐个拦必然漏（与 `_can_wear` 同一个理由）。
+	var mismatch = slot_mismatch(inst, slot)
+	if mismatch != null:
+		var bus_slot = _event_bus()
+		if bus_slot:
+			bus_slot.message.emit(str(mismatch))
+		return
 	# 武器类型互斥（装备参考2）：近战/远程不共存、单手/双手不共存。
 	#
 	# **冲突时把旧武器换下，而不是拒绝**。
@@ -140,7 +149,41 @@ func can_equip_in_slot(inst: EquipmentInstance, slot: int) -> bool:
 		return false
 	if not _can_wear(inst):
 		return false
+	if slot_mismatch(inst, slot) != null:
+		return false
 	return weapon_slot_conflict(inst, slot) == null
+
+
+## 该装备能否装进这个槽位（**部位限制**）。返回不符说明，合规返回 null。
+##
+## ## 为什么必须有
+##
+## 装备的 `slot` 字段本来就标了部位（头盔/胸甲/武器…），但此前**没人校验**：
+## 预言者王冠（头盔）能装进饰品槽、巨斧能装进靴子槽，且**不会有任何报错**。
+##
+## ## 饰品槽是特例
+##
+## `ACCESSORY_1` / `ACCESSORY_2` 是**两个通用饰品槽**——戒指/项链/护符/徽章
+## 都归 `ACCESSORY_1`，两个槽之间可互换。故饰品类装备对这两个槽都放行。
+func slot_mismatch(inst: EquipmentInstance, slot: int) -> Variant:
+	if inst == null:
+		return "无效物品"
+	var tpl := inst.get_template()
+	if tpl == null:
+		return "装备数据异常"
+	if tpl.slot == slot:
+		return null
+	# 两个通用饰品槽互通
+	if _is_accessory_slot(tpl.slot) and _is_accessory_slot(slot):
+		return null
+	return "「%s」是%s，不能装进%s" % [tpl.display_name,
+		EquipmentDefs.slot_name(tpl.slot), EquipmentDefs.slot_name(slot)]
+
+
+## 是否通用饰品槽（ACCESSORY_1 / ACCESSORY_2）
+func _is_accessory_slot(slot: int) -> bool:
+	return slot == EquipmentDefs.Slot.ACCESSORY_1 \
+		or slot == EquipmentDefs.Slot.ACCESSORY_2
 
 
 ## 检查把 inst 装到 slot 时，是否与**另一个武器槽**上的装备类型冲突。

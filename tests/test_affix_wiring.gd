@@ -68,6 +68,7 @@ func _ready() -> void:
 	await _test_soak_channels()
 	await _test_crit_reduce_cooldown()
 	_test_enemies_group_take_damage_arity()
+	await _test_slot_restriction()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -228,7 +229,7 @@ func _test_resource_channels() -> void:
 	if inst == null:
 		_check(false, "构造「怒气护腕」实例")
 		return
-	em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.ACCESSORY_1)
 	await get_tree().process_frame
 
 	# ③ **行为断言**：触发受击事件 → 资源真的增加
@@ -248,7 +249,7 @@ func _test_resource_channels() -> void:
 	var base_max := ClassResource.create("mage").max_value()
 	var inst2 := _make_inst_by_name("资源上限护符")
 	if inst2 != null:
-		em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst2)
+		_equip_inst(inst2, EquipmentDefs.Slot.ACCESSORY_1)
 		await get_tree().process_frame
 		var r3 := ClassResource.create("mage")
 		_check(r3.max_value() > base_max,
@@ -369,7 +370,7 @@ func _test_fusion_channel() -> void:
 	var r: Dictionary = GameManager.equipment_manager.fuse(main_inst, mat_inst)
 	_check(bool(r.get("ok", false)), "融合成功", [str(r.get("reason", ""))])
 	# 融合产物需**穿上**才生效（融合词条进 main.extra_affixes）
-	GameManager.equipment_manager.equip(EquipmentDefs.Slot.CHEST, main_inst)
+	_equip_inst(main_inst, EquipmentDefs.Slot.CHEST)
 	await get_tree().process_frame
 	var after := _channel("frozen_dmg_pct")
 	_check(after > base, "融合「被冻结敌人增伤」→ frozen_dmg_pct 生效",
@@ -397,7 +398,7 @@ func _test_frozen_dmg_channel() -> void:
 		_check(false, "构造融合实例")
 		return
 	GameManager.equipment_manager.fuse(main_inst, mat_inst)
-	GameManager.equipment_manager.equip(EquipmentDefs.Slot.CHEST, main_inst)
+	_equip_inst(main_inst, EquipmentDefs.Slot.CHEST)
 	await get_tree().process_frame
 	var bonus := _channel("frozen_dmg_pct")
 	_check(bonus > 0.0, "融合产物提供 frozen_dmg_pct", ["实际=%.4f" % bonus])
@@ -691,7 +692,7 @@ func _equip_by_name(name: String, slot: int) -> bool:
 	var inst := _make_inst_by_name(name)
 	if inst == null:
 		return false
-	GameManager.equipment_manager.equip(slot, inst)
+	_equip_inst(inst, slot)
 	return true
 
 
@@ -699,8 +700,29 @@ func _equip_by_id(id: String, slot: int) -> bool:
 	var inst := _make_inst(id)
 	if inst == null:
 		return false
-	GameManager.equipment_manager.equip(slot, inst)
+	_equip_inst(inst, slot)
 	return true
+
+
+## 把装备装到**它自己的部位槽**（参数 `into` 只作覆盖用）
+##
+## ## 为什么不再用固定槽位
+##
+## 2026-09-28 加了**部位限制**后，`equip(Slot.ACCESSORY_1, 头盔)` 会被
+## 正确拒绝——本测试原来一律塞 ACCESSORY_1，于是十几条断言集体失效
+## （症状是「装上后规则没装配」这类，与真正的接线无关）。
+##
+## 故这里改成「用装备自己的 `tpl.slot`」：测试关心的是**词条接线**，
+## 不该被部位问题干扰。想验证部位限制本身的用例请用 `into` 显式指定。
+func _equip_inst(inst: EquipmentInstance, into: int = -1) -> void:
+	var em = GameManager.equipment_manager
+	var tpl := inst.get_template()
+	var slot := int(tpl.slot) if tpl != null else 0
+	# 饰品类：落到传入的槽（两个通用饰品槽互通），否则用装备自己的
+	if tpl != null and (slot == EquipmentDefs.Slot.ACCESSORY_1
+			or slot == EquipmentDefs.Slot.ACCESSORY_2) and into >= 0:
+		slot = into
+	em.equip(slot, inst)
 
 
 ## 清空装备 + 吞噬状态（回到基线）
@@ -822,7 +844,7 @@ func _test_b3_elem_sequence() -> void:
 	var er: Dictionary = GameManager.equipment_manager.fuse(elem_main, elem_mat)
 	_check(bool(er.get("ok", false)), "融合出元素序列规则",
 		[str(er.get("reason", ""))])
-	GameManager.equipment_manager.equip(EquipmentDefs.Slot.CHEST, elem_main)
+	_equip_inst(elem_main, EquipmentDefs.Slot.CHEST)
 	player.equip_fx.reload_passives()
 	await get_tree().process_frame
 	var rules: Dictionary = player.get("_elem_rules")
@@ -1037,7 +1059,7 @@ func _test_b1_passives() -> void:
 	var fr: Dictionary = GameManager.equipment_manager.fuse(boom_main, boom_mat)
 	_check(bool(fr.get("ok", false)), "融合出召唤物死亡爆炸",
 		[str(fr.get("reason", ""))])
-	GameManager.equipment_manager.equip(EquipmentDefs.Slot.CHEST, boom_main)
+	_equip_inst(boom_main, EquipmentDefs.Slot.CHEST)
 	player.equip_fx.reload_passives()
 	await get_tree().process_frame
 	var mgr = player.get("summons")
@@ -1090,7 +1112,7 @@ func _test_b7_low_hp() -> void:
 	if inst == null:
 		_check(false, "构造「血怒」实例")
 		return
-	em.equip(EquipmentDefs.Slot.WEAPON_1, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.WEAPON_1)
 	await get_tree().process_frame
 	var player: Node3D = _player()
 	if player == null:
@@ -1137,7 +1159,7 @@ func _test_b7_low_hp() -> void:
 	await get_tree().process_frame
 	var sh := _make_inst_by_name("守护肩甲")
 	if sh != null:
-		em.equip(EquipmentDefs.Slot.CHEST, sh)
+		_equip_inst(sh, EquipmentDefs.Slot.CHEST)
 		await get_tree().process_frame
 		attrs.hp = float(attrs.max_hp) * 0.30
 		player.call("_tick_low_hp", 0.016)
@@ -1228,7 +1250,7 @@ func _test_b7_berserker_rage() -> void:
 	if inst == null:
 		_check(false, "构造实例")
 		return
-	em.equip(EquipmentDefs.Slot.WEAPON_1, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.WEAPON_1)
 	await get_tree().process_frame
 	var player: Node3D = _player()
 	if player == null:
@@ -1261,7 +1283,7 @@ func _test_b7_berserker_rage() -> void:
 		return
 	var fr: Dictionary = em.fuse(main_inst, mat_inst)
 	_check(bool(fr.get("ok", false)), "融合出「范围扩大」", [str(fr.get("reason", ""))])
-	em.equip(EquipmentDefs.Slot.WEAPON_1, main_inst)
+	_equip_inst(main_inst, EquipmentDefs.Slot.WEAPON_1)
 	await get_tree().process_frame
 	attrs.hp = float(attrs.max_hp) * 0.30
 	player.call("_tick_low_hp", 0.016)
@@ -1314,7 +1336,7 @@ func _test_b7_afterimage() -> void:
 	if inst == null:
 		_check(false, "构造实例")
 		return
-	em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.ACCESSORY_1)
 	await get_tree().process_frame
 	var player: Node3D = _player()
 	if player == null:
@@ -1358,7 +1380,8 @@ func _test_b7_afterimage() -> void:
 		["实际=%d" % imgs.size()])
 
 	# —— 卸下装备：规则清空、场上残影失效 ——
-	em.unequip(EquipmentDefs.Slot.ACCESSORY_1)
+	# **必须按装备自己的部位卸**（它现在是 FEET，不是 ACCESSORY_1）
+	em.unequip(EquipmentDefs.Slot.FEET)
 	player.equip_fx.reload_passives()
 	await get_tree().process_frame
 	_check((player.get("_afterimage_rule") as Dictionary).is_empty(),
@@ -1428,7 +1451,7 @@ func _test_b7_prophecy() -> void:
 	if inst == null:
 		_check(false, "构造实例")
 		return
-	em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.ACCESSORY_1)
 	await get_tree().process_frame
 	var player: Node3D = _player()
 	if player == null:
@@ -1459,7 +1482,7 @@ func _test_b7_prophecy() -> void:
 	# —— 传播：周围敌人各 3 层 ——
 	_reset()
 	await get_tree().process_frame
-	em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.ACCESSORY_1)
 	await get_tree().process_frame
 	var e1 = _spawn_dummy(player)
 	if e1 != null:
@@ -1492,7 +1515,7 @@ func _test_b7_prophecy() -> void:
 		return
 	var fr2: Dictionary = em.fuse(main2, mat2)
 	_check(bool(fr2.get("ok", false)), "融合出「预言传播」", [str(fr2.get("reason", ""))])
-	em.equip(EquipmentDefs.Slot.CHEST, main2)
+	_equip_inst(main2, EquipmentDefs.Slot.CHEST)
 	await get_tree().process_frame
 	_check(not (player.get("_prophecy_self_rule") as Dictionary).is_empty(),
 		"融合后自我增益规则已装配（累积器合并）",
@@ -1548,7 +1571,7 @@ func _test_e_attack_bonus() -> void:
 	if inst == null:
 		_check(false, "构造实例")
 		return
-	em.equip(EquipmentDefs.Slot.WEAPON_1, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.WEAPON_1)
 	await get_tree().process_frame
 	var player: Node3D = _player()
 	if player == null:
@@ -1583,7 +1606,7 @@ func _test_e_attack_bonus() -> void:
 	await get_tree().process_frame
 	var inst2 := _make_inst_by_name("幸运之刃")
 	if inst2 != null:
-		em.equip(EquipmentDefs.Slot.WEAPON_1, inst2)
+		_equip_inst(inst2, EquipmentDefs.Slot.WEAPON_1)
 		await get_tree().process_frame
 		player.call("set_attack_bonus_rule", {"double_chance": 1.0})
 		_check(bool(player.call("_roll_double_damage")),
@@ -1656,7 +1679,7 @@ func _test_e_reflect_buff() -> void:
 		return
 	var fr: Dictionary = em.fuse(main_inst, mat_inst)
 	_check(bool(fr.get("ok", false)), "融合出「反弹眩晕」", [str(fr.get("reason", ""))])
-	em.equip(EquipmentDefs.Slot.CHEST, main_inst)
+	_equip_inst(main_inst, EquipmentDefs.Slot.CHEST)
 	await get_tree().process_frame
 	var player: Node3D = _player()
 	if player == null:
@@ -1722,7 +1745,7 @@ func _test_e_kill_gold() -> void:
 	if inst == null:
 		_check(false, "构造实例")
 		return
-	em.equip(EquipmentDefs.Slot.CHEST, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.CHEST)
 	await get_tree().process_frame
 	var player: Node3D = _player()
 	if player == null:
@@ -1925,7 +1948,7 @@ func _test_own_trigger_affixes_consumed() -> void:
 	if inst == null:
 		_check(false, "构造「毒牙短刃」实例")
 		return
-	em.equip(EquipmentDefs.Slot.WEAPON_1, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.WEAPON_1)
 	await get_tree().process_frame
 
 	var found: Dictionary = {}
@@ -1951,7 +1974,7 @@ func _test_own_trigger_affixes_consumed() -> void:
 	await get_tree().process_frame
 	var inst2 := _make_inst_by_name("守护护符")
 	if inst2 != null:
-		em.equip(EquipmentDefs.Slot.ACCESSORY_1, inst2)
+		_equip_inst(inst2, EquipmentDefs.Slot.ACCESSORY_1)
 		await get_tree().process_frame
 		var has_dr := false
 		for t2 in em.equipped_trigger_affixes():
@@ -2005,13 +2028,13 @@ func _test_weapon_swap_melee_ranged() -> void:
 	if sword == null or bow == null:
 		_check(false, "构造剑与弓的实例")
 		return
-	em.equip(EquipmentDefs.Slot.WEAPON_1, sword)
+	_equip_inst(sword, EquipmentDefs.Slot.WEAPON_1)
 	await get_tree().process_frame
 	_check(em.get_equipped().get(EquipmentDefs.Slot.WEAPON_1) == sword,
 		"先装上近战剑")
 
 	# 换成远程弓（同槽位——正是实机上玩家的操作）
-	em.equip(EquipmentDefs.Slot.WEAPON_1, bow)
+	_equip_inst(bow, EquipmentDefs.Slot.WEAPON_1)
 	await get_tree().process_frame
 	_check(em.get_equipped().get(EquipmentDefs.Slot.WEAPON_1) == bow,
 		"远程弓替换了近战剑（不再被互斥规则拦死）")
@@ -2022,7 +2045,7 @@ func _test_weapon_swap_melee_ranged() -> void:
 		["背包 %d 件" % inv.size()])
 
 	# 反向：弓 → 剑
-	em.equip(EquipmentDefs.Slot.WEAPON_1, sword)
+	_equip_inst(sword, EquipmentDefs.Slot.WEAPON_1)
 	await get_tree().process_frame
 	_check(em.get_equipped().get(EquipmentDefs.Slot.WEAPON_1) == sword,
 		"反向换装同样可用（远程 → 近战）")
@@ -2156,7 +2179,7 @@ func _test_soak_channels() -> void:
 	if inst == null:
 		_check(false, "构造「伤害转盾」实例")
 		return
-	em.equip(EquipmentDefs.Slot.CHEST, inst)
+	_equip_inst(inst, EquipmentDefs.Slot.CHEST)
 	await get_tree().process_frame
 	player.set("temp_shield", 0.0)
 	attrs.hp = float(attrs.max_hp) * 0.9   # 留出余量，别被打死
@@ -2176,7 +2199,7 @@ func _test_soak_channels() -> void:
 	await get_tree().process_frame
 	var inst2 := _make_inst_by_name("延迟伤害甲")
 	if inst2 != null:
-		em.equip(EquipmentDefs.Slot.CHEST, inst2)
+		_equip_inst(inst2, EquipmentDefs.Slot.CHEST)
 		await get_tree().process_frame
 		attrs.hp = float(attrs.max_hp) * 0.9
 		var hp1: float = float(attrs.hp)
@@ -2215,3 +2238,67 @@ func _test_crit_reduce_cooldown() -> void:
 	_check(absf(float(sys.call("get_cooldown_remaining", "fake_skill"))) < 0.01,
 		"减过头归零（不会出现负冷却）")
 	sys.set("_cooldowns", {})
+
+
+## 24. 装备槽的部位限制
+##
+## ## 修的是什么
+##
+## 装备的 `tpl.slot` 本来就标了部位，但此前**没人校验**：
+## 预言者王冠（头盔）能装进饰品槽、巨斧能装进靴子槽，
+## 而且**不会有任何报错**（玩家只会觉得"装备能乱穿"）。
+##
+## 根因是生成器把**所有非武器**写死 `ACCESSORY_1`（237 件，占 61%）——
+## 数据层本身就错了。故这条测试同时守住数据与运行时两侧。
+func _test_slot_restriction() -> void:
+	print("\n--- 装备槽部位限制 ---")
+	var em = GameManager.equipment_manager
+
+	# —— 数据侧：部位必须来自规格，不能全是饰品 ——
+	var counts := {}
+	for t in EquipmentDB.all_templates():
+		counts[int(t.slot)] = int(counts.get(int(t.slot), 0)) + 1
+	var accessory := int(counts.get(EquipmentDefs.Slot.ACCESSORY_1, 0)) \
+		+ int(counts.get(EquipmentDefs.Slot.ACCESSORY_2, 0))
+	var total := EquipmentDB.all_templates().size()
+	_check(accessory < total / 2,
+		"饰品槽不超过半数（否则说明部位又退化成一律 ACCESSORY_1）",
+		["饰品 %d / 共 %d" % [accessory, total]])
+	# 六个防具部位都要有货
+	for s in [EquipmentDefs.Slot.HEAD, EquipmentDefs.Slot.CHEST,
+			EquipmentDefs.Slot.SHOULDERS, EquipmentDefs.Slot.HANDS,
+			EquipmentDefs.Slot.LEGS, EquipmentDefs.Slot.FEET]:
+		_check(int(counts.get(s, 0)) > 0,
+			"%s 有装备（%d 件）" % [EquipmentDefs.slot_name(s), int(counts.get(s, 0))])
+
+	# —— 运行时：错位的槽必须被拒绝 ——
+	var helm := _make_inst_by_name("预言者王冠")
+	if helm == null:
+		_check(false, "构造「预言者王冠」")
+		return
+	_check(int(helm.get_template().slot) == EquipmentDefs.Slot.HEAD,
+		"「预言者王冠」的部位是头盔（数据侧已修）",
+		["实际=%s" % EquipmentDefs.slot_name(int(helm.get_template().slot))])
+	_check(em.slot_mismatch(helm, EquipmentDefs.Slot.ACCESSORY_1) != null,
+		"头盔**不能**装进饰品槽")
+	_check(em.slot_mismatch(helm, EquipmentDefs.Slot.HEAD) == null,
+		"头盔能装进头盔槽")
+	# 反向：饰品不能装进头盔槽
+	var ring := _make_inst_by_name("贪婪之眼")
+	if ring != null:
+		_check(em.slot_mismatch(ring, EquipmentDefs.Slot.HEAD) != null,
+			"饰品**不能**装进头盔槽")
+		# 两个通用饰品槽互通
+		_check(em.slot_mismatch(ring, EquipmentDefs.Slot.ACCESSORY_2) == null,
+			"饰品类在两个饰品槽之间互通")
+
+	# —— `equip()` 必须真的拦住（不只是 `can_equip_in_slot`） ——
+	_reset()
+	await get_tree().process_frame
+	em.equip(EquipmentDefs.Slot.ACCESSORY_2, helm)
+	_check(em.get_equipped().get(EquipmentDefs.Slot.ACCESSORY_2, null) == null,
+		"`equip()` 拒绝错位穿戴（不会静默装上）")
+	em.equip(EquipmentDefs.Slot.HEAD, helm)
+	_check(em.get_equipped().get(EquipmentDefs.Slot.HEAD, null) != null,
+		"`equip()` 放行正确部位")
+	_reset()

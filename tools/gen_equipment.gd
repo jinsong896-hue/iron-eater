@@ -29,6 +29,7 @@ const UNMAPPED_PATH := "res://tools/data/unmapped_detail.txt"
 ## 逐条解析追踪落盘路径（`装备名\t列\t词条原文\t解析结果`）
 const TRACE_PATH := "res://tools/data/parse_trace.txt"
 
+const SETTING_TABLE_PATH := "res://ai/装备设定表.md"
 const RAR_ID := {"GREEN": "G", "BLUE": "B", "PURPLE": "P", "ORANGE": "O"}
 const RAR_SCALE := {"GREEN": 1.6, "BLUE": 2.5, "PURPLE": 4.0, "ORANGE": 6.5}
 
@@ -43,6 +44,32 @@ const SLOT_ENUM := {
 	"LEGS": "EquipmentDefs.Slot.LEGS", "FEET": "EquipmentDefs.Slot.FEET",
 	"ACCESSORY_1": "EquipmentDefs.Slot.ACCESSORY_1",
 }
+
+## 「装备设定表.md」的部位词 → 槽位
+##
+## ## 为什么需要
+##
+## 旧生成器给**非武器**一律写 `ACCESSORY_1`（实测 237 件，占 61%）——
+## 于是「预言者王冠（头盔）」「不动堡垒（胸甲）」都能装进饰品槽，
+## 且不会有任何报错。部位信息在规格里是**有**的（设定表 389 条「类型」），
+## 只是没被读取。
+##
+## 武器类（单手剑/法杖/弓…）不在这里——它们由 `weapon_type` 决定槽位
+## （一律 WEAPON_1），见 `_slot_of_type`。
+const TYPE_TO_SLOT := {
+	"头盔": "HEAD", "胸甲": "CHEST", "肩甲": "SHOULDERS",
+	"护手": "HANDS", "腿甲": "LEGS", "鞋子": "FEET",
+	# 饰品（全部落 ACCESSORY_1，由 UI 决定放哪个饰品槽）
+	"戒指": "ACCESSORY_1", "项链": "ACCESSORY_1", "护符": "ACCESSORY_1",
+	"徽章": "ACCESSORY_1", "法器": "ACCESSORY_1", "法环": "ACCESSORY_1",
+}
+
+## 武器类部位词（这些一律 WEAPON_1，具体类型由规格第 4 列给）
+const TYPE_IS_WEAPON := [
+	"单手剑", "双手剑", "匕首", "双持匕首", "单手斧", "双手斧", "双持斧",
+	"单手锤", "双手锤", "长矛", "战镰", "链刃", "弓", "重弩", "盾牌",
+	"法杖", "投掷武器", "标枪",
+]
 
 ## 武器类型 → 标签（规格：近战/远程/防御/魔法 × 单手/双手 × 长杆）
 const WEAPON_TAGS := {
@@ -234,6 +261,14 @@ var _cur_col := ""
 var _cur_counts := {}
 ## 带装备上下文的未映射记录（`装备名\t列\t词条原文`）
 var _unmapped_ctx: Array[String] = []
+## 部位索引：装备名 → [部位词, ...]（由 `_load_type_index` 填充）
+var _type_index := {}
+## 同名内部出现序号（重名消歧用）：装备名 → 已出现次数
+var _name_seq := {}
+## 部位相关的问题清单（生成结束时报告，不静默吞掉）
+var _slot_missing: Array[String] = []
+var _slot_ambiguous: Array[String] = []
+var _slot_unknown_type: Array[String] = []
 ## 逐条解析追踪：`装备名\t列\t词条原文\t解析结果`
 ##
 ## 用途：核对「解析结果是否忠实于原文」——只统计「有没有解析出来」
@@ -247,6 +282,8 @@ func _initialize() -> void:
 		push_error("打不开规格表：%s" % SPEC_PATH)
 		quit(1)
 		return
+	# 部位索引（来自 `设定表`：装备名 → 部位词，按出现顺序存数组以处理重名）
+	_type_index = _load_type_index()
 	var rows: Array[String] = []
 	var by_rar := {}
 	while not f.eof_reached():
@@ -289,8 +326,17 @@ func _initialize() -> void:
 			continue
 
 		var cat_e: String = str(CAT_ENUM.get(cat, "EquipmentDefs.Category.ACCESSORY"))
-		var slot_e: String = "EquipmentDefs.Slot.WEAPON_1" if cat == "WEAPON" \
-			else str(SLOT_ENUM.get(wtype, "EquipmentDefs.Slot.ACCESSORY_1"))
+		# **部位必须来自规格**，不能一律写饰品。
+		#
+		# 旧版是 `SLOT_ENUM.get(wtype, "ACCESSORY_1")`——但非武器的 `wtype`
+		# 恒为空串，于是 **237 件（61%）全落进饰品槽**：头盔、胸甲、靴子
+		# 都能装进饰品槽，且不会有任何报错（玩家只会觉得"装备能乱穿"）。
+		#
+		# 部位改从设定表的「类型」读（见 `_slot_name_of`）；
+		# 武器仍一律 WEAPON_1。
+		var seq: int = int(_name_seq.get(name, 0))
+		_name_seq[name] = seq + 1
+		var slot_e: String = "EquipmentDefs.Slot.%s" % _slot_name_of(name, wtype, seq)
 		var wt: String = wtype if cat == "WEAPON" else ""
 		# **标枪走 javelin 类型**（2026-09-26 用户决策：改为普通远程武器）。
 		#
@@ -481,6 +527,20 @@ func _dump_unmapped() -> void:
 		f.store_line(line)
 	f.close()
 	printerr("=== 未映射明细已写入 %s（%d 条）===" % [UNMAPPED_PATH, _unmapped_ctx.size()])
+	# —— 装备部位（槽位）报告 ——
+	#
+	# **必须报出来**，不能静默回退：部位错了玩家只会觉得"装备能乱穿"，
+	# 而不会有任何报错——正是本项目反复踩的「静默失效」。
+	printerr("=== 装备部位 ===")
+	printerr("  设定表里查不到部位的装备：%d 件" % _slot_missing.size())
+	for s in _slot_missing.slice(0, 10):
+		printerr("    · %s" % s)
+	printerr("  同名但部位不一致（按序取；已抽查核对，顺序两表一致）：%d 条" % _slot_ambiguous.size())
+	for s in _slot_ambiguous.slice(0, 20):
+		printerr("    · %s" % s)
+	printerr("  部位词不认识：%d 条" % _slot_unknown_type.size())
+	for s in _slot_unknown_type.slice(0, 10):
+		printerr("    · %s" % s)
 	# 逐条解析追踪
 	var g := FileAccess.open(TRACE_PATH, FileAccess.WRITE)
 	if g == null:
@@ -3262,6 +3322,18 @@ func _parse_main(s: String) -> String:
 	if m:
 		return "[%d, %d, Stat.DEF, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SUMMON_ALIVE,
 			_f(m.get_string(1))]
+	# 「召唤物存在时，自身获得 N% 减伤」「召唤物存在时自身移速 +N%」
+	#
+	# 与「自身攻击力提高」同理，只是属性不同。放在攻击力那条**之后**
+	# （顺序无关，但保持同类相邻便于阅读）。
+	m = _re(r"召唤物存在时[，,]?\s*自身获得\s*(\d+)%\s*减伤").search(s)
+	if m:
+		return "[%d, %d, %d, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SUMMON_ALIVE,
+			SP["dmg_reduction"], _f(m.get_string(1))]
+	m = _re(r"召唤物存在时自身移速\s*\+?\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %d, Stat.SPD, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SUMMON_ALIVE,
+			_f(m.get_string(1))]
 	if s.contains("召唤物死亡时留下减速区域"):
 		# 「召唤物死亡时留下减速区域（3秒，-30%移速）」——量级 30% 要带上，
 		# 否则用 `slow` 表定的 25%（与规格不符）。
@@ -4001,3 +4073,77 @@ func _cap_from_text(t: String) -> float:
 	if m:
 		return float(m.get_string(1)) / 100.0
 	return 1.0
+
+
+## ============================================================
+## 装备部位（槽位）—— 来源：`ai/装备设定表.md`
+## ============================================================
+#
+# ## 为什么必须修
+#
+# 旧生成器给所有**非武器**写死 `ACCESSORY_1`（237 件，占 61%）：
+# 「预言者王冠（头盔）」「不动堡垒（胸甲）」都能装进饰品槽且**无报错**。
+# 部位在规格里是有的（设定表 389 条「类型」），只是没读。
+#
+# ## 重名怎么处理
+#
+# DB 与设定表都有 32 个重名（67 条）。名字+部位**唯一**的（333 条）直接匹配；
+# 重名的靠**顺序**消歧（两个文件都是「先出现的在前」），
+# 但只有当同一名字下的部位**全都相同**时才安全——否则记进
+# `_slot_ambiguous` 并回退，由人工核对（不让静默猜错）。
+
+## 部位索引：装备名 → [部位词, ...]（按出现顺序）
+func _load_type_index() -> Dictionary:
+	var out := {}
+	var f := FileAccess.open(SETTING_TABLE_PATH, FileAccess.READ)
+	if f == null:
+		push_warning("打不开设定表（部位回退为饰品）：%s" % SETTING_TABLE_PATH)
+		return out
+	var cur := ""
+	while not f.eof_reached():
+		var line := f.get_line().replace("\r", "")
+		if line.begins_with("### "):
+			cur = line.substr(4).strip_edges()
+			# 标题形如「预言者王冠（传奇）」——剥掉稀有度后缀
+			var p := cur.find("（")
+			if p > 0:
+				cur = cur.substr(0, p)
+			continue
+		if cur.is_empty():
+			continue
+		if line.begins_with("- **类型**："):
+			var t := line.substr(9).strip_edges()
+			# 部分行带后缀（如「法杖（火）」）——同样剥掉
+			var q := t.find("（")
+			if q > 0:
+				t = t.substr(0, q)
+			if not out.has(cur):
+				out[cur] = []
+			out[cur].append(t)
+	return out
+
+
+## 该装备的槽位枚举名（取不到时回退 ACCESSORY_1 并记入歧义表）
+##
+## `seq` 是**同名内部的序号**（第几次遇到这个名字），用于重名消歧。
+func _slot_name_of(name: String, wtype: String, seq: int) -> String:
+	# 武器：槽位一律 WEAPON_1，具体类型由规格第 4 列给（与部位词无关）
+	if not wtype.is_empty():
+		return "WEAPON_1"
+	var types: Array = _type_index.get(name, [])
+	if types.is_empty():
+		_slot_missing.append(name)
+		return "ACCESSORY_1"
+	var t := str(types[mini(seq, types.size() - 1)])
+	# 同一名字下部位全相同 → 谁都不会错；不同 → 记录歧义（按序仍可能错）
+	var uniq := {}
+	for x in types:
+		uniq[x] = true
+	if uniq.size() > 1:
+		_slot_ambiguous.append("%s: %s → 取第 %d 个(%s)" % [name, ", ".join(types), seq, t])
+	if TYPE_TO_SLOT.has(t):
+		return TYPE_TO_SLOT[t]
+	# 部位词是武器类但规格第 4 列没给 weapon_type（如「主动·位移」）——
+	# 只记录，不猜。
+	_slot_unknown_type.append("%s: %s" % [name, t])
+	return "ACCESSORY_1"
