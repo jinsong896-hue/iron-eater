@@ -39,6 +39,26 @@ extends Resource
 ## （见 EquipmentDB.TRIGGER_POOL_BY_RARITY），白装没有、橙装才有 2 条。
 @export var trigger_affixes: Array[AffixData] = []
 
+## —— 三列词条的**策划原文**（逐字）——
+##
+## ## 为什么必须存
+##
+## 机制型词条（`TRIGGER_BUFF` / `STACK_GAIN` / `GRANT_SKILL` …）的 `stat` 恒为 0，
+## **没有「属性名 + 数值」可渲染**。而图鉴是全项目唯一的词条展示点，
+## 它只会输出「属性名 + 数值」，于是：
+##
+##   不动堡垒「站立不动2秒后获得吸收30%最大生命的护盾」
+##     → 显示「生命值 +0.0」
+##
+## 实测 **254 / 552 条（46%）** 词条都被渲染成这个垃圾值，看起来与
+## 「纯数值占位模板」**一模一样**——这正是一直误判「装备没实装」的根因。
+##
+## 存原文后图鉴直接显示原文，与策划文档**逐字一致**。
+## 取值为空时（如白装占位）回退到属性渲染。
+@export var own_text: String = ""
+@export var devour_text: String = ""
+@export var fusion_text: String = ""
+
 @export var icon_path: String = ""
 @export var scene_path: String = ""
 

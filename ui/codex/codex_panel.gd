@@ -243,12 +243,10 @@ func _show_equipment(t) -> void:
 	lines.append("")
 	lines.append("[color=#b5a37f]【基础属性】[/color]")
 	lines.append(_affix_line(t.base_affix, true))
-	lines.append("[color=#b5a37f]【自有词条】[/color]")
-	lines.append(_affix_line(t.own_affix, false))
-	lines.append("[color=#b5a37f]【吞噬词条】[/color]")
-	lines.append(_affix_line(t.devour_affix, false))
-	lines.append("[color=#b5a37f]【融合词条】[/color]")
-	lines.append(_affix_line(t.fusion_affix, false))
+	# 三列词条：**原文优先**（见 `_column_lines`）
+	lines.append_array(_column_lines("自有词条", t.own_text, t.own_affix, false))
+	lines.append_array(_column_lines("吞噬词条", t.devour_text, t.devour_affix, false))
+	lines.append_array(_column_lines("融合词条", t.fusion_text, t.fusion_affix, false))
 	# 装备技能（若有）
 	var ES = load("res://data/equipment/equipment_skills.gd")
 	var sk: Dictionary = ES.skill_of_equipment(str(t.display_name), int(t.rarity))
@@ -261,6 +259,35 @@ func _show_equipment(t) -> void:
 	lines.append("")
 	lines.append("[color=#6f6f6b]掉落时随机生成 1~4 条随机词条（无法升级/转移）[/color]")
 	_detail.text = "\n".join(lines)
+
+
+## 渲染一列词条：**原文优先，属性兜底**
+##
+## ## 为什么改成原文优先
+##
+## 机制型词条（`TRIGGER_BUFF` / `STACK_GAIN` / `GRANT_SKILL` …）的 `stat`
+## 恒为 0——**没有「属性名 + 数值」可渲染**。而 `_affix_line` 只会输出那个，
+## 于是「站立不动2秒获得吸收30%最大生命的护盾」显示成「生命值 +0.0」。
+## 实测 **254 / 552 条（46%）** 如此，看起来与「纯数值占位模板」一模一样
+## ——这正是一直误判「装备全没实装」的根因。
+##
+## ## 兜底仍然保留
+##
+## 白装/占位装备没有原文（`text` 为空），此时回退到属性渲染：
+## 它们本来就只有数值，显示数值是**正确**的。
+func _column_lines(title: String, text: String, affix, is_base: bool) -> Array:
+	var out: Array = []
+	out.append("[color=#b5a37f]【%s】[/color]" % title)
+	var t := text.strip_edges()
+	if t.is_empty():
+		out.append(_affix_line(affix, is_base))
+		return out
+	# 多条词条用 `；` 分隔，拆成多行更好读
+	for piece in t.replace(";", "；").split("；"):
+		var s := str(piece).strip_edges()
+		if not s.is_empty():
+			out.append("· %s" % s)
+	return out
 
 
 ## 词条 → 可读文本。base=true 时按「基础属性」口径（固定值也显示）。

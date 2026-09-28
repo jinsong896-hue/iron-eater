@@ -394,8 +394,18 @@ func _initialize() -> void:
 			tag_s = "[%s]" % ", ".join(quoted)
 		var wt_s := "\"%s\"" % wt if not wt.is_empty() else "\"\""
 
-		rows.append("  [\"%s\", \"%s\", %s, %s, %s, %s, %s, %s, %s, %s]," % [
-			id, name, wt_s, tag_s, slot_e, cat_e, base, own_a, dev_a, fus_a])
+		# 第 11/12/13 项：三列词条的**策划原文**（供图鉴逐字显示）
+		#
+		# **必须带上**：机制型词条的 `stat` 恒为 0，图鉴的「属性名+数值」
+		# 渲染会输出「生命值 +0.0」——实测 254/552 条（46%）如此，
+		# 看起来与「纯数值占位模板」完全一样。带原文后图鉴直接显示原文。
+		var own_t := "\"%s\"" % _esc(own)
+		var dev_t := "\"%s\"" % _esc(dev)
+		var fus_t := "\"%s\"" % _esc(fus)
+
+		rows.append("  [\"%s\", \"%s\", %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s]," % [
+			id, name, wt_s, tag_s, slot_e, cat_e, base, own_a, dev_a, fus_a,
+			own_t, dev_t, fus_t])
 
 	for r in rows:
 		print(r)
@@ -4171,3 +4181,11 @@ func _slot_name_of(name: String, wtype: String, seq: int) -> String:
 	# 只记录，不猜。
 	_slot_unknown_type.append("%s: %s" % [name, t])
 	return "ACCESSORY_1"
+
+
+## GDScript 字符串字面量转义（用于把策划原文写进数据表）
+##
+## 只需处理 `\` 与 `"`——原文里的中文引号「“”」不是 GDScript 特殊字符，
+## 直接原样保留即可（图鉴按原文渲染，正是我们要的）。
+func _esc(s: String) -> String:
+	return s.replace("\\", "\\\\").replace("\"", "\\\"")
