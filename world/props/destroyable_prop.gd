@@ -76,7 +76,16 @@ func _process(delta: float) -> void:
 
 
 ## 受击。签名与 EnemyBase.take_damage 一致，这样玩家的命中链路无需分支。
-func take_damage(amount: float, _crit: bool = false, _push: Vector3 = Vector3.ZERO) -> void:
+##
+## **第 4 参 `_from` 不能省**：`c1990cae`（精英词缀实装）给
+## `EnemyBase.take_damage` 加了「伤害来源」参数，玩家的 `_apply_hit`
+## 随之改成传 4 个。本类漏跟这一步 → 近战砍到**第 3 层的可破坏通风口**
+## （`DestroyableProp` 经 `_ready` 进了 `enemies` 组）时
+## `Invalid call ... Expected 3 argument(s)` **直接崩游戏**。
+##
+## 参数只用于「谁打的」这类归因（掉落/击杀统计），道具不需要，故标 `_`。
+func take_damage(amount: float, _crit: bool = false, _push: Vector3 = Vector3.ZERO,
+		_from: Node3D = null) -> void:
 	if indestructible:
 		# 不可摧毁的物件仍给受击反馈，让玩家知道"打到了但打不坏"
 		_flash_timer = HIT_FLASH_DURATION

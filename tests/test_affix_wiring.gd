@@ -65,6 +65,7 @@ func _ready() -> void:
 	_test_dot_uses_active_params()
 	await _test_weapon_swap_melee_ranged()
 	_test_drag_drop_no_crash()
+	_test_enemies_group_take_damage_arity()
 
 	if failed == 0:
 		print("ALL AFFIX WIRING TESTS PASSED")
@@ -2068,3 +2069,56 @@ func _test_drag_drop_no_crash() -> void:
 			"信号带的第 1 参**是装备实例**（不是被 int() 转过的东西）",
 			[str(got[0][0])])
 	node.free()
+
+
+## 21. 「进 enemies 组」的类必须接受玩家的 4 参 `take_damage`
+##
+## ## 实机症状：进第 3 层后闪退
+##
+## ```
+## Player._apply_hit: Invalid call to function 'take_damage (via call)'
+##   in base 'StaticBody3D (VentProp)'. Expected 3 argument(s).
+## ```
+##
+## `DestroyableProp`（可破坏道具，第 3 层的**通风口**就是它）在 `_ready`
+## 里 `add_to_group("enemies")`——于是玩家的命中链路会打到它。
+## 它的注释写着「签名与 `EnemyBase.take_damage` 一致，这样玩家的命中链路
+## 无需分支」，但 `c1990cae`（精英词缀实装）给 `EnemyBase` 加了第 4 参
+## （伤害来源），**本类漏跟** → 近战砍通风口直接崩游戏。
+##
+## ## 为什么断言「元数」而不是「跑一次真实调用」
+##
+## 这条要防的是**签名漂移**——将来谁再给 `EnemyBase.take_damage` 加参数，
+## 这里会立刻报红，而不是等到玩家在第 3 层砍通风口才发现。
+## 比逐个构造实例跑一遍更能覆盖「还没被实例化的那些道具备选」。
+func _test_enemies_group_take_damage_arity() -> void:
+	print("\n--- enemies 组的 take_damage 签名一致性 ---")
+	# 玩家命中链路实际传的参数个数（见 player.gd `_apply_hit`）：
+	#   take_damage(total, crit, push, self)
+	const PLAYER_CALL_ARGS := 4
+	var checks := {
+		"EnemyBase": "res://entities/enemies/enemy_base.gd",
+		"DestroyableProp": "res://world/props/destroyable_prop.gd",
+	}
+	for name in checks:
+		var path: String = checks[name]
+		var src := FileAccess.get_file_as_string(path)
+		_check(not src.is_empty(), "读到 %s 源码" % name)
+		if src.is_empty():
+			continue
+		# 取 `func take_damage(...)` 的参数个数（按顶层逗号计数）
+		var m := _re_for_test(r"func\s+take_damage\s*\(([^)]*)\)").search(src)
+		_check(m != null, "%s 声明了 take_damage" % name)
+		if m == null:
+			continue
+		var arglist: String = m.get_string(1).strip_edges()
+		var argc := 0 if arglist.is_empty() else arglist.split(",").size()
+		_check(argc >= PLAYER_CALL_ARGS,
+			"%s.take_damage 至少接受 %d 个参数（实际 %d）——玩家命中链路会传 %d 个"
+				% [name, PLAYER_CALL_ARGS, argc, PLAYER_CALL_ARGS])
+
+
+func _re_for_test(pattern: String) -> RegEx:
+	var r := RegEx.new()
+	r.compile(pattern)
+	return r
