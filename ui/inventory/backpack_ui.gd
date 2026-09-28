@@ -451,6 +451,15 @@ func _refresh_detail() -> void:
 	]
 	if t.weapon_type != "":
 		meta_parts.append(t.weapon_type)
+	# **元素属性**（`tpl.element` / `element_affinity`）
+	#
+	# 两者都有实际效果（`Player._refresh_attack_element` 按武器 element
+	# 决定普攻元素；`_element_affinity_bonus` 把它当元素伤害加成），
+	# 但此前**没有任何 UI 显示**——玩家看不出「学徒长杖是火系」。
+	if not str(t.element).strip_edges().is_empty():
+		meta_parts.append("%s元素" % _element_name(str(t.element)))
+	if absf(float(t.element_affinity)) > 0.0001:
+		meta_parts.append("元素伤害 %+.0f%%" % (float(t.element_affinity) * 100.0))
 	if t.armor_class >= 0:
 		meta_parts.append(["轻甲", "中甲", "重甲"][t.armor_class])
 	meta_parts.append("强化 +%d" % _selected.enhancement_level)
@@ -463,9 +472,14 @@ func _refresh_detail() -> void:
 	var lines := [
 		"[基础词条·穿戴]", _affix_text(t.base_affix, _selected.enhancement_level),
 		"",
-		"[吞噬词条·本局永久]", _affix_text(t.devour_affix, 0),
+		# **自有词条此前完全没显示**——它是「穿上这件装备能得到什么」的
+		# 核心（装备参考2 规格第 2 条），而背包详情里只有基础/吞噬/融合三段。
+		"[自有词条·穿戴生效]", _column_display(t.own_text, t.own_affixes,
+			_selected.enhancement_level),
 		"",
-		"[融合词条·作材料贡献]", _affix_text(t.fusion_affix, 0),
+		"[吞噬词条·本局永久]", _column_display(t.devour_text, t.devour_affixes, 0),
+		"",
+		"[融合词条·作材料贡献]", _column_display(t.fusion_text, t.fusion_affixes, 0),
 	]
 	if not _selected.extra_affixes.is_empty():
 		lines.append("")
@@ -555,6 +569,35 @@ func _refresh_action_buttons() -> void:
 		_btn_equip.text = "卸下" if worn else "穿戴"
 	else:
 		_btn_equip.text = "穿戴"
+
+
+## 渲染一整列词条：**原文优先，属性兜底**（与图鉴同一套口径）
+##
+## ## 为什么必须原文优先
+##
+## 机制型词条（`TRIGGER_BUFF`/`STACK_GAIN`/`GRANT_SKILL`/`SKILL_MOD`）的
+## `stat` 恒为 0——`_affix_text` 只会输出「属性名 数值」，于是
+## 「站立不动2秒后获得吸收30%最大生命的护盾」被渲染成「生命值 +0.0」，
+## 和占位模板**看起来完全一样**（这正是「装备全是占位」误判的根因）。
+##
+## 原文为空时（白装/占位装备）才回退——那些本来就只有数值，显示数值是对的。
+func _column_display(text: String, affixes: Array, enhance_level: int) -> String:
+	var t := text.strip_edges()
+	if t.is_empty():
+		# 回退：逐个属性渲染（旧口径）
+		if affixes.is_empty():
+			return "（无）"
+		var parts: Array[String] = []
+		for a in affixes:
+			if a != null:
+				parts.append(_affix_text(a, enhance_level))
+		return "  ".join(parts) if not parts.is_empty() else "（无）"
+	var out: Array[String] = []
+	for piece in t.replace(";", "；").split("；"):
+		var s := str(piece).strip_edges()
+		if not s.is_empty():
+			out.append("  " + s)
+	return "\n".join(out)
 
 
 func _affix_text(affix: AffixData, enhance_level: int) -> String:
@@ -976,3 +1019,15 @@ func _event_bus() -> Node:
 func _equipment_manager() -> RefCounted:
 	var gm: Node = _game_manager()
 	return gm.equipment_manager if gm else null
+
+
+## 元素 key → 中文名（`ElementDefs` 里没有现成的显示名表，就近映射）
+##
+## 与 `ElementDefs.get_element(...).stack_name` 不同：那个是**层数名**
+##（如「灼烧」），这里要的是**元素名**（如「火焰」）。
+func _element_name(key: String) -> String:
+	var m := {
+		"fire": "火焰", "frost": "冰霜", "static": "雷电",
+		"earth": "大地", "wind": "疾风", "poison": "毒素", "shadow": "暗影",
+	}
+	return str(m.get(key.strip_edges(), key))
