@@ -1988,7 +1988,13 @@ func _parse_main(s: String) -> String:
 			or s.contains("灵魂死亡时爆炸"):
 		return "[%d, 0.10, true]" % SP["summon_dmg"]
 	if s.contains("召唤物存在时") or s.contains("链接期间") or s.contains("守护期间"):
-		return "[%d, 0.05, true]" % SP["elem_resist"]
+		# 「召唤物存在时，自身攻击力提高 N%」——这是**自身攻击**，
+		# 不是「召唤物伤害」。旧版错走 `elem_resist`（元素抗性），
+		# 与描述毫不相干；且数值硬编码 0.05，与原文的 25% 差 5 倍。
+		#
+		# 正确的规则在第 40 节（`召唤物存在时…自身攻击力提高`），这里
+		# **不再兜底**——兜底会让它先被这一条吃掉。
+		pass
 
 	# ---------- 14. 击杀/闪避/格挡的后续效果 ----------
 	m = _re(r"击杀精英后，回复\s*(\d+)%\s*最大生命").search(s)
@@ -2384,7 +2390,10 @@ func _parse_main(s: String) -> String:
 		return "[%d, %s, true]" % [SP["ctrl_resist"], _f("50")]
 	m = _re(r"沉默箭命中后目标移速\s*-\s*(\d+)%").search(s)
 	if m:
-		return "[%d, \"slow\", 1.0, 3.0]" % OP_TRIGGER_BUFF
+		# **量级必须带上**：`slow` 词条表定只有 0.25，
+		# 不带覆盖的话「-20%」和「-30%」拿到的是同一个值。
+		return "[%d, \"slow\", 1.0, 3.0, {\"slow\": %s}]" % [
+			OP_TRIGGER_BUFF, _f(m.get_string(1))]
 	m = _re(r"命中时牵引目标\s*(\d+)\s*米").search(s)
 	if m:
 		return "[%d, \"pull\", 1.0, 0.0]" % OP_TRIGGER_BUFF
@@ -3246,6 +3255,12 @@ func _parse_main(s: String) -> String:
 		return "[%d, %d, Stat.DEF, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_SUMMON_ALIVE,
 			_f(m.get_string(1))]
 	if s.contains("召唤物死亡时留下减速区域"):
+		# 「召唤物死亡时留下减速区域（3秒，-30%移速）」——量级 30% 要带上，
+		# 否则用 `slow` 表定的 25%（与规格不符）。
+		var mzs := _re(r"减速区域[（(]\s*(\d+)\s*秒[，,]\s*-?\s*(\d+)%\s*移速").search(s)
+		if mzs:
+			return "[%d, \"slow\", 1.0, %s, {\"slow\": %s}]" % [OP_TRIGGER_BUFF,
+				mzs.get_string(1), _f(mzs.get_string(2))]
 		return "[%d, \"slow\", 1.0, 3.0]" % OP_TRIGGER_BUFF
 
 	# —— 施法/治疗同时（5 条）——
