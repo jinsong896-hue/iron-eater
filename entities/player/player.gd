@@ -939,23 +939,36 @@ func _basic_attack_aoe_mult() -> float:
 	return float(m.get("basic_attack_aoe_mult", 1.0))
 
 
-## 取「改普攻形态」的装备修饰量
+## 取「改**普攻/暴击行为**」的装备修饰量（`SKILL_MOD` 里 `basic_attack_*` 前缀）
 ##
 ## ## 为什么不能走 `_skill_mods_for`
 ##
 ## 那个函数是按「**哪个技能**来自这件装备」匹配的（`own.id == my_id`）——
 ## 而普攻**不属于任何装备技能**，没有 id 可比。故这里单独扫一遍
-## 已装备的词条里 `trigger_params` 带 `basic_attack_` 前缀的项。
+## 已装备的词条里 `trigger_params` 带该前缀的项。
 ##
-## 多件装备同时声明时**后写覆盖前写**（取最后遇到的）——这类词条
-## 目前只有狂战士之怒一件，冲突时也不需要叠乘。
+## 多件装备同时声明时**后写覆盖前写**。需要别的前缀时用
+## `_equip_mod_param(key)` 直接按名取，不要复制本函数。
 func _basic_attack_mods() -> Dictionary:
+	return _mods_with_prefix("basic_attack_")
+
+
+## 取**任意** `SKILL_MOD` 短语（按完整键名）
+##
+## 与 `_basic_attack_mods` 同源，只是不限前缀——用于「暴击时减少冷却」
+## 这类不属于普攻、但也需要跨装备取值的修饰量。
+func _equip_mod_param(key: String) -> float:
+	var all := _mods_with_prefix("")
+	return float(all.get(key, 0.0))
+
+
+## 扫全部已装备词条，收集 `trigger_params` 里带指定前缀的键
+func _mods_with_prefix(prefix: String) -> Dictionary:
 	var out: Dictionary = {}
 	var em = GameManager.equipment_manager
 	if em == null or not em.has_method("get_equipped"):
 		return out
-	for slot in em.get_equipped().values():
-		var inst = slot
+	for inst in em.get_equipped().values():
 		if inst == null:
 			continue
 		var tpl = inst.get_template()
@@ -966,7 +979,7 @@ func _basic_attack_mods() -> Dictionary:
 				if a == null or a.operation != AffixData.Operation.SKILL_MOD:
 					continue
 				for k in a.trigger_params:
-					if str(k).begins_with("basic_attack_"):
+					if prefix.is_empty() or str(k).begins_with(prefix):
 						out[str(k)] = a.trigger_params[k]
 	return out
 
@@ -2021,6 +2034,13 @@ func _apply_trigger_affixes(enemy: Node3D, damage: float) -> void:
 				if skills != null:
 					skills.reset_skill_cooldowns()
 				EventBus.message.emit("暴击刷新技能冷却！")
+			# 装备·「暴击时减少所有技能冷却 N 秒」（冷却之眼）
+			# 与上面「概率刷新」是两条**不同**的词条：
+			#   刷新 = 全部归零（概率触发）
+			#   减少 = 各减 N 秒（每次暴击都生效，有上限）
+			var crit_reduce := _equip_mod_param("crit_reduce_cooldown_seconds")
+			if crit_reduce > 0.0 and skills != null:
+				skills.reduce_cooldowns(crit_reduce)
 	var em = GameManager.equipment_manager
 	if em == null or not em.has_method("equipped_trigger_affixes"):
 		return

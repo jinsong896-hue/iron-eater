@@ -1361,3 +1361,20 @@ func _cast_stealth(caster: Node3D, sd: Dictionary) -> void:
 		float(sd.get("speed_pct", 0.0)),
 		float(sd.get("next_hit_bonus", 0.0)),
 		bool(sd.get("invuln", false)))
+
+
+## 把所有**进行中**的技能冷却各减少 `seconds` 秒（下限 0）
+##
+## 与 `reset_cooldowns()` 的区别：那个是「全部归零」（调试/换层），
+## 这个是「各减 N 秒」——装备参考2「暴击时减少所有技能冷却1秒」的语义。
+##
+## **只减已在冷却中的**：没进冷却的技能不该凭空出现负冷却。
+func reduce_cooldowns(seconds: float) -> void:
+	if seconds <= 0.0:
+		return
+	for skill_id in _cooldowns.keys():
+		var left: float = maxf(float(_cooldowns[skill_id]) - seconds, 0.0)
+		if left <= 0.0:
+			_cooldowns.erase(skill_id)
+		else:
+			_cooldowns[skill_id] = left

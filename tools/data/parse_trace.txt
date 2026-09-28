@@ -1218,7 +1218,7 @@
 不动堡垒	own	站立不动2秒后获得一个吸收30%最大生命的护盾，移动后消失	[2, "stationary_buff", 1.0, 0.0, {"stationary_seconds": 2, "dr_pct": 0.0, "reflect_pct": 0.0, "shield_pct": 0.3000}]
 不动堡垒	devour	护甲+5%	[Stat.DEF, 0.0500, true]
 不动堡垒	fusion	护盾值+50%	[140, 0.5000, true]
-冷却之眼	own	暴击时减少所有技能冷却1秒	[Stat.CDR, 0.20, true]
+冷却之眼	own	暴击时减少所有技能冷却1秒	[8, {"crit_reduce_cooldown_seconds": 1}]
 冷却之眼	devour	冷却缩减+3%	[Stat.CDR, 0.0300, true]
 冷却之眼	fusion	减少冷却提升至2秒	[Stat.CDR, 0.20, true]
 冲刺大师	own	击杀敌人后立即重置冲刺冷却	[113, 1.0, true]

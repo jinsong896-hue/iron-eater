@@ -2070,7 +2070,13 @@ func _parse_main(s: String) -> String:
 			OP_TRIGGER_BUFF, _f(m.get_string(1)), ms_slot]
 	m = _re(r"暴击时减少所有技能冷却\s*(\d+)\s*秒").search(s)
 	if m:
-		return "[Stat.CDR, 0.20, true]"
+		# 「暴击时减少所有技能冷却 N 秒」——旧版硬编码成 `[Stat.CDR, 0.20]`，
+		# 那是「冷却缩减 +20%」的**被动**属性，与「暴击时立刻各减 N 秒」
+		# 完全两回事（触发时机、数值量纲都不同）。
+		# 现走 `SKILL_MOD` 的普攻/暴击通道，由 `_apply_trigger_affixes`
+		# 在暴击分支里调 `SkillSystem.reduce_cooldowns(N)`。
+		return "[%d, {\"crit_reduce_cooldown_seconds\": %s}]" % [
+			OP_SKILL_MOD, m.get_string(1)]
 	m = _re(r"护盾值\s*\+?\s*(\d+)%").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["shield_power"], _f(m.get_string(1))]

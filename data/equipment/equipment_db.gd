@@ -1185,7 +1185,7 @@ const CURATED_TABLE := [
   ["O048", "元素附魔师", "staff", ["魔法", "双手", "长杆", "法术"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.AP, 295.8, false]], [[3, "fire", 0.50]], [[117, 0.0500, true]], [[117, 0.2000, true]]],
   ["O049", "冲击波之靴", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[117, 2.0000, true]], [[Stat.SPD, 0.0500, true]], [[117, 1.0000, true]]],
   ["O050", "不动堡垒", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[2, "stationary_buff", 1.0, 0.0, {"stationary_seconds": 2, "dr_pct": 0.0, "reflect_pct": 0.0, "shield_pct": 0.3000}]], [[Stat.DEF, 0.0500, true]], [[140, 0.5000, true]]],
-  ["O051", "冷却之眼", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[Stat.CDR, 0.20, true]], [[Stat.CDR, 0.0300, true]], [[Stat.CDR, 0.20, true]]],
+  ["O051", "冷却之眼", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[8, {"crit_reduce_cooldown_seconds": 1}]], [[Stat.CDR, 0.0300, true]], [[Stat.CDR, 0.20, true]]],
   ["O052", "冲刺大师", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[113, 1.0, true]], [[Stat.SPD, 0.0500, true]], [[4, 3, Stat.ATK, 0.5000, 0]]],
   ["O053", "反击之甲", "", [], EquipmentDefs.Slot.ACCESSORY_1, EquipmentDefs.Category.ARMOR, [[Stat.DEF, 27.3, false]], [[4, 2, Stat.ATK, 1.5000, 0]], [[Stat.DEF, 0.0500, true]], [[117, 1.0000, true]]],
   ["O054", "荆棘反弹", "shield", ["防御"], EquipmentDefs.Slot.WEAPON_1, EquipmentDefs.Category.WEAPON, [[Stat.DEF, 227.5, false]], [[4, 9, 104, 2.0000, 0]], [[110, 0.0300, true]], [[104, 1.0000, true]]],

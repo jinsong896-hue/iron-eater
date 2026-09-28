@@ -271,6 +271,12 @@ func _cond_is_intrinsic(text: String, cond: String, spec: String) -> bool:
 	# 条件由通道的消费点（`_on_enemy_killed` 等）保证。
 	if spec.contains("[113,") or spec.contains("[147,") or spec.contains("[148,"):
 		return true
+	# **受伤转化类通道**：语义本身就绑定「受到伤害」这个时机。
+	#   `dmg_to_shield`(151) —— 受伤的 N% 转成护盾
+	#   `delay_dmg`(152)     —— 受伤的 N% 延迟结算
+	# 条件由消费点（`Player.take_damage`）保证，常驻形态是正确的。
+	if spec.contains("[151,") or spec.contains("[152,"):
+		return text.contains("受到伤害") or text.contains("受伤")
 	# 低血词条走 `[4, 11, ...]`——那已被 `_spec_is_unconditional` 排除，
 	# 不在这里处理
 	return false
