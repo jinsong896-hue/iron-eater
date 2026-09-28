@@ -462,18 +462,21 @@ func _test_crowd_form_extras(p, mgr) -> void:
 		return
 	var ids = mgr.call("query_circle", 0.0, 0.0, 9999.0)
 	if ids.is_empty():
-		# **前面的普攻用例可能把仅有的单位打死了**（伤害含暴击随机，
-		# 本房只刷 2 个群体单位）。此时直接补刷一个，而不是判失败——
-		# 否则门禁会间歇性红（实测：单独跑过、全量跑挂）。
+		# **前面的普攻用例可能把仅有的单位打死了**（伤害含暴击与装备附加，
+		# 随机性大。实测：单独跑过、全量跑挂，而门禁红会掩盖真 bug）。
 		#
-		# 补刷而不是"跳过"：跳过会让本组断言静默失效，
-		# 那正是"测不到 = 没有防线"的老问题。
-		var ctrl0 = mgr.get_parent()
-		if ctrl0 != null and ctrl0.has_method("debug_spawn"):
-			ctrl0.call("debug_spawn", "zombie", 1, Vector3(0, 0, 0))
-			await get_tree().physics_frame
-			await get_tree().physics_frame
-			ids = mgr.call("query_circle", 0.0, 0.0, 9999.0)
+		# 补刷**必须直接调群体核的 `spawn_unit`**，不能用
+		# `room_controller.debug_spawn`——后者走 `_spawn_enemy_at` 的
+		# 节点路径，生成的是**场景节点敌人**，压根不进群体模拟核，
+		# 补刷完 `query_circle` 仍然为空（这就是之前补刷无效的原因）。
+		#
+		# 位置取房中央附近并错开，避免与残留单位重叠。
+		for k in 2:
+			var pos := Vector3(1.0 + float(k) * 1.5, 0.0, 0.0)
+			mgr.call("spawn_unit", pos, 500.0, 3.0, 0.35, 1.0, {})
+		await get_tree().physics_frame
+		await get_tree().physics_frame
+		ids = mgr.call("query_circle", 0.0, 0.0, 9999.0)
 	if ids.is_empty():
 		_check(false, "[crowd-form] 有群体单位可测（补刷后仍为空）")
 		return
