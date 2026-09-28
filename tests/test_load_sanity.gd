@@ -48,6 +48,7 @@ func _ready() -> void:
 			_c(p.get(field) != null, "Player.%s 已初始化（脚本真的跑起来了）" % field)
 
 	# 装备数据库是全局依赖，也一并确认
+	_test_summon_instantiable()
 	_c(not EquipmentDB.all_templates().is_empty(),
 		"装备数据库已加载（%d 件）" % EquipmentDB.all_templates().size())
 
@@ -56,3 +57,32 @@ func _ready() -> void:
 	else:
 		print("LOAD SANITY TESTS FAILED: %d" % failed)
 	get_tree().quit(1 if failed > 0 else 0)
+
+
+## 召唤物能否实例化（**运行时才加载的脚本**）
+##
+## ## 背景：`_rng()` 那次（2026-09-28）
+##
+## `summon_base.gd` 里调了**不存在的方法** `_rng()`（全项目只有
+## `_rng_mult` / `_rng_percent`）——`--check-only` 能验出解析错误，
+## 后果是「一召唤就崩」。
+##
+## ## 本断言的**能力边界**（别高估它）
+##
+## 实测：**它抓不到那个错**——`SummonBase` 在类缓存里仍可见、
+## `new()` 也仍成功（Godot 对「方法不存在」的解析错误不一定阻断实例化）。
+## 故它只是「召唤物脚本至少能被引用」的最低保障。
+##
+## 真正能拦住的是 `--check-only` 逐个脚本扫（见 AGENTS 的收工流程想法），
+## 以及**实机跑一遍**。留这条是为了防「整类被删/改名」这种更粗的错。
+func _test_summon_instantiable() -> void:
+	print("\n--- 召唤物脚本可实例化 ---")
+	_c(SummonBase != null, "SummonBase 类可见（解析期错误会让它为 null）")
+	if SummonBase == null:
+		return
+	var s = SummonBase.new()
+	_c(s != null, "SummonBase.new() 成功（未触发解析/编译错误）")
+	if s != null:
+		_c(s.has_method("_perform_attack"),
+			"召唤物有攻击方法（额外攻击／暴击都在这里）")
+		s.free()

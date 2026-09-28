@@ -91,7 +91,7 @@ func _perform_attack() -> void:
 		var rule = owner_player.get("_attack_bonus_rule")
 		if rule is Dictionary:
 			var chance := float((rule as Dictionary).get("summon_extra_chance", 0.0))
-			if chance > 0.0 and _rng().randf() < chance:
+			if chance > 0.0 and randf() < chance:
 				_perform_attack_once(target_def, attack_element)
 				EventBus.damage_popup.emit(_player.global_position, result.damage, "extra")
 
