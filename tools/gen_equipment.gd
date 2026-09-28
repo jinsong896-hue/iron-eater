@@ -3069,9 +3069,18 @@ func _parse_main(s: String) -> String:
 	m = _re(r"闪避成功后释放一圈火焰新星.*?(\d+)%\s*攻击力").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
-	m = _re(r"生命低于\s*\d+%\s*时自动释放新星.*?(\d+)%\s*攻击力").search(s)
+	m = _re(r"生命低于\s*(\d+)%\s*时自动释放新星.*?(\d+)%\s*攻击力[^，,]*[，,]?\s*冷却\s*(\d+)\s*秒").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
+		# 「生命低于30%时自动释放新星，造成300%攻击力伤害，冷却60秒」
+		# 旧版写成 `elem_dmg +300%`——**永久元素增伤 300%**，
+		# 「低血自动释放」整个丢失。
+		#
+		# 走 sentinel：`_tick_low_hp` 会遍历 `Trigger.LOW_HP` 的词条，
+		# 遇到 `is_trigger()` 的就把参数交给 Player 的自动施放逻辑
+		#（低血跨阈值时以玩家为中心打一发，带冷却）。
+		return "[%d, \"autocast_nova\", 1.0, 0.0, {\"threshold\": %.4f, \"mult\": %.4f, \"cooldown\": %s}]" % [
+			OP_TRIGGER_BUFF, float(m.get_string(1)) / 100.0,
+			float(m.get_string(2)) / 100.0, m.get_string(3)]
 	m = _re(r"连续攻击同一目标\s*\d+\s*次后，触发元素爆炸.*?(\d+)%\s*攻击力").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]

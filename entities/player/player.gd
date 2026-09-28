@@ -2977,6 +2977,9 @@ var _low_hp_active := false
 ## **按词条各自判定**——「生命低于30%时…」与「生命低于50%时…」是两条
 ## 独立的词条，不能统一按某一个阈值。`a.hp_threshold` 缺省 0.5。
 func _tick_low_hp(_delta: float) -> void:
+	# 自动施放冷却递减
+	for k in _autocast_cooldowns.keys():
+		_autocast_cooldowns[k] = maxf(float(_autocast_cooldowns[k]) - _delta, 0.0)
 	var em = GameManager.equipment_manager
 	if em == null or not em.has_method("affixes_of_trigger"):
 		return
@@ -3010,6 +3013,43 @@ func _tick_low_hp(_delta: float) -> void:
 		return
 	_low_hp_sig = sig
 	_apply_low_hp_set(active, form_bonus, form_dr)
+	# **低血自动施放**（「生命低于30%时自动释放新星，造成300%攻击力伤害，
+	# 冷却60秒」）——它是**跨阈值触发**（edge），不是常驻效果：
+	# 只在「刚掉到这档以下」的那一次打一发，之后靠冷却限制频率。
+	# 放在指纹变化之后：同一档内波动不会重复触发。
+	_fire_low_hp_autocasts(active)
+
+
+## 结算「低血时自动施放」类词条（刚跨过阈值那一次）
+##
+## 规格：「生命低于30%时自动释放新星…冷却60秒」。
+## 旧版把它压成 `elem_dmg +300%`——**永久元素增伤 300%**，
+## 「低血自动释放」整个丢失。
+func _fire_low_hp_autocasts(active: Array) -> void:
+	for e in active:
+		var a: AffixData = e["affix"]
+		if a == null or not a.is_trigger():
+			continue
+		if a.trigger_buff != "autocast_nova":
+			continue
+		var p: Dictionary = a.trigger_params
+		var cd := float(p.get("cooldown", 60.0))
+		# 冷却按**词条**记（同一件装备的同一 id 只算一份）
+		var key := "autocast_cd_%s" % str(a.id)
+		var left := float(_autocast_cooldowns.get(key, 0.0))
+		if left > 0.0:
+			continue
+		_autocast_cooldowns[key] = cd
+		var mult := float(p.get("mult", 3.0))
+		# 以玩家为中心打一发（沿用普攻范围判定的几何，保证命中口径一致）
+		_hit_enemies_in_circle(mult, AUTOCAST_NOVA_RADIUS, 0.0)
+		EventBus.message.emit("濒死新星！")
+
+
+## 自动施放冷却表（词条 id → 剩余秒数）
+var _autocast_cooldowns: Dictionary = {}
+## 自动释放新星的半径（规格未给，取 3.5 米——与其它"新星"类同量级）
+const AUTOCAST_NOVA_RADIUS := 3.5
 
 
 ## 把当前生效的低血词条集合落到 modifier / 扩展通道上
@@ -3599,6 +3639,7 @@ func clear_passive_rules() -> void:
 	_afterimage_rule = {}
 	_state_scaled_rule = {}
 	_state_scaled_sig = "eq_never"
+	_autocast_cooldowns.clear()
 	_clear_afterimages()
 
 

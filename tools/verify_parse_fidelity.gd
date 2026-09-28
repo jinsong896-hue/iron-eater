@@ -317,8 +317,17 @@ func _has_duration(spec: String) -> bool:
 	# 参数字典里的时长键（`seconds` 是生成器的写法，`_seconds` 是历史写法）
 	if spec.contains("seconds") or spec.contains("duration"):
 		return true
+	# 周期型 `[6, interval, buff_id, dur]`——第 4 槽即 buff 时长
+	#
+	# **别漏这条**：「每10秒获得随机元素抗性+30%，持续10秒」产出
+	# `[6, 10, "eq_periodic_elem_resist", 10, {...}]`，
+	# 玩法上第一项是**间隔**、第四项才是时长。旧判据不认这个形态，
+	# 把已经正确的解析报成「时长丢失」——**检查器假警报**。
+	var m := _re(r"^\[6,\s*[\d.]+,\s*\"[^\"]*\",\s*([\d.]+)").search(spec)
+	if m != null:
+		return float(m.get_string(1)) > 0.0
 	# 触发型 `[2, "id", chance, dur]`——第 4 槽 > 0 即有时长
-	var m := _re(r"^\[2,\s*\"[^\"]*\",\s*[\d.]+,\s*([\d.]+)").search(spec)
+	m = _re(r"^\[2,\s*\"[^\"]*\",\s*[\d.]+,\s*([\d.]+)").search(spec)
 	if m != null:
 		return float(m.get_string(1)) > 0.0
 	# 叠层型 `[4, t, stat, v, stack_max]`——stack_max > 0 即有时长语义
