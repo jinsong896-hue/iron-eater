@@ -399,7 +399,15 @@ func _is_placeholder_row(own: String, dev: String, fus: String) -> bool:
 ## 用技能名会拼出 `eq_元素调和` 而表里是 `eq_元素调和法杖`，
 ## 引用落空（实测 55 条对不上）。显示名用技能名，更易读。
 func _grant_skill_spec(own: String, equip_name: String) -> String:
+	# 写法①（主流）：「主动技能"XXX"——效果」
 	var m := _re(r"主动技能\s*[“”\"']([^“”\"']+)[“”\"']").search(own)
+	# 写法②（**无引号**）：「主动投掷标枪（120%攻击力）…」
+	#
+	# 实测只有「猎手标枪」一件这样写，而它**因此拿不到 GRANT_SKILL**——
+	# 技能表里就算有定义也放不出来（装备与技能之间少了一环注册）。
+	# 技能名取「主动」与首个括号/逗号之间的部分。
+	if m == null:
+		m = _re(r"^主动(?:技能)?([^（(，,。；]{2,8})[（(]").search(own.strip_edges())
 	if m == null:
 		return ""
 	var sname := m.get_string(1).strip_edges()
