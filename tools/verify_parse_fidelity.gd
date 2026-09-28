@@ -401,6 +401,11 @@ func _trigger_of(spec: String) -> int:
 ## 旧正则结尾是 `\]`，于是 `[4, 1, Stat.ATK, 0.03, 5, 0]` 匹配失败、
 ## 被当成 stack_max=0——**检查器自己的假警报**。
 func _stack_of(spec: String) -> int:
+	# **多元素叠层**（`[[4, trig, stat, v, max], [4, trig, stat2, v2, max]]`，
+	# 由「每层+X%、+Y%」展开）——取第一条即可，展开时各条层数上限相同。
+	var mm := _re(r"^\s*\[\[\s*4,\s*\d+,\s*[^,]+,\s*[^,]+,\s*(\d+)").search(spec)
+	if mm:
+		return int(mm.get_string(1))
 	var m := _re(r"^\[4,\s*\d+,\s*[^,]+,\s*[^,]+,\s*(\d+)").search(spec)
 	if m:
 		return int(m.get_string(1))

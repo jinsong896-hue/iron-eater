@@ -684,6 +684,17 @@ func _replace_trigger(spec: String, trig: int) -> String:
 func _parse_main(s: String) -> String:
 	if s.is_empty():
 		return ""
+	# ---------- 0. 多属性并列（**必须最前**）----------
+	#
+	# 「暴击率+25%、暴击伤害+50%」「每层+4%攻速、+3%暴击率」
+	# 「生命低于50%时…攻击+40%、攻速+30%、吸血+25%」
+	#
+	# 这类**用顿号/逗号并列多个属性**的写法，旧规则只认第一个
+	#（实测 14 条：「暴击率+25%、暴击伤害+50%」只解析出暴击率，
+	# 暴击伤害整个丢失）。故必须先于一切单属性规则。
+	var multi := _parse_stat_list(s)
+	if not multi.is_empty():
+		return multi
 	# ---------- 0a. 免死后效果（**必须最前**）----------
 	#
 	# 「不朽壁垒触发后，10秒内减伤+30%且免疫控制」「触发免死后，获得5秒无敌」
@@ -3522,6 +3533,140 @@ func _wrap_with_trigger(spec: String, trig: int, param: float,
 ## 下几乎无效果——写进去等于没写。其余 8 项是玩家实际在追的属性。
 const ALL_STATS := ["Stat.HP", "Stat.ATK", "Stat.DEF", "Stat.SPD",
 	"Stat.ASPD", "Stat.AP", "Stat.CRT", "Stat.CRD"]
+
+
+## 多属性并列 → 多属性规格（非多属性时返回空串）
+##
+## ## 为什么需要
+##
+## 规格里大量「属性A +N%、属性B +M%」的并列写法，旧规则只认第一个：
+##   · 「暴击率+25%、暴击伤害+50%」→ 只出 `Stat.CRT`（暴伤丢了）
+##   · 「每层+4%攻速、+3%暴击率」  → 只出 `Stat.ASPD`
+##   · 「攻击+40%、攻速+30%、吸血+25%」→ 只出攻击
+##
+## ## 叠层形态
+##
+## 片段来自「每层+X」时，结果是**叠层词条**（`[4, trig, stat, v, max]`）
+## 而不是常驻属性——每条子规格都要带上同一个层数上限，
+## 否则「最多 N 层」在该属性上失效（层数记不住）。
+func _parse_stat_list(s: String) -> String:
+	var parts := _split_stat_segments(s)
+	if parts.size() < 2:
+		return ""
+	var is_stack := s.contains("每层")
+	var stack_max := _stack_max_from_text(s)
+	var trig := TRIG_ON_KILL if s.contains("击杀") else \
+		(TRIG_ON_HURT if s.contains("受到伤害") or s.contains("受击") else TRIG_ALWAYS)
+	if s.contains("背刺"):
+		trig = TRIG_ON_HIT
+	var specs: Array = []
+	for p in parts:
+		var spec := _one_stat_segment(str(p))
+		if spec.is_empty():
+			return ""   # 有一个片段不认得 → 整条交给原有规则
+		if is_stack:
+			# `[Stat.X, v, true]` / `[NNN, v, true]` → 叠层形态
+			var m := _re(r"^\[([A-Za-z_.0-9]+),\s*([\d.]+),\s*true\]$").search(spec)
+			if m == null:
+				return ""
+			spec = "[%d, %d, %s, %s, %d]" % [OP_STACK_GAIN, trig,
+				m.get_string(1), m.get_string(2), stack_max]
+		specs.append(spec)
+	return "[" + ", ".join(specs) + "]"
+
+
+## 按 `、` `，` `。` 切出片段；**全部片段都必须是属性片段**才返回，
+## 否则返回空数组（交给原有规则）。
+func _split_stat_segments(s: String) -> Array:
+	var t := s.strip_edges()
+	# **先剥下标**（「（最多5层）」「（持续5秒）」）——它们是该词条的
+	# 条件/时长，由外层另行取用（`_stack_max_from_text` / `_duration_from_text`），
+	# 这里只求不挡住属性片段的匹配。
+	# **必须在找「每层」之前剥**：否则「…（最多5层），每层+4%攻速」
+	# 的前缀从句里那串下标会干扰。
+	t = _re(r"[（(][^）)]*[）)]").sub(t, "", true)
+	# 「每次背刺成功叠加1层"影舞"，每层+4%攻速、+3%暴击率」——
+	# 真正的属性列表在「每层」之后，前面是叠层条件的描述。
+	# 取**最后一个**「每层」之后的文本（前面那句「叠加1层」不含「每层」）。
+	var idx := t.rfind("每层")
+	if idx >= 0:
+		t = t.substr(idx + 2)
+	else:
+		var m0 := _re(r"^每层[:：]?\s*").search(t)
+		if m0:
+			t = t.substr(m0.get_end())
+	t = t.replace("；", "、").replace(";", "、")
+	var raw: Array = []
+	for piece in t.split("。"):
+		if str(piece).strip_edges().is_empty():
+			continue
+		for sub in str(piece).split("，"):
+			if str(sub).strip_edges().is_empty():
+				continue
+			for sub2 in str(sub).split("、"):
+				# 片段开头的 `+` 与「每层」残留都要去掉
+				var seg := str(sub2).strip_edges().trim_prefix("+").strip_edges()
+				if not seg.is_empty():
+					raw.append(seg)
+	return raw if raw.size() >= 2 else []
+
+
+## 单个「属性+N%」片段 → 规格（不是属性片段时返回空串）
+func _one_stat_segment(seg: String) -> String:
+	# 形态 A：`(前缀)?属性名(+|提高|增加|提升)?N%`
+	# 前缀容忍「冲刺后获得3秒」「攻击有20%概率」等修饰——只取属性部分。
+	var m := _re(r"^(?:获得|自身)?[^一-龥]*([一-龥]{1,6}?)\s*(?:\+?|提高|增加|提升)\s*(\d+(?:\.\d+)?)\s*%$").search(seg)
+	if m == null:
+		# 形态 B：`N%属性名`
+		m = _re(r"^[^一-龥]*(\d+(?:\.\d+)?)\s*%\s*([一-龥]{1,6})$").search(seg)
+		if m == null:
+			return ""
+		return _stat_spec_of(str(m.get_string(2)), float(m.get_string(1)) / 100.0)
+	var nm := str(m.get_string(1))
+	# 剥掉「属性」前缀残留（「自身攻击」→「攻击」）
+	for pre in ["自身", "角色", "周围", "获得的"]:
+		if nm.begins_with(pre):
+			nm = nm.substr(pre.length())
+	return _stat_spec_of(nm, float(m.get_string(2)) / 100.0)
+
+
+## 多属性片段里的**短名别名**（只在 `_stat_spec_of` 生效）
+##
+## 并列写法里属性名往往被压缩成两三个字（「受伤」「反伤」「资源回复」），
+## 而 `STAT_ENUM` / `EXT_BY_NAME` 收的是完整说法（「受到伤害」）。
+## **不动那两个全局表**——它们是别处的匹配依据，加短名会误伤。
+const STAT_ALIAS_MULTI := {
+	"减伤": "dmg_reduction", "受伤": "dmg_reduction",
+	"反伤": "reflect", "反弹": "reflect",
+	"资源回复": "res_regen", "回蓝": "res_regen",
+	"移速": "Stat.SPD", "攻速": "Stat.ASPD", "暴击率": "Stat.CRT",
+	"暴击伤害": "Stat.CRD", "攻击": "Stat.ATK", "攻击力": "Stat.ATK",
+	"生命": "Stat.HP", "生命值": "Stat.HP", "最大生命": "Stat.HP",
+	"防御": "Stat.DEF", "护甲": "Stat.DEF", "闪避": "dodge",
+	"吸血": "lifesteal", "法强": "Stat.AP", "法术强度": "Stat.AP",
+	"伤害": "Stat.ATK", "输出": "Stat.ATK", "资源": "res_regen",
+}
+
+
+## 属性名 + 比例 → 规格字面量（认不出返回空串）
+func _stat_spec_of(nm: String, v: float) -> String:
+	var name := nm.strip_edges().trim_suffix("值")
+	if name.is_empty():
+		return ""
+	# ① 短名别名（并列写法专用）
+	if STAT_ALIAS_MULTI.has(name):
+		var al: String = STAT_ALIAS_MULTI[name]
+		if al.begins_with("Stat."):
+			return "[%s, %.4f, true]" % [al, v]
+		return "[%d, %.4f, true]" % [SP[al], v]
+	# ② 全名表
+	if STAT_ENUM.has(name):
+		return "[%s, %.4f, true]" % [STAT_ENUM[name], v]
+	if EXT_BY_NAME.has(name):
+		return "[%d, %.4f, true]" % [SP[EXT_BY_NAME[name]], v]
+	if name.contains("全属性") or name.contains("所有基础属性"):
+		return _all_stats_spec(v)
+	return ""
 
 
 ## 产出「全属性 +N%」的**多属性规格**
