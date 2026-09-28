@@ -106,12 +106,22 @@ func cast_skill(caster: Node3D, skill_id: String, direction: Vector3,
 	# **必须 duplicate 后再改**：sd 是 ClassDefs 常量表里的字典，
 	# 原地修改会永久污染全局表——放一次技能后所有后续施法都带着放大值。
 	var range_mult := _form_range_mult(caster)
-	if absf(range_mult - 1.0) > 0.0001:
+	# 装备·范围扩大（`SKILL_MOD` 的 `radius_mult`）——「爆炸范围扩大20%」
+	# 「新星范围扩大30%」。与形态范围是**两条独立来源**，可叠加。
+	var gear_radius := float(sd.get("radius_mult", 1.0))
+	var total_mult := range_mult * gear_radius
+	if absf(total_mult - 1.0) > 0.0001:
 		sd = sd.duplicate()
 		for key in ["radius", "reach", "range", "dash_dist", "behind_offset"]:
 			if sd.has(key):
-				sd[key] = float(sd[key]) * range_mult
-
+				sd[key] = float(sd[key]) * total_mult
+	# 装备·持续时间翻倍（`duration_mult`）——「轨迹/附魔持续时间翻倍」
+	var dur_mult := float(sd.get("duration_mult", 1.0))
+	if absf(dur_mult - 1.0) > 0.0001:
+		sd = sd.duplicate()
+		for key in ["duration_seconds", "lifetime", "duration"]:
+			if sd.has(key):
+				sd[key] = float(sd[key]) * dur_mult
 	match str(sd.get("kind", "aoe")):
 		"aoe":        _cast_aoe(caster, sd, dir)
 		"cone":       _cast_cone(caster, sd, dir)

@@ -103,7 +103,7 @@ const SP := {
 	# 错映射成 `elem_resist`（106，元素抗性），语义完全不同：
 	# 元素抗性只挡元素伤害，伤害减免该挡全部来源。
 	"dmg_reduction": 146, "dmg_to_shield": 151, "delay_dmg": 152,
-	"dmg_to_shield_cap": 153,
+	"dmg_to_shield_cap": 153, "execute_threshold": 154,
 	# 冷却刷新按**触发源**分键（击杀走 113）；闪避/暴击各自独立，
 	# 否则三件装备的触发时机全错（详见 equipment_db 的 SPECIAL_STAT 注释）
 	"cd_refresh_dodge": 147, "cd_refresh_crit": 148,
@@ -962,19 +962,25 @@ func _parse_main(s: String) -> String:
 	m = _re(r"生命低于\s*\d+%\s*时.*?(\d+)%\s*伤害减免").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["dmg_reduction"], _f(m.get_string(1))]
-	m = _re(r"对生命值?低于\s*\d+%\s*的敌人.*?额外\s*(\d+)%\s*伤害").search(s)
+	m = _re(r"对生命值?低于\s*(\d+)%\s*的敌人.*?额外\s*(\d+)%\s*伤害").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+		# **阈值必须带上**：`value` 是增伤比例，阈值是另一个数
+		#（「低于50%…加10%」→ 值 0.10、阈值 0.50）。旧版只带增伤、
+		# 阈值丢失，而消费端把增伤当阈值用——两处都错。
+		return "[[%d, %s, true], [%d, %s, true]]" % [SP["execute_line"],
+			_f(m.get_string(2)), SP["execute_threshold"], _f(m.get_string(1))]
 	# 「对生命值低于 N% 的**敌人**伤害+M%」——同一条语义的另一种写法。
 	#
 	# **注意「的敌人」这个限定**：没有它的话会误伤「每层目标受到伤害+4%」
 	# 这类**易伤**词条（那是对目标的 debuff，不是自己的处决线）。
-	m = _re(r"对生命值?低于\s*\d+%\s*的敌人\s*伤害\s*\+?\s*(\d+)%").search(s)
+	m = _re(r"对生命值?低于\s*(\d+)%\s*的敌人\s*伤害\s*\+?\s*(\d+)%").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+		return "[[%d, %s, true], [%d, %s, true]]" % [SP["execute_line"],
+			_f(m.get_string(2)), SP["execute_threshold"], _f(m.get_string(1))]
 	m = _re(r"对满血敌人造成额外\s*(\d+)%\s*伤害").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+		return "[[%d, %s, true], [%d, 100.00, true]]" % [SP["execute_line"],
+			_f(m.get_string(1)), SP["execute_threshold"]]
 
 	# ---------- 6. 格挡 / 闪避 / 冲刺 ----------
 	m = _re(r"格挡成功.*?最多\s*(\d+)\s*层.*?每层\s*\+?(\d+)%\s*减伤").search(s)
@@ -2106,10 +2112,13 @@ func _parse_main(s: String) -> String:
 		return "[%d, %s, true]" % [SP["lifesteal"], _f(m.get_string(1))]
 	m = _re(r"处决阈值提升至\s*(\d+)%").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+		# **这是「阈值」不是「增伤」**：旧版写进 `execute_line`（增伤通道），
+		# 于是「处决阈值提升至40%」变成「增伤 +40%」——完全不搭边。
+		return "[%d, %s, true]" % [SP["execute_threshold"], _f(m.get_string(1))]
 	m = _re(r"对满血敌人伤害提升至\s*(\d+)%").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["execute_line"], _f(m.get_string(1))]
+		return "[[%d, %s, true], [%d, 100.00, true]]" % [SP["execute_line"],
+			_f(m.get_string(1)), SP["execute_threshold"]]
 	m = _re(r"处决成功后回复\s*(\d+)%\s*最大生命").search(s)
 	if m:
 		return "[%d, %d, Stat.HP, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL, _f(m.get_string(1))]
@@ -2437,7 +2446,11 @@ func _parse_main(s: String) -> String:
 		return "[%d, %d, Stat.ATK, 0.02, 5]" % [OP_STACK_GAIN, TRIG_ON_HURT]
 	m = _re(r"(?:燃烧|爆炸)范围(?:扩大|\+)\s*(\d+)\s*米?").search(s)
 	if m:
-		return "[%d, %s, true]" % [SP["elem_dmg"], _f("10")]
+		# **「范围扩大」改的是技能几何，不是属性**。旧版写死
+		# `elem_dmg +10%` —— 把范围类词条全变成元素增伤（数值也丢了）。
+		# 走 `SKILL_MOD` 的 `radius_mult`，由 `SkillSystem` 并入 sd 时放大 radius。
+		return "[%d, {\"radius_mult\": %.4f}]" % [OP_SKILL_MOD,
+			1.0 + float(m.get_string(1)) / 100.0]
 	if s.contains("复仇满层时，背刺必定暴击") or s.contains("背刺消耗所有层数"):
 		return "[Stat.CRD, 0.30, true]"
 	m = _re(r"受到近战攻击时，对攻击者施加燃烧").search(s)
@@ -3011,10 +3024,40 @@ func _parse_main(s: String) -> String:
 		return "[%d, 0.10, true]" % SP["debuff_dur"]
 	if s.contains("追击") or s.contains("追加攻击概率提升至"):
 		return "[%d, %s, true]" % [SP["true_dmg"], _f("25")]
-	if s.contains("概率提升至") or s.contains("阈值提升至") or s.contains("附加比例提升至") \
-			or s.contains("伤害提升至") or s.contains("新星范围扩大") or s.contains("爆炸范围扩大") \
-			or s.contains("火焰范围扩大") or s.contains("轨迹持续时间翻倍") or s.contains("附魔持续时间翻倍"):
-		return "[%d, %s, true]" % [SP["elem_dmg"], _f("20")]
+	# —— 「提升至 N%」的**各版本必须分开** ——
+	#
+	# 旧版用一个 `contains` 把 8 类语义完全不同的词条**全压成
+	# `elem_dmg +20%`** —— 数值和通道都是错的：
+	#   「处决阈值提升至40%」→ 应为**阈值** 0.40（不是增伤 0.20）
+	#   「附加比例提升至8%」→ 应为**附加伤害**比例 0.08
+	#   「伤害提升至500%（护盾爆裂）」→ 应为**满层爆发倍率** 5.0
+	#   「爆炸/新星范围扩大20%」→ 应为**技能范围**（走 SKILL_MOD）
+	# 逐个显式匹配，**不再留通用兜底**——兜底会让新写法静默走错通道。
+	m = _re(r"阈值提升至\s*(\d+)%").search(s)
+	if m:
+		return "[%d, %s, true]" % [SP["execute_threshold"], _f(m.get_string(1))]
+	m = _re(r"附加比例提升至\s*(\d+)%").search(s)
+	if m:
+		# 「攻击附加当前生命值5%的额外伤害」的强化版 → 真伤通道口径
+		return "[%d, %s, true]" % [SP["true_dmg"], _f(m.get_string(1))]
+	m = _re(r"伤害提升至\s*(\d+)%").search(s)
+	if m:
+		# 「护盾被击破时对周围造成300%攻击力伤害」的融合强化 → 满层爆发倍率
+		return "[%d, %d, Stat.ATK, %.4f, 0]" % [OP_STACK_GAIN, TRIG_ON_SHIELD_BREAK,
+			float(m.get_string(1)) / 100.0]
+	m = _re(r"(?:爆炸|新星|火焰)范围扩大\s*(\d+)%").search(s)
+	if m:
+		# 「爆炸范围扩大20%」——改的是**技能几何**，不是属性。
+		# 走 SKILL_MOD 的 `radius_mult`，由 `SkillSystem` 并入 sd 时放大 radius。
+		return "[%d, {\"radius_mult\": %.4f}]" % [OP_SKILL_MOD,
+			1.0 + float(m.get_string(1)) / 100.0]
+	# **无参数**的「范围扩大」（规格只写了三个字，没给数值）——
+	# 取 +20% 作默认（与有数值的那几条约同一量级）。
+	# **必须放在带数值的规则之后**，否则会先吃掉「爆炸范围扩大20%」。
+	if s.contains("范围扩大"):
+		return "[%d, {\"radius_mult\": 1.2000}]" % OP_SKILL_MOD
+	if s.contains("轨迹持续时间翻倍") or s.contains("附魔持续时间翻倍"):
+		return "[%d, {\"duration_mult\": 2.0}]" % OP_SKILL_MOD
 	if s.contains("满层时额外攻击一次"):
 		return "[%d, %d, Stat.ATK, 0.50, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT]
 	if s.contains("显示周围5米内的陷阱") or s.contains("圣光术对友方召唤物同样生效"):

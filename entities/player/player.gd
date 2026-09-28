@@ -1645,16 +1645,24 @@ func _compute_basic_damage(multiplier: float, knockback: float,
 	else:
 		_double_damage_this_hit = false
 
-	# 处决线：对生命低于阈值的敌人伤害 +30%（分册「处决线」）。
+	# 处决线：对生命低于阈值的敌人造成额外伤害。
 	#
-	# **键名必须是 `execute_bonus`**：`special_modifiers()` 的输出键由
-	# `EquipmentDB.SPECIAL_STAT` 的 `out` 字段决定（"execute_line" 是**输入键**，
-	# 输出键是 "execute_bonus"）。此前这里读的是 `execute_line`——
-	# 那个键在输出字典里**根本不存在**，`get` 静默返回 0.0，
-	# 于是**所有处决线装备一直无效**且不报错。
+	# ## 键名必须是 `execute_bonus`
+	#
+	# `special_modifiers()` 的输出键由 `EquipmentDB.SPECIAL_STAT` 的
+	# `out` 字段决定（`execute_line` 是**输入键**，输出键是 `execute_bonus`）。
+	# 此前读的是 `execute_line`——那个键在输出字典里**根本不存在**，
+	# `get` 静默返回 0.0，于是**所有处决线装备一直无效**且不报错。
+	#
+	# ## 阈值必须读 `_execute_threshold`（修的是「阈值当倍率用」）
+	#
+	# 词条的 `value` 是**增伤比例**（「造成额外20%伤害」→ 0.20），
+	# 不是阈值。旧代码把它当阈值比较、而增伤**硬编码 1.3**——
+	# 于是「低于50%加10%」实际是「低于10%加30%」，两处都不对。
+	# 阈值由 `_execute_threshold`（词条第 6 槽）给出，缺省 0.30。
 	var exec_line: float = float(sp.get("execute_bonus", 0.0))
-	if exec_line > 0.0 and hp_ratio >= 0.0 and hp_ratio <= exec_line:
-		total *= 1.3
+	if exec_line > 0.0 and hp_ratio >= 0.0 and hp_ratio <= _execute_threshold_value():
+		total *= 1.0 + exec_line
 	# 击退距离 +N%
 	var kb_pct: float = float(sp.get("knockback_pct", 0.0))
 	# 破隐一击（装备参考2：暗影步「下次攻击 +N% 伤害」）。
@@ -3963,3 +3971,15 @@ func _tick_state_scaled(_delta: float) -> void:
 	remove_modifiers("eq_state_scaled")
 	if atk_pct > 0.0:
 		add_modifier("eq_state_scaled", AttributeSystem.Stat.ATK, 0.0, atk_pct)
+
+
+## 处决线阈值（生命低于此比例才吃 `execute_bonus` 增伤）
+##
+## 词条的第 6 槽（条件阈值）承载它：「对生命值低于50%的敌人造成额外10%伤害」
+## → `[105, 0.10, true, 0.50]`。缺省 0.30 覆盖没有写阈值的写法。
+##
+## **不能拿 `execute_bonus` 当阈值**：那个是增伤比例，两者量纲相近
+## 极易混淆——旧代码就是那样，于是「低于50%加10%」变成「低于10%加30%」。
+func _execute_threshold_value() -> float:
+	var t: float = float(_equip_special_mods().get("execute_threshold", 0.0))
+	return t if t > 0.0 else 0.30
