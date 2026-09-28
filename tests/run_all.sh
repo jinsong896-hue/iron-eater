@@ -10,6 +10,9 @@ set -uo pipefail
 GODOT="${GODOT:-F:/Godot_v4.7.2-stable_win64.exe/Godot_v4.7.2-stable_win64_console.exe}"
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+FAILED_SUITES=()
+PASSED_SUITES=()
+
 if [ ! -f "$GODOT" ]; then
 	echo "找不到 Godot：$GODOT"
 	echo "请设置环境变量 GODOT 指向 Godot 可执行文件"
@@ -18,8 +21,10 @@ fi
 
 cd "$PROJECT_DIR" || exit 1
 
-FAILED_SUITES=()
-PASSED_SUITES=()
+# 加载前置检查**排在所有套件最前**（见 `tests/test_load_sanity.gd`）：
+# 2026-09-28 实机「卡在加载界面」的根因是某个脚本解析失败，
+# 而当时三套门禁的 FAIL 信息只是「找到玩家节点」这种症状，
+# 被误判成偶发。这套件把根因单列并指名道姓。
 
 # --script 模式套件（SceneTree 脚本，无 autoload）
 run_script_suite() {
@@ -68,6 +73,7 @@ echo "引擎：$GODOT"
 echo "=============================================="
 echo
 
+run_scene_suite  "load_sanity  (主场景加载前置检查)" "res://tests/test_load_sanity.tscn"
 run_script_suite "framework    (核心逻辑)" "res://tests/test_framework.gd"
 run_script_suite "iron_studio  (编辑器数据类)" "res://tests/test_iron_studio.gd"
 run_scene_suite  "menu         (主菜单交互)" "res://tests/test_menu_interaction_scene.tscn"
