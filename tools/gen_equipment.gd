@@ -1440,12 +1440,22 @@ func _parse_main(s: String) -> String:
 			if d3 > 0.0:
 				p3 += ", \"seconds\": %.4f" % d3
 			return "[%d, \"judgement\", 1.0, 0.0, {%s}]" % [OP_TRIGGER_BUFF, p3]
+	m = _re(r"(\d+)层时.*?必定暴击并造成\s*(\d+)%\s*伤害").search(s)
+	if m:
+		# 「N层时下一次攻击必定暴击并造成 M% 伤害」——**必暴与倍率都要带上**。
+		# 旧版只出 `[Stat.CRD, 0.50]`（把「必定暴击」硬编码成暴伤 +50%）：
+		# 既丢了「必暴」语义，也和规格的 200%/300% 倍率不符。
+		#
+		# 走与预言者王冠**同一套** `AT_FULL` 配对（靠共用的 `stat` 与叠层词条
+		# 配对，`_fire_stack_full` → `_burst` → `_trigger_prophecy`）。
+		# `stat` 用 `Stat.ATK`——格挡叠层的 stat 也是 ATK。
+		return "[%d, %d, Stat.ATK, 1.0000, 0, 0, {\"burst\": \"prophecy\", \"crit_mult\": %.4f, \"spread_count\": 0, \"spread_layers\": 0}]" % [
+			OP_STACK_GAIN, TRIG_AT_FULL, float(m.get_string(2)) / 100.0]
 	m = _re(r"\d+层时.*?必定暴击").search(s)
 	if m:
-		# 「必定暴击且暴击伤害+50%」——裸属性只能表达后半段。
-		# 「必定暴击」是「下一次攻击」的标志，需要待发标记机制，
-		# 不在裸属性可表达的范围内，故取 CRD（暴击伤害）。
-		return "[Stat.CRD, 0.50, true]"
+		# 没写倍率的写法——按 150% 落地
+		return "[%d, %d, Stat.ATK, 1.0000, 0, 0, {\"burst\": \"prophecy\", \"crit_mult\": 1.5, \"spread_count\": 0, \"spread_layers\": 0}]" % [
+			OP_STACK_GAIN, TRIG_AT_FULL]
 	m = _re(r"\d+层时.*?获得吸收\s*(\d+)%\s*最大生命").search(s)
 	if m:
 		# 「获得吸收 N% 最大生命的护盾」——旧代码走 `elem_resist`
@@ -2357,8 +2367,10 @@ func _parse_main(s: String) -> String:
 	m = _re(r"影闪后\s*\d+\s*秒内暴击率\s*\+?\s*(\d+)%").search(s)
 	if m:
 		return "[Stat.CRT, %s, true]" % _f(m.get_string(1))
-	if s.contains("隐身期间移速"):
-		return "[Stat.SPD, 0.20, true]"
+	m = _re(r"隐身期间移速\s*\+?\s*(\d+)%").search(s)
+	if m:
+		# 旧版硬编码 0.20：「隐身期间移速+15%」拿到 20%（与规格不符）
+		return "[Stat.SPD, %s, true]" % _f(m.get_string(1))
 	m = _re(r"闪现后下次攻击\s*\+?\s*(\d+)%\s*伤害").search(s)
 	if m:
 		return "[%d, %d, Stat.ATK, %s, 0]" % [OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(1))]
@@ -2925,7 +2937,7 @@ func _parse_main(s: String) -> String:
 	m = _re(r"每击杀\s*(\d+)\s*个敌人，获得一个随机增益").search(s)
 	if m:
 		return "[%d, %d, Stat.ATK, 0.15, 0]" % [OP_STACK_GAIN, TRIG_ON_KILL]
-	if s.contains("传奇共鸣触发时") or s.contains("每件传奇装备全属性提高"):
+	if s.contains("传奇共鸣触发时"):
 		return _all_stats_spec(0.10)
 	m = _re(r"每片钥匙碎片全属性提高\s*(\d+)%").search(s)
 	if m:
