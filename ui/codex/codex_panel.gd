@@ -220,9 +220,37 @@ func _build_equipment_list() -> void:
 		b.add_theme_color_override("font_color", rc)
 		b.pressed.connect(_show_equipment.bind(t))
 		_list_box.add_child(b)
-	# 默认展示第一件
-	if not all.is_empty():
-		_show_equipment(all[0])
+	# 默认展示第一件**有设计内容的**装备
+	#
+	# 不能直接 `all[0]`：列表按稀有度倒序，而**红色档 36 件全是占位克隆**
+	#（`_generate_rarity` 从 `FULL_*_TABLE` 按系数克隆，`own_affixes` 为空）。
+	# 打开图鉴第一屏看到 36 件「自有词条 —」，会被误判成
+	# 「所有装备都还是纯数值模板」——实测就是这样被误判了三次。
+	var first := _first_designed(all)
+	if first != null:
+		_show_equipment(first)
+
+
+## 第一件「有设计内容」的装备：自有/吞噬/融合任一列**有原文**，
+## 或自有列里有**机制型**词条（`GRANT_SKILL` / `TRIGGER_BUFF` / `SKILL_MOD` …）。
+##
+## 纯数值占位装备（`own_affixes` 为空且三列无原文）跳过。
+func _first_designed(all: Array):
+	# 本文件惯例是用 `load()` 而不是全局类名（避免依赖类缓存）
+	var AD = load("res://data/equipment/affix_data.gd")
+	for t in all:
+		if not str(t.own_text).strip_edges().is_empty():
+			return t
+		for a in t.own_affixes:
+			if a == null:
+				continue
+			if a.operation == AD.Operation.GRANT_SKILL \
+					or a.operation == AD.Operation.SKILL_MOD \
+					or a.operation == AD.Operation.TRIGGER_BUFF \
+					or a.operation == AD.Operation.STACK_GAIN:
+				return t
+	# 全都没有设计内容（不该发生）——退回原行为
+	return all[0] if not all.is_empty() else null
 
 
 func _show_equipment(t) -> void:
