@@ -1074,6 +1074,17 @@ func _parse_main(s: String) -> String:
 		return "[Stat.SPD, %s, true]" % _f(m.get_string(1))
 
 	# ---------- 7. 元素 / 吸血 / 连击 / 暴击 ----------
+	# 周期性效果（「每 N 秒获得随机元素抗性+30%，持续 M 秒」）
+	#
+	# **必须早于下面的常驻元素抗性规则**——否则会被它先吃掉，
+	# 结果是「永久 +30% 抗性」而不是「每 10 秒刷一次、只持续 10 秒」。
+	#
+	# 走 `Operation.PERIODIC`：`[6, interval, buff_id, duration]`，
+	# buff 是**动态注册**的（数值来自装备，不能预置在 BuffDefs 表里）。
+	m = _re(r"每\s*(\d+)\s*秒获得随机元素抗性\s*\+?\s*(\d+)%[，,]?\s*持续\s*(\d+)\s*秒").search(s)
+	if m:
+		return "[6, %s, \"eq_periodic_elem_resist\", %s, {\"elem_resist_pct\": %.4f}]" % [
+			m.get_string(1), m.get_string(3), float(m.get_string(2)) / 100.0]
 	m = _re(r"所有元素伤害\s*(?:增加|\+)?\s*(\d+)%").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["elem_dmg"], _f(m.get_string(1))]
@@ -2261,7 +2272,11 @@ func _parse_main(s: String) -> String:
 		return "[%d, %d, Stat.ATK, %s, %s]" % [
 			OP_STACK_GAIN, TRIG_ON_HIT, _f(m.get_string(2)), m.get_string(1)]
 	if s.contains("暴击时标记扩散") or s.contains("标记转移至周围敌人"):
-		return "[%d, %s, true]" % [SP["execute_line"], _f("5")]
+		# 「暴击时标记扩散至周围敌人」——旧版写成 `execute_line +5%`
+		# （处决线增伤），与「扩散标记」毫无关系。
+		# 机制早已存在（`Player.spread_mark_from`），只是没被这条规则用上。
+		# 走 `spread_mark` sentinel，由 `on_crit_spread_mark` 在暴击分支消费。
+		return "[%d, \"spread_mark\", 1.0, 0.0]" % OP_TRIGGER_BUFF
 	m = _re(r"暴击时\s*(\d+)%\s*概率立即刷新一个技能冷却").search(s)
 	if m:
 		return "[%d, %s, true]" % [SP["cd_refresh_crit"], _f(m.get_string(1))]

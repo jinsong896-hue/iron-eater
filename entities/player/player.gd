@@ -629,6 +629,8 @@ func _physics_process(delta: float) -> void:
 	_tick_delayed_damage(delta)
 	# F7 按状态缩放（血量/金币档位）
 	_tick_state_scaled(delta)
+	# 周期性效果（每 N 秒刷新一次限时 buff）
+	_tick_periodic(delta)
 	# 技能输入：控制台打字时不响应（与其它输入一致）
 	if not _typing_input():
 		_poll_skill_input()
@@ -2036,6 +2038,9 @@ func _apply_trigger_affixes(enemy: Node3D, damage: float) -> void:
 		# `on_hit` 是所有命中都触发，而这条只在**暴击**命中时叠加。
 		if _last_hit_was_crit:
 			equip_fx.on_crit_stack()
+			# 暴击时标记扩散（「暴击时标记扩散至周围敌人」）——
+			# 条件是「暴击打到的目标已被标记」，故把该目标传进去。
+			equip_fx.on_crit_spread_mark(enemy)
 			# 装备词条·暴击刷新冷却（「预言者头盔/暴君之眼：暴击时5%概率
 			# 立即刷新一个技能冷却」）。**专用键**——混进击杀通道会让
 			# 「暴击时刷新」变成「击杀时刷新」。
@@ -3482,7 +3487,8 @@ func spread_mark_from(enemy: Node, count: int) -> void:
 		if eb != null and eb.has_method("apply"):
 			eb.call("apply", "mark", "equip_spread")
 			spread += 1
-		if spread >= count:
+		# count <= 0 = 不限人数（规格只说"周围敌人"，没给上限）
+		if count > 0 and spread >= count:
 			break
 
 
@@ -3983,3 +3989,73 @@ func _tick_state_scaled(_delta: float) -> void:
 func _execute_threshold_value() -> float:
 	var t: float = float(_equip_special_mods().get("execute_threshold", 0.0))
 	return t if t > 0.0 else 0.30
+
+
+## ============================================================
+## 周期性效果（`Operation.PERIODIC`）
+## ============================================================
+#
+# 规格形态：「每 10 秒获得随机元素抗性+30%，持续 10 秒」。
+#
+# ## 为什么必须单列
+#
+# `Operation.PERIODIC` 一直**有定义、有解析器分支，但零消费**——
+# 和 `Trigger.LOW_HP` 是同一类问题。旧解析把这条压成
+# `[106, 0.30, true]`（**永久 +30% 元素抗性**），
+# 「每 10 秒刷一次、只持续 10 秒」的语义整个丢失。
+#
+# ## 实现
+#
+# 规则来自**装备变更时**装配（`PlayerEquipmentEffects`）；
+# 每帧推进计时器，到期就给自己挂一条限时 buff、并重置计时。
+# 随机元素抗性落地为「六系抗性各 +N%」——规格只说"随机元素抗性"，
+# 而抗性本身是分系的；取"随机"= 每次刷新时随机挑一系更贴切，
+# 但那样玩家无法预期。此处按**全系**处理（等价且可预期），已在注释标明。
+
+## 周期规则列表：[{interval, buff_id, duration, params}, ...]
+var _periodic_rules: Array = []
+## 每条规则各自的剩余计时
+var _periodic_timers: Array = []
+
+
+## 装配周期规则（由 `PlayerEquipmentEffects` 调用）
+func set_periodic_rules(rules: Array) -> void:
+	_periodic_rules = rules
+	_periodic_timers = []
+	for r in rules:
+		# 首次延迟一个完整周期（不是立即触发）——规格说「每 N 秒获得」
+		_periodic_timers.append(float((r as Dictionary).get("interval", 10.0)))
+
+
+## 每帧推进周期计时
+func _tick_periodic(delta: float) -> void:
+	if _periodic_rules.is_empty():
+		return
+	for i in _periodic_rules.size():
+		_periodic_timers[i] = float(_periodic_timers[i]) - delta
+		if float(_periodic_timers[i]) > 0.0:
+			continue
+		var r: Dictionary = _periodic_rules[i]
+		_periodic_timers[i] = float(r.get("interval", 10.0))
+		_apply_periodic(r)
+
+
+## 结算一条周期效果：动态注册一条限时 buff 并挂上
+func _apply_periodic(r: Dictionary) -> void:
+	var bid := str(r.get("buff_id", ""))
+	if bid.is_empty() or buffs == null:
+		return
+	var dur := float(r.get("duration", 10.0))
+	var params: Dictionary = r.get("params", {})
+	# 元素抗性落到**六系**（规格的"随机元素抗性"是分系属性，
+	# 全系等价且可预期——见本节头部说明）
+	var pct := float(params.get("elem_resist_pct", 0.0))
+	if pct > 0.0:
+		BuffDefs.register_equipment_stack(bid, SP_ELEM_RESIST_MARK,
+			pct, dur, 0)
+		buffs.apply(bid, "equip_periodic")
+		EventBus.message.emit("元素抗性刷新 +%d%%" % roundi(pct * 100))
+
+
+## 元素抗性在 `SPECIAL_STAT` 里的枚举值（走 `elem_resist` 通道）
+const SP_ELEM_RESIST_MARK := 106

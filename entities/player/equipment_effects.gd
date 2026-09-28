@@ -148,6 +148,7 @@ func reload_passives() -> void:
 	_flush_afterimage()
 	_flush_prophecy()
 	_flush_state_scaled()
+	_collect_periodic()
 	_flush_attack_bonus()
 	_flush_kill_gold()
 	_flush_zone_slow()
@@ -626,10 +627,12 @@ func _activate_stationary(a: AffixData) -> void:
 ##
 ## 由 `Player._on_enemy_killed` 调用（那里能拿到被击杀目标）。
 ## 本函数只负责**取参数**，判定与扩散在 Player 侧（它持有敌人组查询）。
-func spread_mark_from(enemy: Node, a: AffixData) -> void:
+func spread_mark_from(enemy: Node, a: AffixData, count_override: int = -1) -> void:
 	if player == null or not player.has_method("spread_mark_from"):
 		return
 	var count := int(a.trigger_params.get("count", 2)) if a != null else 2
+	if count_override >= 0:
+		count = count_override
 	player.call("spread_mark_from", enemy, count)
 
 
@@ -640,6 +643,25 @@ func on_marked_target_death(enemy: Node) -> void:
 		if a == null or a.trigger_buff != "spread_mark":
 			continue
 		spread_mark_from(enemy, a)
+
+
+## ② 暴击时把标记扩散开（装备参考2：猎杀者徽章融合列
+## 「暴击时标记扩散至周围敌人」）
+##
+## ## 与 `on_marked_target_death` 的区别
+##
+## 那条是「**被标记目标死亡时**扩散」（印记失效才传出去，是回收再利用）；
+## 这条是「**暴击时**扩散」（主动铺开，是进攻手段）。
+##
+## 实现复用同一个 `Player.spread_mark_from`——它要求源目标**已带 mark**，
+## 正好符合「暴击打到的目标如果是被标记的，就把标记传开」。
+## `count = 0` 表示不限人数（规格没写上限，只说「周围敌人」）。
+func on_crit_spread_mark(enemy: Node) -> void:
+	for e in _affixes_with(AffixData.Trigger.ON_CRIT):
+		var a: AffixData = e["affix"]
+		if a == null or a.trigger_buff != "spread_mark":
+			continue
+		spread_mark_from(enemy, a, 0)
 
 
 ## ③ 召唤物死亡爆炸（「护卫死亡时爆炸，造成50%法强伤害」）
@@ -1146,3 +1168,28 @@ func _flush_state_scaled() -> void:
 	if player.has_method("set_state_scaled_rule"):
 		player.call("set_state_scaled_rule", _state_scaled_rule.duplicate(true))
 	_state_scaled_dirty = false
+
+
+## ⑧ 周期性效果（`Operation.PERIODIC`）
+##
+## 与其它族的区别：**它不是 sentinel**（`trigger_buff` 是动态 buff id，
+## 不在 `_SENTINEL_RULES` 里），且形态是 `[6, interval, buff_id, dur, params]`。
+## 故单独扫一遍已装备词条，把 `operation == PERIODIC` 的收成规则列表。
+##
+## `reload_passives` 每轮先清空规则槽（Player 侧 `clear_passive_rules`），
+## 这里只负责重新收集并提交。
+func _collect_periodic() -> void:
+	if player == null or not player.has_method("set_periodic_rules"):
+		return
+	var out: Array = []
+	for e in _all_affixes():
+		var a: AffixData = e["affix"]
+		if a == null or a.operation != AffixData.Operation.PERIODIC:
+			continue
+		out.append({
+			"interval": float(a.value),
+			"buff_id": a.trigger_buff,
+			"duration": float(a.duration),
+			"params": a.trigger_params.duplicate(true),
+		})
+	player.call("set_periodic_rules", out)
